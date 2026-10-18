@@ -1,7 +1,7 @@
 import { measureDistance, readDrawing, type SceneEntity } from "@zumenjs/core";
 import { describe, expect, it } from "vitest";
 import { cp932 } from "../../../tests/cp932.js";
-import { type DxfMText, type DxfText, dxf, dxfToScene, parseDxf } from "../src/index.js";
+import { type DxfMLine, type DxfMText, type DxfText, dxf, dxfToScene, parseDxf } from "../src/index.js";
 
 /** グループコードと値の組を、テキストの DXF（1 行ずつ）にする */
 function ascii(...pairs: (string | number)[]): string {
@@ -13,9 +13,15 @@ function ascii(...pairs: (string | number)[]): string {
 const latin1 = (text: string) => Uint8Array.from(text, (char) => char.charCodeAt(0));
 
 function stroke(entity: SceneEntity | undefined): number[] {
-  const primitive = entity?.primitives.find((item) => item.kind === "stroke");
-  if (primitive?.kind !== "stroke") throw new Error("線がありません");
-  return Array.from(primitive.points, (value) => Math.round(value * 1e6) / 1e6);
+  return strokes(entity)[0] ?? [];
+}
+
+function strokes(entity: SceneEntity | undefined): number[][] {
+  const out = (entity?.primitives ?? []).flatMap((item) =>
+    item.kind === "stroke" ? [Array.from(item.points, (value) => Math.round(value * 1e6) / 1e6)] : [],
+  );
+  if (out.length === 0) throw new Error("線がありません");
+  return out;
 }
 
 /**
@@ -202,5 +208,94 @@ describe("DXF のレイアウト", () => {
     const distance = measureDistance({ x: 95, y: 100, entity: line }, { x: 105, y: 100, entity: line });
     expect(distance.paper).toBeCloseTo(10);
     expect(distance.real).toBeCloseTo(1000);
+  });
+});
+
+/**
+ * MULTILEADER は CONTEXT_DATA・LEADER・LEADER_LINE の区切りの中と外で、10（基点・着地点・頂点・ブロックの尺度）、
+ * 40・41・42（尺度・折れ線・矢印の大きさ）などを別の意味に使う。読み分けを誤っても何かは描かれるので、
+ * 引出線の位置・矢印・折れ線の長さが黙ってずれる。
+ */
+describe("DXF のマルチ引出線", () => {
+  // biome-ignore format: DXF のタグ（グループコードと値）の組を 1 行に並べて読めるようにする
+  const source = ascii(
+    0, "SECTION", 2, "HEADER", 9, "$ACADVER", 1, "AC1032", 9, "$INSUNITS", 70, 4, 0, "ENDSEC",
+    0, "SECTION", 2, "ENTITIES",
+    0, "MULTILEADER", 5, "20", 100, "AcDbEntity", 8, "0", 100, "AcDbMLeader", 270, 2,
+    300, "CONTEXT_DATA{", 40, 1, 10, 20, 20, 10, 30, 0, 41, 2.5, 140, 2, 145, 1,
+    290, 1, 304, "ABC", 11, 0, 21, 0, 31, 1, 340, "0", 12, 21, 22, 11.25, 32, 0, 13, 1, 23, 0, 33, 0,
+    43, 0, 45, 1, 170, 1, 90, -1056964608, 171, 1, 172, 1, 296, 0, 110, 0, 120, 0, 130, 0,
+    // 着地点 (16, 10) から内容の側へ長さ 4 の折れ線、矢印の先は (0, 0)
+    302, "LEADER{", 290, 1, 291, 1, 10, 16, 20, 10, 30, 0, 11, 1, 21, 0, 31, 0, 90, 0, 40, 4,
+    304, "LEADER_LINE{", 10, 0, 20, 0, 30, 0, 91, 0, 305, "}", 271, 0, 303, "}",
+    301, "}",
+    // 共通の部分の折れ線の長さ（41）・矢印の大きさ（42）・ブロックの尺度（10）は、CONTEXT_DATA の値より使わない
+    340, "0", 90, 0, 170, 1, 91, -1056964608, 171, -2, 290, 1, 291, 1, 41, 99, 42, 99, 172, 2,
+    10, 5, 20, 5, 30, 5,
+    0, "ENDSEC", 0, "EOF",
+  );
+
+  it("線を矢印の根元から着地点へ、折れ線を着地点から内容の側へ引き、文字を CONTEXT_DATA の位置に描く", () => {
+    const scene = dxfToScene(parseDxf(latin1(source)));
+    expect(scene.entities).toHaveLength(1);
+    const leader = scene.entities[0] as SceneEntity;
+    expect(leader.source).toBe("MULTILEADER");
+    // 矢印の長さは CONTEXT_DATA の 140（2）。線は先端 (0, 0) から着地点の向きへ 2 だけ離れた根元から始まる
+    const [ux, uy] = [16 / Math.hypot(16, 10), 10 / Math.hypot(16, 10)];
+    const [line, dogleg] = strokes(leader);
+    expect(line?.map((value) => Math.round(value * 1000) / 1000)).toEqual([
+      Math.round(ux * 2 * 1000) / 1000,
+      Math.round(uy * 2 * 1000) / 1000,
+      16,
+      10,
+    ]);
+    expect(dogleg).toEqual([16, 10, 20, 10]);
+    const arrow = leader.primitives.find((item) => item.kind === "fill");
+    expect(arrow?.kind === "fill" && Array.from(arrow.rings[0] ?? []).slice(0, 2)).toEqual([0, 0]);
+    const text = leader.primitives.find((item) => item.kind === "text");
+    expect(text?.kind === "text" && text.text).toBe("ABC");
+  });
+});
+
+/**
+ * MLINE の要素の位置は、頂点から留め継ぎの向きへの距離（41 の 1 つ目）で、角では 1 / sin の分だけ長い。
+ * 41 の 2 つ目以降は MLEDIT で切った区間。読み違えると壁の線が角でずれたり、T 字の継ぎ目に線が残ったりする。
+ * DWG（ezdwg）は 41 を持たないので、MLINESTYLE のずれ・位置合わせ・尺度から同じ位置を求める。
+ */
+describe("DXF のマルチライン", () => {
+  // biome-ignore format: DXF のタグ（グループコードと値）の組を 1 行に並べて読めるようにする
+  const source = ascii(
+    0, "SECTION", 2, "HEADER", 9, "$ACADVER", 1, "AC1032", 9, "$INSUNITS", 70, 4, 0, "ENDSEC",
+    0, "SECTION", 2, "ENTITIES",
+    0, "MLINE", 5, "30", 100, "AcDbEntity", 8, "0", 100, "AcDbMline", 2, "STANDARD", 340, "18",
+    40, 2, 70, 1, 71, 1, 72, 3, 73, 2, 10, 0, 20, 0, 30, 0, 210, 0, 220, 0, 230, 1,
+    // (0, 0) → (10, 0) → (10, 10)。上の要素（ずれ +0.5 × 尺度 2）は 3〜5 で切る
+    11, 0, 21, 0, 31, 0, 12, 1, 22, 0, 32, 0, 13, 0, 23, 1, 33, 0,
+    74, 4, 41, 1, 41, 0, 41, 3, 41, 5, 75, 0, 74, 2, 41, -1, 41, 0, 75, 0,
+    11, 10, 21, 0, 31, 0, 12, 0, 22, 1, 32, 0, 13, -Math.SQRT1_2, 23, Math.SQRT1_2, 33, 0,
+    74, 2, 41, Math.SQRT2, 41, 0, 75, 0, 74, 2, 41, -Math.SQRT2, 41, 0, 75, 0,
+    11, 10, 21, 10, 31, 0, 12, 0, 22, 1, 32, 0, 13, -1, 23, 0, 33, 0,
+    74, 2, 41, 1, 41, 0, 75, 0, 74, 2, 41, -1, 41, 0, 75, 0,
+    0, "ENDSEC",
+    0, "SECTION", 2, "OBJECTS",
+    0, "MLINESTYLE", 5, "18", 100, "AcDbMlineStyle", 2, "STANDARD", 70, 0, 3, "", 62, 256, 51, 90, 52, 90,
+    71, 2, 49, 0.5, 62, 256, 6, "BYLAYER", 49, -0.5, 62, 256, 6, "BYLAYER",
+    0, "ENDSEC", 0, "EOF",
+  );
+  const round = (lines: number[][]) => lines.map((line) => line.map((value) => Math.round(value * 1e6) / 1e6));
+
+  it("要素を留め継ぎの向きへ 41 の距離に引いて切れ目を除き、41 がなければスタイルから同じ位置を求める", () => {
+    const doc = parseDxf(latin1(source));
+    expect(round(strokes(dxfToScene(doc).entities[0]))).toEqual([
+      [0, 1, 3, 1],
+      [5, 1, 9, 1, 9, 10],
+      [0, -1, 11, -1, 11, 10],
+    ]);
+    // DWG と同じく 41 のないマルチライン: 切れ目はなく、位置はスタイル（±0.5、ゼロの位置合わせ、尺度 2）から求める
+    delete (doc.entities[0] as DxfMLine).line_params;
+    expect(round(strokes(dxfToScene(doc).entities[0]))).toEqual([
+      [0, 1, 9, 1, 9, 10],
+      [0, -1, 11, -1, 11, 10],
+    ]);
   });
 });

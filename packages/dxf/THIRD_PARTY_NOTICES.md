@@ -9,6 +9,11 @@ DXF の読み取りと表示は Autodesk の DXF Reference に沿って書き、
 - R12 のビューポートの拡張データ（MVIEW）の並び、ビューポートのモデルから紙空間への変換
 - HATCH の時計回りの弧・楕円の辺の角度、楕円の辺の角度から媒介変数への変換、IMAGE・WIPEOUT の境界の座標
 - 寸法の表示のブロックを寸法の OCS に置くこと、MTEXT の真色（`\c`）の値の並び
+- MULTILEADER の区切り（CONTEXT_DATA・LEADER・LEADER_LINE）ごとの値の意味、色の生の値（0xC0〜0xC3・0xC8）、
+  MLEADERSTYLE より図形の値を使うこと、矢印を描かない短い線分、矢印のブロックの向きと線を矢印の先から始める矢印、
+  下線・上線の接続、ブロックの内容の配置点が WCS であること（`entities/mleader.py`・`render/mleader.py`・`render/arrows.py`・`colors.py`）
+- MLINE の頂点ごとの要素のパラメータ（41・42）の並び、塗り・端の線・弧・留め継ぎの描き方、MLINE の真色を使わないこと
+  （`entities/mline.py`・`render/mline.py`）
 
 - 参照した版: https://github.com/mozman/ezdxf （PyPI の ezdxf 1.4.5、2026-10-18）
 - ライセンス: MIT License

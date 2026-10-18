@@ -17,7 +17,8 @@ const model = dxfToScene(doc, { layout: "Model" });
 - Text in `$DWGCODEPAGE` (including Japanese `ANSI_932`), UTF-8 for 2007 and later, and Shift_JIS detected in old files
   without a code page.
 - Lines, arcs, polylines with bulges and widths, splines, text and formatted MTEXT, blocks with attributes and arrays,
-  dimensions, hatches, leaders, solids and wipeouts, with layers, line types, line weights, ACI and true colors and transparency.
+  dimensions, hatches, leaders and multileaders, multilines, solids and wipeouts, with layers, line types, line weights,
+  ACI and true colors and transparency.
 - Layout viewports are drawn at their scale, and measurements inside them return real-world units.
 - SHX fonts are not bundled: text is drawn with a substitute font and the count is reported in `scene.notices`.
 

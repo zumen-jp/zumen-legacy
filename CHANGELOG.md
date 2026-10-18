@@ -11,6 +11,10 @@ All packages share one version during 0.x.
 - `@zumenjs/dxf`: read DXF R12 to 2018 (ASCII and binary, `$DWGCODEPAGE` including Japanese `ANSI_932`) into the AutoCAD
   drawing model shared with DWG, and convert model space or a layout to a scene. Layout viewports keep their scale for
   real-world measurement; SHX fonts are replaced and reported.
+- `@zumenjs/dxf`: read and draw MULTILEADER (text or block content, straight and spline leaders, arrow blocks, doglegs,
+  frames and underlines) and MLINE with its MLINESTYLE (element offsets and MLEDIT cuts, fill, caps, inner arcs and miters).
+  The model adds `DxfMLeader`, `DxfMLine` and `mline_styles`; an MLINE without element parameters, as read from DWG, is drawn from
+  its style.
 - `@zumenjs/core`: the scene model, the Canvas 2D renderer, `readDrawing`, and `DrawingViewer` with zoom, pan,
   selection, distance measurement in paper and real-world units, overlays and coordinate conversion.
   Scenes can list several views (`Scene.views`, chosen with `readDrawing(…, { view })`), colors can carry opacity

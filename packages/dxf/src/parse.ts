@@ -16,6 +16,14 @@ import type {
   DxfLayer,
   DxfLayout,
   DxfLinetype,
+  DxfMLeader,
+  DxfMLeaderBlock,
+  DxfMLeaderContext,
+  DxfMLeaderLeader,
+  DxfMLeaderLine,
+  DxfMLeaderMText,
+  DxfMLine,
+  DxfMLineStyle,
   DxfMText,
   DxfPatternLine,
   DxfPolyline,
@@ -76,6 +84,9 @@ const READ_TYPES = new Set([
   "TRACE",
   "3DFACE",
   "LEADER",
+  "MULTILEADER",
+  "MLEADER",
+  "MLINE",
   "VIEWPORT",
   "XLINE",
   "RAY",
@@ -83,6 +94,13 @@ const READ_TYPES = new Set([
   "WIPEOUT",
   "ACAD_TABLE",
 ]);
+
+/** MULTILEADER の色の生の値の BYBLOCK（上位 1 バイトが種類: 0xC0 BYLAYER、0xC1 BYBLOCK、0xC2 RGB、0xC3 ACI） */
+const BY_BLOCK_RAW_COLOR = 0xc1000000 | 0;
+
+/** MULTILEADER・MLINE で、Y・Z（+10・+20）が続く点の X のグループコード */
+const MLEADER_POINT_CODES: ReadonlySet<number> = new Set([10, 11, 12, 13, 14, 15, 16, 110, 111, 112]);
+const MLINE_POINT_CODES: ReadonlySet<number> = new Set([10, 11, 12, 13]);
 
 class Parser {
   private readonly codes: Int32Array;
@@ -129,6 +147,7 @@ class Parser {
       linetypes: [],
       styles: [],
       dimstyles: [],
+      mline_styles: [],
       blocks: [],
       layouts: [],
       entities: [],
@@ -802,6 +821,11 @@ class Parser {
           dimstyle: this.text(body, 3, "STANDARD"),
         };
       }
+      case "MULTILEADER":
+      case "MLEADER":
+        return this.mleader(type, body, owner);
+      case "MLINE":
+        return this.mline(body, owner);
       case "VIEWPORT":
         return this.viewport(start, end, body, owner);
       case "XLINE":
@@ -1340,6 +1364,392 @@ class Parser {
     return null;
   }
 
+  /**
+   * MULTILEADER は、CONTEXT_DATA{（300〜301）・LEADER{（302〜303）・LEADER_LINE{（304〜305）の区切りの中と外で
+   * 同じグループコードを別の意味に使う（DXF Reference「Common MLeader Group Codes」「MLeader Context Data Group Codes」
+   * 「MLeader Leader Node Group Codes」「MLeader Leader Line Group Codes」）。区切りを追って順に読む
+   */
+  private mleader(type: DxfMLeader["type"], body: Body, owner: Owner | null): DxfMLeader {
+    const context: DxfMLeaderContext = {
+      scale: 1,
+      base_point: [0, 0, 0],
+      char_height: 0,
+      arrow_head_size: 0,
+      landing_gap_size: 0,
+      leaders: [],
+    };
+    const entity: DxfMLeader = {
+      ...this.base(type, body, owner),
+      style_handle: "",
+      leader_type: 1,
+      leader_line_color: BY_BLOCK_RAW_COLOR,
+      leader_linetype_handle: "",
+      leader_lineweight: -2,
+      has_dogleg: true,
+      arrow_head_handle: "",
+      content_type: 2,
+      has_text_frame: false,
+      text_left_attachment_type: 1,
+      text_right_attachment_type: 1,
+      text_top_attachment_type: 9,
+      text_bottom_attachment_type: 9,
+      arrow_heads: [],
+      block_attribs: [],
+      context,
+    };
+    let section: "common" | "context" | "leader" | "line" = "common";
+    let mtext: DxfMLeaderMText | null = null;
+    let block: DxfMLeaderBlock | null = null;
+    let leader: DxfMLeaderLeader | null = null;
+    let line: DxfMLeaderLine | null = null;
+    let breakStart: Vec3 | null = null;
+    let arrowIndex = 0;
+    for (const { code, k, point } of this.points(this.subclassBody(body, "AcDbMLeader"), MLEADER_POINT_CODES)) {
+      const handle = () => this.raw(k).trim().toUpperCase();
+      if (section === "line" && line) {
+        if (code === 305) {
+          leader?.lines.push(line);
+          line = null;
+          section = "leader";
+        } else if (code === 10) line.vertices.push(point);
+        else if (code === 11) breakStart = point;
+        else if (code === 12 && breakStart) {
+          line.breaks.push({ start: breakStart, end: point });
+          breakStart = null;
+        } else if (code === 91) line.index = this.num(k);
+        else if (code === 92) line.color = this.num(k);
+        continue;
+      }
+      if (section === "leader" && leader) {
+        if (code === 303) {
+          context.leaders.push(leader);
+          leader = null;
+          section = "context";
+        } else if (code === 304 && this.raw(k).trim() === "LEADER_LINE{") {
+          line = { vertices: [], breaks: [], index: 0, color: BY_BLOCK_RAW_COLOR };
+          breakStart = null;
+          section = "line";
+        } else if (code === 290) leader.has_last_leader_line = this.num(k) !== 0;
+        else if (code === 291) leader.has_dogleg_vector = this.num(k) !== 0;
+        else if (code === 10) leader.last_leader_point = point;
+        else if (code === 11) leader.dogleg_vector = point;
+        else if (code === 12) breakStart = point;
+        else if (code === 13 && breakStart) {
+          leader.breaks.push({ start: breakStart, end: point });
+          breakStart = null;
+        } else if (code === 90) leader.index = this.num(k);
+        else if (code === 40) leader.dogleg_length = this.num(k);
+        else if (code === 271) leader.attachment_direction = this.num(k);
+        continue;
+      }
+      if (section === "context") {
+        // 290・296 の後は、内容（文字・ブロック）の値が続く。内容の値でないコードで内容が終わる（ezdxf の MLeaderContext.load と同じ）
+        if (mtext && this.mleaderMText(mtext, code, k, point)) continue;
+        mtext = null;
+        if (block && this.mleaderBlock(block, code, k, point)) continue;
+        block = null;
+        if (code === 301) section = "common";
+        else if (code === 302 && this.raw(k).trim() === "LEADER{") {
+          leader = {
+            lines: [],
+            has_last_leader_line: true,
+            has_dogleg_vector: true,
+            last_leader_point: [0, 0, 0],
+            dogleg_vector: [1, 0, 0],
+            dogleg_length: 0,
+            index: 0,
+            attachment_direction: 0,
+            breaks: [],
+          };
+          breakStart = null;
+          section = "leader";
+        } else if (code === 290 && this.num(k) === 1) {
+          mtext = {
+            default_content: "",
+            extrusion: [0, 0, 1],
+            style_handle: "",
+            insert: [0, 0, 0],
+            text_direction: [1, 0, 0],
+            width: 0,
+            line_spacing_factor: 1,
+            line_spacing_style: 1,
+            color: BY_BLOCK_RAW_COLOR,
+            alignment: 1,
+            flow_direction: 1,
+            bg_color: 0,
+            bg_scale_factor: 1.5,
+            use_window_bg_color: false,
+            has_bg_fill: false,
+            column_type: 0,
+          };
+          context.mtext = mtext;
+        } else if (code === 296 && this.num(k) === 1) {
+          block = {
+            block_record_handle: "",
+            extrusion: [0, 0, 1],
+            insert: [0, 0, 0],
+            scale: [1, 1, 1],
+            rotation: 0,
+            color: BY_BLOCK_RAW_COLOR,
+          };
+          context.block = block;
+        } else if (code === 40) context.scale = this.num(k);
+        else if (code === 10) context.base_point = point;
+        else if (code === 41) context.char_height = this.num(k);
+        else if (code === 140) context.arrow_head_size = this.num(k);
+        else if (code === 145) context.landing_gap_size = this.num(k);
+        continue;
+      }
+      switch (code) {
+        case 300:
+          section = "context";
+          break;
+        case 340:
+          entity.style_handle = handle();
+          break;
+        case 170:
+          entity.leader_type = this.num(k);
+          break;
+        case 91:
+          entity.leader_line_color = this.num(k);
+          break;
+        case 341:
+          entity.leader_linetype_handle = handle();
+          break;
+        case 171:
+          entity.leader_lineweight = this.num(k);
+          break;
+        case 291:
+          entity.has_dogleg = this.num(k) !== 0;
+          break;
+        case 342:
+          entity.arrow_head_handle = handle();
+          break;
+        case 172:
+          entity.content_type = this.num(k);
+          break;
+        case 292:
+          entity.has_text_frame = this.num(k) !== 0;
+          break;
+        case 173:
+          entity.text_left_attachment_type = this.num(k);
+          break;
+        case 95:
+          entity.text_right_attachment_type = this.num(k);
+          break;
+        case 272:
+          entity.text_bottom_attachment_type = this.num(k);
+          break;
+        case 273:
+          entity.text_top_attachment_type = this.num(k);
+          break;
+        case 94:
+          arrowIndex = this.num(k);
+          break;
+        case 345:
+          entity.arrow_heads.push({ index: arrowIndex, handle: handle() });
+          break;
+        case 330:
+          entity.block_attribs.push({ handle: handle(), index: 0, width: 1, text: "" });
+          break;
+        case 177:
+        case 44:
+        case 302: {
+          const attrib = entity.block_attribs[entity.block_attribs.length - 1];
+          if (!attrib) break;
+          if (code === 177) attrib.index = this.num(k);
+          else if (code === 44) attrib.width = this.num(k);
+          else attrib.text = this.str(k);
+          break;
+        }
+      }
+    }
+    return entity;
+  }
+
+  /** CONTEXT_DATA の文字の内容の値。内容の値でなければ false */
+  private mleaderMText(mtext: DxfMLeaderMText, code: number, k: number, point: Vec3): boolean {
+    switch (code) {
+      case 304:
+        // 書式コードを含むので、\U+ などは MTEXT の読み取りが復号する
+        mtext.default_content = this.raw(k);
+        return true;
+      case 11:
+        mtext.extrusion = point;
+        return true;
+      case 340:
+        mtext.style_handle = this.raw(k).trim().toUpperCase();
+        return true;
+      case 12:
+        mtext.insert = point;
+        return true;
+      case 13:
+        mtext.text_direction = point;
+        return true;
+      case 43:
+        mtext.width = this.num(k);
+        return true;
+      case 45:
+        mtext.line_spacing_factor = this.num(k);
+        return true;
+      case 170:
+        mtext.line_spacing_style = this.num(k);
+        return true;
+      case 90:
+        mtext.color = this.num(k);
+        return true;
+      case 171:
+        mtext.alignment = this.num(k);
+        return true;
+      case 172:
+        mtext.flow_direction = this.num(k);
+        return true;
+      case 91:
+        mtext.bg_color = this.num(k);
+        return true;
+      case 141:
+        mtext.bg_scale_factor = this.num(k);
+        return true;
+      case 291:
+        mtext.use_window_bg_color = this.num(k) !== 0;
+        return true;
+      case 292:
+        mtext.has_bg_fill = this.num(k) !== 0;
+        return true;
+      case 173:
+        mtext.column_type = this.num(k);
+        return true;
+      // 回転（42、13 の向きと同じ）、高さ、背景の透過、段組みの寸法は使わない
+      case 42:
+      case 44:
+      case 92:
+      case 293:
+      case 142:
+      case 143:
+      case 294:
+      case 144:
+      case 295:
+        return true;
+    }
+    return false;
+  }
+
+  /** CONTEXT_DATA のブロックの内容の値。内容の値でなければ false */
+  private mleaderBlock(block: DxfMLeaderBlock, code: number, k: number, point: Vec3): boolean {
+    switch (code) {
+      case 341:
+        block.block_record_handle = this.raw(k).trim().toUpperCase();
+        return true;
+      case 14:
+        block.extrusion = point;
+        return true;
+      case 15:
+        block.insert = point;
+        return true;
+      case 16:
+        block.scale = point;
+        return true;
+      case 46:
+        block.rotation = this.num(k);
+        return true;
+      case 93:
+        block.color = this.num(k);
+        return true;
+      // 変換の行列（47 × 16）は AutoCAD も使わない（ezdxf の BlockData.export_dxf の注記）
+      case 47:
+        return true;
+    }
+    return false;
+  }
+
+  /** タグを順に返し、点の X のコード（codes）に続く Y・Z（+10・+20）を 1 つの点にまとめる */
+  private *points(own: Body, codes: ReadonlySet<number>): Generator<{ code: number; k: number; point: Vec3 }> {
+    for (let i = 0; i < own.length; i++) {
+      const k = own[i] as number;
+      const code = this.code(k);
+      const point: Vec3 = [0, 0, 0];
+      if (codes.has(code)) {
+        point[0] = this.num(k);
+        if (i + 1 < own.length && this.code(own[i + 1] as number) === code + 10)
+          point[1] = this.num(own[++i] as number);
+        if (i + 1 < own.length && this.code(own[i + 1] as number) === code + 20)
+          point[2] = this.num(own[++i] as number);
+      }
+      yield { code, k, point };
+    }
+  }
+
+  /** MLINE（DXF Reference「MLINE」）。頂点（11・12・13）ごとに、要素ごとの 74・41 と 75・42 が続く */
+  private mline(body: Body, owner: Owner | null): DxfMLine {
+    const own = this.subclassBody(body, "AcDbMline");
+    const line_params: number[][][] = [];
+    const fill_params: number[][][] = [];
+    const entity: DxfMLine = {
+      ...this.base("MLINE", body, owner),
+      style_name: "Standard",
+      scale: 1,
+      justification: 0,
+      flags: 0,
+      closed: false,
+      line_count: 0,
+      base_point: [0, 0, 0],
+      points: [],
+      vertex_directions: [],
+      miter_directions: [],
+      line_params,
+      fill_params,
+    };
+    let params: number[] | null = null;
+    for (const { code, k, point } of this.points(own, MLINE_POINT_CODES)) {
+      switch (code) {
+        case 2:
+          entity.style_name = this.str(k);
+          break;
+        case 340:
+          entity.mlinestyle_handle = this.raw(k).trim().toUpperCase();
+          break;
+        case 40:
+          entity.scale = this.num(k);
+          break;
+        case 70:
+          entity.justification = this.num(k);
+          break;
+        case 71:
+          entity.flags = this.num(k);
+          break;
+        case 73:
+          entity.line_count = this.num(k);
+          break;
+        case 10:
+          entity.base_point = point;
+          break;
+        case 11:
+          entity.points.push(point);
+          line_params.push([]);
+          fill_params.push([]);
+          params = null;
+          break;
+        case 12:
+          entity.vertex_directions.push(point);
+          break;
+        case 13:
+          entity.miter_directions.push(point);
+          break;
+        case 74:
+        case 75:
+          params = [];
+          (code === 74 ? line_params : fill_params)[line_params.length - 1]?.push(params);
+          break;
+        case 41:
+        case 42:
+          params?.push(this.num(k));
+          break;
+      }
+    }
+    entity.closed = (entity.flags & 2) !== 0;
+    return entity;
+  }
+
   private viewport(start: number, end: number, body: Body, owner: Owner | null): DxfViewport {
     const frozen: string[] = [];
     for (const k of body) if (this.code(k) === 331) frozen.push(this.raw(k).trim().toUpperCase());
@@ -1419,6 +1829,7 @@ class Parser {
       const body = this.body(this.i + 1, end);
       if (type === "LAYOUT") this.layout(body);
       else if (type === "SORTENTSTABLE") this.sortTable(body);
+      else if (type === "MLINESTYLE") this.mlineStyle(body);
       this.i = end;
     }
     this.i++;
@@ -1449,6 +1860,56 @@ class Parser {
     const record = this.handleOf(own, 330);
     if (record) layout.block_record_handle = record;
     this.layoutRecords.push({ handle: layout.handle, block_record_handle: record, layout });
+  }
+
+  /** MLINESTYLE（DXF Reference「MLINESTYLE」）。要素の数（71）の後の 62 は要素の色で、前の 62 は塗りの色 */
+  private mlineStyle(body: Body): void {
+    const style: DxfMLineStyle = {
+      handle: this.handleOf(body),
+      name: "",
+      flags: 0,
+      description: "",
+      fill_color: 256,
+      start_angle: 90,
+      end_angle: 90,
+      elements: [],
+    };
+    let elements = false;
+    for (const k of this.subclassBody(body, "AcDbMlineStyle")) {
+      const last = style.elements[style.elements.length - 1];
+      switch (this.code(k)) {
+        case 2:
+          style.name = this.str(k);
+          break;
+        case 70:
+          style.flags = this.num(k);
+          break;
+        case 3:
+          style.description = this.str(k);
+          break;
+        case 62:
+          if (!elements) style.fill_color = this.num(k);
+          else if (last) last.color = this.num(k);
+          break;
+        case 51:
+          style.start_angle = this.num(k);
+          break;
+        case 52:
+          style.end_angle = this.num(k);
+          break;
+        case 71:
+          elements = true;
+          break;
+        case 49:
+          style.elements.push({ offset: this.num(k), color: 0, linetype: "BYLAYER" });
+          break;
+        case 6:
+          if (last) last.linetype = this.str(k);
+          break;
+      }
+    }
+    this.doc.mline_styles ??= [];
+    this.doc.mline_styles.push(style);
   }
 
   private sortTable(body: Body): void {

@@ -169,13 +169,32 @@ export function nurbsPoints(
 
 /**
  * 当てはめ点だけのスプラインを、点を通る 3 次の曲線（Catmull-Rom）で近似する。
+ * startTangent・endTangent（向き）を渡すと、両端をその向きで出入りさせる。
  * AutoCAD の当てはめの計算（接線・ノットの決め方）とは一致しない
  */
-export function throughPoints(points: readonly (readonly number[])[], stepsPerSpan: number): number[] {
+export function throughPoints(
+  points: readonly (readonly number[])[],
+  stepsPerSpan: number,
+  startTangent?: readonly number[],
+  endTangent?: readonly number[],
+): number[] {
   const n = points.length;
   const out: number[] = [];
   if (n === 0) return out;
-  const at = (i: number) => points[Math.max(0, Math.min(n - 1, i))] as readonly number[];
+  // 端の外に、Catmull-Rom の端の接線がその向き（長さは隣の弦）になる仮の点を置く
+  const phantom = (tangent: readonly number[] | undefined, end: number, next: number, sign: number) => {
+    const p = points[end] as readonly number[];
+    const q = points[next] as readonly number[];
+    const length = Math.hypot((tangent?.[0] as number) ?? 0, (tangent?.[1] as number) ?? 0);
+    if (!tangent || !(length > 0) || n < 2) return p;
+    const chord = Math.hypot((q[0] as number) - (p[0] as number), (q[1] as number) - (p[1] as number));
+    const scale = (2 * chord * sign) / length;
+    return [(q[0] as number) - (tangent[0] as number) * scale, (q[1] as number) - (tangent[1] as number) * scale];
+  };
+  const before = phantom(startTangent, 0, 1, 1);
+  const after = phantom(endTangent, n - 1, n - 2, -1);
+  const at = (i: number) =>
+    i < 0 ? before : i >= n ? after : (points[Math.max(0, Math.min(n - 1, i))] as readonly number[]);
   out.push(at(0)[0] as number, at(0)[1] as number);
   for (let i = 0; i < n - 1; i++) {
     const p0 = at(i - 1);
@@ -195,6 +214,67 @@ export function throughPoints(points: readonly (readonly number[])[], stepsPerSp
       out.push(f(0), f(1));
     }
   }
+  return out;
+}
+
+/**
+ * 折線（[x, y, ...]）から、切れ目（始点と終点の組）の間を除いた部分ごとの点列にする。
+ * 切れ目の点は折線の最も近い位置に寄せる（MULTILEADER の寸法の切断）
+ */
+export function cutPolyline(points: readonly number[], gaps: readonly (readonly number[])[]): number[][] {
+  const n = Math.floor(points.length / 2);
+  if (gaps.length === 0 || n < 2) return [points.slice()];
+  const x = (i: number) => points[i * 2] as number;
+  const y = (i: number) => points[i * 2 + 1] as number;
+  const lengths = [0];
+  for (let i = 1; i < n; i++) lengths.push((lengths[i - 1] as number) + Math.hypot(x(i) - x(i - 1), y(i) - y(i - 1)));
+  const total = lengths[n - 1] as number;
+  /** 点に最も近い折線の位置（始点からの長さ） */
+  const project = (px: number, py: number): number => {
+    let best = Number.POSITIVE_INFINITY;
+    let at = 0;
+    for (let i = 0; i + 1 < n; i++) {
+      const dx = x(i + 1) - x(i);
+      const dy = y(i + 1) - y(i);
+      const length2 = dx * dx + dy * dy;
+      const t = length2 > 0 ? Math.max(0, Math.min(1, ((px - x(i)) * dx + (py - y(i)) * dy) / length2)) : 0;
+      const distance = Math.hypot(x(i) + dx * t - px, y(i) + dy * t - py);
+      if (distance < best) {
+        best = distance;
+        at = (lengths[i] as number) + Math.sqrt(length2) * t;
+      }
+    }
+    return at;
+  };
+  const pointAt = (s: number): [number, number] => {
+    let i = 0;
+    while (i + 2 < n && (lengths[i + 1] as number) < s) i++;
+    const length = (lengths[i + 1] as number) - (lengths[i] as number);
+    const t = length > 0 ? (s - (lengths[i] as number)) / length : 0;
+    return [x(i) + (x(i + 1) - x(i)) * t, y(i) + (y(i + 1) - y(i)) * t];
+  };
+  const intervals = gaps
+    .map((gap) => {
+      const a = project(gap[0] as number, gap[1] as number);
+      const b = project(gap[2] as number, gap[3] as number);
+      return [Math.min(a, b), Math.max(a, b)] as const;
+    })
+    .sort((p, q) => p[0] - q[0]);
+  const out: number[][] = [];
+  const piece = (s0: number, s1: number) => {
+    if (!(s1 - s0 > 1e-9)) return;
+    const part = [...pointAt(s0)];
+    for (let i = 1; i < n - 1; i++)
+      if ((lengths[i] as number) > s0 && (lengths[i] as number) < s1) part.push(x(i), y(i));
+    part.push(...pointAt(s1));
+    out.push(part);
+  };
+  let cursor = 0;
+  for (const [a, b] of intervals) {
+    piece(cursor, a);
+    cursor = Math.max(cursor, b);
+  }
+  piece(cursor, total);
   return out;
 }
 

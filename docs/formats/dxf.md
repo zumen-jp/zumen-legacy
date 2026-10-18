@@ -22,7 +22,13 @@ a DWG file read with [ezdwg](https://github.com/monozukuri-ai/ezdwg) becomes the
   (`"model"`, `"paper"`, `"block"`) and `block` (the block or paper space block name), like ezdwg's documents.
   Attributes of an `INSERT` are in its `attribs`.
 - `TEXT` keeps control codes such as `%%c`; `MTEXT` has the plain `text` and the formatted `raw_text`.
-- Tables: `layers`, `linetypes`, `styles` (text styles), `dimstyles`, `blocks`, `layouts`;
+- `MULTILEADER` (and its other name `MLEADER`) follows ezdxf's `MultiLeader`: the common values (`leader_type`,
+  `leader_line_color`, `arrow_head_handle`, `block_attribs`…) and `context` with the content (`mtext` or `block`) and
+  `leaders`, each with its `lines`. Colors are kept as the raw 32-bit values (`0xC0…` BYLAYER, `0xC1…` BYBLOCK, `0xC2RRGGBB`, `0xC3…` ACI),
+  and line types, text styles and blocks as handles, as the entity stores them.
+- `MLINE` uses ezdwg's names (`points`, `vertex_directions`, `miter_directions`, `scale`, `justification`, `base_point`,
+  `mlinestyle_handle`) plus ezdxf's `style_name`, `line_params` and `fill_params` (groups 41 and 42 per vertex and element).
+- Tables: `layers`, `linetypes`, `styles` (text styles), `dimstyles`, `mline_styles` (MLINESTYLE, optional), `blocks`, `layouts`;
   `header` has the variables used for drawing plus every raw variable in `header.variables`;
   `sort_handles` keeps SORTENTSTABLE (draw order); `skipped` counts entity types that are not read.
 
@@ -36,6 +42,10 @@ What a DWG reader changes when it maps ezdwg's JSON (`readDwgJson`) to `DxfDocum
 | `dimtype` (`"LINEAR"`, `"RADIUS"`…) | `dimtype` (DXF group 70: 0 rotated, 1 aligned, 2 angular, 3 diameter, 4 radius, 5 angular 3-point, 6 ordinate) |
 | `block_handle` | `block` (the name, from ezdwg's `blocks`) |
 | HATCH `paths` (`{ closed, points }`) | the same, as polyline paths (`edges` are only used by DXF edge paths) |
+| MLINE (`points`, `vertex_directions`, `miter_directions`, `mlinestyle_handle`…) | the same names. ezdwg drops the element parameters (groups 41 and 42), so `line_params` is left out and the element positions are computed from the MLINESTYLE (see below) |
+
+ezdwg reads neither MLINESTYLE nor MULTILEADER: `mline_styles` may be left out (multilines are then drawn with the two lines of STANDARD
+and a notice), and MULTILEADER is only read from DXF for now.
 
 ## Reading
 
@@ -114,13 +124,62 @@ What a DWG reader changes when it maps ezdwg's JSON (`readDwgJson`) to `DxfDocum
 | HATCH, MPOLYGON | Polyline and edge boundaries (lines, arcs, ellipses, splines; clockwise edges as ezdxf reads them). Solid fills, pattern lines (with dashes) clipped to the boundary, gradients as one color |
 | SOLID, TRACE, 3DFACE | Filled quadrilaterals; visible 3DFACE edges |
 | LEADER | The path (straight or spline-fit) and a closed arrowhead sized by `DIMASZ × DIMSCALE` |
+| MULTILEADER (MLEADER) | Text content (MTEXT at the stored position, with background, frame and underline or overline) or block content with its attribute values; straight or spline leaders from the arrowhead to the landing point and the dogleg, with dimension breaks; the closed filled arrowhead or the arrow block (`_Dot`, `_ArchTick`…) scaled by the arrow size. Merged into one selectable entity |
+| MLINE | The elements of the MLINESTYLE at their miter offsets, without the parts cut by MLEDIT, with their colors and line types; fill, square and round caps, inner arcs and miters |
 | WIPEOUT | Filled with the background color |
 | IMAGE | The frame only (images are not loaded) |
 | XLINE, RAY | Clipped to the extents of the other entities (or the sheet) |
 | VIEWPORT | Its frame on the layout, and the model space inside |
 
-Not read, counted in `skipped` and reported: MULTILEADER, MLINE, TOLERANCE, SHAPE, 3DSOLID, REGION, BODY, MESH, SURFACE,
+Not read, counted in `skipped` and reported: TOLERANCE, SHAPE, 3DSOLID, REGION, BODY, MESH, SURFACE,
 underlays (PDF, DWF, DGN), OLE frames, lights and proxy entities.
+
+### Multileaders and multilines
+
+The DXF Reference lists the MULTILEADER group codes without saying how to draw them
+([Common MLeader Group Codes](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-69B9139A-48B4-48A5-B3CF-A3233ABFBE49.htm),
+[Context Data](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-EC56D0DE-026D-46AB-87B1-9692393B0C22.htm),
+[Leader Node](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-8648B8F7-5BD3-445B-A1B2-6F65EC4ECB3E.htm),
+[Leader Line](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-B2E6436A-F17D-4F59-9DE8-DBDB61AD36C6.htm)).
+The rules below follow the graphics AutoCAD stores with each MULTILEADER (proxy graphics, read with ezdxf), ezdxf 1.4.5's
+`render/mleader.py` and [How to render DXF leaders](https://atlight.github.io/formats/dxf-leader.html) (cited by ezdxf);
+those marked *inferred* are not stated by Autodesk.
+
+- The same group code means different things inside `CONTEXT_DATA{` (300–301), `LEADER{` (302–303), `LEADER_LINE{` (304–305) and outside,
+  so the sections are tracked while reading. Values in the entity are drawn as they are; the MLEADERSTYLE is not consulted (*inferred*,
+  as ezdxf's `IGNORE_OVERRIDE_FLAGS`), and context values win over the common ones (text position, color, height, arrow size, dogleg length).
+- BYBLOCK in the parts (text, leaders, block content) means the MULTILEADER's own color, line type and line weight (*inferred*).
+  A leader line color (92) of BYBLOCK means the leader color (91).
+- Leaders run from the arrowhead to the landing point (LEADER 10) and continue as the dogleg along LEADER 11 for LEADER 40.
+  The dogleg is drawn only for straight leaders with 291 set and a non-zero length and direction; otherwise the leader lines run to the
+  dogleg end. Leaders attached at the top or bottom (271 = 1) end at the landing point. Leaders whose 290 is 0 are not drawn, as in AutoCAD
+  (according to ezdxf), and are reported. Spline leaders are drawn through the points, leaving in the arrow direction and arriving along
+  the dogleg, and reported as approximated.
+- The arrowhead is drawn when the first segment is longer than twice the arrow size (as ezdxf notes about AutoCAD). Without an arrow block,
+  it is the closed filled arrow: as long as the arrow size and a third of it wide at the base, as in AutoCAD's graphics. Arrow blocks point
+  to −X from their insertion point and are rotated to the leader and scaled by the arrow size; the leader starts at the back of the arrow,
+  except for `_ArchTick`, `_Oblique`, `_DotSmall`, `_Small`, `_Integral` and `_None` (ezdxf's list). Arrows are drawn with solid lines.
+- The text frame (292) is the drawn text extents grown by the landing gap (145) and stretched to the leaders' connection points, which
+  AutoCAD's graphics place on the frame. Connections 5, 6 and 8 underline the text from the connection point; top or bottom connection 10
+  draws a line over or under the text. Their lengths follow the substitute font, so they differ from AutoCAD by the text width.
+- Block content is inserted at context 15 (in WCS) with its scale and rotation (radians), and each `block_attribs` value is drawn at its
+  ATTDEF in the block. Tolerance content and text columns are not drawn as such and are reported; text flowing vertically (172 = 3)
+  is laid out horizontally like vertical MTEXT.
+- MLINE elements ([MLINE](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-590E8AE3-C6D9-4641-8485-D7B3693E432C.htm),
+  [MLINESTYLE](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-3EC12E5B-F5F6-484D-880F-D69EBE186D79.htm))
+  are at the vertex plus the miter direction (13) times the first value of group 41. The following values are positions
+  along the segment where the element starts, stops and restarts (MLEDIT cuts). The open tee in the ACadSharp sample (the gap is exactly
+  the width of the crossing multiline) shows that they are positions, not dash lengths (*inferred*). They are taken from the miter point;
+  whether a cut in an element that starts after the miter point is measured from there or from the element's start is not confirmed,
+  as every cut element in the samples starts at the miter point.
+- Without group 41 (DWG), the offset is the MLINESTYLE offset, shifted by the justification (top: the largest offset on the reference
+  line, bottom: the smallest) and multiplied by the scale, divided by the sine between the miter and the segment.
+- The fill is the area between the outermost elements, including round caps; fill breaks (group 42) are not drawn and reported.
+  Caps follow MLINESTYLE flags 16/32/64 and 256/512/1024 unless the MLINE suppresses them (71 flags 4 and 8, which ezdxf ignores); inner arcs
+  join every inner pair, as AutoCAD's [Multiline Style dialog](https://help.autodesk.com/cloudhelp/2015/ENU/AutoCAD-Core/files/GUID-9AE65983-DFCA-4140-889E-227B8A31D047.htm)
+  describes (2 and 5, 3 and 4 of six elements; ezdxf joins only the first pair). Miters (flag 2) are drawn at inner vertices.
+- Element colors and line types of BYBLOCK take the MLINE's own, but the MLINE's true color is not used (*inferred*, as ezdxf notes);
+  caps use the MLINE's line type. An MLINE whose style is missing is drawn with the two lines of STANDARD and reported.
 
 ### Text and fonts
 

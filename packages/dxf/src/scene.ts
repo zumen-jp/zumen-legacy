@@ -33,9 +33,11 @@ import {
   bulgePoints,
   clipPolygon,
   clipPolyline,
+  cutPolyline,
   ellipsePoints,
   minorAxis,
   nurbsPoints,
+  ocsAxes,
   ocsMatrix,
   throughPoints,
 } from "./curves.js";
@@ -57,6 +59,12 @@ import type {
   DxfLeader,
   DxfLinetype,
   DxfLwPolyline,
+  DxfMLeader,
+  DxfMLeaderBlock,
+  DxfMLeaderContext,
+  DxfMLeaderMText,
+  DxfMLine,
+  DxfMLineStyle,
   DxfMText,
   DxfPolyline,
   DxfTable,
@@ -67,7 +75,7 @@ import type {
   Vec2,
   Vec3,
 } from "./model.js";
-import { type ParagraphAlign, parseMText, parseTextCodes, type TextRun } from "./mtext.js";
+import { mtextPlainText, type ParagraphAlign, parseMText, parseTextCodes, type TextRun } from "./mtext.js";
 
 export interface DxfSceneOptions {
   /** 描く空間。"Model"（モデル空間）かレイアウトの名前。省略すると図面を保存したときの空間 */
@@ -150,6 +158,9 @@ const TYPE_NAMES: Readonly<Record<string, string>> = {
   TRACE: "太線（トレース）",
   "3DFACE": "3D 面",
   LEADER: "引出線",
+  MULTILEADER: "マルチ引出線",
+  MLEADER: "マルチ引出線",
+  MLINE: "マルチライン",
   VIEWPORT: "ビューポート",
   XLINE: "構築線",
   RAY: "放射線",
@@ -171,6 +182,26 @@ const EM_CJK = 1 / 0.88;
 const DESCENT = 0.12;
 /** MTEXT の既定の行の間隔（文字の高さの 5/3、DXF Reference「MTEXT」の 44） */
 const LINE_SPACING = 5 / 3;
+const IDENTITY: Matrix = [1, 0, 0, 1, 0, 0];
+/**
+ * 引出線を矢印の先から始める矢印（ほかの矢印は、矢印の大きさだけ離れた矢印の根元から線を始める）。
+ * AutoCAD の矢印のブロックの名前（_ArchTick など）から _ を除いたもの。ezdxf の render/arrows.py の ORIGIN_ZERO と同じ
+ */
+const ARROWS_FROM_TIP: ReadonlySet<string> = new Set(["ARCHTICK", "OBLIQUE", "DOTSMALL", "SMALL", "INTEGRAL", "NONE"]);
+/** MLINESTYLE が見つからないマルチラインの要素（AutoCAD の STANDARD と同じ ±0.5 の 2 本） */
+const STANDARD_MLINE_STYLE: DxfMLineStyle = {
+  handle: "",
+  name: "STANDARD",
+  flags: 0,
+  description: "",
+  fill_color: 256,
+  start_angle: 90,
+  end_angle: 90,
+  elements: [
+    { offset: 0.5, color: 256, linetype: "BYLAYER" },
+    { offset: -0.5, color: 256, linetype: "BYLAYER" },
+  ],
+};
 
 interface Ctx {
   /** 今の座標系（ブロックの中など） → 表示用の図面（mm） */
@@ -296,6 +327,12 @@ interface BlockContents {
   entities: DxfEntity[];
 }
 
+/** 描いた MTEXT の範囲。frame は文字の座標系から今の座標系（ctx.local の前）への変換 */
+interface MTextLayout {
+  frame: Matrix;
+  box: Box;
+}
+
 /** ハンドルの大小（16 進の文字列） */
 function compareHandles(a: string, b: string): number {
   if (a.length !== b.length) return a.length - b.length;
@@ -312,6 +349,12 @@ class Builder {
   private readonly styles = new Map<string, DxfTextStyle>();
   private readonly dimstyles = new Map<string, DxfDimStyle>();
   private readonly blocks = new Map<string, BlockContents>();
+  /** ハンドルで引く表（MULTILEADER・MLINE はハンドルで線種・文字スタイル・ブロックを指す） */
+  private readonly linetypeHandles = new Map<string, DxfLinetype>();
+  private readonly styleHandles = new Map<string, DxfTextStyle>();
+  private readonly blockRecords = new Map<string, DxfBlock>();
+  private readonly mlineStyleHandles = new Map<string, DxfMLineStyle>();
+  private readonly mlineStyleNames = new Map<string, DxfMLineStyle>();
   readonly model: DxfEntity[] = [];
   private readonly shxFonts = new Set<string>();
   private shxCount = 0;
@@ -320,10 +363,23 @@ class Builder {
   constructor(readonly doc: DxfDocument) {
     this.notices = new NoticeList(doc.notices);
     for (const layer of doc.layers) this.layer(layer.name, layer);
-    for (const linetype of doc.linetypes) this.linetypes.set(linetype.name.toUpperCase(), linetype);
-    for (const style of doc.styles) this.styles.set(style.name.toUpperCase(), style);
+    for (const linetype of doc.linetypes) {
+      this.linetypes.set(linetype.name.toUpperCase(), linetype);
+      if (linetype.handle) this.linetypeHandles.set(linetype.handle, linetype);
+    }
+    for (const style of doc.styles) {
+      this.styles.set(style.name.toUpperCase(), style);
+      if (style.handle) this.styleHandles.set(style.handle, style);
+    }
     for (const style of doc.dimstyles) this.dimstyles.set(style.name.toUpperCase(), style);
-    for (const block of doc.blocks) this.blocks.set(block.name.toUpperCase(), { block, entities: [] });
+    for (const block of doc.blocks) {
+      this.blocks.set(block.name.toUpperCase(), { block, entities: [] });
+      if (block.block_record_handle) this.blockRecords.set(block.block_record_handle, block);
+    }
+    for (const style of doc.mline_styles ?? []) {
+      if (style.handle) this.mlineStyleHandles.set(style.handle, style);
+      this.mlineStyleNames.set(style.name.toUpperCase(), style);
+    }
     for (const entity of doc.entities) {
       if (entity.space === "model") {
         this.model.push(entity);
@@ -778,6 +834,13 @@ class Builder {
       case "LEADER":
         this.leader(entity, ctx);
         return;
+      case "MULTILEADER":
+      case "MLEADER":
+        this.mleader(entity, ctx);
+        return;
+      case "MLINE":
+        this.mline(entity, ctx);
+        return;
       case "XLINE":
       case "RAY":
         this.infinite.push({ entity, ctx });
@@ -1137,8 +1200,11 @@ class Builder {
     this.add(entity, ctx, primitives, properties);
   }
 
-  /** MTEXT（DXF Reference「MTEXT」）。折り返しの幅があれば、語・全角の文字の境目で折り返す */
-  private mtext(entity: DxfMText, ctx: Ctx): void {
+  /**
+   * MTEXT（DXF Reference「MTEXT」）。折り返しの幅があれば、語・全角の文字の境目で折り返す。
+   * 描いた文字の範囲を、文字の座標系（配置点が原点、文字の進む向きが X）で返す
+   */
+  private mtext(entity: DxfMText, ctx: Ctx): MTextLayout | null {
     const style = this.style(entity.style);
     const base =
       entity.char_height > 0
@@ -1207,7 +1273,7 @@ class Builder {
       finish();
     }
     while (lines.length > 1 && (lines[lines.length - 1] as Line).runs.length === 0) lines.pop();
-    if (!lines.some((line) => line.runs.some((run) => run.stack || run.text.trim() !== ""))) return;
+    if (!lines.some((line) => line.runs.some((run) => run.stack || run.text.trim() !== ""))) return null;
     const factor = entity.line_spacing_factor > 0 ? entity.line_spacing_factor : 1;
     const baselines: number[] = [];
     let y = -(lines[0] as Line).height;
@@ -1283,11 +1349,13 @@ class Builder {
       },
       ...(wrap ? [{ label: "折り返しの幅", value: fmt(wrap * meanScale(ctx.local)) }] : []),
     ]);
+    return { frame, box: { minX: x0, minY: bottom + dy, maxX: x0 + blockWidth, maxY: top + dy } };
   }
 
   // --- ブロック・寸法 -------------------------------------------------------
 
-  private insert(entity: DxfInsert | DxfTable, ctx: Ctx): void {
+  /** values は ATTDEF のハンドル → 値。MULTILEADER のブロックの属性を、ATTDEF の位置に描く */
+  private insert(entity: DxfInsert | DxfTable, ctx: Ctx, values?: ReadonlyMap<string, string>): void {
     const name = entity.name;
     const contents = this.blocks.get(name.toUpperCase());
     if (!contents) {
@@ -1321,7 +1389,11 @@ class Builder {
         const child = this.child(entity, ctx, local, path, name);
         for (const member of contents.entities) {
           // 属性定義は、定数（2）のものだけを描く。値は ATTRIB が持つ
-          if (member.type === "ATTDEF" && (member.attribute_flags & 2) === 0) continue;
+          if (member.type === "ATTDEF" && (member.attribute_flags & 2) === 0) {
+            const value = values?.get(member.handle);
+            if (value !== undefined) this.emit({ ...member, type: "ATTRIB", text: value }, child);
+            continue;
+          }
           this.emit(member, child);
         }
       }
@@ -1348,8 +1420,7 @@ class Builder {
     const child = this.child(entity, ctx, local, `${ctx.path}${entity.handle || "?"}>`, entity.anonymous_block_name);
     const start = this.entities.length;
     for (const member of contents.entities) this.emit(member, child);
-    const parts = this.entities.splice(start);
-    const primitives = parts.flatMap((part) => part.primitives);
+    const primitives = this.takeParts(start);
     const kind =
       entity.type === "DIMENSION" ? (DIMENSION_KINDS[entity.dimtype & 7] ?? "寸法") : TYPE_NAMES[entity.type];
     const value =
@@ -1358,14 +1429,6 @@ class Builder {
         : entity.actual_measurement !== undefined
           ? fmt(entity.actual_measurement)
           : "";
-    // まとめる前に add が数えたレイヤの使用を戻す
-    for (const part of parts) {
-      for (const id of part.layers) {
-        const count = (this.usedLayers.get(id) ?? 0) - 1;
-        if (count > 0) this.usedLayers.set(id, count);
-        else this.usedLayers.delete(id);
-      }
-    }
     this.add(
       entity,
       ctx,
@@ -1377,6 +1440,19 @@ class Builder {
       ],
       kind ?? "寸法",
     );
+  }
+
+  /** start 以降に加えた要素を取り除き、その描画の要素を返す（1 つの要素にまとめるため）。add が数えたレイヤの使用も戻す */
+  private takeParts(start: number): Primitive[] {
+    const parts = this.entities.splice(start);
+    for (const part of parts) {
+      for (const id of part.layers) {
+        const count = (this.usedLayers.get(id) ?? 0) - 1;
+        if (count > 0) this.usedLayers.set(id, count);
+        else this.usedLayers.delete(id);
+      }
+    }
+    return parts.flatMap((part) => part.primitives);
   }
 
   private leader(entity: DxfLeader, ctx: Ctx): void {
@@ -1406,6 +1482,496 @@ class Builder {
       }
     }
     this.add(entity, ctx, primitives, [{ label: "頂点", value: `${entity.points.length} 点` }]);
+  }
+
+  // --- マルチ引出線・マルチライン ---------------------------------------------
+
+  /**
+   * マルチ引出線（DXF Reference「MLEADER」）。内容（文字かブロック）、引出線（矢印・折れ線）、枠・下線を 1 つの要素にまとめる。
+   * 描き方は、AutoCAD が図面に書いた代替表示（proxy graphic）と ezdxf の render/mleader.py に合わせた（docs/formats/dxf.md）
+   */
+  private mleader(entity: DxfMLeader, ctx: Ctx): void {
+    const context = entity.context;
+    // 全体の尺度が 0 の引出線は、縮んで見えない（ezdxf の RenderEngine.run と同じ）
+    if (!(Math.abs(context.scale) > 1e-9)) return;
+    const child = this.child(entity, ctx, IDENTITY, `${ctx.path}${entity.handle || "?"}>`, entity.type);
+    const start = this.entities.length;
+    const properties: Property[] = [];
+    let text: MTextLayout | null = null;
+    let textPart: DxfEntityBase | null = null;
+    if (context.mtext) {
+      textPart = partOf(entity, rawColor(context.mtext.color), "CONTINUOUS");
+      text = this.mleaderText(context.mtext, context, textPart, child);
+      properties.push(
+        { label: "文字列", value: mtextPlainText(context.mtext.default_content) },
+        { label: "高さ", value: fmt(context.char_height * meanScale(ctx.local)) },
+      );
+    } else if (context.block) {
+      const name = this.mleaderBlock(entity, context.block, child);
+      if (name) properties.push({ label: "内容のブロック", value: name });
+    } else if (entity.content_type === 3) {
+      this.notices.add("info", "mleader-tolerance", "公差を内容とするマルチ引出線は、引出線だけを描きました");
+    }
+    const lines: Primitive[] = [];
+    const connections: Vec2[] = [];
+    const count = this.mleaderLeaders(entity, text, child, lines, connections);
+    if (text && textPart && entity.has_text_frame) {
+      // 枠は文字の範囲を着地の隙間だけ広げた矩形で、引出線の接続点（折れ線の先）が辺に乗る（AutoCAD の代替表示と同じ）
+      const gap = context.landing_gap_size;
+      const inverse = invert(text.frame);
+      let { minX, minY, maxX, maxY } = text.box;
+      minX -= gap;
+      minY -= gap;
+      maxX += gap;
+      maxY += gap;
+      for (const [px, py] of connections) {
+        const [x, y] = apply(inverse, px, py);
+        minX = Math.min(minX, x);
+        maxX = Math.max(maxX, x);
+        minY = Math.min(minY, y);
+        maxY = Math.max(maxY, y);
+      }
+      const frame = [minX, minY, maxX, minY, maxX, maxY, minX, maxY];
+      lines.push(this.stroke(textPart, child, multiply(child.m, text.frame), frame, true));
+    }
+    properties.push({ label: "引出線", value: `${count} 本` });
+    this.add(entity, ctx, [...this.takeParts(start), ...lines], properties);
+  }
+
+  /** 文字の内容を、CONTEXT_DATA の値（12 の位置、171 の配置点、13 の向き）の MTEXT として描く */
+  private mleaderText(
+    mtext: DxfMLeaderMText,
+    context: DxfMLeaderContext,
+    part: DxfEntityBase,
+    child: Ctx,
+  ): MTextLayout | null {
+    const content: DxfMText = {
+      ...part,
+      type: "MTEXT",
+      text: mtextPlainText(mtext.default_content),
+      raw_text: mtext.default_content,
+      insert: mtext.insert,
+      char_height: context.char_height,
+      // 折り返しの幅は全体の尺度を掛ける前の値（ezdxf の copy_mtext_data と同じ）
+      rect_width: mtext.width * context.scale,
+      attachment_point: mtext.alignment,
+      drawing_direction: mtext.flow_direction,
+      text_direction: mtext.text_direction,
+      rotation: 0,
+      style: this.styleHandles.get(mtext.style_handle)?.name ?? "STANDARD",
+      line_spacing_style: mtext.line_spacing_style,
+      line_spacing_factor: mtext.line_spacing_factor,
+      background_flags: 0,
+    };
+    const [nx, ny, nz] = mtext.extrusion;
+    if (!(Math.abs(nx) < 1e-12 && Math.abs(ny) < 1e-12 && nz > 0)) content.extrusion = mtext.extrusion;
+    if (mtext.has_bg_fill) {
+      // 背景の色の種類が 0xC8 か、291 が 1 なら画面の背景色で塗る（ezdxf の set_mtext_bg_fill と同じ）
+      const kind = (mtext.bg_color >>> 24) & 0xff;
+      content.background_flags = mtext.use_window_bg_color || (kind !== 0xc2 && kind !== 0xc3) ? 2 : 1;
+      if (kind === 0xc2) content.background_true_color = mtext.bg_color & 0xffffff;
+      else if (kind === 0xc3) content.background_color_index = mtext.bg_color & 0xff;
+      content.background_scale = mtext.bg_scale_factor;
+    }
+    if (mtext.column_type !== 0) {
+      this.notices.add("info", "mleader-columns", "段組みのあるマルチ引出線の文字は、1 段で並べました");
+    }
+    return this.mtext(content, child);
+  }
+
+  /** ブロックの内容。属性（block_attribs）の値は、ブロックの中の ATTDEF の位置に描く。描いたブロックの名前を返す */
+  private mleaderBlock(entity: DxfMLeader, block: DxfMLeaderBlock, child: Ctx): string {
+    const record = this.blockRecords.get(block.block_record_handle);
+    if (!record) {
+      this.notices.add("warning", "missing-block", "定義の見つからないブロック参照を省きました");
+      return "";
+    }
+    // 配置点は OCS ではなく WCS で書かれる（ezdxf の RenderEngine.add_block_content と同じ）
+    const axes = ocsAxes(block.extrusion);
+    const [px, py, pz] = block.insert;
+    const insert: DxfInsert = {
+      ...partOf(entity, rawColor(block.color)),
+      type: "INSERT",
+      name: record.name,
+      insert: axes
+        ? (axes.map((axis) => axis[0] * px + axis[1] * py + axis[2] * pz) as Vec3)
+        : [block.insert[0], block.insert[1], block.insert[2]],
+      xscale: block.scale[0],
+      yscale: block.scale[1],
+      zscale: block.scale[2],
+      rotation: (block.rotation * 180) / Math.PI,
+      column_count: 1,
+      row_count: 1,
+      column_spacing: 0,
+      row_spacing: 0,
+      attribs: [],
+    };
+    if (axes) insert.extrusion = block.extrusion;
+    this.insert(insert, child, new Map(entity.block_attribs.map((attrib) => [attrib.handle, attrib.text])));
+    return record.name;
+  }
+
+  /**
+   * 引出線を描き、描いた線の数を返す。線は頂点から着地点へ、折れ線は着地点から内容の側へ引く。
+   * 折れ線を描かないとき（スプライン、長さ 0、291 が 0）は、線を折れ線の先まで延ばす。上下に接続する引出線は着地点で終わる
+   */
+  private mleaderLeaders(
+    entity: DxfMLeader,
+    text: MTextLayout | null,
+    child: Ctx,
+    out: Primitive[],
+    connections: Vec2[],
+  ): number {
+    const context = entity.context;
+    // 引出線の種類が 0 なら、内容だけを描く
+    if (entity.leader_type === 0) return 0;
+    const linetype = this.linetypeHandles.get(entity.leader_linetype_handle)?.name ?? "BYBLOCK";
+    // 線ごとの色（92）が BYBLOCK なら、MULTILEADER の引出線の色（91）
+    const leaderPart = (raw: number) => {
+      const part = partOf(entity, rawColor(((raw >>> 24) & 0xff) === 0xc1 ? entity.leader_line_color : raw), linetype);
+      part.lineweight = entity.leader_lineweight;
+      return part;
+    };
+    const common = leaderPart(entity.leader_line_color);
+    const size = context.arrow_head_size;
+    let drawn = 0;
+    let hidden = 0;
+    for (const leader of context.leaders) {
+      if (!leader.has_last_leader_line) {
+        hidden++;
+        continue;
+      }
+      const landing: Vec2 = [leader.last_leader_point[0], leader.last_leader_point[1]];
+      const horizontal = leader.attachment_direction !== 1;
+      const [dx, dy] = leader.has_dogleg_vector ? leader.dogleg_vector : [1, 0];
+      const vector = Math.hypot(dx, dy);
+      const ux = vector > 1e-12 ? dx / vector : 1;
+      const uy = vector > 1e-12 ? dy / vector : 0;
+      const length = vector > 1e-12 ? leader.dogleg_length : 0;
+      const doglegEnd: Vec2 = [landing[0] + ux * length, landing[1] + uy * length];
+      const dogleg = horizontal && entity.has_dogleg && entity.leader_type === 1 && Math.abs(length) > 1e-12;
+      const end = horizontal && !dogleg ? doglegEnd : landing;
+      const connection = horizontal ? doglegEnd : landing;
+      let lines = 0;
+      for (const line of leader.lines) {
+        const points: Vec2[] = [];
+        for (const [x, y] of [...line.vertices, end]) {
+          const last = points[points.length - 1];
+          if (!last || Math.hypot(x - last[0], y - last[1]) > 1e-9) points.push([x, y]);
+        }
+        if (points.length < 2) continue;
+        lines++;
+        const part = leaderPart(line.color);
+        const [p0, p1] = points as [Vec2, Vec2];
+        const segment = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]);
+        const direction: Vec2 = [(p1[0] - p0[0]) / segment, (p1[1] - p0[1]) / segment];
+        // AutoCAD は、最初の線分が矢印の大きさの 2 倍以下なら矢印を描かない（ezdxf の RenderEngine.add_leader_line の注記）
+        if (size > 0 && segment > size * 2) {
+          const handle =
+            entity.arrow_heads.find((head) => head.index === line.index)?.handle ?? entity.arrow_head_handle;
+          const back = this.mleaderArrow(handle, p0, direction, size, part, child, out);
+          points[0] = [p0[0] + direction[0] * back, p0[1] + direction[1] * back];
+        }
+        if (entity.leader_type === 2) {
+          // スプラインは点を通り、矢印の向きで出て、折れ線の向き（上下の接続は最後の線分の向き）で入る
+          const last = points[points.length - 1] as Vec2;
+          const before = points[points.length - 2] as Vec2;
+          const tangent = horizontal ? [ux, uy] : [last[0] - before[0], last[1] - before[1]];
+          out.push(this.stroke(part, child, child.m, throughPoints(points, 16, direction, tangent), false));
+          this.notices.add("info", "mleader-spline", "スプラインのマルチ引出線は、点を通る曲線で近似しました");
+          continue;
+        }
+        const gaps = line.breaks.map((gap) => [gap.start[0], gap.start[1], gap.end[0], gap.end[1]]);
+        for (const piece of cutPolyline(points.flat(), gaps)) out.push(this.stroke(part, child, child.m, piece, false));
+      }
+      if (lines === 0) continue;
+      drawn += lines;
+      connections.push(connection);
+      if (dogleg) {
+        const gaps = leader.breaks.map((gap) => [gap.start[0], gap.start[1], gap.end[0], gap.end[1]]);
+        for (const piece of cutPolyline([...landing, ...doglegEnd], gaps)) {
+          out.push(this.stroke(common, child, child.m, piece, false));
+        }
+      }
+      if (text) this.mleaderTextLine(entity, horizontal, connection, text, common, child, out);
+    }
+    if (hidden > 0) {
+      this.notices.add(
+        "info",
+        "mleader-hidden",
+        "着地点のない引出線（MULTILEADER の LEADER の 290 が 0）は、AutoCAD と同じく描いていません",
+        hidden,
+      );
+    }
+    return drawn;
+  }
+
+  /**
+   * 下線（左右の接続の 5・6・8）と、上下の接続の線（10）。ezdxf の add_text_underline・add_overline と同じ位置で、
+   * 長さは描いた文字の範囲に合わせる
+   */
+  private mleaderTextLine(
+    entity: DxfMLeader,
+    horizontal: boolean,
+    connection: Vec2,
+    text: MTextLayout,
+    part: DxfEntityBase,
+    child: Ctx,
+    out: Primitive[],
+  ): void {
+    const [cx, cy] = apply(invert(text.frame), connection[0], connection[1]);
+    const box = text.box;
+    let points: number[];
+    if (horizontal) {
+      const left = cx < (box.minX + box.maxX) / 2;
+      const type = left ? entity.text_left_attachment_type : entity.text_right_attachment_type;
+      if (type !== 5 && type !== 6 && type !== 8) return;
+      points = [cx, cy, left ? box.maxX : box.minX, cy];
+    } else {
+      const bottom = cy < (box.minY + box.maxY) / 2;
+      if ((bottom ? entity.text_bottom_attachment_type : entity.text_top_attachment_type) !== 10) return;
+      points = [box.minX, cy, box.maxX, cy];
+    }
+    out.push(this.stroke(part, child, multiply(child.m, text.frame), points, false));
+  }
+
+  /**
+   * 矢印を描き、引出線を始める位置（矢印の先からの距離）を返す。矢印のブロック（_Dot など）は先端が原点で -X に伸びるので、
+   * 線の向き + 180 度に回して矢印の大きさで拡大する（ezdxf の RenderEngine.add_arrow と同じ）。ブロックがなければ塗りつぶしの矢印
+   */
+  private mleaderArrow(
+    handle: string,
+    tip: Vec2,
+    direction: Vec2,
+    size: number,
+    part: DxfEntityBase,
+    child: Ctx,
+    out: Primitive[],
+  ): number {
+    const record = handle && handle !== "0" ? this.blockRecords.get(handle) : undefined;
+    if (record) {
+      const insert: DxfInsert = {
+        ...part,
+        type: "INSERT",
+        // 矢印は引出線の線種によらず実線で描く
+        linetype: "CONTINUOUS",
+        name: record.name,
+        insert: [tip[0], tip[1], 0],
+        xscale: size,
+        yscale: size,
+        zscale: size,
+        rotation: (Math.atan2(direction[1], direction[0]) * 180) / Math.PI + 180,
+        column_count: 1,
+        row_count: 1,
+        column_spacing: 0,
+        row_spacing: 0,
+        attribs: [],
+      };
+      this.insert(insert, child);
+      return ARROWS_FROM_TIP.has(record.name.replace(/^_/, "").toUpperCase()) ? 0 : size;
+    }
+    if (handle && handle !== "0") {
+      this.notices.add("info", "mleader-arrow", "見つからない矢印のブロックは、塗りつぶしの矢印で描きました");
+    }
+    // 塗りつぶしの矢印（_ClosedFilled）: 長さは矢印の大きさ、根元の幅は大きさの 1/3（AutoCAD の代替表示と同じ）
+    const [dx, dy] = direction;
+    const bx = tip[0] + dx * size;
+    const by = tip[1] + dy * size;
+    const w = size / 6;
+    out.push({
+      kind: "fill",
+      color: this.color(part, child),
+      rings: [transformPoints(child.m, [tip[0], tip[1], bx - dy * w, by + dx * w, bx + dy * w, by - dx * w])],
+    });
+    return size;
+  }
+
+  /**
+   * マルチライン（DXF Reference「MLINE」「MLINESTYLE」）。要素の線は頂点から留め継ぎの向きへ 41 の 1 つ目の距離にあり、
+   * 41 の 2 つ目以降は線分の上で線を描く区間（頂点からの長さ。MLEDIT で切った切れ目）。塗り・端・留め継ぎは MLINESTYLE の 70 による。
+   * ezdxf の render/mline.py と同じ形に描き、端を描かない指定（71 の 4・8）と、内側の弧のすべての組（AutoCAD の MLSTYLE の説明）を足した
+   */
+  private mline(entity: DxfMLine, ctx: Ctx): void {
+    const n = entity.points.length;
+    if (n < 2) return;
+    let style =
+      (entity.mlinestyle_handle ? this.mlineStyleHandles.get(entity.mlinestyle_handle) : undefined) ??
+      this.mlineStyleNames.get(entity.style_name.toUpperCase());
+    if (!style || style.elements.length === 0) {
+      this.notices.add("info", "mline-style", "スタイルの見つからないマルチラインは、STANDARD（2 本の線）で描きました");
+      style = STANDARD_MLINE_STYLE;
+    }
+    const elements = style.elements;
+    const count = elements.length;
+    const order = elements.map((_, index) => index);
+    order.sort((a, b) => (elements[a]?.offset ?? 0) - (elements[b]?.offset ?? 0));
+    const bottom = order[0] as number;
+    const top = order[count - 1] as number;
+    // マルチラインの真色は使わない（CAD は無視する。ezdxf の render/mline.py の注記）。BYBLOCK の要素はマルチラインの色
+    const owner: DxfMLine = { ...entity, true_color: undefined };
+    const child = this.child(owner, ctx, IDENTITY, `${ctx.path}${entity.handle || "?"}>`, entity.type);
+    const unit = (x: number, y: number): Vec2 | null => {
+      const length = Math.hypot(x, y);
+      return length > 1e-12 ? [x / length, y / length] : null;
+    };
+    const point = (v: number) => entity.points[v] as Vec3;
+    const direction = (v: number): Vec2 => {
+      const d = entity.vertex_directions[v];
+      const i = Math.min(v, n - 2);
+      return (d && unit(d[0], d[1])) ?? unit(point(i + 1)[0] - point(i)[0], point(i + 1)[1] - point(i)[1]) ?? [1, 0];
+    };
+    const miter = (v: number): Vec2 => {
+      const m = entity.miter_directions[v];
+      const d = direction(v);
+      return (m && unit(m[0], m[1])) ?? [-d[1], d[0]];
+    };
+    const offsets = elements.map((element) => element.offset);
+    const shift =
+      entity.justification === 0 ? -Math.max(...offsets) : entity.justification === 2 ? -Math.min(...offsets) : 0;
+    const at: Vec2[][] = entity.points.map((p, v) =>
+      elements.map((element, e) => {
+        const m = miter(v);
+        let t = entity.line_params?.[v]?.[e]?.[0];
+        if (t === undefined) {
+          // 41 がない（DWG）ときは、スタイルのずれ・位置合わせ・尺度から、留め継ぎの向きへの距離を求める
+          const d = direction(v);
+          const across = -m[0] * d[1] + m[1] * d[0];
+          const offset = (element.offset + shift) * entity.scale;
+          t = Math.abs(across) > 1e-9 ? offset / across : offset;
+        }
+        return [p[0] + m[0] * t, p[1] + m[1] * t];
+      }),
+    );
+    const position = (v: number, e: number) => at[v]?.[e] as Vec2;
+    const closed = entity.closed;
+    const segments = closed ? n : n - 1;
+    const elementPart = (e: number, linetype?: string) =>
+      partOf(owner, { color_index: elements[e]?.color ?? 0 }, linetype ?? (elements[e]?.linetype || "BYLAYER"));
+    const primitives: Primitive[] = [];
+    const strokes: Primitive[] = [];
+    // 要素の線。切れ目のない区間は頂点をまたいでつなぎ、線種の破線を続ける
+    for (let e = 0; e < count; e++) {
+      const pieces: number[][] = [];
+      let current: number[] | null = null;
+      for (let i = 0; i < segments; i++) {
+        const [px, py] = position(i, e);
+        const [qx, qy] = position((i + 1) % n, e);
+        const length = Math.hypot(qx - px, qy - py);
+        if (!(length > 1e-12)) continue;
+        const ux = (qx - px) / length;
+        const uy = (qy - py) / length;
+        for (const [a, b] of mlineDashes(entity.line_params?.[i]?.[e]?.slice(1) ?? [], length)) {
+          if (current && a < 1e-9) current.push(px + ux * b, py + uy * b);
+          else {
+            if (current) pieces.push(current);
+            current = [px + ux * a, py + uy * a, px + ux * b, py + uy * b];
+          }
+          if (b < length - 1e-9) {
+            pieces.push(current);
+            current = null;
+          }
+        }
+      }
+      if (current) pieces.push(current);
+      const part = elementPart(e);
+      for (const piece of pieces) {
+        const ring =
+          closed &&
+          pieces.length === 1 &&
+          piece.length >= 8 &&
+          Math.hypot((piece[0] as number) - (piece.at(-2) as number), (piece[1] as number) - (piece.at(-1) as number)) <
+            1e-9;
+        strokes.push(this.stroke(part, child, child.m, ring ? piece.slice(0, -2) : piece, ring));
+      }
+    }
+    /** 2 つの要素を結ぶ線（端の線・留め継ぎ）。中点までをそれぞれの要素の色・線種で描く（ezdxf の create_miter と同じ） */
+    const across = (v: number) => {
+      const a = position(v, top);
+      const b = position(v, bottom);
+      const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+      strokes.push(this.stroke(elementPart(top), child, child.m, [...a, ...mid], false));
+      strokes.push(this.stroke(elementPart(bottom), child, child.m, [...b, ...mid], false));
+    };
+    /** 要素 from から to への半円（外側の向き outward にふくらむ）。色が違えば半分ずつ（ezdxf の _arc_caps と同じ） */
+    const halfCircle = (from: Vec2, to: Vec2, outward: Vec2): [number[], number[]] => {
+      const cx = (from[0] + to[0]) / 2;
+      const cy = (from[1] + to[1]) / 2;
+      const radius = Math.hypot(from[0] - cx, from[1] - cy);
+      const start = (Math.atan2(from[1] - cy, from[0] - cx) * 180) / Math.PI;
+      const ccw = -Math.sin((start * Math.PI) / 180) * outward[0] + Math.cos((start * Math.PI) / 180) * outward[1] >= 0;
+      const tolerance = this.tolerance(child.m, radius);
+      // a から b（ccw なら a + 90、でなければ a − 90）へ回る 4 分の 1 の弧
+      const half = (a: number, b: number) =>
+        ccw ? arcPoints(cx, cy, radius, a, b, tolerance) : reversePairs(arcPoints(cx, cy, radius, b, a, tolerance));
+      return ccw
+        ? [half(start, start + 90), half(start + 90, start + 180)]
+        : [half(start, start - 90), half(start - 90, start - 180)];
+    };
+    const cap = (from: number, to: number, v: number, outward: Vec2) => {
+      const [first, second] = halfCircle(position(v, from), position(v, to), outward);
+      if (elements[from]?.color === elements[to]?.color) {
+        strokes.push(this.stroke(elementPart(from, "BYBLOCK"), child, child.m, [...first, ...second.slice(2)], false));
+      } else {
+        strokes.push(this.stroke(elementPart(from, "BYBLOCK"), child, child.m, first, false));
+        strokes.push(this.stroke(elementPart(to, "BYBLOCK"), child, child.m, second, false));
+      }
+    };
+    const flags = style.flags;
+    const backward = direction(0).map((value) => -value) as Vec2;
+    const forward = unit(point(n - 1)[0] - point(n - 2)[0], point(n - 1)[1] - point(n - 2)[1]) ?? direction(n - 1);
+    const rounds: number[][] = [];
+    if (!closed) {
+      if (!(entity.flags & 4)) {
+        if (flags & 16) across(0);
+        if (flags & 64) {
+          cap(top, bottom, 0, backward);
+          rounds.push(halfCircle(position(0, top), position(0, bottom), backward).flat());
+        }
+        if (flags & 32) {
+          // 内側の弧は、外から 2 番目どうし、3 番目どうし…の組を結ぶ（要素が奇数なら中央は結ばない）
+          for (let k = 1; k < count - 1 - k; k++) cap(order[count - 1 - k] as number, order[k] as number, 0, backward);
+        }
+      }
+      if (!(entity.flags & 8)) {
+        if (flags & 256) across(n - 1);
+        if (flags & 1024) {
+          cap(bottom, top, n - 1, forward);
+          rounds.push(halfCircle(position(n - 1, bottom), position(n - 1, top), forward).flat());
+        }
+        if (flags & 512) {
+          for (let k = 1; k < count - 1 - k; k++)
+            cap(order[k] as number, order[count - 1 - k] as number, n - 1, forward);
+        }
+      }
+    }
+    if (flags & 2) for (let v = closed ? 0 : 1; v < (closed ? n : n - 1); v++) across(v);
+    if (flags & 1) {
+      // 塗りは外側の 2 つの要素の間。線分ごとの四角形と丸い端の半円を偶奇規則で塗る
+      const rings: number[][] = [...rounds];
+      for (let i = 0; i < segments; i++) {
+        const j = (i + 1) % n;
+        rings.push([...position(i, bottom), ...position(j, bottom), ...position(j, top), ...position(i, top)]);
+      }
+      if (entity.fill_params?.some((vertex) => vertex.some((params) => params.length > 0))) {
+        this.notices.add("info", "mline-fill-breaks", "マルチラインの塗りの切れ目（MLEDIT）は描かず、全体を塗りました");
+      }
+      primitives.push({
+        kind: "fill",
+        color: this.color(partOf(owner, { color_index: style.fill_color }), child),
+        rings: rings.map((ring) => transformPoints(child.m, ring)),
+      });
+    }
+    this.add(
+      entity,
+      ctx,
+      [...primitives, ...strokes],
+      [
+        { label: "スタイル", value: style.name },
+        { label: "尺度", value: fmt(entity.scale * meanScale(ctx.local)) },
+        { label: "位置合わせ", value: ["上", "ゼロ", "下"][entity.justification] ?? String(entity.justification) },
+        { label: "頂点", value: `${n} 点${closed ? "（閉じる）" : ""}` },
+      ],
+    );
   }
 
   // --- ハッチング -----------------------------------------------------------
@@ -1668,6 +2234,52 @@ class Builder {
   }
 }
 
+/** MULTILEADER の色の生の値（上位 1 バイトが種類）。0xC0 BYLAYER、0xC1 BYBLOCK、0xC2 RGB、0xC3 ACI（ezdxf の colors.py） */
+function rawColor(raw: number): { color_index: number; true_color?: number } {
+  const kind = (raw >>> 24) & 0xff;
+  if (kind === 0xc2) return { color_index: 256, true_color: raw & 0xffffff };
+  if (kind === 0xc3) return { color_index: raw & 0xff };
+  if (kind === 0xc0) return { color_index: 256 };
+  return { color_index: 0 };
+}
+
+/** 図形の部品（マルチ引出線の文字・引出線、マルチラインの要素）の属性。BYBLOCK は親の図形の値になる */
+function partOf(
+  entity: DxfEntityBase,
+  color: { color_index: number; true_color?: number },
+  linetype = "BYBLOCK",
+): DxfEntityBase {
+  const part: DxfEntityBase = {
+    type: entity.type,
+    handle: entity.handle,
+    space: entity.space,
+    layer: entity.layer,
+    linetype,
+    color_index: color.color_index,
+    lineweight: -2,
+    linetype_scale: entity.linetype_scale,
+    invisible: false,
+  };
+  if (color.true_color !== undefined) part.true_color = color.true_color;
+  if (entity.transparency !== undefined) part.transparency = entity.transparency;
+  return part;
+}
+
+/**
+ * MLINE の線のパラメータの 2 つ目以降（線の始まり、切れ目の始まり、線の再開…。頂点からの長さ）を、
+ * 長さ length の線分の上で描く区間にする。値がなければ全体を描く
+ */
+function mlineDashes(params: readonly number[], length: number): [number, number][] {
+  if (params.length === 0) return [[0, length]];
+  const out: [number, number][] = [];
+  for (let k = 0; k < params.length; k += 2) {
+    const a = Math.max(0, Math.min(length, params[k] as number));
+    const b = Math.max(0, Math.min(length, params[k + 1] ?? length));
+    if (b - a > 1e-9) out.push([a, b]);
+  }
+  return out;
+}
+
 function reversePairs(points: number[]): number[] {
   const out: number[] = [];
   for (let i = points.length - 2; i >= 0; i -= 2) out.push(points[i] as number, points[i + 1] as number);
@@ -1723,7 +2335,14 @@ function anchorOf(entity: DxfEntity): Vec2 | null {
     case "3DFACE":
       return [entity.vtx0[0], entity.vtx0[1]];
     case "LEADER":
+    case "MLINE":
       return entity.points[0] ? [entity.points[0][0], entity.points[0][1]] : null;
+    case "MULTILEADER":
+    case "MLEADER": {
+      const context = entity.context;
+      const p = context.mtext?.insert ?? context.block?.insert ?? context.leaders[0]?.last_leader_point;
+      return p ? [p[0], p[1]] : null;
+    }
     case "HATCH":
     case "MPOLYGON": {
       const path = entity.paths[0];

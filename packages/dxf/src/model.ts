@@ -339,6 +339,185 @@ export interface DxfLeader extends DxfEntityBase {
   dimstyle: string;
 }
 
+/** MULTILEADER の線の切れ目（寸法の切断）。始点と終点の間を描かない */
+export interface DxfMLeaderBreak {
+  start: Vec3;
+  end: Vec3;
+}
+
+/** MULTILEADER の引出線の 1 本（DXF Reference「MLeader Leader Line Group Codes」） */
+export interface DxfMLeaderLine {
+  /** 頂点（10、WCS）。矢印の先から順に、着地点（DxfMLeaderLeader の last_leader_point）の手前まで */
+  vertices: Vec3[];
+  /** 線の切れ目（11・12） */
+  breaks: DxfMLeaderBreak[];
+  /** 引出線の番号（91）。arrow_heads の index と対応する */
+  index: number;
+  /** 色（92、生の値）。BYBLOCK（0xC1000000）は MULTILEADER の引出線の色（leader_line_color） */
+  color: number;
+}
+
+/** MULTILEADER の引出線のまとまり（「MLeader Leader Node Group Codes」）。同じ着地点に集まる線を持つ */
+export interface DxfMLeaderLeader {
+  lines: DxfMLeaderLine[];
+  /** 着地点を持つ（290）。AutoCAD は 0 の引出線を描かない */
+  has_last_leader_line: boolean;
+  /** 折れ線の向きを持つ（291） */
+  has_dogleg_vector: boolean;
+  /** 着地点（10、WCS）。折れ線（ドッグレッグ）の始まり */
+  last_leader_point: Vec3;
+  /** 折れ線の向き（11、WCS）。内容に向かう */
+  dogleg_vector: Vec3;
+  /** 折れ線の長さ（40、尺度を掛けた値） */
+  dogleg_length: number;
+  /** 番号（90） */
+  index: number;
+  /** 内容への接続（271、R2010 以降）。0 は左右（水平）、1 は上下（垂直） */
+  attachment_direction: number;
+  /** 折れ線の切れ目（12・13） */
+  breaks: DxfMLeaderBreak[];
+}
+
+/** MULTILEADER の文字の内容（CONTEXT_DATA の 290 が 1 のとき） */
+export interface DxfMLeaderMText {
+  /** 書式コードを含む文字列（304）。MTEXT の raw_text と同じ */
+  default_content: string;
+  /** 文字の面の法線（11） */
+  extrusion: Vec3;
+  /** 文字スタイル（STYLE）のハンドル（340） */
+  style_handle: string;
+  /** 配置点（12、WCS） */
+  insert: Vec3;
+  /** 文字の進む向き（13、WCS） */
+  text_direction: Vec3;
+  /** 折り返しの幅（43、全体の尺度を掛ける前）。0 なら折り返さない */
+  width: number;
+  line_spacing_factor: number;
+  line_spacing_style: number;
+  /** 色（90、生の値） */
+  color: number;
+  /** 配置点の位置（171）。MTEXT の 71 と同じ 1〜9 */
+  alignment: number;
+  /** 文字の並ぶ向き（172）。1 横書き、3 縦書き、5・6 は文字スタイルによる */
+  flow_direction: number;
+  /** 背景の色（91、生の値） */
+  bg_color: number;
+  /** 背景の枠の倍率（141） */
+  bg_scale_factor: number;
+  /** 画面の背景色で塗る（291） */
+  use_window_bg_color: boolean;
+  /** 背景を塗る（292） */
+  has_bg_fill: boolean;
+  /** 段組みの種類（173）。0 は段組みなし */
+  column_type: number;
+}
+
+/** MULTILEADER のブロックの内容（CONTEXT_DATA の 296 が 1 のとき） */
+export interface DxfMLeaderBlock {
+  /** ブロック（BLOCK_RECORD）のハンドル（341） */
+  block_record_handle: string;
+  /** 法線（14） */
+  extrusion: Vec3;
+  /** 配置点（15、WCS） */
+  insert: Vec3;
+  /** 尺度（16） */
+  scale: Vec3;
+  /** 回転（46、ラジアン） */
+  rotation: number;
+  /** 色（93、生の値） */
+  color: number;
+}
+
+/** MULTILEADER の表示の値（「MLeader Context Data Group Codes」）。大きさは全体の尺度を掛けた後の値 */
+export interface DxfMLeaderContext {
+  /** 全体の尺度（40） */
+  scale: number;
+  /** 内容の基点（10、WCS） */
+  base_point: Vec3;
+  /** 文字の高さ（41） */
+  char_height: number;
+  /** 矢印の大きさ（140） */
+  arrow_head_size: number;
+  /** 着地の隙間（145）。内容と引出線・枠の間 */
+  landing_gap_size: number;
+  mtext?: DxfMLeaderMText;
+  block?: DxfMLeaderBlock;
+  leaders: DxfMLeaderLeader[];
+}
+
+/**
+ * マルチ引出線（DXF Reference「Common MLeader Group Codes」）。AutoCAD は MLEADERSTYLE ではなく、
+ * 図形に書いた値（と CONTEXT_DATA の値）で描く（ezdxf の render/mleader.py の IGNORE_OVERRIDE_FLAGS と同じ）
+ */
+export interface DxfMLeader extends DxfEntityBase {
+  type: "MULTILEADER" | "MLEADER";
+  /** MLEADERSTYLE のハンドル（340） */
+  style_handle: string;
+  /** 引出線の種類（170）。0 なし、1 直線、2 スプライン */
+  leader_type: number;
+  /** 引出線の色（91、生の値） */
+  leader_line_color: number;
+  /** 引出線の線種（LTYPE）のハンドル（341） */
+  leader_linetype_handle: string;
+  /** 引出線の太さ（171） */
+  leader_lineweight: number;
+  /** 折れ線（ドッグレッグ）を描く（291） */
+  has_dogleg: boolean;
+  /** 矢印のブロック（BLOCK_RECORD）のハンドル（342）。空なら塗りつぶしの矢印 */
+  arrow_head_handle: string;
+  /** 内容の種類（172）。0 なし、1 ブロック、2 文字、3 公差 */
+  content_type: number;
+  /** 文字を枠で囲む（292） */
+  has_text_frame: boolean;
+  /** 左・右に接続する位置（173・95）。5・6・8 は下線を引く */
+  text_left_attachment_type: number;
+  text_right_attachment_type: number;
+  /** 上・下に接続する位置（273・272、R2010 以降）。10 は線を引く */
+  text_top_attachment_type: number;
+  text_bottom_attachment_type: number;
+  /** 引出線ごとの矢印（94 の引出線の番号と、345 のブロックのハンドル） */
+  arrow_heads: { index: number; handle: string }[];
+  /** ブロックの属性の値（330 の ATTDEF のハンドル、177 の番号、44 の幅、302 の値） */
+  block_attribs: { handle: string; index: number; width: number; text: string }[];
+  context: DxfMLeaderContext;
+}
+
+/**
+ * マルチライン（DXF Reference「MLINE」）。座標と向きは WCS。要素の位置は頂点から留め継ぎの向きへの距離で持つ。
+ * 属性の名前は ezdwg（points・vertex_directions・miter_directions・scale・base_point・mlinestyle_handle）に合わせた
+ */
+export interface DxfMLine extends DxfEntityBase {
+  type: "MLINE";
+  /** MLINESTYLE の名前（2） */
+  style_name: string;
+  /** MLINESTYLE のハンドル（340） */
+  mlinestyle_handle?: string;
+  /** 尺度（40） */
+  scale: number;
+  /** 位置合わせ（70）。0 上、1 ゼロ（中心）、2 下 */
+  justification: number;
+  /** 71。1 頂点を持つ、2 閉じる、4 始点の端を描かない、8 終点の端を描かない */
+  flags: number;
+  closed: boolean;
+  /** 要素の数（73） */
+  line_count: number;
+  /** 始点（10） */
+  base_point: Vec3;
+  /** 頂点（11） */
+  points: Vec3[];
+  /** 頂点から始まる線分の向き（12） */
+  vertex_directions: Vec3[];
+  /** 頂点の留め継ぎの向き（13） */
+  miter_directions: Vec3[];
+  /**
+   * 頂点ごと・要素ごとの線のパラメータ（74・41）。1 つ目は頂点から留め継ぎの向きへの要素の距離、
+   * 2 つ目以降は要素の線の始まりと切れ目の位置（MLEDIT の切断）。DWG（ezdwg）は持たず、MLINESTYLE から求める
+   */
+  line_params?: number[][][];
+  /** 頂点ごと・要素ごとの塗りのパラメータ（75・42） */
+  fill_params?: number[][][];
+}
+
 export interface DxfViewport extends DxfEntityBase {
   type: "VIEWPORT";
   /** 紙空間の中心 */
@@ -416,6 +595,8 @@ export type DxfEntity =
   | DxfHatch
   | DxfSolid
   | DxfLeader
+  | DxfMLeader
+  | DxfMLine
   | DxfViewport
   | DxfXLine
   | DxfImage
@@ -477,6 +658,30 @@ export interface DxfDimStyle {
   dimasz: number;
   /** 寸法値の高さ（DIMTXT） */
   dimtxt: number;
+}
+
+/** MLINE の要素（MLINESTYLE の 49・62・6） */
+export interface DxfMLineStyleElement {
+  /** 中心線からのずれ（尺度を掛ける前） */
+  offset: number;
+  /** ACI。0 は BYBLOCK（マルチラインの色）、256 は BYLAYER */
+  color: number;
+  linetype: string;
+}
+
+/** マルチラインのスタイル（OBJECTS の MLINESTYLE） */
+export interface DxfMLineStyle {
+  handle: string;
+  name: string;
+  /** 70。1 塗り、2 留め継ぎを描く、16・32・64 始点の線・内側の弧・外側の弧、256・512・1024 終点の線・内側の弧・外側の弧 */
+  flags: number;
+  description: string;
+  /** 塗りの色（62、ACI） */
+  fill_color: number;
+  /** 始点・終点の端の角度（51・52、度） */
+  start_angle: number;
+  end_angle: number;
+  elements: DxfMLineStyleElement[];
 }
 
 export interface DxfBlock {
@@ -565,6 +770,8 @@ export interface DxfDocument {
   linetypes: DxfLinetype[];
   styles: DxfTextStyle[];
   dimstyles: DxfDimStyle[];
+  /** マルチラインのスタイル。DWG（ezdwg）は読まないので省略できる（STANDARD の 2 本の線で描く） */
+  mline_styles?: DxfMLineStyle[];
   blocks: DxfBlock[];
   layouts: DxfLayout[];
   /** モデル空間・紙空間・ブロック定義のすべての図形。space と block で区別する */
