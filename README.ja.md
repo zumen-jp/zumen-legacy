@@ -7,6 +7,7 @@
 2026-10 の調査では、SXF をブラウザで読める JS ライブラリはなく、JWW もブラウザ向けの npm と React の部品がなかった。
 AutoCAD などの **DXF**（Shift_JIS の日本語、バイナリを含む）も TypeScript で読む。
 次の **DWG** は同じ AutoCAD の図形モデルを使い、GPL の部品を使わず MIT のまま読むことを目指す。
+読み取りを Rust に移し、Python（サーバーやデータ処理）と WebAssembly（ブラウザ）からも同じ結果で使えるようにしている。
 
 > 状態: 公開前（0.x）。npm にはまだ公開していない。
 
@@ -107,6 +108,36 @@ const scene = sxfToScene(drawing); // 必要なら表示用モデルにする
 `Scene` は用紙の mm・Y 軸上向きの座標で、部分図・作図部品の配置を解決済みの図形を持つ。
 要素ごとに属性の一覧と、部分図の中の要素なら元の座標への変換（実寸の計測用、`toReal`）を持つ。
 
+## Rust と Python
+
+読み取りを Rust（`crates/`）に移し、Python の結合部（`bindings/python`）と WebAssembly（`bindings/wasm`）を作っている。
+Rust の読み取りは TypeScript と同じ `Scene` を返す。`tests/fixtures` の図面で両方の結果を比べ、手元の図面は
+`pnpm run parity` で比べる。JWW は移植済みで、SXF・DXF・DWG が続く。ブラウザのパッケージは、形式ごとに結果が
+一致したものから WebAssembly の読み取りに切り替える。
+
+```python
+import zumen
+
+scene = zumen.read("plan.jww")  # 形式は中身で判定する
+png = scene.render_png(dpi=150)  # サムネイルや、画像を読む AI への添付
+part = scene.render_png(dpi=300, region=(100, 50, 200, 120))  # 用紙の mm で範囲を指定して拡大
+json_text = scene.to_json()  # @zumenjs/core の sceneFromJson で Scene に戻せる
+```
+
+```bash
+cargo run --release -p zumen-cli -- render plan.jww -o plan.png --dpi 150
+```
+
+| クレート | 中身 |
+| --- | --- |
+| `zumen-core` | 表示用モデル（`@zumenjs/core` と同じ JSON）、幾何、文字の配置 |
+| `zumen-jww` | `read_jww`（JWW のままのモデル）、`jww_to_scene`、読み取りの `JWW` |
+| `zumen` | すべての読み取りをまとめた `read`・`detect` |
+| `zumen-render` | ブラウザの描画と同じ規則で PNG に描く。日本語の文字は同梱の BIZ UDゴシックで描く |
+| `zumen-cli` | `zumen` コマンド（`detect`、`scene` で JSON、`render` で PNG） |
+
+Python では、読み取りと描画の間 GIL を外す。
+
 ## 文書
 
 - [構成と拡張の口（英語）](docs/architecture.md)
@@ -123,7 +154,10 @@ pnpm install --frozen-lockfile
 pnpm run check
 ```
 
-`check` は Biome、型検査、単体テスト、依存監査、各パッケージ（core、sxf・jww・dxf、react の順）と試用画面のビルドを行う。
+`check` は Biome、型検査、単体テスト、依存監査、各パッケージ（core、sxf・jww・dxf、react の順）と試用画面のビルドに加え、
+Rust（rustfmt・Clippy・テスト・wasm32 のビルド）と Python の結合部（Ruff・maturin・pytest）を検査する。
+Rust は `rust-toolchain.toml`、Python は uv と `bindings/python/.python-version` に固定する。
+TS の読み取りを変えたら `pnpm run golden` で `tests/fixtures` の正解を作り直し、Rust の読み取りも同じ結果に直す。
 開発中は、パッケージ同士が `package.json` の exports の `@zumenjs/source` 条件で `src` を読むため、ビルドしなくても変更がすぐ反映される。
 Node.js は `.node-version`、pnpm は `package.json` の `packageManager` に固定する。
 
@@ -134,3 +168,4 @@ Git に入れない図面は、置いたフォルダーを `ZUMEN_SAMPLES` に�
 ## ライセンス
 
 公開の前に決める。参照した第三者のソフトウェアは [packages/jww/THIRD_PARTY_NOTICES.md](packages/jww/THIRD_PARTY_NOTICES.md) に記録した。
+`zumen-render` に同梱するフォントは BIZ UDゴシック（SIL Open Font License 1.1、[crates/zumen-render/fonts/OFL.txt](crates/zumen-render/fonts/OFL.txt)）。

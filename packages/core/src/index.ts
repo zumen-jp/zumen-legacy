@@ -1,3 +1,4 @@
+export { sceneFromJson, sceneToJson } from "./json.js";
 export { type Distance, type MeasurePoint, measureDistance, toReal } from "./measure.js";
 export { NoticeList } from "./notices.js";
 export { HitIndex, type SnapPoint } from "./pick.js";

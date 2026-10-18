@@ -1,0 +1,18 @@
+[package]
+name = "zumen-core"
+description = "Format-neutral 2D drawing scene model, geometry and text layout for zumen"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+libm.workspace = true
+serde.workspace = true
+unicode-normalization.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

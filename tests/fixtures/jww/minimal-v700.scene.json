@@ -1,0 +1,505 @@
+{
+  "format": "jww",
+  "version": "JWW 700",
+  "sheet": {
+    "name": "",
+    "size": "A3",
+    "width": 420,
+    "height": 297
+  },
+  "bounds": {
+    "minX": 0,
+    "minY": 0,
+    "maxX": 420,
+    "maxY": 297
+  },
+  "layers": [
+    {
+      "id": 1,
+      "name": "0-0 通り芯",
+      "visible": true,
+      "group": "平面"
+    },
+    {
+      "id": 2,
+      "name": "0-1",
+      "visible": true,
+      "group": "平面"
+    },
+    {
+      "id": 3,
+      "name": "0-2",
+      "visible": false,
+      "group": "平面"
+    }
+  ],
+  "entities": [
+    {
+      "id": "#1",
+      "type": "線",
+      "source": "CDataSen",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            110,
+            148.5,
+            210,
+            148.5
+          ],
+          "closed": false,
+          "color": "#000000",
+          "width": 0.25,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 110,
+        "minY": 148.5,
+        "maxX": 210,
+        "maxY": 148.5
+      },
+      "placement": {
+        "name": "平面（1/100）",
+        "scaleX": 0.01,
+        "scaleY": 0.01,
+        "inverse": [
+          100,
+          0,
+          0,
+          100,
+          -21000,
+          -14850
+        ]
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "線"
+        },
+        {
+          "label": "番号",
+          "value": "#1"
+        },
+        {
+          "label": "レイヤ",
+          "value": "平面 / 0-0 通り芯"
+        },
+        {
+          "label": "縮尺",
+          "value": "1/100"
+        },
+        {
+          "label": "線色",
+          "value": "2"
+        },
+        {
+          "label": "線種",
+          "value": "1"
+        },
+        {
+          "label": "始点（実寸）",
+          "value": "-10,000, 0"
+        },
+        {
+          "label": "終点（実寸）",
+          "value": "0, 0"
+        }
+      ]
+    },
+    {
+      "id": "#2",
+      "type": "線",
+      "source": "CDataSen",
+      "layers": [
+        3
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            210,
+            168.5,
+            220,
+            168.5
+          ],
+          "closed": false,
+          "color": "#000000",
+          "width": 0.25,
+          "dashes": [
+            2,
+            2
+          ]
+        }
+      ],
+      "bbox": {
+        "minX": 210,
+        "minY": 168.5,
+        "maxX": 220,
+        "maxY": 168.5
+      },
+      "placement": {
+        "name": "平面（1/100）",
+        "scaleX": 0.01,
+        "scaleY": 0.01,
+        "inverse": [
+          100,
+          0,
+          0,
+          100,
+          -21000,
+          -14850
+        ]
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "線"
+        },
+        {
+          "label": "番号",
+          "value": "#2"
+        },
+        {
+          "label": "レイヤ",
+          "value": "平面 / 0-2"
+        },
+        {
+          "label": "縮尺",
+          "value": "1/100"
+        },
+        {
+          "label": "線色",
+          "value": "2"
+        },
+        {
+          "label": "線種",
+          "value": "2"
+        },
+        {
+          "label": "始点（実寸）",
+          "value": "0, 2,000"
+        },
+        {
+          "label": "終点（実寸）",
+          "value": "1,000, 2,000"
+        }
+      ]
+    },
+    {
+      "id": "#3",
+      "type": "文字",
+      "source": "CDataMoji",
+      "layers": [
+        2
+      ],
+      "primitives": [
+        {
+          "kind": "text",
+          "text": "表示ソ能",
+          "color": "#000000",
+          "fontFamily": "\"MS Mincho\", \"Hiragino Mincho ProN\", \"Yu Mincho\", \"Noto Serif JP\", \"Noto Serif CJK JP\", serif",
+          "height": 5,
+          "scaleX": 1,
+          "cells": [
+            {
+              "char": "表",
+              "x": 2.5,
+              "y": 2.5
+            },
+            {
+              "char": "示",
+              "x": 7.5,
+              "y": 2.5
+            },
+            {
+              "char": "ソ",
+              "x": 12.5,
+              "y": 2.5
+            },
+            {
+              "char": "能",
+              "x": 17.5,
+              "y": 2.5
+            }
+          ],
+          "boxWidth": 20,
+          "boxHeight": 5,
+          "matrix": [
+            1,
+            0,
+            0,
+            1,
+            210,
+            158.5
+          ]
+        }
+      ],
+      "bbox": {
+        "minX": 210,
+        "minY": 158.5,
+        "maxX": 230,
+        "maxY": 163.5
+      },
+      "placement": {
+        "name": "平面（1/100）",
+        "scaleX": 0.01,
+        "scaleY": 0.01,
+        "inverse": [
+          100,
+          0,
+          0,
+          100,
+          -21000,
+          -14850
+        ]
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "文字"
+        },
+        {
+          "label": "番号",
+          "value": "#3"
+        },
+        {
+          "label": "レイヤ",
+          "value": "平面 / 0-1"
+        },
+        {
+          "label": "縮尺",
+          "value": "1/100"
+        },
+        {
+          "label": "線色",
+          "value": "2"
+        },
+        {
+          "label": "線種",
+          "value": "1"
+        },
+        {
+          "label": "文字列",
+          "value": "表示ソ能"
+        },
+        {
+          "label": "フォント",
+          "value": "Century"
+        },
+        {
+          "label": "文字の大きさ",
+          "value": "幅 5・高さ 5・間隔 0（mm）"
+        }
+      ]
+    },
+    {
+      "id": "#4",
+      "type": "円弧",
+      "source": "CDataEnko",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            220,
+            148.5,
+            219.92708874098054,
+            147.29463319744676,
+            219.70941817426052,
+            146.10684335712443,
+            219.35016242685415,
+            144.95395112957465,
+            218.8545602565321,
+            143.85276827956233,
+            218.22983865893656,
+            142.81935253268844,
+            217.485107481711,
+            141.86877341759205,
+            216.63122658240795,
+            141.014892518289,
+            215.68064746731156,
+            140.27016134106344,
+            214.64723172043767,
+            139.6454397434679,
+            213.54604887042535,
+            139.14983757314585,
+            212.39315664287557,
+            138.79058182573948,
+            211.20536680255324,
+            138.57291125901946,
+            210,
+            138.5
+          ],
+          "closed": false,
+          "color": "#000000",
+          "width": 0.25,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 210,
+        "minY": 138.5,
+        "maxX": 220,
+        "maxY": 148.5
+      },
+      "placement": {
+        "name": "平面（1/100）",
+        "scaleX": 0.01,
+        "scaleY": 0.01,
+        "inverse": [
+          100,
+          0,
+          0,
+          100,
+          -21000,
+          -14850
+        ]
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "円弧"
+        },
+        {
+          "label": "番号",
+          "value": "#4"
+        },
+        {
+          "label": "レイヤ",
+          "value": "平面 / 0-0 通り芯"
+        },
+        {
+          "label": "縮尺",
+          "value": "1/100"
+        },
+        {
+          "label": "線色",
+          "value": "2"
+        },
+        {
+          "label": "線種",
+          "value": "1"
+        },
+        {
+          "label": "中心（実寸）",
+          "value": "0, 0"
+        },
+        {
+          "label": "半径（実寸）",
+          "value": "1,000"
+        }
+      ]
+    },
+    {
+      "id": "#5>#1",
+      "type": "線",
+      "source": "CDataSen",
+      "layers": [
+        1,
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            260,
+            148.5,
+            262,
+            148.5
+          ],
+          "closed": false,
+          "color": "#000000",
+          "width": 0.25,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 260,
+        "minY": 148.5,
+        "maxX": 262,
+        "maxY": 148.5
+      },
+      "placement": {
+        "name": "平面（1/100）",
+        "scaleX": 0.01,
+        "scaleY": 0.01,
+        "inverse": [
+          100,
+          0,
+          0,
+          100,
+          -21000,
+          -14850
+        ]
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "線"
+        },
+        {
+          "label": "番号",
+          "value": "#5>#1"
+        },
+        {
+          "label": "レイヤ",
+          "value": "平面 / 0-0 通り芯"
+        },
+        {
+          "label": "縮尺",
+          "value": "1/100"
+        },
+        {
+          "label": "線色",
+          "value": "2"
+        },
+        {
+          "label": "線種",
+          "value": "1"
+        },
+        {
+          "label": "始点（実寸）",
+          "value": "5,000, 0"
+        },
+        {
+          "label": "終点（実寸）",
+          "value": "5,200, 0"
+        }
+      ]
+    }
+  ],
+  "notices": [],
+  "metadata": [
+    {
+      "label": "形式",
+      "value": "JWW（版 700）"
+    },
+    {
+      "label": "用紙",
+      "value": "A3（420×297mm）"
+    },
+    {
+      "label": "縮尺",
+      "value": "1/100"
+    },
+    {
+      "label": "メモ",
+      "value": "メモ"
+    },
+    {
+      "label": "ブロック",
+      "value": "1 件"
+    },
+    {
+      "label": "Jw_cad の設定",
+      "value": "View_Direct2d = 1"
+    }
+  ],
+  "background": "light"
+}

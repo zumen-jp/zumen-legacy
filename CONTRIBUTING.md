@@ -11,6 +11,7 @@ format, version, authoring software, and the notices the viewer shows.
 ## Setup
 
 - Node.js from `.node-version` (24) and pnpm from `packageManager` in `package.json` (enable it with `corepack enable`).
+- Rust from `rust-toolchain.toml` (installed by rustup on first use) and [uv](https://docs.astral.sh/uv/) for the Python bindings.
 - Install and run every check:
 
   ```bash
@@ -38,9 +39,14 @@ Keep tests few and meaningful. Add a test when a mistake would go unnoticed and 
 encodings, coordinate systems, scales, nesting, and regressions of serious bugs. Do not add tests that restate the
 implementation or check UI text. Build test drawings inside the test (see `packages/jww/tests`).
 
+The Rust readers must return the same scenes as the TypeScript readers. The synthetic drawings that the TypeScript
+tests build are also written to `tests/fixtures` with the scenes they produce; after changing a TypeScript reader, run
+`pnpm run golden` and make the Rust reader match (`cargo test -p zumen`). To compare both on your own drawings,
+build them (`pnpm run build`, `cargo build --release -p zumen-cli`) and run `pnpm run parity <folder>`.
+
 ## Style
 
-- Format with Biome (`pnpm run format`). Lines are up to 120 characters.
+- Format with Biome (`pnpm run format`), rustfmt (`cargo fmt --all`) and Ruff. Lines are up to 120 characters.
 - Many existing comments are in Japanese because they quote Japanese specifications. English comments are welcome.
 - Commit messages follow Conventional Commits, for example `feat(sxf): …` or `fix(core): …`.
 
