@@ -63,10 +63,72 @@ bytes ─▶ format reader ─▶ native model ─▶ toScene ─▶ Scene ─�
 - `viewer.getState()` and `viewer.subscribe(listener)` expose the state to any UI (React uses `useSyncExternalStore`).
 - `onSelect` reports entities the user picks.
 
+## The Rust implementation
+
+The readers are being ported to Rust so that servers, data pipelines and Python can read drawings with the same
+results as the browser. The Rust code will become the single implementation of the readers: the browser packages
+switch to its WebAssembly build format by format, once the Rust reader returns the same scene as the TypeScript one
+on the fixtures and on real drawings. Until then both are maintained, and the TypeScript reader is the reference.
+
+```text
+bytes ─▶ zumen-jww (and later zumen-sxf, zumen-dxf, zumen-dwg) ─▶ Scene (zumen-core) ─┬▶ JSON ─▶ sceneFromJson ─▶ DrawingViewer
+                                                                                       ├▶ PNG (zumen-render)
+                                                                                       └▶ Python (bindings/python), WebAssembly (bindings/wasm)
+```
+
+| Crate | Responsibility |
+| --- | --- |
+| `zumen-core` | The `Scene` types (serde, the same JSON as `sceneToJson`), `NoticeList`, `DrawingReader` and `read_drawing`, geometry (`geometry`), text layout (`text`), measurement, and JavaScript-compatible number handling (`js`). |
+| `zumen-jww` | JWW parsing into the JWW document model (`read_jww`), conversion to a scene (`jww_to_scene`), and the `JWW` reader. |
+| `zumen` | `read` and `detect` over every reader. The entry point for applications. |
+| `zumen-render` | Draws a scene to PNG with the rules of `render.ts` (color inversion, line weights with a 1 px minimum, dash rules, even-odd fills, clipping, per-character text, small text as a line). |
+| `zumen-cli` | The `zumen` command (`detect`, `scene`, `render`). |
+| `bindings/python` | PyO3 bindings, built with maturin as an abi3 wheel for Python 3.10 and later. The GIL is released while reading and rendering. |
+| `bindings/wasm` | wasm-bindgen bindings that return scene JSON (`readSceneJson`). |
+
+The dependency rules follow the TypeScript packages: format crates depend only on `zumen-core` and never on each other
+(the planned `zumen-dwg` reads into the AutoCAD model of `zumen-dxf`), and parsing does not depend on rendering.
+
+### Keeping the two implementations equal
+
+- A port keeps the structure and the order of operations of the TypeScript code, so that the scenes are equal value
+  for value: entity ids, properties, notices and their order, and coordinates.
+- Strings shown to users follow JavaScript exactly. `zumen_core::js` reproduces `toFixed`, `String(number)`,
+  `Intl.NumberFormat("ja-JP")`, `Math.max`/`Math.min` with NaN and signed zeros, V8's `Math.hypot`, and the white space
+  of `String.prototype.trim`. Trigonometry uses `libm`, so native and WebAssembly builds give the same values.
+- Text decoding uses `encoding_rs`, the WHATWG decoders that browsers implement. Node.js decodes Shift_JIS with ICU,
+  which differs from WHATWG for byte 0x80 (U+0080 in browsers and Rust, U+FFFD in Node.js).
+- `tests/fixtures/<format>/` holds synthetic drawings built by the TypeScript tests and the scenes the TypeScript readers
+  return (`*.scene.json`). `pnpm run golden` rewrites them. The TypeScript tests check that they are current, and
+  `crates/zumen/tests/golden.rs` checks that Rust returns the same scenes (numbers to a relative 1e-9).
+- `pnpm run parity` compares the TypeScript and Rust readers on drawings that are not in Git (`ZUMEN_SAMPLES`),
+  and `pnpm run wasm` builds the WebAssembly package and checks it against the fixtures.
+
+### Rust dependencies
+
+Runtime dependencies are permissive and work in WebAssembly. Recorded with the reason, as for the npm packages.
+
+| Crate | License | Why |
+| --- | --- | --- |
+| `serde`, `serde_json` | MIT OR Apache-2.0 | The scene JSON shared with the browser |
+| `encoding_rs` | (MIT OR Apache-2.0) AND BSD-3-Clause | Shift_JIS (CP932) and UTF-16 with the WHATWG rules of `TextDecoder` |
+| `unicode-normalization` | (MIT OR Apache-2.0) AND Unicode-3.0 | NFKC for font names, as `String.prototype.normalize` (about 128 KB of the WebAssembly build) |
+| `libm` | MIT | The same trigonometry on every target |
+| `tiny-skia` | BSD-3-Clause | CPU rasterization for PNG, with anti-aliasing, dashes, even-odd fills and masks |
+| `ttf-parser` | MIT OR Apache-2.0 | Glyph outlines of the bundled font |
+| `pyo3` | MIT OR Apache-2.0 | Python bindings |
+| `wasm-bindgen` | MIT OR Apache-2.0 | WebAssembly bindings |
+
+`zumen-render` bundles BIZ UDGothic Regular (SIL Open Font License 1.1, `crates/zumen-render/fonts/OFL.txt`),
+a Japanese gothic close to the MS Gothic that SXF and Jw_cad drawings assume. Characters without a glyph are reported
+(`RenderReport.missing_glyphs`, a Python warning).
+
 ## Development setup
 
 - Each package's `exports` has an `@zumenjs/source` condition that points at `src`. The type checker
   (`customConditions` in `tsconfig.json`), Vitest and the Vite playground resolve it, so changes apply without a build.
   `publishConfig.exports` leaves it out of the published packages, which contain only `dist`.
 - `pnpm run build` compiles the packages in dependency order (core, then sxf, jww and dxf, then react) into each `dist`.
-- `pnpm run check` runs Biome, the type checker, the unit tests, `pnpm audit` and all builds.
+- `pnpm run check` runs Biome, the type checker, the unit tests, `pnpm audit` and all builds, then the Rust checks
+  (`check:rust`: rustfmt, Clippy, tests and the wasm32 build) and the Python checks (`check:python`: Ruff, maturin, pytest).
+- The Rust toolchain is pinned in `rust-toolchain.toml`, Python in `bindings/python/.python-version` (installed by uv).

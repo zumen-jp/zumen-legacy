@@ -1,0 +1,19 @@
+[package]
+name = "zumen-cli"
+description = "Command line tool to inspect and render 2D drawings with zumen"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "zumen"
+path = "src/main.rs"
+
+[dependencies]
+serde_json.workspace = true
+zumen.workspace = true
+zumen-render.workspace = true
+
+[lints]
+workspace = true

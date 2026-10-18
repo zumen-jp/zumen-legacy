@@ -8,3 +8,10 @@ playground-dist/
 __screenshots__/
 # OS files
 .DS_Store
+
+# Rust, Python and WebAssembly build output
+target/
+.venv/
+__pycache__/
+*.so
+bindings/wasm/pkg/

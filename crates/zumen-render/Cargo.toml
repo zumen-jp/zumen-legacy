@@ -1,0 +1,17 @@
+[package]
+name = "zumen-render"
+description = "Render zumen scenes to PNG images with the same rules as the browser viewer"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+publish.workspace = true
+# BIZ UDGothic (SIL Open Font License 1.1) is bundled for Japanese text
+include = ["src/**", "fonts/**", "Cargo.toml"]
+
+[dependencies]
+tiny-skia.workspace = true
+ttf-parser.workspace = true
+zumen-core.workspace = true
+
+[lints]
+workspace = true

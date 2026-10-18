@@ -1,0 +1,3 @@
+# Drawings are compared byte for byte by the TS and Rust tests
+*.jww binary
+*.scene.json text eol=lf

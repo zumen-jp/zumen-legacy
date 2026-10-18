@@ -1,0 +1,14 @@
+[package]
+name = "zumen-jww"
+description = "Read Jw_cad JWW drawings into the zumen scene model"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+encoding_rs.workspace = true
+zumen-core.workspace = true
+
+[lints]
+workspace = true

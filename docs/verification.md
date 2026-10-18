@@ -81,3 +81,32 @@ Checked on 2026-10-18 on macOS (Apple M2 Pro), Node.js 24.21.0 and Chromium, aga
   ACI colors, Firefox and Safari. For MULTILEADER and MLINE: AutoCAD's own rendering of spline leaders, block content and the arrow
   blocks (the ACadSharp samples only have straight leaders with closed filled arrows and text), tolerance content, text columns,
   non-rectangular text frames, dimension breaks, MLINE fill breaks, and MLEDIT cuts in elements that start after the miter point.
+
+## Rust readers, rendering and bindings
+
+Checked on 2026-10-18 on macOS (Apple Silicon) with Rust 1.99.0, Node.js 24.21.0, Python 3.15.0, wasm-pack 0.15.0
+(wasm-bindgen 0.2.129).
+
+- The synthetic JWW drawings of the TypeScript tests (versions 600 and 700, written to `tests/fixtures/jww`) give the
+  same scenes in Rust as in TypeScript (`crates/zumen/tests/golden.rs`). Through Python, `json.loads(scene.to_json())`
+  is equal to the TypeScript scene without any tolerance.
+- All 205 JWW files of the public [ezjww](https://github.com/monozukuri-ai/ezjww) repository (MIT, commit 66af683, read
+  locally and not committed) give the same scenes in Rust as in TypeScript with `pnpm run parity` (numbers to a relative
+  1e-9). 196 of them are equal bit for bit; the other 9 differ only in the last bits of trigonometric results. They include the 15 drawings of `jww_samples` (an apartment floor plan with 1,754
+  entities, a shadow diagram with 1,720, a sky factor table with 6,457 on A0), the block regression files, files saved by
+  the JWW writer and JWW files generated from JWC and JWS samples.
+- WebAssembly (`pnpm run wasm`): 519,699 bytes (gzip −9: 297,963, brotli −11: 229,035) with the JWW reader only.
+  Unicode normalization (NFKC for font names) accounts for about 128 KB before `wasm-opt`. The output equals the
+  fixtures and the TypeScript scenes of four real drawings.
+- PNG rendering at 100 dpi with the release build of the `zumen` command (median of three runs, including reading and
+  PNG encoding): the apartment floor plan on A3 (1,654 × 1,170 px) in 0.06 s, the shadow diagram (2,404 × 1,631 px) in
+  0.10 s, and the sky factor table on A0 (4,682 × 3,312 px) in 0.33 s. Reading and writing the scene JSON took 0.02 s,
+  0.02 s and 0.07 s.
+- The apartment floor plan was drawn by Rust with the view of the playground's viewer (`--size 1484x1324 --margin 48
+  --dpr 2`, the canvas of `DrawingViewer` in Chromium at device pixel ratio 2) and compared pixel by pixel with the
+  viewer's canvas. Every dark pixel of the viewer (64,694) has a dark pixel of Rust within 2 px; 1.09% of the dark
+  pixels of Rust (62,687) have none in the viewer, all in text, because the browser draws with Hiragino and Rust with
+  the bundled BIZ UDGothic. Room names, vertical text, half-width katakana, dimension values, dashed center lines,
+  solids and hatches are drawn in the same places.
+- Not checked: Windows and Linux builds of the Python wheel (CI builds on Linux), free-threaded Python, fonts other
+  than the bundled BIZ UDGothic (Mincho text is drawn in Gothic), and rendering of SXF and DXF scenes (not ported yet).

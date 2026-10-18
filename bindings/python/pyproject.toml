@@ -1,0 +1,36 @@
+[build-system]
+requires = ["maturin>=1.15,<2"]
+build-backend = "maturin"
+
+[project]
+name = "zumen"
+description = "Read 2D drawings of Japanese construction (JWW now; SXF, DXF and DWG next) and render them to PNG"
+readme = "README.md"
+requires-python = ">=3.10"
+keywords = ["cad", "drawing", "jww", "sxf", "dxf", "dwg", "aec"]
+classifiers = [
+  # 公開の前にライセンスを決める（docs/releasing.md）。それまで PyPI へ送らない
+  "Private :: Do Not Upload",
+  "Programming Language :: Rust",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: Implementation :: CPython",
+  "Topic :: Scientific/Engineering",
+]
+dynamic = ["version"]
+
+[project.urls]
+Repository = "https://github.com/zumenjs/zumen"
+
+[dependency-groups]
+dev = ["maturin==1.15.0", "pytest==9.1.1", "ruff==0.17.1"]
+
+[tool.maturin]
+python-source = "python"
+module-name = "zumen._zumen"
+
+[tool.ruff]
+line-length = 120
+
+[tool.uv]
+# 拡張モジュールは maturin develop で入れる（pnpm run check:python）
+package = false

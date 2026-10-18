@@ -115,6 +115,37 @@ const sheet = dxfToScene(doc, { layout: "Layout1" }); // or the default view (mo
 A `Scene` uses paper millimeters with the Y axis up. Placements of sub-figures and blocks are resolved,
 and each entity keeps its properties and, inside a scaled placement, the transform back to real-world coordinates.
 
+## Rust and Python
+
+The readers are being ported to Rust (`crates/`), with Python bindings (`bindings/python`) and a WebAssembly build
+(`bindings/wasm`), so servers and data pipelines can read the same drawings. The Rust readers return the same `Scene`
+as the TypeScript ones: both are compared on the drawings in `tests/fixtures`, and on local samples with
+`pnpm run parity`. JWW is ported; SXF, DXF and DWG follow. The browser packages will switch to the WebAssembly
+readers format by format, once each one matches.
+
+```python
+import zumen
+
+scene = zumen.read("plan.jww")  # the format is detected from the contents
+png = scene.render_png(dpi=150)  # thumbnails, or images for vision models
+part = scene.render_png(dpi=300, region=(100, 50, 200, 120))  # a part, in paper millimeters
+json_text = scene.to_json()  # sceneFromJson() in @zumenjs/core turns it back into a Scene
+```
+
+```bash
+cargo run --release -p zumen-cli -- render plan.jww -o plan.png --dpi 150
+```
+
+| Crate | Contents |
+| --- | --- |
+| [`zumen-core`](crates/zumen-core) | The scene model (the same JSON as `@zumenjs/core`), geometry and text layout |
+| [`zumen-jww`](crates/zumen-jww) | `read_jww` (the JWW document model), `jww_to_scene`, the `JWW` reader |
+| [`zumen`](crates/zumen) | `read` and `detect` over every reader |
+| [`zumen-render`](crates/zumen-render) | PNG rendering with the rules of the browser renderer; BIZ UDGothic is bundled for Japanese text |
+| [`zumen-cli`](crates/zumen-cli) | The `zumen` command: `detect`, `scene` (JSON) and `render` (PNG) |
+
+Reading and rendering release the GIL in Python.
+
 ## Privacy
 
 Drawings are read from memory in the browser. The libraries make no network requests,
@@ -129,9 +160,10 @@ so confidential drawings can be viewed without sending them anywhere.
 ## Roadmap
 
 1. Split into readers, the drawing engine and React (done).
-2. DXF, with an AutoCAD object model shared with DWG (done; MULTILEADER and MLINE are next).
-3. DWG, starting with WebAssembly.
-4. Markup, georeferencing, and measuring PDF drawings.
+2. DXF, with an AutoCAD object model shared with DWG (done, including MULTILEADER and MLINE).
+3. Rust readers with Python and WebAssembly bindings, and PNG rendering on servers (JWW done; SXF and DXF next).
+4. DWG, read into the same AutoCAD object model.
+5. Writing and converting drawings, analysis (tables, rooms and areas, revision comparison), markup and PDF drawings.
 
 ## Documentation
 
@@ -151,6 +183,8 @@ Report security issues as described in [SECURITY.md](SECURITY.md).
 To be decided before the first public release.
 Third-party notices: [packages/jww/THIRD_PARTY_NOTICES.md](packages/jww/THIRD_PARTY_NOTICES.md),
 [packages/dxf/THIRD_PARTY_NOTICES.md](packages/dxf/THIRD_PARTY_NOTICES.md).
+The bundled font of `zumen-render` is BIZ UDGothic under the SIL Open Font License 1.1
+([crates/zumen-render/fonts/OFL.txt](crates/zumen-render/fonts/OFL.txt)).
 
 ## Acknowledgments
 

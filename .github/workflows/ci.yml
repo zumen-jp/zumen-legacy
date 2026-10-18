@@ -15,7 +15,7 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       # actions/checkout v7.0.1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -28,5 +28,11 @@ jobs:
         with:
           node-version-file: .node-version
           cache: pnpm
+      # The Rust toolchain, components and the wasm32 target come from rust-toolchain.toml
+      - run: rustup toolchain install
+      # Swatinem/rust-cache v2.9.2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+      # astral-sh/setup-uv v10.3.0 (Python comes from bindings/python/.python-version)
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
       - run: pnpm install --frozen-lockfile
       - run: pnpm run check

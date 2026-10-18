@@ -1,7 +1,7 @@
 # Rules for coding agents
 
 - The entry point for verification is `pnpm run check` (Biome, the type checker, unit tests, `pnpm audit`,
-  and the builds of every package and the playground). Check visible changes in the `pnpm dev` playground
+  the builds of every package and the playground, then `check:rust` and `check:python`). Check visible changes in the `pnpm dev` playground
   with real drawings.
 - Follow the public specification of each format and cite the section in a comment.
   Write down inferred behavior in `docs/formats/`.
@@ -18,3 +18,8 @@
 - Interaction (zoom, selection, measurement) belongs in `DrawingViewer`. `@zumenjs/react` only shows the state and
   calls the viewer's methods.
 - Never put client names, client drawings or private repository details in this repository.
+- The Rust readers (`crates/`) are ports of the TypeScript readers and must return the same scene. Keep the structure
+  and order of operations, format user-visible numbers with `zumen_core::js`, and after changing a TypeScript reader run
+  `pnpm run golden` and fix the Rust side until `cargo test -p zumen` passes. Never change a golden file by hand.
+- Rust runtime dependencies follow the same rules as npm ones (no GPL or AGPL, works in WebAssembly) and are recorded
+  with the reason in `docs/architecture.md`.
