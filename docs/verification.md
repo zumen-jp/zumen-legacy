@@ -1,0 +1,67 @@
+# Verification records
+
+Sample drawings are not part of this repository, because their terms of use do not allow redistribution or have not been confirmed.
+
+## SXF and JWW
+
+Checked on 2026-10-18 on macOS (Apple Silicon), Node.js 24.21.0 and Chromium.
+
+- 16 unit tests. SFC: the CP932 second byte 0x5C, the order in which codes are assigned, sub-figure scales and real-world
+  measurement, drawing groups, geodetic coordinate systems, user-defined colors, line types and widths, and features after the sheet.
+  P21: `\X2\` strings, layers and hidden layers, child figure scales, clockwise arcs, the text anchor offset, outward and inward
+  arrows, and fills with a hidden outline. JWW: coordinates centered on the sheet and a 1/100 real-world scale, layer names and states,
+  line type bit patterns, clockwise arcs, class numbers shared across block definitions, version 600 and 700 strings (CP932 and UTF-16),
+  and settings stored as text.
+- The real-project sample `D0LS004Z.SFC` from the public [ezsxf](https://github.com/monozukuri-ai/ezsxf) repository
+  (255 KB, written by ABC-CAD 2008, SXF 3.0, A1) became 1,201 scene entities in 168 ms in Node.js. The feature counts
+  (581 lines, 313 texts, 126 linear dimensions and so on) match the original, and Japanese notes and dimension values are decoded.
+- The P21 version `D0LS004Z.P21` (1.4 MB, 18,150 instances) is read in 0.2–0.4 s into the same 1,201 entities as the SFC version.
+  Types, layers, notice counts and the overall extents (to 0.01 mm) match.
+- In the playground: fit, zoom, hatch clipping, dimension arrows and values, vertical text, selection and properties,
+  real-world measurement in a 1/20 sub-figure, the light background, and no horizontal scroll at 375 px.
+- Eight JWW samples (version 600: site plan, shadow diagram, wooden house plan, apartment plan and others) from the ezjww repository
+  are read in 1–50 ms each. Counts by type, coordinate ranges, scales and layer group names match ezjww 0.7.2.
+  On the apartment plan (1,754 entities): room names, half-width katakana, rotated text, wall solids, dimensions and real coordinates.
+- Nine version 700 samples saved with Jw_cad (including nested blocks and shared class numbers) have the same entity and block
+  definition counts as ezjww.
+- Before and after the split into packages, the scenes of the 20 samples above (properties, coordinates and notices) were identical.
+  In the playground, 15 interaction steps on the SFC sample and the apartment plan (wheel, drag, keys, selection, measurement,
+  background, line weights, layers and width changes) gave the same state and the same Canvas pixels. `DrawingViewer` without React
+  was checked with the built packages loaded through an import map: display, coordinate conversion, overlays and cleanup.
+
+## DXF
+
+Checked on 2026-10-18 on macOS (Apple M2 Pro), Node.js 24.21.0 and Chromium, against [ezdxf](https://ezdxf.mozman.at/) 1.4.5 (Python 3.14).
+
+- Six unit tests in `packages/dxf/tests`: `$DWGCODEPAGE` `ANSI_932` with CP932 second bytes 0x5C in TEXT and MTEXT and a `\U+` escape;
+  Shift_JIS detected for an R12 file without a code page while a Western `°` stays Windows-1252; binary DXF value sizes;
+  nested blocks with base points, scales and rotation, meters converted to millimeters and real-world measurement;
+  layer 0 and `BYBLOCK` inheritance; and a 1:100 layout viewport whose measurements return model millimeters, with the overall
+  viewport ignored.
+- Compared with ezdxf: counts by type per space and per block, layer and layout names, the content and insertion point of model space
+  TEXT and MTEXT (to 0.001), LINE end points (to 1e-6), model space extents and viewport scales.
+
+  | Sample | Source and terms | Version | Entities | Result |
+  | --- | --- | --- | ---: | --- |
+  | Yokosuka City survey plan (Minami kindergarten site) | [City of Yokosuka](https://www.city.yokosuka.kanagawa.jp/2645/minamikodomoen-proposaljisshi.html); no reproduction or modification, read locally | AC1032 | 9,260 | Counts, 1,239 texts (356 Japanese) and 4,814 lines match (two differ only in the rounding of the sixth decimal); extents equal |
+  | Yokosuka City profile and cross sections | as above | AC1032 | 692 and 1,191 | Counts, texts, lines and extents match |
+  | Imizu City cultural hall seating section | [Imizu City Culture Promotion Foundation](https://www.imizubunka.or.jp/chubun/about/download/); redistribution not confirmed, read locally | AC1009, no code page | 638 | Shift_JIS detected; 26 texts (22 Japanese) match ezdxf read with `cp932` |
+  | ACadSharp samples (14) | [ACadSharp](https://github.com/DomCR/ACadSharp) (MIT), commit 2f8b099; one drawing saved as R12 to 2018, ASCII and binary | AC1009–AC1032 | 341 (2,396 in R12) | Counts in blocks, texts and extents match; ASCII and binary give the same result; model space differs only by types not read (15 MULTILEADER, 3 MLINE…) |
+  | BFP Teaching House | Big Floor Plans (CC BY 4.0) | AC1015, inches | 376 | Counts and 49 texts match; extents differ by 0.26% (text widths) |
+  | ezdwg DXF samples (25) | [ezdwg](https://github.com/monozukuri-ai/ezdwg) (MIT) `test_dwg` | AC1015–AC1027 | 1 each | Counts and texts match |
+  | Generated drawings (3) | Made with ezdxf: four dimension types, hatch patterns, formatted MTEXT, attributes, arrays, nested blocks, OCS, a 1:100 viewport and a 1:50 viewport twisted by 30°, R2000 in `ANSI_932`, binary | AC1015, AC1032 | 76 | Counts and texts match; points inside both viewports equal ezdxf's `Viewport.get_transformation_matrix` |
+
+  The remaining differences: ezdxf adds layers `0` and `Defpoints` and a `Layout1` while loading; ezdxf reads the tolerance stack
+  `\S+0.1^-0.2;` as caret notation, while zumen splits it into upper and lower parts as AutoCAD does; and text widths change the extents.
+- Time (median of five runs after a warm-up, Node.js): the Yokosuka survey plan (2.7 MB, 9,260 entities) parses in 47 ms and converts in
+  56 ms; the ACadSharp 2018 sample parses in 14 ms as ASCII (2.5 MB) and 22 ms as binary (1.3 MB). The built package is 184 KB
+  (45 KB gzip).
+- In the playground (built-in browser of the Claude desktop app, Chromium): model space of the Yokosuka plan with Japanese layer names
+  and text, 50% transparent hatches showing the lines below, selection of a TEXT (handle, layer, style `MS Gothic`), and a model space
+  measurement; switching an ACadSharp drawing to the layout `MyLayout` (A4 sheet, light background, viewport 1:1.4352) and measuring
+  inside the viewport (57.9 mm on paper, 83.1 mm real); the generated drawing compared with ezdxf's own rendering (matplotlib);
+  the Imizu section in Shift_JIS; the floor plan of the teaching house; and both side panels closed.
+- The SXF and JWW unit tests still pass after the changes to `@zumenjs/core` (views, colors with alpha, near-black inversion) and
+  `@zumenjs/react` (view selection, grid columns).
+- Not checked: client drawings, DXF files over 10 MB, external references, dynamic blocks, AutoCAD's own rendering of text widths and
+  ACI colors, Firefox and Safari.

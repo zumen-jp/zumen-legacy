@@ -1,0 +1,93 @@
+import { dxf } from "@zumenjs/dxf";
+import { jww } from "@zumenjs/jww";
+import { CadViewer, useCadFile } from "@zumenjs/react";
+import { sxf } from "@zumenjs/sxf";
+import { type DragEvent, StrictMode, useEffect, useState } from "react";
+import { createRoot } from "react-dom/client";
+
+const ACCEPT = ".sfc,.p21,.jww,.dxf";
+const READERS = [sxf, jww, dxf];
+
+/** 図面を選ぶ・ドロップする・?sample=名前 で開く試用画面 */
+function App() {
+  const [file, setFile] = useState<File | null>(null);
+  // DXF のモデル空間・レイアウトなど、図面の中の表示。ファイルを変えたら既定の表示に戻す
+  const [view, setView] = useState<string | undefined>(
+    () => new URLSearchParams(window.location.search).get("view") ?? undefined,
+  );
+  const [over, setOver] = useState(false);
+  const { scene, error, loading } = useCadFile(file, READERS, { view });
+  const open = (next: File | null) => {
+    setView(undefined);
+    setFile(next);
+  };
+
+  useEffect(() => {
+    const sample = new URLSearchParams(window.location.search).get("sample");
+    if (!sample) return;
+    fetch(`/samples/${encodeURIComponent(sample)}`)
+      .then((response) => {
+        if (!response.ok) throw new Error(`${sample} を取得できません（${response.status}）`);
+        return response.blob();
+      })
+      .then((blob) => setFile(new File([blob], sample)))
+      .catch((reason: unknown) => console.error(reason));
+  }, []);
+
+  const onDrop = (event: DragEvent<HTMLElement>) => {
+    event.preventDefault();
+    setOver(false);
+    const dropped = event.dataTransfer.files[0];
+    if (dropped) open(dropped);
+  };
+
+  return (
+    <main
+      style={{
+        display: "grid",
+        gridTemplateRows: "auto minmax(0, 1fr)",
+        height: "100%",
+        gap: 8,
+        padding: 8,
+        boxSizing: "border-box",
+      }}
+      onDragOver={(event) => {
+        event.preventDefault();
+        setOver(true);
+      }}
+      onDragLeave={() => setOver(false)}
+      onDrop={onDrop}
+    >
+      <header style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12 }}>
+        <h1 style={{ margin: 0, fontSize: 18 }}>CAD 図面ビューア</h1>
+        <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+          図面ファイル（SFC・P21・JWW・DXF）
+          <input type="file" accept={ACCEPT} onChange={(event) => open(event.currentTarget.files?.[0] ?? null)} />
+        </label>
+        <span aria-live="polite">
+          {loading
+            ? "読み込み中…"
+            : error
+              ? `読み込めませんでした: ${error.message}`
+              : file
+                ? file.name
+                : "ファイルを選ぶか、ここへドロップしてください"}
+        </span>
+      </header>
+      <div style={{ minHeight: 0, outline: over ? "3px dashed #0031d8" : undefined }}>
+        {scene ? (
+          <CadViewer scene={scene} label={file?.name} style={{ height: "100%" }} onViewChange={setView} />
+        ) : null}
+      </div>
+    </main>
+  );
+}
+
+const root = document.getElementById("root");
+if (root) {
+  createRoot(root).render(
+    <StrictMode>
+      <App />
+    </StrictMode>,
+  );
+}

@@ -1,0 +1,65 @@
+{
+  "name": "@zumenjs/core",
+  "version": "0.1.0",
+  "description": "Format-neutral 2D drawing scene model, Canvas renderer and viewer (zoom, pan, select, measure) for zumen",
+  "keywords": [
+    "cad",
+    "drawing",
+    "viewer",
+    "canvas",
+    "aec"
+  ],
+  "homepage": "https://github.com/zumenjs/zumen/tree/main/packages/core#readme",
+  "bugs": {
+    "url": "https://github.com/zumenjs/zumen/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zumenjs/zumen.git",
+    "directory": "packages/core"
+  },
+  "private": true,
+  "type": "module",
+  "license": "UNLICENSED",
+  "sideEffects": false,
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "@zumenjs/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./geometry": {
+      "@zumenjs/source": "./src/geometry.ts",
+      "types": "./dist/geometry.d.ts",
+      "default": "./dist/geometry.js"
+    },
+    "./text": {
+      "@zumenjs/source": "./src/text.ts",
+      "types": "./dist/text.d.ts",
+      "default": "./dist/text.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./geometry": {
+        "types": "./dist/geometry.d.ts",
+        "default": "./dist/geometry.js"
+      },
+      "./text": {
+        "types": "./dist/text.d.ts",
+        "default": "./dist/text.js"
+      },
+      "./package.json": "./package.json"
+    }
+  }
+}

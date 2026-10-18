@@ -1,0 +1,40 @@
+name: Bug report
+description: A drawing is read or shown incorrectly, or the viewer misbehaves
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. **Do not attach confidential drawings.**
+        A small drawing made to reproduce the problem, or a description of the file, is enough.
+  - type: dropdown
+    id: format
+    attributes:
+      label: Format
+      options:
+        - SXF (SFC)
+        - SXF (P21)
+        - JWW
+        - Not format-specific
+    validations:
+      required: true
+  - type: input
+    id: software
+    attributes:
+      label: Authoring software and version
+      placeholder: e.g. Jw_cad 8.25a
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened, and what you expected
+    validations:
+      required: true
+  - type: textarea
+    id: notices
+    attributes:
+      label: Notices shown by the viewer
+      description: The list of skipped or substituted content, if any.
+  - type: input
+    id: environment
+    attributes:
+      label: Package versions, browser and OS

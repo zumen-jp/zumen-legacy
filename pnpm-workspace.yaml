@@ -1,0 +1,11 @@
+packages:
+  - packages/*
+saveExact: true
+engineStrict: true
+enableGlobalVirtualStore: false
+verifyDepsBeforeRun: error
+strictDepBuilds: true
+allowBuilds:
+  esbuild: true
+minimumReleaseAgeExclude:
+  - '@types/node@24.19.2'

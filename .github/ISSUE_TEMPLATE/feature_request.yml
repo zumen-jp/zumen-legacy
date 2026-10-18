@@ -1,0 +1,16 @@
+name: Feature or format request
+description: Propose a feature, or support for a format or an entity type
+labels: [enhancement]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: What do you need, and why
+      description: For formats, include the specification or where the files come from.
+    validations:
+      required: true
+  - type: textarea
+    id: example
+    attributes:
+      label: Example files
+      description: Only files you may share publicly. Never attach confidential drawings.

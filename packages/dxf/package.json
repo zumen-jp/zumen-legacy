@@ -1,0 +1,51 @@
+{
+  "name": "@zumenjs/dxf",
+  "version": "0.1.0",
+  "description": "Read DXF drawings (ASCII and binary, R12 to 2018) in the browser and Node.js, with the AutoCAD drawing model shared with DWG",
+  "keywords": [
+    "dxf",
+    "autocad",
+    "cad",
+    "drawing",
+    "viewer"
+  ],
+  "homepage": "https://github.com/zumenjs/zumen/tree/main/packages/dxf#readme",
+  "bugs": {
+    "url": "https://github.com/zumenjs/zumen/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zumenjs/zumen.git",
+    "directory": "packages/dxf"
+  },
+  "private": true,
+  "type": "module",
+  "license": "UNLICENSED",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "exports": {
+    ".": {
+      "@zumenjs/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./package.json": "./package.json"
+    }
+  },
+  "dependencies": {
+    "@zumenjs/core": "workspace:*"
+  }
+}

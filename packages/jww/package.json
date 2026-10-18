@@ -1,0 +1,52 @@
+{
+  "name": "@zumenjs/jww",
+  "version": "0.1.0",
+  "description": "Read Jw_cad JWW drawings in the browser and Node.js, without WebAssembly",
+  "keywords": [
+    "jww",
+    "jw_cad",
+    "jwcad",
+    "cad",
+    "drawing",
+    "japan"
+  ],
+  "homepage": "https://github.com/zumenjs/zumen/tree/main/packages/jww#readme",
+  "bugs": {
+    "url": "https://github.com/zumenjs/zumen/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zumenjs/zumen.git",
+    "directory": "packages/jww"
+  },
+  "private": true,
+  "type": "module",
+  "license": "UNLICENSED",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "exports": {
+    ".": {
+      "@zumenjs/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./package.json": "./package.json"
+    }
+  },
+  "dependencies": {
+    "@zumenjs/core": "workspace:*"
+  }
+}

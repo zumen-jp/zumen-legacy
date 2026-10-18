@@ -1,0 +1,10 @@
+# Dependencies and build output
+node_modules/
+dist/
+playground-dist/
+*.tsbuildinfo
+# Vitest browser mode output
+.vitest-attachments/
+__screenshots__/
+# OS files
+.DS_Store

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
+  "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
+  "files": {
+    "includes": ["**", "!!**/node_modules", "!!**/dist", "!!**/playground-dist", "!**/pnpm-lock.yaml"]
+  },
+  "formatter": { "indentStyle": "space", "indentWidth": 2, "lineWidth": 120 },
+  "linter": {
+    "domains": { "react": "recommended", "test": "recommended" },
+    "rules": { "preset": "recommended" }
+  },
+  "javascript": { "formatter": { "quoteStyle": "double" } }
+}
