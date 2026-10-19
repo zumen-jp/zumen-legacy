@@ -60,8 +60,8 @@ the differences that remain are in [How DWG is handled](dwg.md).
 - 102 groups (`{ACAD_REACTORS`…), extended data (1001 and later) and embedded objects (101) are skipped when reading entity attributes.
   Common attributes are taken from the `AcDbEntity` subclass only, so table cell colors of `ACAD_TABLE` are not mistaken for its color.
 - `POLYLINE`/`VERTEX`/`SEQEND` and `INSERT`/`ATTRIB`/`SEQEND` sequences are assembled into one entity.
-- ATTRIB and ATTDEF take the text generation flags (71) from the `AcDbText` subclass only. The [ATTRIB
-  table](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-7DD8B495-C3F8-48CD-A766-14F9D7D0DD9B.htm)
+- ATTRIB and ATTDEF take the text generation flags (71) from the `AcDbText` subclass only. The
+  [ATTRIB table](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-7DD8B495-C3F8-48CD-A766-14F9D7D0DD9B.htm)
   lists them in `AcDbAttribute`, but AutoCAD 2018 writes the attribute type there (1 single line, 2 multi-line
   attribute, 4 multi-line attribute definition), as ezdxf (`attribute_type`) and ACadSharp (`AttributeType`) read it;
   taken as generation flags, it drew multi-line attribute definitions upside down. The text of a multi-line attribute is
