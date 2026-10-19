@@ -29,4 +29,4 @@ Choices made before this folder existed are described in [the architecture notes
 
 ## Records
 
-None yet.
+- [0001: Divide PDF work with ParaPDF by use: drawings in zumen, documents in ParaPDF](0001-pdf-and-parapdf.md)
