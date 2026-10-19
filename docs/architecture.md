@@ -141,7 +141,9 @@ The dependency rules follow the TypeScript packages: format crates depend only o
   overflowing the stack, hanging or exhausting memory.
 - `tests/fixtures/<format>/` holds synthetic drawings built by the TypeScript tests and the scenes the TypeScript readers
   return (`*.scene.json`). `pnpm run golden` rewrites them. The TypeScript tests check that they are current, and
-  `crates/zumen/tests/golden.rs` checks that Rust returns the same scenes (numbers to a relative 1e-9).
+  `crates/zumen/tests/golden.rs` checks that Rust returns the same scenes. Both compare numbers to a relative 1e-9:
+  besides Rust's `libm`, Node.js itself gives `Math.sin` and `Math.cos` results that differ in the last bits between x64
+  and arm64, so a scene written on one computer does not match another one character for character.
 - `pnpm run parity` compares the TypeScript and Rust readers on drawings that are not in Git (`ZUMEN_SAMPLES`), in every
   view (DXF layouts), and `pnpm run wasm` builds the WebAssembly package and checks it against the fixtures.
 - `pnpm run fuzz` reads randomly damaged copies of the fixtures (inserted escapes, quotes and brackets, DXF tags and
