@@ -83,6 +83,24 @@ class Scene:
         hidden_layers: list[int] | None = None,
         sheet_frame: bool = True,
     ) -> bytes: ...
+    def render_svg(
+        self,
+        *,
+        region: Box | None = None,
+        theme: Literal["light", "dark"] | None = None,
+        line_weights: bool = True,
+        hidden_layers: list[int] | None = None,
+        sheet_frame: bool = True,
+    ) -> str: ...
+    def render_pdf(
+        self,
+        *,
+        region: Box | None = None,
+        theme: Literal["light", "dark"] | None = None,
+        line_weights: bool = True,
+        hidden_layers: list[int] | None = None,
+        sheet_frame: bool = True,
+    ) -> bytes: ...
     def render(
         self,
         *,

@@ -1,4 +1,4 @@
-//! zumen の Python の結合部。図面を読み（`read`）、表示用モデル（`Scene`）を JSON や PNG にし、文字と図形を取り出す。
+//! zumen の Python の結合部。図面を読み（`read`）、表示用モデル（`Scene`）を JSON・PNG・SVG・PDF にし、文字と図形を取り出す。
 //! 読み取りと描画の間は GIL を外す（FastAPI のスレッドなどで並行に動く）。
 
 use pyo3::exceptions::{PyImportError, PyUserWarning, PyValueError};
@@ -270,6 +270,59 @@ impl Scene {
             .map_err(|error| RenderError::new_err(error.message().to_string()))?;
         warn_missing_glyphs(py, &report)?;
         Ok(PyBytes::new(py, &png))
+    }
+
+    /// 図面を SVG にする。region は用紙の mm の範囲で、省略すると用紙（用紙がなければ図面全体）。
+    /// 単位は mm で、文字は検索できる text 要素になる。theme・line_weights・hidden_layers・sheet_frame は render_png と同じ
+    #[pyo3(signature = (*, region = None, theme = None, line_weights = true, hidden_layers = None, sheet_frame = true))]
+    fn render_svg(
+        &self,
+        py: Python<'_>,
+        region: Option<Region>,
+        theme: Option<&str>,
+        line_weights: bool,
+        hidden_layers: Option<Vec<u32>>,
+        sheet_frame: bool,
+    ) -> PyResult<String> {
+        let options = RenderOptions {
+            theme: parse_theme(theme)?,
+            line_weights,
+            hidden_layers: hidden_layers.map(|ids| ids.into_iter().collect::<HashSet<u32>>()),
+            sheet_frame,
+            ..RenderOptions::default()
+        };
+        let scene = self.inner.clone();
+        let region = region.map(to_bbox);
+        py.detach(move || zumen_render::render_svg(&scene, region, &options))
+            .map_err(|error| RenderError::new_err(error.message().to_string()))
+    }
+
+    /// 図面を 1 ページの PDF にする。ページは用紙の大きさ（region を指定すればその範囲）で、線の太さは図面のとおり。
+    /// 文字は同梱の BIZ UDゴシックの使う字形だけを埋め込み、検索・コピーできる。引数は render_svg と同じ
+    #[pyo3(signature = (*, region = None, theme = None, line_weights = true, hidden_layers = None, sheet_frame = true))]
+    fn render_pdf<'py>(
+        &self,
+        py: Python<'py>,
+        region: Option<Region>,
+        theme: Option<&str>,
+        line_weights: bool,
+        hidden_layers: Option<Vec<u32>>,
+        sheet_frame: bool,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        let options = RenderOptions {
+            theme: parse_theme(theme)?,
+            line_weights,
+            hidden_layers: hidden_layers.map(|ids| ids.into_iter().collect::<HashSet<u32>>()),
+            sheet_frame,
+            ..RenderOptions::default()
+        };
+        let scene = self.inner.clone();
+        let region = region.map(to_bbox);
+        let (pdf, report) = py
+            .detach(move || zumen_render::render_pdf(&scene, region, &options))
+            .map_err(|error| RenderError::new_err(error.message().to_string()))?;
+        warn_missing_glyphs(py, &report)?;
+        Ok(PyBytes::new(py, &pdf))
     }
 
     /// 図面を PNG にし、画像の px と用紙の mm の変換と、描いた図形の位置を合わせて返す（`Rendering`）。

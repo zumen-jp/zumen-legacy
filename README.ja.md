@@ -143,6 +143,7 @@ import zumen
 
 scene = zumen.read("plan.jww")  # 形式は中身で判定する
 png = scene.render_png(dpi=150)  # サムネイルや、画像を読む AI への添付
+pdf = scene.render_pdf()  # 用紙を実寸で、検索できる文字つきで（render_svg も同じ）
 part = scene.render_png(dpi=300, region=(100, 50, 200, 120))  # 用紙の mm で範囲を指定して拡大
 json_text = scene.to_json()  # @zumenjs/core の sceneFromJson で Scene に戻せる
 
@@ -160,6 +161,7 @@ AI のアプリは、Python のパッケージの MCP サーバー（`pip instal
 
 ```bash
 cargo run --release -p zumen-cli -- render plan.jww -o plan.png --dpi 150 --map plan.json
+cargo run --release -p zumen-cli -- render plan.jww -o plan.pdf  # plan.svg でも
 cargo run --release -p zumen-cli -- texts plan.jww --region 100,50,200,120  # 1 行に 1 つの JSON
 ```
 
@@ -171,7 +173,7 @@ cargo run --release -p zumen-cli -- texts plan.jww --region 100,50,200,120  # 1 
 | `zumen-dxf` | `parse_dxf`（DWG と共有する AutoCAD の図形モデル）、`dxf_to_scene`、読み取りの `DXF` |
 | `zumen-dwg` | `read_dwg`（DWG 2000〜2018 を `zumen-dxf` の AutoCAD の図形モデルにする）、読み取りの `DWG` |
 | `zumen` | すべての読み取りをまとめた `read`・`detect` |
-| `zumen-render` | ブラウザの描画と同じ規則で PNG に描き、描いた図形の画像の上の位置を返す。日本語の文字は同梱の BIZ UDゴシックで描く |
+| `zumen-render` | ブラウザの描画と同じ規則で PNG・SVG・PDF に描き、描いた図形の画像の上の位置を返す。日本語の文字は同梱の BIZ UDゴシックで描く |
 | `zumen-cli` | `zumen` コマンド（`detect`、`scene` で JSON、`texts`・`entities` で 1 行 1 つの JSON、`render` で PNG） |
 
 Python では、読み取りと描画の間 GIL を外す。

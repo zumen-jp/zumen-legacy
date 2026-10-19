@@ -1,4 +1,4 @@
-//! zumen の表示用モデル（`Scene`）を PNG に描く。
+//! zumen の表示用モデル（`Scene`）を PNG・SVG・PDF に描く。
 //!
 //! ブラウザの描画（`@zumenjs/core` の render.ts）と同じ規則で描く: 背景と見分けにくい色の反転、
 //! 線の太さと 1 デバイス px の下限、短すぎる破線の実線化、偶奇規則の塗り、領域で切り取った線、
@@ -6,6 +6,13 @@
 //! 文字は同梱の BIZ UDゴシック（SIL Open Font License 1.1）で描く。座標の変換は f64 で行い、
 //! 測量座標のような大きな値でも位置がずれないようにする。
 #![forbid(unsafe_code)]
+
+mod pdf;
+mod svg;
+mod vector;
+
+pub use pdf::render_pdf;
+pub use svg::render_svg;
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt;
@@ -179,17 +186,13 @@ pub fn render(
     let mut pixmap = Pixmap::new(width.max(1), height.max(1)).ok_or_else(|| RenderError::new("画像を作れません"))?;
     let face = Face::parse(BUNDLED_FONT, 0).map_err(|_| RenderError::new("同梱のフォントを読めません"))?;
     let theme = options.theme.unwrap_or(scene.background);
-    let background = match theme {
-        Background::Dark => (0, 0, 0),
-        Background::Light => (255, 255, 255),
-    };
+    let background = background_rgb(theme);
     pixmap.fill(Color::from_rgba8(background.0, background.1, background.2, 255));
     let mut painter = Painter {
         pixmap: &mut pixmap,
         base: [view.scale, 0.0, 0.0, -view.scale, view.offset_x, view.offset_y],
         scale: view.scale,
         theme,
-        background,
         line_weights: options.line_weights,
         device_pixel_ratio: options.device_pixel_ratio.max(1e-6),
         face,
@@ -312,7 +315,6 @@ struct Painter<'a> {
     /// 1 mm が何 px か
     scale: f64,
     theme: Background,
-    background: (u8, u8, u8),
     line_weights: bool,
     device_pixel_ratio: f64,
     face: Face<'static>,
@@ -321,19 +323,33 @@ struct Painter<'a> {
     batch: Option<Batch>,
 }
 
+/// 背景の色（RGB）
+pub(crate) fn background_rgb(theme: Background) -> (u8, u8, u8) {
+    match theme {
+        Background::Dark => (0, 0, 0),
+        Background::Light => (255, 255, 255),
+    }
+}
+
+/// 描く色。背景色（BACKGROUND_COLOR）は背景の色にし、背景と見分けにくい色（白背景の白に近い色、
+/// 黒背景の黒に近い色）は反対の色にする。不透明度は保つ。読めない色は None
+pub(crate) fn resolve_color(color: &str, theme: Background) -> Option<[u8; 4]> {
+    if color == BACKGROUND_COLOR {
+        let (r, g, b) = background_rgb(theme);
+        return Some([r, g, b, 255]);
+    }
+    let [r, g, b, a] = parse_color(color)?;
+    let value = (f64::from(r) * 0.299 + f64::from(g) * 0.587 + f64::from(b) * 0.114) / 255.0;
+    Some(match theme {
+        Background::Light if value > 0.85 => [0, 0, 0, a],
+        Background::Dark if value < 0.05 => [255, 255, 255, a],
+        _ => [r, g, b, a],
+    })
+}
+
 impl Painter<'_> {
-    /// 背景と見分けにくい色（白背景の白に近い色、黒背景の黒に近い色）を反対の色にする。不透明度は保つ
     fn color(&self, color: &str) -> Option<[u8; 4]> {
-        if color == BACKGROUND_COLOR {
-            return Some([self.background.0, self.background.1, self.background.2, 255]);
-        }
-        let [r, g, b, a] = parse_color(color)?;
-        let value = (f64::from(r) * 0.299 + f64::from(g) * 0.587 + f64::from(b) * 0.114) / 255.0;
-        Some(match self.theme {
-            Background::Light if value > 0.85 => [0, 0, 0, a],
-            Background::Dark if value < 0.05 => [255, 255, 255, a],
-            _ => [r, g, b, a],
-        })
+        resolve_color(color, self.theme)
     }
 
     fn to_px(&self, x: f64, y: f64) -> (f32, f32) {
@@ -748,5 +764,160 @@ mod tests {
         let image = render_image(&scene, Some(part), ImageSize::Dpi(25.4), &all).unwrap();
         assert_eq!((image.width, image.height), (30, 20));
         assert_eq!(ids(drawn_entities(&scene, &image.view, image.width, image.height, &all)), ["a", "b"]);
+    }
+}
+
+#[cfg(test)]
+mod vector_tests {
+    use super::*;
+    use zumen_core::geometry::placement;
+    use zumen_core::text::{TextLayoutInput, layout_text};
+    use zumen_core::{ClippedPrimitive, DotPrimitive, FillPrimitive, SceneLayer, Sheet};
+
+    fn entity(id: &str, layers: Vec<u32>, primitives: Vec<Primitive>) -> SceneEntity {
+        SceneEntity {
+            id: id.into(),
+            kind: "test".into(),
+            source: "test".into(),
+            layers,
+            primitives,
+            bbox: BBox { min_x: 0.0, min_y: 0.0, max_x: 420.0, max_y: 297.0 },
+            properties: Vec::new(),
+            placement: None,
+        }
+    }
+
+    fn stroke(points: &[f64], color: &str) -> StrokePrimitive {
+        StrokePrimitive {
+            points: points.to_vec(),
+            closed: false,
+            segments: None,
+            color: color.into(),
+            width: 0.35,
+            dashes: Vec::new(),
+        }
+    }
+
+    /// A3 の用紙に、線・半透明の塗り・切り取ったハッチング・点・文字と、非表示のレイヤの線
+    fn sheet_scene(text: &str) -> Scene {
+        let label = layout_text(
+            TextLayoutInput {
+                text,
+                x: 100.0,
+                y: 100.0,
+                height: 5.0,
+                width: 0.0,
+                spacing: 0.0,
+                angle: 0.0,
+                slant: 0.0,
+                anchor: 1.0,
+                vertical: false,
+                color: "#000000".into(),
+                font_family: "sans-serif".into(),
+            },
+            &placement(0.0, 0.0, 0.0, 1.0, 1.0),
+        )
+        .expect("text");
+        let ring = vec![10.0, 10.0, 60.0, 10.0, 60.0, 60.0, 10.0, 60.0];
+        Scene {
+            format: "test".into(),
+            version: "1".into(),
+            views: None,
+            view: None,
+            sheet: Some(Sheet { name: "平面図".into(), size: "A3".into(), width: 420.0, height: 297.0 }),
+            bounds: BBox { min_x: 0.0, min_y: 0.0, max_x: 420.0, max_y: 297.0 },
+            layers: vec![
+                SceneLayer { id: 0, name: "0".into(), visible: true, group: None },
+                SceneLayer { id: 1, name: "非表示".into(), visible: false, group: None },
+            ],
+            entities: vec![
+                entity("1", vec![0], vec![Primitive::Stroke(stroke(&[0.0, 0.0, 420.0, 297.0], "#ff0000"))]),
+                entity(
+                    "2",
+                    vec![0],
+                    vec![Primitive::Fill(FillPrimitive { color: "#0000ff80".into(), rings: vec![ring.clone()] })],
+                ),
+                entity(
+                    "3",
+                    vec![0],
+                    vec![Primitive::Clipped(ClippedPrimitive {
+                        rings: vec![ring],
+                        strokes: vec![stroke(&[0.0, 0.0, 100.0, 100.0], "#00ff00")],
+                    })],
+                ),
+                entity(
+                    "4",
+                    vec![0],
+                    vec![Primitive::Dot(DotPrimitive { x: 200.0, y: 200.0, color: "#000000".into() })],
+                ),
+                entity("5", vec![0], vec![Primitive::Text(label)]),
+                entity("6", vec![1], vec![Primitive::Stroke(stroke(&[1.0, 2.0, 3.0, 4.0], "#123456"))]),
+            ],
+            notices: Vec::new(),
+            metadata: Vec::new(),
+            background: Background::Light,
+        }
+    }
+
+    #[test]
+    fn writes_svg_in_paper_millimeters_with_searchable_text() {
+        let scene = sheet_scene("平面図");
+        let svg = render_svg(&scene, None, &RenderOptions::default()).unwrap();
+        assert!(svg.starts_with(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"420mm\" height=\"297mm\" viewBox=\"0 0 420 297\">"
+        ));
+        assert!(svg.contains("stroke=\"#ff0000\" stroke-width=\"0.35\""));
+        assert!(svg.contains("fill=\"#0000ff\" fill-rule=\"evenodd\" fill-opacity=\"0.502\""));
+        assert!(svg.contains("<clipPath id=\"c1\">") && svg.contains("clip-path=\"url(#c1)\""));
+        assert!(svg.contains(">平</tspan>") && svg.contains(">図</tspan>"));
+        // 非表示のレイヤは描かず、ページが用紙そのものなら用紙の枠も描かない
+        assert!(!svg.contains("#123456") && !svg.contains("stroke-opacity=\"0.35\""));
+        // 範囲を指定すると、その範囲がページになり、用紙の枠を描く
+        let part = render_svg(
+            &scene,
+            Some(BBox { min_x: -10.0, min_y: -10.0, max_x: 90.0, max_y: 40.0 }),
+            &RenderOptions::default(),
+        )
+        .unwrap();
+        assert!(part.contains("viewBox=\"0 0 100 50\"") && part.contains("stroke-opacity=\"0.35\""));
+        // 細い線は 1 px（0.265 mm）より細くしない
+        let thin =
+            render_svg(&scene, None, &RenderOptions { line_weights: false, ..RenderOptions::default() }).unwrap();
+        assert!(thin.contains("stroke=\"#ff0000\" stroke-width=\"0.265\""));
+    }
+
+    #[test]
+    fn writes_a_pdf_page_of_the_sheet_with_an_embedded_font_subset() {
+        let scene = sheet_scene("平面図😀");
+        let (pdf, report) = render_pdf(&scene, None, &RenderOptions::default()).unwrap();
+        let text = String::from_utf8_lossy(&pdf);
+        assert!(text.starts_with("%PDF-1.7"));
+        assert!(text.contains("/MediaBox [0 0 1190.5511 841.8898]"), "{}", &text[..400.min(text.len())]);
+        for key in [
+            "/Type0",
+            "/CIDFontType2",
+            "/Identity-H",
+            "/FontFile2",
+            "/ToUnicode",
+            "+BIZUDGothic-Regular",
+            "/FlateDecode",
+        ] {
+            assert!(text.contains(key), "{key}");
+        }
+        assert!(text.contains("/Producer (zumen") && text.contains("/Title"));
+        assert_eq!(report.missing_glyphs.into_iter().collect::<String>(), "😀");
+        // 文字がなければフォントを埋め込まない
+        let mut plain = sheet_scene("x");
+        plain.entities.retain(|entity| entity.id != "5");
+        let (pdf, _) = render_pdf(&plain, None, &RenderOptions::default()).unwrap();
+        assert!(!String::from_utf8_lossy(&pdf).contains("/FontFile2"));
+        assert!(
+            render_pdf(
+                &plain,
+                Some(BBox { min_x: 0.0, min_y: 0.0, max_x: 0.0, max_y: 10.0 }),
+                &RenderOptions::default()
+            )
+            .is_err()
+        );
     }
 }

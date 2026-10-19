@@ -1,6 +1,6 @@
 [package]
 name = "zumen-render"
-description = "Render zumen scenes to PNG images with the same rules as the browser viewer"
+description = "Render zumen scenes to PNG, SVG and PDF with the same rules as the browser viewer"
 version.workspace = true
 edition.workspace = true
 repository.workspace = true
@@ -9,6 +9,9 @@ publish.workspace = true
 include = ["src/**", "fonts/**", "Cargo.toml"]
 
 [dependencies]
+miniz_oxide.workspace = true
+pdf-writer.workspace = true
+subsetter.workspace = true
 tiny-skia.workspace = true
 ttf-parser.workspace = true
 zumen-core.workspace = true
