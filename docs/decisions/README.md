@@ -30,3 +30,4 @@ Choices made before this folder existed are described in [the architecture notes
 ## Records
 
 - [0001: Keep ST-Bridge structural models in zumen as a TypeScript package](0001-st-bridge-in-zumen.md) (2026-10-19, Accepted)
+- [0002: Divide PDF work with ParaPDF by use: drawings in zumen, documents in ParaPDF](0002-pdf-and-parapdf.md) (2026-10-19, Accepted)
