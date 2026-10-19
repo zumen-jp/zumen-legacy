@@ -414,15 +414,16 @@ impl BinaryTags<'_> {
             self.bytes[start..].iter().position(|byte| *byte == 0).map(|offset| start + offset).ok_or(EndOfData)?;
         self.pos = end + 1;
         let slice = &self.bytes[start..end];
-        let text = if slice.is_ascii() { latin1(slice) } else { decode(slice, self.label) };
-        let caret = slice.iter().any(|byte| *byte < 0x20 || *byte == b'^');
-        Ok(if caret { caret_notation(&text) } else { text })
+        Ok(caret_notation(if slice.is_ascii() { latin1(slice) } else { decode(slice, self.label) }))
     }
 }
 
 /// テキストの DXF の文字列の書き方（DXF Reference「About ASCII Control Characters in DXF Files」）。制御文字は ^ と
 /// 0x40 を足した文字（改行は ^J）、^ は「^ 」と書く。バイナリの DXF は文字のまま書くので、テキストの DXF と同じ値にする
-fn caret_notation(text: &str) -> String {
+fn caret_notation(text: String) -> String {
+    if !text.chars().any(|c| c < ' ' || c == '^') {
+        return text;
+    }
     let mut out = String::with_capacity(text.len() + 4);
     for c in text.chars() {
         if c < ' ' {

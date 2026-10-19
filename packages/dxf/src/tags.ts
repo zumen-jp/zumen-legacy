@@ -336,17 +336,13 @@ class BinaryTags {
     let end = start;
     const bytes = this.bytes;
     let ascii = true;
-    let caret = false;
     while (end < bytes.length && bytes[end] !== 0) {
-      const byte = bytes[end] as number;
-      if (byte >= 0x80) ascii = false;
-      else if (byte < 0x20 || byte === 0x5e) caret = true;
+      if ((bytes[end] as number) >= 0x80) ascii = false;
       end++;
     }
     if (end >= bytes.length) throw new RangeError("unterminated string");
     this.pos = end + 1;
-    const text = ascii ? latin1(bytes, start, end) : this.decoder.decode(bytes.subarray(start, end));
-    return caret ? caretNotation(text) : text;
+    return caretNotation(ascii ? latin1(bytes, start, end) : this.decoder.decode(bytes.subarray(start, end)));
   }
 }
 
@@ -355,8 +351,11 @@ class BinaryTags {
  * 0x40 を足した文字（改行は ^J）、^ は「^ 」と書く。バイナリの DXF は文字のまま書くので、テキストの DXF と同じ値にする
  */
 function caretNotation(text: string): string {
-  let out = "";
-  for (let i = 0; i < text.length; i++) {
+  let i = 0;
+  while (i < text.length && text.charCodeAt(i) >= 0x20 && text.charCodeAt(i) !== 0x5e) i++;
+  if (i === text.length) return text;
+  let out = text.slice(0, i);
+  for (; i < text.length; i++) {
     const code = text.charCodeAt(i);
     if (code < 0x20) out += `^${String.fromCharCode(code + 0x40)}`;
     else if (code === 0x5e) out += "^ ";

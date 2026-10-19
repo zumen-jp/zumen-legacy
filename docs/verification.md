@@ -82,6 +82,41 @@ Checked on 2026-10-18 on macOS (Apple M2 Pro), Node.js 24.21.0 and Chromium, aga
   blocks (the ACadSharp samples only have straight leaders with closed filled arrows and text), tolerance content, text columns,
   non-rectangular text frames, dimension breaks, MLINE fill breaks, and MLEDIT cuts in elements that start after the miter point.
 
+## DXF against the DWG of the same drawing
+
+Checked on 2026-10-20 on macOS (Apple M2 Pro) with Node.js 24.21.0 and Rust 1.99.0. Comparing DWG with the DXF of
+the same drawing (`crates/zumen-dwg/examples/compare.rs` of [zumenjs/zumen#11](https://github.com/zumenjs/zumen/pull/11),
+with this change merged locally) found three values that the DXF reader read differently from AutoCAD. Both readers now
+read them as [How DXF is handled](formats/dxf.md#reading) describes.
+
+- Three synthetic drawings in `tests/fixtures/dxf` and three unit tests pin the rules: a multi-line ATTDEF as AutoCAD
+  2018 writes it (attribute type 4 in `AcDbAttributeDefinition`, text in the embedded MTEXT) is drawn upright, and an
+  ATTRIB whose `AcDbText` 71 is 2 is still mirrored (`attributes-r2018`); binary MTEXT with a line feed and a tab, MTEXT
+  `x^2` and TEXT `m^2` read as the ASCII DXF of the same strings and draw two lines, `x^2` and `m^2` (`binary-text`); and
+  in a metric drawing whose `$DIMASZ` is 2.5, a leader whose dimension style leaves DIMASZ out gets an arrow of 0.18
+  (`dimstyle-defaults`). Undoing any of the four changes (the subclass of 71, the caret notation, `^ ` in TEXT, the 0.18)
+  in TypeScript or in Rust makes them fail.
+- The ACadSharp samples, one drawing saved by AutoCAD as DWG 2000 to 2018 and as ASCII and binary DXF:
+  - The dimension styles of DXF and DWG are now equal in every version; DIMASZ and DIMTXT of four of the six styles were
+    0 in DXF.
+  - The R2018 multi-line ATTRIB and ATTDEF have the generation flags of DWG (0; DXF had 2 and 4). They still differ in
+    their attribute flags (70: 0 in DXF, 28 and 235 in DWG), which the first difference had hidden; that is for the DWG
+    reader.
+  - The four MTEXT with line feeds in binary DXF of 2004 and later equal those of ASCII DXF and DWG (`^J`), so 328
+    entities of 2004 to 2013 and 326 of 2018 equal DWG, as for ASCII DXF (324 and 322 before).
+  - Model space of ASCII and of binary DXF now differs from DWG only in the ids of the three entities AutoCAD renumbered
+    in DXF; before, binary DXF of 2004 and later also drew the four MTEXT with their line feeds inside one paragraph.
+  - In TypeScript, ASCII and binary DXF of 2000 to 2018 give the same scenes in every view except those three ids.
+    R12 differs only in the numbers that ASCII DXF rounds and in handles.
+- The Yokosuka City survey plan as DWG 2018 and DXF: its dimension style is now the same; nothing else changed.
+- The TypeScript scenes of the 26 local DXF samples in all 106 views are unchanged except the four MTEXT in model space of
+  each binary ACadSharp file of 2004 and later. `pnpm run parity` gives the same scenes in TypeScript and Rust for the 37
+  local drawings and their 54 other views. Parsing the binary 2000 and 2018 samples takes 22 and 15 ms (21 and 17 ms
+  before, within the variation between runs).
+- Not checked: an AutoCAD DXF of a metric drawing (whether AutoCAD also leaves out the imperial defaults there), DXF from
+  other programs that leave dimension style values out, control characters in TEXT other than the tab, and drawing the
+  text of multi-line attributes (their embedded MTEXT is not read yet).
+
 ## SXF in Rust
 
 Checked on 2026-10-19 on macOS (Apple Silicon) with Rust 1.99.0, Node.js 24.21.0 and wasm-pack 0.15.0.
