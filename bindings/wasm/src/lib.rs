@@ -1,5 +1,6 @@
 //! zumen の WebAssembly の結合部。ブラウザ・Node.js で図面を読み、Scene の JSON を返す。
 //! JSON は @zumenjs/core の sceneFromJson で Scene に戻し、DrawingViewer に渡せる。
+//! scripts/wasm.mjs が packages/dwg/wasm に作り、@zumenjs/dwg がブラウザで DWG を読むのに使う。
 
 use wasm_bindgen::prelude::*;
 use zumen::ReadDrawingOptions;

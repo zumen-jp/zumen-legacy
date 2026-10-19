@@ -399,3 +399,24 @@ fn damaged_drawings_finish_without_panicking() {
         }
     }
 }
+
+/// tests/fixtures/dwg の図面は、このテストの図面（R2000 は ANSI_932、R2018 は UTF-16）。@zumenjs/dwg のテストが
+/// WebAssembly で読んで正解の Scene を書き（pnpm run golden）、crates/zumen/tests/golden.rs が同じ Scene になることを
+/// 確かめる。テストの図面を変えたら UPDATE_GOLDEN=1 cargo test -p zumen-dwg で書き直してから pnpm run golden を走らせる
+#[test]
+fn the_fixtures_are_the_test_drawing() {
+    let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/dwg");
+    for (name, version) in [("r2000.dwg", Version::R2000), ("r2018.dwg", Version::R2018)] {
+        let bytes = drawing(version);
+        let path = fixtures.join(name);
+        if std::env::var("UPDATE_GOLDEN").as_deref() == Ok("1") {
+            std::fs::create_dir_all(&fixtures).unwrap();
+            std::fs::write(&path, &bytes).unwrap();
+        } else {
+            assert!(
+                std::fs::read(&path).is_ok_and(|written| written == bytes),
+                "tests/fixtures/dwg/{name} is not the test drawing: run UPDATE_GOLDEN=1 cargo test -p zumen-dwg"
+            );
+        }
+    }
+}

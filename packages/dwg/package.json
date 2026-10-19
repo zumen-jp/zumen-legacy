@@ -1,0 +1,56 @@
+{
+  "name": "@zumenjs/dwg",
+  "version": "0.1.0",
+  "description": "Read DWG drawings (AutoCAD 2000 to 2018) in the browser and Node.js with zumen's Rust reader built to WebAssembly",
+  "keywords": [
+    "dwg",
+    "autocad",
+    "cad",
+    "drawing",
+    "viewer",
+    "webassembly"
+  ],
+  "homepage": "https://github.com/zumenjs/zumen/tree/main/packages/dwg#readme",
+  "bugs": {
+    "url": "https://github.com/zumenjs/zumen/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zumenjs/zumen.git",
+    "directory": "packages/dwg"
+  },
+  "private": true,
+  "type": "module",
+  "license": "UNLICENSED",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "wasm/zumen_wasm.js",
+    "wasm/zumen_wasm.d.ts",
+    "wasm/zumen_wasm_bg.wasm"
+  ],
+  "exports": {
+    ".": {
+      "@zumenjs/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./zumen_wasm_bg.wasm": "./wasm/zumen_wasm_bg.wasm",
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./zumen_wasm_bg.wasm": "./wasm/zumen_wasm_bg.wasm",
+      "./package.json": "./package.json"
+    }
+  },
+  "dependencies": {
+    "@zumenjs/core": "workspace:*"
+  }
+}

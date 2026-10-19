@@ -27,11 +27,13 @@ If npm does not allow adding a trusted publisher before a package exists, publis
 
 1. Run `pnpm install --frozen-lockfile` and `pnpm run check` on a clean checkout of `main`.
 2. Publish in dependency order with two-factor authentication:
-   `pnpm --filter @zumenjs/core publish`, then `@zumenjs/sxf`, `@zumenjs/jww` and `@zumenjs/dxf`, then `@zumenjs/react`
-   and `@zumenjs/stb`.
+   `pnpm --filter @zumenjs/core publish`, then `@zumenjs/sxf`, `@zumenjs/jww`, `@zumenjs/dxf` and `@zumenjs/dwg`, then
+   `@zumenjs/react` and `@zumenjs/stb`. `@zumenjs/dwg` publishes the WebAssembly reader in `packages/dwg/wasm`, which
+   `pnpm run check` has just built from the same commit.
    pnpm replaces `workspace:*` with the version, and `publishConfig.exports` drops the development-only condition.
 3. On npm, add a trusted publisher (GitHub Actions, repository `zumenjs/zumen`, the release workflow) to each package.
-4. Add the release workflow, which publishes with provenance from GitHub Actions (`id-token: write`).
+4. Add the release workflow, which publishes with provenance from GitHub Actions (`id-token: write`). Like CI, it needs
+   the Rust toolchain and wasm-bindgen-cli to build the WebAssembly reader of `@zumenjs/dwg`.
 
 ## Later releases
 
