@@ -5,11 +5,11 @@
 //! ブロック定義、図形、OBJECTS の辞書（ACAD_GROUP・ACAD_LAYOUT・ACAD_MLINESTYLE・ACAD_PLOTSETTINGS・
 //! ACAD_PLOTSTYLENAME）、レイアウト、MLINESTYLE。ハンドルは元の図面のものを保ち、ないもの・重なるものには
 //! 新しいハンドルを振る。図形が参照するのに表にないレイヤ・線種・文字スタイル・寸法スタイル・ブロックは補う。
-//! 書けない図形（MULTILEADER・IMAGE・WIPEOUT）は種類ごとの件数を返す。
+//! 書けない図形（IMAGE。画像のファイルへの参照を読んでいない）は種類ごとの件数を返す。
 
 use crate::model::{
-    DxfBlock, DxfDocument, DxfEntity, DxfEntityBase, DxfEntityData, DxfHatch, DxfHatchEdge, DxfLayout, DxfMLine,
-    DxfMLineStyle, DxfPolyline, DxfSpace, DxfTextBase, Vec3,
+    DxfBlock, DxfDocument, DxfEntity, DxfEntityBase, DxfEntityData, DxfHatch, DxfHatchEdge, DxfImage, DxfLayout,
+    DxfMLeader, DxfMLine, DxfMLineStyle, DxfPolyline, DxfSpace, DxfTextBase, Vec3,
 };
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write as _;
@@ -22,7 +22,10 @@ pub struct DxfWritten {
 }
 
 /// 図形の種類ごとに、書けないもの
-const UNWRITTEN: [&str; 4] = ["MULTILEADER", "MLEADER", "IMAGE", "WIPEOUT"];
+const UNWRITTEN: [&str; 1] = ["IMAGE"];
+
+/// 色の生の値の BYBLOCK（0xC1000000）
+const BY_BLOCK_RAW: f64 = -1_056_964_608.0;
 
 /// DXF にする
 pub fn write_dxf(doc: &DxfDocument) -> DxfWritten {
@@ -47,15 +50,24 @@ fn real(value: f64) -> String {
     if text.contains(['.', 'e', 'E']) { text } else { format!("{text}.0") }
 }
 
+/// 32 ビットの整数の値（色の生の値など）。DWG から読んだ符号なしの値も符号付きにする
+fn int32(value: f64) -> i32 {
+    if value.is_finite() { (value as i64) as u32 as i32 } else { 0 }
+}
+
 impl Out {
     fn tag(&mut self, code: i32, value: impl std::fmt::Display) {
         let _ = write!(self.text, "{code:>3}\r\n{value}\r\n");
     }
 
-    /// 文字列。改行は空白にする（MTEXT の改行は \P で書く）
+    /// 文字列。1 行に書けない改行は、AutoCAD の ASCII の DXF と同じキャレット表記（^J・^M）にする
+    /// （バイナリの DXF・DWG から読んだ文字列は改行を持つことがある。ほかの制御文字はそのまま書く）
     fn str(&mut self, code: i32, value: &str) {
-        let clean: String = value.chars().map(|c| if c == '\r' || c == '\n' { ' ' } else { c }).collect();
-        self.tag(code, clean);
+        if value.contains(['\n', '\r']) {
+            self.tag(code, value.replace('\n', "^J").replace('\r', "^M"));
+        } else {
+            self.tag(code, value);
+        }
     }
 
     fn real(&mut self, code: i32, value: f64) {
@@ -175,7 +187,14 @@ struct Writer<'a> {
     /// レイアウト（書く順）: 名前、ハンドル、ブロックの名前、元のレイアウト
     layouts: Vec<(String, u64, String, Option<&'a DxfLayout>)>,
     layer_handles: HashMap<String, u64>,
+    /// 名前（大文字）→ 書いた文字スタイル・線種のハンドル
+    style_handles: HashMap<String, u64>,
+    linetype_handles: HashMap<String, u64>,
+    /// 元のハンドル（大文字）→ 書いたハンドル。参照（文字スタイル・ブロック・属性定義など）を付け替える
+    remap: HashMap<String, u64>,
     mline_styles: Vec<(u64, DxfMLineStyle)>,
+    /// マルチ引出線のスタイル（Standard）
+    mleader_style: u64,
     placeholder: u64,
 }
 
@@ -188,6 +207,73 @@ fn all_entities(doc: &DxfDocument) -> impl Iterator<Item = &DxfEntity> {
         };
         std::iter::once(entity).chain(attribs.iter())
     })
+}
+
+/// 図形のレイヤを、表示が図形を読む順に並べる。モデル空間の図形から、ブロック参照・寸法・表はその場で中の図形へ
+/// 進み（中のレイヤ 0 は参照のレイヤを継ぐ）、最後にすべての図形。定義のないレイヤを、表示と同じ番号になる順に
+/// 補うために使う（描画順の並べ替えは見ない）
+fn layer_order(doc: &DxfDocument) -> Vec<String> {
+    let mut blocks: HashMap<String, Vec<&DxfEntity>> = HashMap::new();
+    let mut model = Vec::new();
+    for entity in &doc.entities {
+        match entity.base.space {
+            DxfSpace::Model => model.push(entity),
+            _ => blocks.entry(upper(entity.base.block.as_deref().unwrap_or(PAPER))).or_default().push(entity),
+        }
+    }
+    let mut names = Vec::new();
+    walk_layers(&model, None, &blocks, &mut HashSet::new(), &mut names);
+    names.extend(all_entities(doc).map(|entity| entity.base.layer.clone()));
+    names
+}
+
+fn walk_layers(
+    entities: &[&DxfEntity],
+    parent: Option<&str>,
+    blocks: &HashMap<String, Vec<&DxfEntity>>,
+    visited: &mut HashSet<(String, String)>,
+    names: &mut Vec<String>,
+) {
+    for entity in entities {
+        let layer = match parent {
+            Some(parent) if entity.base.layer == "0" => parent.to_string(),
+            _ => entity.base.layer.clone(),
+        };
+        names.push(layer.clone());
+        let block = match &entity.data {
+            DxfEntityData::Insert(insert) => upper(&insert.name),
+            DxfEntityData::Dimension(dimension) => upper(&dimension.anonymous_block_name),
+            DxfEntityData::Table(table) => upper(&table.name),
+            _ => String::new(),
+        };
+        if let Some(children) = blocks.get(&block) {
+            if visited.insert((block, upper(&layer))) {
+                walk_layers(children, Some(&layer), blocks, visited, names);
+            }
+        }
+        if let DxfEntityData::Insert(insert) = &entity.data {
+            let attribs: Vec<&DxfEntity> = insert.attribs.iter().collect();
+            walk_layers(&attribs, parent, blocks, visited, names);
+        }
+    }
+}
+
+/// 点がいちばん近い線分（path の i 番目から i + 1 番目）の番号
+fn nearest_segment(path: &[Vec3], point: &Vec3) -> usize {
+    let distance = |a: &Vec3, b: &Vec3| {
+        let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
+        let length = dx * dx + dy * dy;
+        let t = if length > 0.0 {
+            (((point[0] - a[0]) * dx + (point[1] - a[1]) * dy) / length).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        (a[0] + t * dx - point[0]).hypot(a[1] + t * dy - point[1])
+    };
+    path.windows(2)
+        .enumerate()
+        .min_by(|(_, x), (_, y)| distance(&x[0], &x[1]).total_cmp(&distance(&y[0], &y[1])))
+        .map_or(0, |(index, _)| index)
 }
 
 const MODEL: &str = "*MODEL_SPACE";
@@ -208,9 +294,27 @@ impl<'a> Writer<'a> {
             block_index: HashMap::new(),
             layouts: Vec::new(),
             layer_handles: HashMap::new(),
+            style_handles: HashMap::new(),
+            linetype_handles: HashMap::new(),
+            remap: HashMap::new(),
             mline_styles: Vec::new(),
+            mleader_style: 0,
             placeholder: 0,
         }
+    }
+
+    /// 元のハンドルを保つ（読めないか重なれば新しく振る）。参照を付け替えられるよう、元 → 書いたハンドルを覚える
+    fn keep(&mut self, original: &str) -> u64 {
+        let handle = self.handles.keep(original);
+        if !original.is_empty() {
+            self.remap.entry(upper(original)).or_insert(handle);
+        }
+        handle
+    }
+
+    /// 元のハンドルが指すものの、書いたハンドル
+    fn mapped(&self, original: &str) -> Option<u64> {
+        self.remap.get(&upper(original)).copied()
     }
 
     fn add_block(&mut self, name: &str, source: Option<&DxfBlock>) {
@@ -219,11 +323,11 @@ impl<'a> Writer<'a> {
             return;
         }
         let handle = match source.and_then(|block| block.block_record_handle.as_deref()) {
-            Some(original) => self.handles.keep(original),
+            Some(original) => self.keep(original),
             None => self.handles.fresh(),
         };
         let begin = match source {
-            Some(block) => self.handles.keep(&block.handle),
+            Some(block) => self.keep(&block.handle),
             None => self.handles.fresh(),
         };
         let end = self.handles.fresh();
@@ -277,7 +381,7 @@ impl<'a> Writer<'a> {
         let mut layouts: Vec<(String, u64, String, Option<&'a DxfLayout>)> = Vec::new();
         let model_layout = doc.layouts.iter().find(|layout| layout.model);
         let handle = match model_layout {
-            Some(layout) => self.handles.keep(&layout.handle),
+            Some(layout) => self.keep(&layout.handle),
             None => self.handles.fresh(),
         };
         layouts.push(("Model".into(), handle, "*Model_Space".into(), model_layout));
@@ -288,7 +392,7 @@ impl<'a> Writer<'a> {
             let source = doc.layouts.iter().find(|layout| !layout.model && upper(&layout.block) == upper(block));
             let name = source.map_or_else(|| format!("Layout{}", index + 1), |layout| layout.name.clone());
             let handle = match source {
-                Some(layout) => self.handles.keep(&layout.handle),
+                Some(layout) => self.keep(&layout.handle),
                 None => self.handles.fresh(),
             };
             layouts.push((name, handle, block.clone(), source));
@@ -299,12 +403,12 @@ impl<'a> Writer<'a> {
             }
         }
         self.layouts = layouts;
-        // MLINESTYLE: Standard と図面のもの（MLINE が 340 で参照するので、図形より先に決める）
+        // MLINESTYLE: STANDARD と図面のもの（MLINE が 340 で参照するので、図形より先に決める）
         let mut styles: Vec<(u64, DxfMLineStyle)> = Vec::new();
         let mut seen = HashSet::new();
         for style in doc.mline_styles.iter().flatten() {
             if seen.insert(upper(&style.name)) {
-                let handle = self.handles.keep(&style.handle);
+                let handle = self.keep(&style.handle);
                 styles.push((handle, style.clone()));
             }
         }
@@ -318,7 +422,7 @@ impl<'a> Writer<'a> {
                     handle,
                     DxfMLineStyle {
                         handle: String::new(),
-                        name: "Standard".into(),
+                        name: "STANDARD".into(),
                         flags: 0.0,
                         description: String::new(),
                         fill_color: 256.0,
@@ -335,6 +439,7 @@ impl<'a> Writer<'a> {
     fn write(&mut self) {
         self.plan();
         self.placeholder = self.handles.fresh();
+        self.mleader_style = self.handles.fresh();
         // 表と OBJECTS の固定のハンドル
         let tables: Vec<u64> = (0..9).map(|_| self.handles.fresh()).collect();
         let root = self.handles.fresh();
@@ -558,9 +663,10 @@ impl<'a> Writer<'a> {
         self.table("LTYPE", ids[1], linetypes.len());
         for (name, description, length, dashes, original) in &linetypes {
             let handle = match original {
-                Some(original) => self.handles.keep(original),
+                Some(original) => self.keep(original),
                 None => self.handles.fresh(),
             };
+            self.linetype_handles.insert(upper(name), handle);
             self.record("LTYPE", handle, ids[1], "AcDbLinetypeTableRecord", name);
             let out = &mut self.out;
             out.tag(70, 0);
@@ -585,6 +691,7 @@ impl<'a> Writer<'a> {
             linetype: String,
             plot: bool,
             lineweight: f64,
+            transparency: Option<f64>,
         }
         let mut layers: Vec<Layer> = Vec::new();
         let mut seen = HashSet::new();
@@ -600,12 +707,12 @@ impl<'a> Writer<'a> {
                     linetype: if layer.linetype.is_empty() { "Continuous".into() } else { layer.linetype.clone() },
                     plot: layer.plot,
                     lineweight: layer.lineweight,
+                    transparency: layer.transparency,
                 });
             }
         }
-        // レイヤ 0 は必ず置く（図面のレイヤの番号が変わらないよう後ろに）
-        let names: Vec<String> =
-            std::iter::once("0".to_string()).chain(all_entities(doc).map(|entity| entity.base.layer.clone())).collect();
+        // 定義のないレイヤは表示が読む順に補い（表示と同じ番号になる）、レイヤ 0 は必ず置く（番号が変わらないよう最後に）
+        let names = layer_order(doc).into_iter().chain(std::iter::once("0".to_string()));
         for name in names {
             if !name.is_empty() && seen.insert(upper(&name)) {
                 layers.push(Layer {
@@ -617,13 +724,14 @@ impl<'a> Writer<'a> {
                     linetype: "Continuous".into(),
                     plot: true,
                     lineweight: -3.0,
+                    transparency: None,
                 });
             }
         }
         self.table("LAYER", ids[2], layers.len());
         for layer in &layers {
             let handle = match &layer.handle {
-                Some(original) => self.handles.keep(original),
+                Some(original) => self.keep(original),
                 None => self.handles.fresh(),
             };
             self.layer_handles.insert(upper(&layer.name), handle);
@@ -640,6 +748,11 @@ impl<'a> Writer<'a> {
             }
             out.int(370, layer.lineweight);
             out.handle(390, self.placeholder);
+            // 透過度は拡張データ AcCmTransparency の 1071
+            if let Some(transparency) = layer.transparency {
+                out.tag(1001, "AcCmTransparency");
+                out.int(1071, transparency);
+            }
         }
         self.out.tag(0, "ENDTAB");
 
@@ -669,9 +782,10 @@ impl<'a> Writer<'a> {
         self.table("STYLE", ids[3], styles.len());
         for (name, style) in &styles {
             let handle = match style {
-                Some(style) => self.handles.keep(&style.handle),
+                Some(style) => self.keep(&style.handle),
                 None => self.handles.fresh(),
             };
+            self.style_handles.insert(upper(name), handle);
             self.record("STYLE", handle, ids[3], "AcDbTextStyleTableRecord", name);
             let out = &mut self.out;
             match style {
@@ -709,10 +823,16 @@ impl<'a> Writer<'a> {
         self.out.tag(0, "ENDTAB");
         self.table("UCS", ids[5], 0);
         self.out.tag(0, "ENDTAB");
-        self.table("APPID", ids[6], 1);
-        let handle = self.handles.fresh();
-        self.record("APPID", handle, ids[6], "AcDbRegAppTableRecord", "ACAD");
-        self.out.tag(70, 0);
+        let mut apps = vec!["ACAD"];
+        if self.doc.layers.iter().any(|layer| layer.transparency.is_some()) {
+            apps.push("AcCmTransparency");
+        }
+        self.table("APPID", ids[6], apps.len());
+        for app in apps {
+            let handle = self.handles.fresh();
+            self.record("APPID", handle, ids[6], "AcDbRegAppTableRecord", app);
+            self.out.tag(70, 0);
+        }
         self.out.tag(0, "ENDTAB");
 
         // DIMSTYLE
@@ -742,7 +862,7 @@ impl<'a> Writer<'a> {
         self.table("DIMSTYLE", ids[7], dimstyles.len());
         for (name, style) in &dimstyles {
             let handle = match style {
-                Some(style) => self.handles.keep(&style.handle),
+                Some(style) => self.keep(&style.handle),
                 None => self.handles.fresh(),
             };
             self.record("DIMSTYLE", handle, ids[7], "AcDbDimStyleTableRecord", name);
@@ -783,6 +903,10 @@ impl<'a> Writer<'a> {
     fn blocks_section(&mut self) {
         self.section("BLOCKS");
         let doc = self.doc;
+        let mut contents: HashMap<String, Vec<&DxfEntity>> = HashMap::new();
+        for entity in &doc.entities {
+            contents.entry(Self::container(entity)).or_default().push(entity);
+        }
         for index in 0..self.blocks.len() {
             let block = &self.blocks[index];
             let (name, handle, begin, end, base, flags, xref, paper) = (
@@ -812,7 +936,7 @@ impl<'a> Writer<'a> {
             self.out.str(1, xref.as_deref().unwrap_or(""));
             // モデル空間と、現在のレイアウト（*Paper_Space）の図形は ENTITIES 節に書く
             if key != MODEL && key != PAPER {
-                for entity in doc.entities.iter().filter(|entity| Self::container(entity) == key) {
+                for entity in contents.get(&key).into_iter().flatten() {
                     self.entity(entity, handle, paper);
                 }
             }
@@ -857,7 +981,8 @@ impl<'a> Writer<'a> {
 
     fn objects(&mut self, root: u64) {
         self.section("OBJECTS");
-        let (group, layout, mline, plot, plotstyle) = (
+        let (group, layout, mleader, mline, plot, plotstyle) = (
+            self.handles.fresh(),
             self.handles.fresh(),
             self.handles.fresh(),
             self.handles.fresh(),
@@ -870,6 +995,7 @@ impl<'a> Writer<'a> {
             &[
                 ("ACAD_GROUP".into(), group),
                 ("ACAD_LAYOUT".into(), layout),
+                ("ACAD_MLEADERSTYLE".into(), mleader),
                 ("ACAD_MLINESTYLE".into(), mline),
                 ("ACAD_PLOTSETTINGS".into(), plot),
                 ("ACAD_PLOTSTYLENAME".into(), plotstyle),
@@ -879,8 +1005,17 @@ impl<'a> Writer<'a> {
         let entries: Vec<(String, u64)> =
             self.layouts.iter().map(|(name, handle, _, _)| (name.clone(), *handle)).collect();
         self.dictionary(layout, root, &entries);
+        self.dictionary(mleader, root, &[("Standard".into(), self.mleader_style)]);
+        self.mleader_style_object(mleader);
         let styles = self.mline_styles.clone();
-        let entries: Vec<(String, u64)> = styles.iter().map(|(handle, style)| (style.name.clone(), *handle)).collect();
+        // 辞書の名前は AutoCAD と同じく Standard（スタイルの名前は STANDARD）
+        let entries: Vec<(String, u64)> = styles
+            .iter()
+            .map(|(handle, style)| {
+                let key = if upper(&style.name) == "STANDARD" { "Standard".into() } else { style.name.clone() };
+                (key, *handle)
+            })
+            .collect();
         self.dictionary(mline, root, &entries);
         self.dictionary(plot, root, &[]);
         // ACAD_PLOTSTYLENAME（既定の Normal を持つ辞書）と、レイヤが参照する Normal
@@ -981,13 +1116,278 @@ impl<'a> Writer<'a> {
         out.handle(330, record);
     }
 
+    /// マルチ引出線のスタイル Standard（ezdxf の雛形と同じ値）。マルチ引出線はすべての値を図形で上書きする
+    fn mleader_style_object(&mut self, owner: u64) {
+        let text_style = self.style_handles.get("STANDARD").copied().unwrap_or(0);
+        let handle = self.mleader_style;
+        let out = &mut self.out;
+        out.tag(0, "MLEADERSTYLE");
+        out.handle(5, handle);
+        out.handle(330, owner);
+        out.tag(100, "AcDbMLeaderStyle");
+        for (code, value) in [
+            (179, "2"),
+            (170, "2"),
+            (171, "1"),
+            (172, "0"),
+            (90, "2"),
+            (40, "0.0"),
+            (41, "0.0"),
+            (173, "1"),
+            (91, "-1056964608"),
+            (92, "-2"),
+            (290, "1"),
+            (42, "2.0"),
+            (291, "1"),
+            (43, "8.0"),
+            (3, "Standard"),
+            (44, "4.0"),
+            (300, ""),
+        ] {
+            out.tag(code, value);
+        }
+        out.handle(342, text_style);
+        for (code, value) in [
+            (174, "1"),
+            (175, "1"),
+            (176, "0"),
+            (178, "1"),
+            (93, "-1056964608"),
+            (45, "4.0"),
+            (292, "0"),
+            (297, "0"),
+            (46, "4.0"),
+            (94, "-1056964608"),
+            (47, "1.0"),
+            (49, "1.0"),
+            (140, "1.0"),
+            (294, "1"),
+            (141, "0.0"),
+            (177, "0"),
+            (142, "1.0"),
+            (295, "0"),
+            (296, "0"),
+            (143, "3.75"),
+            (271, "0"),
+            (272, "9"),
+            (273, "9"),
+        ] {
+            out.tag(code, value);
+        }
+    }
+
+    /// マルチ引出線（DXF Reference「MLeader」。ezdxf の MultiLeader.export_entity と同じ順）。
+    /// スタイルは Standard を指し、90 の上書きの印をすべて立てて図形の値を使わせる
+    fn mleader(&mut self, base: &DxfEntityBase, mleader: &DxfMLeader, owner: u64, paper: bool) {
+        let context = &mleader.context;
+        let standard = self.style_handles.get("STANDARD").copied().unwrap_or(0);
+        let text_style = context.mtext.as_ref().and_then(|mtext| self.mapped(&mtext.style_handle)).unwrap_or(standard);
+        let block = context
+            .block
+            .as_ref()
+            .and_then(|block| self.mapped(&block.block_record_handle).map(|handle| (block, handle)));
+        if context.block.is_some() && block.is_none() {
+            self.skip("マルチ引出線のブロックの内容（定義のないもの）");
+        }
+        let linetype = self
+            .mapped(&mleader.leader_linetype_handle)
+            .or_else(|| self.linetype_handles.get("BYBLOCK").copied())
+            .unwrap_or(0);
+        let arrow = if mleader.arrow_head_handle.is_empty() { None } else { self.mapped(&mleader.arrow_head_handle) };
+        let arrow_heads: Vec<(f64, u64)> = mleader
+            .arrow_heads
+            .iter()
+            .filter_map(|head| self.mapped(&head.handle).map(|handle| (head.index, handle)))
+            .collect();
+        let attribs: Vec<(u64, &crate::model::DxfMLeaderAttrib)> = mleader
+            .block_attribs
+            .iter()
+            .filter_map(|attrib| self.mapped(&attrib.handle).map(|handle| (handle, attrib)))
+            .collect();
+        let style = self.mleader_style;
+        // 文字の配置（MTEXT の 1〜9）から、左・中・右（0・1・2）
+        let align = context.mtext.as_ref().map_or(0, |mtext| (int32(mtext.alignment).max(1) - 1) % 3);
+        let scale = if context.scale != 0.0 { context.scale } else { 1.0 };
+        self.common("MULTILEADER", base, owner, paper);
+        let out = &mut self.out;
+        out.tag(100, "AcDbMLeader");
+        out.tag(270, 2);
+        out.tag(300, "CONTEXT_DATA{");
+        out.real(40, context.scale);
+        out.point(10, &context.base_point);
+        out.real(41, context.char_height);
+        out.real(140, context.arrow_head_size);
+        out.real(145, context.landing_gap_size);
+        out.int(174, mleader.text_left_attachment_type);
+        out.int(175, mleader.text_right_attachment_type);
+        out.tag(176, align);
+        out.tag(177, 0);
+        match &context.mtext {
+            Some(mtext) => {
+                out.tag(290, 1);
+                out.str(304, &mtext.default_content);
+                out.point(11, &mtext.extrusion);
+                out.handle(340, text_style);
+                out.point(12, &mtext.insert);
+                out.point(13, &mtext.text_direction);
+                out.real(42, mtext.text_direction[1].atan2(mtext.text_direction[0]));
+                out.real(43, mtext.width);
+                out.real(44, 0.0);
+                out.real(45, mtext.line_spacing_factor);
+                out.int(170, mtext.line_spacing_style);
+                out.tag(90, int32(mtext.color));
+                out.int(171, mtext.alignment);
+                out.int(172, mtext.flow_direction);
+                out.tag(91, int32(mtext.bg_color));
+                out.real(141, mtext.bg_scale_factor);
+                out.tag(92, 0);
+                out.tag(291, i32::from(mtext.use_window_bg_color));
+                out.tag(292, i32::from(mtext.has_bg_fill));
+                out.int(173, mtext.column_type);
+                out.tag(293, 0);
+                out.real(142, 0.0);
+                out.real(143, 0.0);
+                out.tag(294, 0);
+                out.tag(295, 1);
+            }
+            None => out.tag(290, 0),
+        }
+        match block {
+            Some((block, handle)) => {
+                out.tag(296, 1);
+                out.handle(341, handle);
+                out.point(14, &block.extrusion);
+                out.point(15, &block.insert);
+                out.point(16, &block.scale);
+                out.real(46, block.rotation);
+                out.tag(93, int32(block.color));
+                // 変換の行列は AutoCAD は使わないが、BricsCAD は求める（ezdxf の BlockData.export_dxf と同じく単位行列）
+                for index in 0..16 {
+                    out.real(47, if index % 5 == 0 { 1.0 } else { 0.0 });
+                }
+            }
+            None => out.tag(296, 0),
+        }
+        out.point(110, &context.base_point);
+        out.point(111, &[1.0, 0.0, 0.0]);
+        out.point(112, &[0.0, 1.0, 0.0]);
+        out.tag(297, 0);
+        for leader in &context.leaders {
+            out.tag(302, "LEADER{");
+            out.tag(290, i32::from(leader.has_last_leader_line));
+            out.tag(291, i32::from(leader.has_dogleg_vector));
+            out.point(10, &leader.last_leader_point);
+            out.point(11, &leader.dogleg_vector);
+            for gap in &leader.breaks {
+                out.point(12, &gap.start);
+                out.point(13, &gap.end);
+            }
+            out.int(90, leader.index);
+            out.real(40, leader.dogleg_length);
+            for line in &leader.lines {
+                out.tag(304, "LEADER_LINE{");
+                for vertex in &line.vertices {
+                    out.point(10, vertex);
+                }
+                // 切れ目は、始まりが乗る線分の番号（90）と始まり・終わり（11・12）
+                let mut path = line.vertices.clone();
+                path.push(leader.last_leader_point);
+                for gap in &line.breaks {
+                    out.tag(90, nearest_segment(&path, &gap.start));
+                    out.point(11, &gap.start);
+                    out.point(12, &gap.end);
+                }
+                out.int(91, line.index);
+                out.tag(92, int32(line.color));
+                out.tag(305, "}");
+            }
+            out.int(271, leader.attachment_direction);
+            out.tag(303, "}");
+        }
+        out.int(272, mleader.text_top_attachment_type);
+        out.int(273, mleader.text_bottom_attachment_type);
+        out.tag(301, "}");
+        out.handle(340, style);
+        out.tag(90, 0x7FFF_FFFF);
+        out.int(170, mleader.leader_type);
+        out.tag(91, int32(mleader.leader_line_color));
+        out.handle(341, linetype);
+        out.int(171, mleader.leader_lineweight);
+        out.tag(290, 1);
+        out.tag(291, i32::from(mleader.has_dogleg));
+        out.real(41, context.leaders.first().map_or(0.0, |leader| leader.dogleg_length) / scale);
+        if let Some(arrow) = arrow {
+            out.handle(342, arrow);
+        }
+        out.real(42, context.arrow_head_size / scale);
+        out.int(172, mleader.content_type);
+        out.handle(343, text_style);
+        out.int(173, mleader.text_left_attachment_type);
+        out.int(95, mleader.text_right_attachment_type);
+        out.tag(174, 1);
+        out.tag(175, align);
+        out.tag(92, context.mtext.as_ref().map_or(int32(BY_BLOCK_RAW), |mtext| int32(mtext.color)));
+        out.tag(292, i32::from(mleader.has_text_frame));
+        if let Some((_, handle)) = block {
+            out.handle(344, handle);
+        }
+        out.tag(93, block.map_or(int32(BY_BLOCK_RAW), |(block, _)| int32(block.color)));
+        out.point(10, &block.map_or([1.0, 1.0, 1.0], |(block, _)| block.scale));
+        out.real(43, block.map_or(0.0, |(block, _)| block.rotation));
+        out.tag(176, 0);
+        out.tag(293, 0);
+        for (index, handle) in arrow_heads {
+            out.int(94, index);
+            out.handle(345, handle);
+        }
+        for (handle, attrib) in attribs {
+            out.handle(330, handle);
+            out.int(177, attrib.index);
+            out.real(44, attrib.width);
+            out.str(302, &attrib.text);
+        }
+        out.tag(294, 0);
+        out.tag(178, 0);
+        out.tag(179, align + 1);
+        out.real(45, context.scale);
+        out.int(271, context.leaders.first().map_or(0.0, |leader| leader.attachment_direction));
+        out.int(272, mleader.text_bottom_attachment_type);
+        out.int(273, mleader.text_top_attachment_type);
+        out.tag(295, 0);
+    }
+
+    /// ワイプアウト（DXF Reference「WIPEOUT」。IMAGE と同じ値で、画像の定義は持たない）
+    fn wipeout(&mut self, base: &DxfEntityBase, image: &DxfImage, owner: u64, paper: bool) {
+        self.common("WIPEOUT", base, owner, paper);
+        let out = &mut self.out;
+        out.tag(100, "AcDbWipeout");
+        out.tag(90, 0);
+        out.point(10, &image.insert);
+        out.point(11, &image.u_pixel);
+        out.point(12, &image.v_pixel);
+        out.point2(13, &image.image_size);
+        out.tag(340, 0);
+        out.int(70, image.flags);
+        out.tag(280, i32::from(image.clipping));
+        out.tag(281, 50);
+        out.tag(282, 50);
+        out.tag(283, 0);
+        out.tag(360, 0);
+        out.tag(71, if image.boundary.len() == 2 { 1 } else { 2 });
+        out.tag(91, image.boundary.len());
+        for vertex in &image.boundary {
+            out.point2(14, vertex);
+        }
+        out.tag(290, 0);
+    }
+
     fn skip(&mut self, kind: &str) {
         *self.skipped.entry(kind.to_string()).or_insert(0) += 1;
     }
 
     /// 図形の共通の値（DXF Reference「Common Group Codes for Entities」）
     fn common(&mut self, kind: &str, base: &DxfEntityBase, owner: u64, paper: bool) -> u64 {
-        let handle = self.handles.keep(&base.handle);
+        let handle = self.keep(&base.handle);
         let out = &mut self.out;
         out.tag(0, kind);
         out.handle(5, handle);
@@ -1199,14 +1599,14 @@ impl<'a> Writer<'a> {
                 // 250 文字ごとに 3 に分け、最後を 1 に書く
                 let raw =
                     if mtext.raw_text.is_empty() { mtext.text.replace('\n', "\\P") } else { mtext.raw_text.clone() };
-                let chars: Vec<char> = raw.chars().map(|c| if c == '\r' || c == '\n' { ' ' } else { c }).collect();
+                let chars: Vec<char> = raw.chars().collect();
                 let mut chunks = chars.chunks(250).peekable();
                 if chunks.peek().is_none() {
                     self.out.tag(1, "");
                 }
                 while let Some(chunk) = chunks.next() {
                     let text: String = chunk.iter().collect();
-                    self.out.tag(if chunks.peek().is_some() { 3 } else { 1 }, text);
+                    self.out.str(if chunks.peek().is_some() { 3 } else { 1 }, &text);
                 }
                 self.out.str(7, if mtext.style.is_empty() { "Standard" } else { &mtext.style });
                 self.extrusion(base);
@@ -1303,7 +1703,7 @@ impl<'a> Writer<'a> {
                 }
                 self.extrusion(base);
             }
-            DxfEntityData::MLeader(_) => self.skip(&kind),
+            DxfEntityData::MLeader(mleader) => self.mleader(base, mleader, owner, paper),
             DxfEntityData::MLine(mline) => self.mline(base, mline, owner, paper),
             DxfEntityData::Viewport(viewport) => {
                 self.common("VIEWPORT", base, owner, paper);
@@ -1352,7 +1752,7 @@ impl<'a> Writer<'a> {
                 self.out.point(10, start);
                 self.out.point(11, unit_vector);
             }
-            DxfEntityData::Image(_) => self.skip(&kind),
+            DxfEntityData::Image(image) => self.wipeout(base, image, owner, paper),
             DxfEntityData::Table(table) => {
                 // 表（ACAD_TABLE）は、表示の図形を持つブロックの配置として書く
                 self.skip("ACAD_TABLE（ブロックの配置として書いた）");
@@ -1628,12 +2028,12 @@ impl<'a> Writer<'a> {
         let solid = hatch.solid_fill || hatch.gradient.is_some();
         out.str(
             2,
-            if solid {
-                "SOLID"
-            } else if hatch.pattern_name.is_empty() {
-                "ANSI31"
-            } else {
+            if !hatch.pattern_name.is_empty() {
                 &hatch.pattern_name
+            } else if solid {
+                "SOLID"
+            } else {
+                "ANSI31"
             },
         );
         out.tag(70, i32::from(solid));
@@ -1737,15 +2137,28 @@ impl<'a> Writer<'a> {
             }
         }
         out.tag(98, 0);
-        if hatch.gradient.is_some() {
-            *self.skipped.entry("グラデーションのハッチング（単色で書いた）".into()).or_insert(0) += 1;
+        // グラデーション（DXF Reference「HATCH」の 450〜470。AutoCAD と同じ順）
+        if let Some(name) = &hatch.gradient {
+            let colors = hatch.gradient_colors.as_deref().unwrap_or(&[]);
+            out.tag(450, 1);
+            out.tag(451, 0);
+            out.real(460, hatch.gradient_angle);
+            out.real(461, hatch.gradient_shift);
+            out.tag(452, i32::from(hatch.gradient_one_color));
+            out.real(462, hatch.gradient_tint);
+            out.tag(453, colors.len());
+            for (index, color) in colors.iter().enumerate() {
+                out.real(463, index as f64);
+                out.int(421, *color);
+            }
+            out.str(470, if name.is_empty() { "LINEAR" } else { name });
         }
     }
 
     fn mline(&mut self, base: &DxfEntityBase, mline: &DxfMLine, owner: u64, paper: bool) {
-        // スタイルは名前で探し、なければ Standard
+        // スタイルは名前で探し、なければ STANDARD
         let style =
-            self.mline_style_handle(&mline.style_name).or_else(|| self.mline_style_handle("Standard")).unwrap_or(0);
+            self.mline_style_handle(&mline.style_name).or_else(|| self.mline_style_handle("STANDARD")).unwrap_or(0);
         self.common("MLINE", base, owner, paper);
         let out = &mut self.out;
         out.tag(100, "AcDbMline");

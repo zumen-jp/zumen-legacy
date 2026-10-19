@@ -1189,6 +1189,10 @@ impl<'a> Parser<'a> {
             pattern_lines: Vec::new(),
             gradient: None,
             gradient_colors: None,
+            gradient_angle: 0.0,
+            gradient_shift: 0.0,
+            gradient_one_color: false,
+            gradient_tint: 0.0,
         };
         let mut cursor = Cursor { own: &own, codes: self.codes, k: 0 };
         // 境界の前: 標高（10・20・30）、名前（2）、塗りつぶし（70）、関連付け（71）、境界の数（91）
@@ -1348,6 +1352,10 @@ impl<'a> Parser<'a> {
                     }
                 }
                 470 if hatch.gradient.is_some() => hatch.gradient = Some(self.str(index)),
+                460 => hatch.gradient_angle = self.num(index),
+                461 => hatch.gradient_shift = self.num(index),
+                452 => hatch.gradient_one_color = self.num(index) != 0.0,
+                462 => hatch.gradient_tint = self.num(index),
                 _ => {}
             }
         }

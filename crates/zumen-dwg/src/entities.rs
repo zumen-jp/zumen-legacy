@@ -982,13 +982,14 @@ fn leader(s: &mut Streams<'_>, names: &Names) -> Read<(DxfLeader, [f64; 3])> {
 fn hatch(s: &mut Streams<'_>) -> Read<(DxfHatch, [f64; 3])> {
     let mut gradient: Option<String> = None;
     let mut gradient_colors: Option<Vec<f64>> = None;
+    let (mut gradient_angle, mut gradient_shift, mut gradient_one_color, mut gradient_tint) = (0.0, 0.0, false, 0.0);
     if s.format.r2004() {
         let enabled = s.data.bl()? != 0;
         s.data.bl()?;
-        s.data.bd()?;
-        s.data.bd()?;
-        s.data.bl()?;
-        s.data.bd()?;
+        let angle = s.data.bd()?;
+        let shift = s.data.bd()?;
+        let one_color = s.data.bl()? != 0;
+        let tint = s.data.bd()?;
         let colors = count(s.data.bl()?)?;
         let mut list = Vec::new();
         for _ in 0..colors {
@@ -998,6 +999,7 @@ fn hatch(s: &mut Streams<'_>) -> Read<(DxfHatch, [f64; 3])> {
         }
         let name = s.tv()?;
         if enabled {
+            (gradient_angle, gradient_shift, gradient_one_color, gradient_tint) = (angle, shift, one_color, tint);
             gradient = Some(name);
             if !list.is_empty() {
                 gradient_colors = Some(list);
@@ -1063,6 +1065,10 @@ fn hatch(s: &mut Streams<'_>) -> Read<(DxfHatch, [f64; 3])> {
         pattern_lines: Vec::new(),
         gradient,
         gradient_colors,
+        gradient_angle,
+        gradient_shift,
+        gradient_one_color,
+        gradient_tint,
     };
     if !solid_fill {
         hatch.pattern_angle = deg(s.data.bd()?);

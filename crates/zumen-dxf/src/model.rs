@@ -277,6 +277,12 @@ pub struct DxfHatch {
     pub gradient: Option<String>,
     /// グラデーションの色（421 のトゥルーカラー）
     pub gradient_colors: Option<Vec<f64>>,
+    /// グラデーションの回転（460、ラジアン）と、中心からのずらし（461）
+    pub gradient_angle: f64,
+    pub gradient_shift: f64,
+    /// 1 色のグラデーション（452）と、その色合い（462）
+    pub gradient_one_color: bool,
+    pub gradient_tint: f64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
