@@ -1,15 +1,16 @@
-// WebAssembly の読み取り（bindings/wasm）が、tests/fixtures の正解と同じ Scene を返すかを Node.js で確かめる。
+// WebAssembly の読み取り（bindings/wasm を packages/dwg/wasm に作ったもの）が、tests/fixtures の正解と同じ Scene を
+// 返すかを Node.js で確かめる。
 //
-//   wasm-pack build bindings/wasm --target web --release --out-dir pkg
+//   node scripts/wasm.mjs
 //   node scripts/wasm-check.mjs [drawings…]
 //
 // 図面を渡すと、TS の読み取りとの比較と時間も示す（pnpm run build が必要）。
 import { readdirSync, readFileSync } from "node:fs";
 import { performance } from "node:perf_hooks";
-import { detect, initSync, readSceneJson } from "../bindings/wasm/pkg/zumen_wasm.js";
+import { detect, initSync, readSceneJson } from "../packages/dwg/wasm/zumen_wasm.js";
 import { compareScenes } from "./compare-scenes.mjs";
 
-initSync({ module: readFileSync(new URL("../bindings/wasm/pkg/zumen_wasm_bg.wasm", import.meta.url)) });
+initSync({ module: readFileSync(new URL("../packages/dwg/wasm/zumen_wasm_bg.wasm", import.meta.url)) });
 
 const fixtures = new URL("../tests/fixtures/", import.meta.url);
 let failed = 0;
