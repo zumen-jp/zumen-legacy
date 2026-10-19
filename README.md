@@ -160,6 +160,10 @@ for entity in image.entities_at(640, 480):  # the entities drawn under a pixel, 
     print(entity["id"], entity["box"], entity["text"])
 ```
 
+AI applications can read drawings through the MCP server of the Python package (`pip install "zumen[mcp]"`, then
+`zumen-mcp --root <dir>`): open, render a region, find texts and entities, and measure in real-world units. See
+[bindings/python](bindings/python/README.md#mcp-server).
+
 ```bash
 cargo run --release -p zumen-cli -- render plan.jww -o plan.png --dpi 150 --map plan.json
 cargo run --release -p zumen-cli -- texts plan.jww --region 100,50,200,120  # one JSON object per line

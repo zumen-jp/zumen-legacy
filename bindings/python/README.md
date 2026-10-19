@@ -42,5 +42,29 @@ for entity in image.entities_at(640, 480):  # boxes that contain the pixel, smal
 
 A `Rendering` shows itself as an image in Jupyter.
 
+## MCP server
+
+`zumen-mcp` lets AI applications that speak the Model Context Protocol open, render, search and measure drawings
+on this computer. It serves over stdio and only reads.
+
+```bash
+pip install "zumen[mcp]"
+claude mcp add zumen -- zumen-mcp --root ~/drawings  # Claude Code; other clients take the same command
+```
+
+| Tool | What it returns |
+| --- | --- |
+| `open_drawing` | Format, sheet, views, layers with entity counts, entity types, notices and the title block |
+| `render_drawing` | A PNG of the sheet or a region (1,568 pixels on the long edge by default), the scale to convert pixels to paper millimeters, and the texts drawn with their pixel boxes |
+| `find_texts` | Texts that contain a query, ignoring full-width and half-width forms, case and spaces |
+| `find_entities` | Entities in a region, by type or layer, with counts by type |
+| `get_entity` | One entity with its properties and the scale of its placement |
+| `measure_distance` | The distance between two points on the sheet and in real-world millimeters |
+
+`--root DIR` (repeatable) limits the directories the server may read, and `--max-bytes` the file size
+(256 MiB by default). Texts, layer names and properties come from the drawing file; clients should treat them as
+data, not as instructions. The functions behind the tools (`zumen.mcp.summary`, `render`, `find_texts`,
+`find_entities`, `get_entity`, `measure`) can be called without MCP.
+
 Reading and rendering release the GIL. Japanese text is drawn with the bundled
 BIZ UDGothic (SIL Open Font License 1.1).

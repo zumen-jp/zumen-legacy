@@ -82,6 +82,8 @@ fn entity_dict<'py>(py: Python<'py>, scene: &zumen::Scene, entity: &SceneEntity)
             item.set_item("name", &placement.name)?;
             item.set_item("scale_x", placement.scale_x)?;
             item.set_item("scale_y", placement.scale_y)?;
+            let [a, b, c, d, e, f] = placement.inverse;
+            item.set_item("inverse", (a, b, c, d, e, f))?;
             Some(item)
         }
         None => None,
@@ -337,7 +339,9 @@ impl Scene {
 
     /// 図形（id、type、source、layers、bbox、text、properties、placement）を描く順に返す。
     /// properties は図面の形式が持つ属性（項目名と値の組）、text は文字を持つ図形の文字（なければ None）、
-    /// placement は部分図・部品・ブロックの中の図形の配置（name、scale_x、scale_y）。region と hidden_layers は texts と同じ
+    /// placement は部分図・部品・ブロックの中の図形の配置（name、scale_x、scale_y、inverse）。scale_x・scale_y は元の座標
+    /// 1 mm が用紙で何 mm になるか、inverse は用紙の座標から元の座標（実寸の mm）への変換 (a, b, c, d, e, f)
+    /// （x' = a x + c y + e、y' = b x + d y + f）。region と hidden_layers は texts と同じ
     #[pyo3(signature = (*, region = None, hidden_layers = None))]
     fn entities<'py>(
         &self,

@@ -152,6 +152,10 @@ for entity in image.entities_at(640, 480):  # その画素に描いた図形（�
     print(entity["id"], entity["box"], entity["text"])
 ```
 
+AI のアプリは、Python のパッケージの MCP サーバー（`pip install "zumen[mcp]"` の後に `zumen-mcp --root <フォルダ>`）で
+図面を読める。開く、範囲を描く、文字と図形を探す、実寸で測る、の道具がある。
+[bindings/python](bindings/python/README.md#mcp-server) を参照。
+
 ```bash
 cargo run --release -p zumen-cli -- render plan.jww -o plan.png --dpi 150 --map plan.json
 cargo run --release -p zumen-cli -- texts plan.jww --region 100,50,200,120  # 1 行に 1 つの JSON

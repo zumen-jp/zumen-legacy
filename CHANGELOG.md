@@ -4,6 +4,10 @@ All packages share one version during 0.x.
 
 ## Unreleased (0.1.0)
 
+- Python: an MCP server, `zumen-mcp` (`pip install "zumen[mcp]"`), with read-only tools for AI applications:
+  `open_drawing`, `render_drawing`, `find_texts`, `find_entities`, `get_entity` and `measure_distance`. It serves over
+  stdio, reads only below `--root` when given, and limits file sizes (`--max-bytes`), image sizes and result counts.
+  The placement of an entity now includes `inverse`, the conversion from paper to real-world millimeters.
 - Rust and Python: the texts and entities of a scene (`zumen_core::extract`; `Scene.texts`, `Scene.entities`,
   `Scene.entity` and `Scene.to_arrow` in Python; `zumen texts` and `zumen entities` as JSON lines), and rendering that
   returns the conversion between pixels and paper millimeters and the box of every entity drawn

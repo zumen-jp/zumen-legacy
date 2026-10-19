@@ -110,7 +110,7 @@ bytes ─▶ zumen-sxf, zumen-jww, zumen-dxf (and later zumen-dwg) ─▶ Scene 
 | `zumen` | `read` and `detect` over every reader. The entry point for applications. |
 | `zumen-render` | Draws a scene to PNG with the rules of `render.ts` (color inversion, line weights with a 1 px minimum, dash rules, even-odd fills, clipping, per-character text, small text as a line), and reports which entities it drew and where (`render_image`, `drawn_entities`, `View::pixel_box`). |
 | `zumen-cli` | The `zumen` command (`detect`, `scene`, `texts`, `entities`, `render`). |
-| `bindings/python` | PyO3 bindings, built with maturin as an abi3 wheel for Python 3.10 and later. The GIL is released while reading and rendering. `Scene.to_arrow` needs pyarrow (Apache-2.0), an optional dependency (`zumen[arrow]`). |
+| `bindings/python` | PyO3 bindings, built with maturin as an abi3 wheel for Python 3.10 and later. The GIL is released while reading and rendering. `Scene.to_arrow` needs pyarrow (Apache-2.0, `zumen[arrow]`), and the MCP server `zumen.mcp` needs the MCP SDK (MIT, `zumen[mcp]`); both are optional dependencies. |
 | `bindings/wasm` | wasm-bindgen bindings that return scene JSON (`readSceneJson`). |
 
 The dependency rules follow the TypeScript packages: format crates depend only on `zumen-core` and never on each other
@@ -125,6 +125,11 @@ position, height, angle and box are in paper millimeters. `zumen_render::render_
 conversion between pixels and paper millimeters, and `drawn_entities` with `View::pixel_box` gives the box of every
 entity drawn, in pixels. An application can then show the entity that a model refers to, or render the part of the
 sheet around it. These work on the scene, so every format gets them at once. There is no TypeScript counterpart yet.
+
+`zumen.mcp` serves them to AI applications as MCP tools over stdio (`zumen-mcp`): open a drawing, render a region,
+find texts and entities, show one entity and measure in real-world millimeters through the scale of a placement. The
+tools only read, take local paths limited by `--root`, and bound file sizes, image sizes and result counts
+([decision 0004](decisions/0004-mcp-server-in-the-python-package.md)).
 
 ### Keeping the two implementations equal
 
