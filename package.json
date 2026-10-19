@@ -1,7 +1,7 @@
 {
   "name": "zumen-monorepo",
   "version": "0.1.0",
-  "description": "Monorepo of zumen: read, view and measure 2D drawings (SXF, JWW, DXF; DWG planned) in the browser, Rust and Python",
+  "description": "Monorepo of zumen: read, view and measure 2D drawings (SXF, JWW, DXF; DWG planned) in the browser, Rust and Python, and view ST-Bridge structural models in 3D",
   "private": true,
   "type": "module",
   "license": "UNLICENSED",
@@ -9,7 +9,7 @@
     "node": ">=24 <25"
   },
   "scripts": {
-    "build": "node scripts/clean.mjs && tsc -p packages/core/tsconfig.build.json && tsc -p packages/sxf/tsconfig.build.json && tsc -p packages/jww/tsconfig.build.json && tsc -p packages/dxf/tsconfig.build.json && tsc -p packages/react/tsconfig.build.json",
+    "build": "node scripts/clean.mjs && tsc -p packages/core/tsconfig.build.json && tsc -p packages/sxf/tsconfig.build.json && tsc -p packages/jww/tsconfig.build.json && tsc -p packages/dxf/tsconfig.build.json && tsc -p packages/react/tsconfig.build.json && tsc -p packages/stb/tsconfig.build.json",
     "check": "pnpm run lint && pnpm run typecheck && pnpm test && pnpm audit && pnpm run build && pnpm run playground:build && pnpm run check:rust && pnpm run check:python",
     "check:python": "uv run --project bindings/python --frozen ruff check bindings/python && uv run --project bindings/python --frozen ruff format --check bindings/python && uv run --project bindings/python --frozen maturin develop --uv -m bindings/python/Cargo.toml && uv run --project bindings/python --frozen pytest bindings/python/tests -q",
     "check:rust": "cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace --exclude zumen-python && cargo build -p zumen-wasm --target wasm32-unknown-unknown --release",
@@ -30,14 +30,17 @@
     "@zumenjs/dxf": "workspace:*",
     "@zumenjs/jww": "workspace:*",
     "@zumenjs/react": "workspace:*",
+    "@zumenjs/stb": "workspace:*",
     "@zumenjs/sxf": "workspace:*",
     "@types/node": "24.19.2",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
+    "@types/three": "0.186.0",
     "@vitest/browser-playwright": "5.0.3",
     "playwright": "1.64.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
+    "three": "0.186.1",
     "typescript": "7.0.2",
     "vite": "8.3.4",
     "vitest": "5.0.3"

@@ -10,6 +10,13 @@ bytes ─▶ format reader ─▶ native model ─▶ toScene ─▶ Scene ─�
           @zumenjs/dxf)      DxfDocument)
 ```
 
+Structural models (ST-Bridge) are not drawings. They take a separate 3D path inside `@zumenjs/stb`:
+
+```text
+bytes ─▶ readStb ─▶ StructureModel ─▶ StructureView (three.js) ─▶ StbViewer (React)
+         (@zumenjs/stb)                (@zumenjs/stb/three)        (@zumenjs/stb/react)
+```
+
 ## Packages and dependency rules
 
 | Package | Responsibility |
@@ -19,6 +26,7 @@ bytes ─▶ format reader ─▶ native model ─▶ toScene ─▶ Scene ─�
 | `@zumenjs/jww` | JWW parsing into the JWW document model (`readJww` → `JwwDocument`), conversion to a scene (`jwwToScene`), and the `jww` reader. |
 | `@zumenjs/dxf` | DXF parsing (ASCII and binary) into the AutoCAD drawing model (`parseDxf` → `DxfDocument`), conversion of model space or a layout to a scene (`dxfToScene`), and the `dxf` reader. The model and the conversion are shared with the DWG reader. |
 | `@zumenjs/react` | `useDrawingViewer` (the engine in React), `CadViewer` (a complete viewer), and `useCadFile`. |
+| `@zumenjs/stb` | ST-Bridge parsing into a 3D structural model (`isStb`, `readStb` → `StructureModel`) and member filters (`isMemberVisible`, `membersOnAxis`). `@zumenjs/stb/three` draws the model with three.js (`StructureView`, tessellation and picking), and `@zumenjs/stb/react` adds `StbViewer` and `useStbFile`. |
 
 1. Format packages depend only on `@zumenjs/core`, never on each other.
    For example, `@zumenjs/jww` keeps its own copy of the SXF-compatible colors and line types.
@@ -31,6 +39,11 @@ bytes ─▶ format reader ─▶ native model ─▶ toScene ─▶ Scene ─�
    and text layout helpers.
 4. Interaction (zoom, pan, selection, measurement) lives in `DrawingViewer`. The React layer only reads the
    viewer state and calls its methods.
+5. `@zumenjs/stb` is a separate line for 3D structural models and depends on no other package. Inside it, parsing
+   (`src/`, `src/xml/`, `src/stb/`) does not use the DOM, three.js or React, drawing lives in `src/three/` and React in
+   `src/react/`, and the imports go react → three → parsing only. When plan and elevation drawings of a structure are
+   added, they convert the model to a `Scene`, and `@zumenjs/stb` then depends on `@zumenjs/core` only
+   (see [decision 0001](decisions/0001-st-bridge-in-zumen.md)).
 
 ## The scene model
 
@@ -44,6 +57,18 @@ bytes ─▶ format reader ─▶ native model ─▶ toScene ─▶ Scene ─�
 - A drawing can hold several views, such as DXF model space and layouts. `Scene.views` lists them and `Scene.view` is the one drawn;
   `readDrawing(bytes, readers, { view })` passes the choice to the reader (`DrawingReader.read(bytes, format, { view })`).
   Formats with a single view leave both out.
+
+## The structural model
+
+- `StructureModel` (`@zumenjs/stb`) is a 3D model in global millimeters with the Z axis up, separate from `Scene`.
+- Each member has a solid (a 2D section outline extruded along a direction, or a list of 3D outlines), a list of
+  properties to show and the original XML attributes. Members with the same section share the outline, and
+  triangulation happens in `@zumenjs/stb/three`.
+- `notices` list what was not drawn, drawn differently or inferred, by kind and count, as in a scene.
+- three.js (MIT) is an optional peer dependency used only by `./three` and `./react`, for WebGL rendering with
+  `OrbitControls` and `CSS2DRenderer` from its `examples/jsm`. Parsing needs no dependency, so applications that only
+  read models do not install it. How the format is read is described in [How ST-Bridge is handled](formats/st-bridge.md)
+  (Japanese).
 
 ## Adding a format
 
@@ -137,7 +162,8 @@ a Japanese gothic close to the MS Gothic that SXF and Jw_cad drawings assume. Ch
 - Each package's `exports` has an `@zumenjs/source` condition that points at `src`. The type checker
   (`customConditions` in `tsconfig.json`), Vitest and the Vite playground resolve it, so changes apply without a build.
   `publishConfig.exports` leaves it out of the published packages, which contain only `dist`.
-- `pnpm run build` compiles the packages in dependency order (core, then sxf, jww and dxf, then react) into each `dist`.
+- `pnpm run build` compiles the packages in dependency order (core, then sxf, jww and dxf, then react, then stb, which
+  depends on none of them) into each `dist`.
 - `pnpm run check` runs Biome, the type checker, the unit tests, `pnpm audit` and all builds, then the Rust checks
   (`check:rust`: rustfmt, Clippy, tests and the wasm32 build) and the Python checks (`check:python`: Ruff, maturin, pytest).
 - The Rust toolchain is pinned in `rust-toolchain.toml`, Python in `bindings/python/.python-version` (installed by uv).

@@ -7,6 +7,8 @@
 2026-10 の調査では、SXF をブラウザで読める JS ライブラリはなく、JWW もブラウザ向けの npm と React の部品がなかった。
 AutoCAD などの **DXF**（Shift_JIS の日本語、バイナリを含む）も TypeScript で読む。
 次の **DWG** は同じ AutoCAD の図形モデルを使い、GPL の部品を使わず MIT のまま読むことを目指す。
+構造設計データの国内標準 **ST-Bridge**（`.stb`）も 2.0 系・2.1 系を読み、部材を 3D で表示する。
+ブラウザで ST-Bridge を読める JS ライブラリも見つからなかった。
 読み取りを Rust に移し、Python（サーバーやデータ処理）と WebAssembly（ブラウザ）からも同じ結果で使えるようにしている。
 
 > 状態: 公開前（0.x）。npm にはまだ公開していない。
@@ -23,9 +25,11 @@ npm には未公開（0.x の公開準備中）。
 | `@zumenjs/jww` | `packages/jww` | `readJww`（JWW のままのモデル）、`jwwToScene`、読み取りの `jww` |
 | `@zumenjs/dxf` | `packages/dxf` | `parseDxf`（DWG と共有する AutoCAD の図形モデル）、`dxfToScene`、読み取りの `dxf` |
 | `@zumenjs/react` | `packages/react` | 完成品の画面 `CadViewer`、フック `useDrawingViewer`・`useCadFile` |
+| `@zumenjs/stb` | `packages/stb` | ST-Bridge の読み取り `readStb`・`isStb`（3D の構造モデル）、three.js の表示 `StructureView`（`/three`）、React の `StbViewer`・`useStbFile`（`/react`） |
 
 依存の向きは `@zumenjs/react` → `@zumenjs/core`、`@zumenjs/sxf`・`@zumenjs/jww`・`@zumenjs/dxf` → `@zumenjs/core` だけ
 （例外は、次の DWG の読み取りが `@zumenjs/dxf` のモデルと変換を使うこと）。
+`@zumenjs/stb` は 3D の別の系統で、ほかのパッケージに依存しない。
 `@zumenjs/core` は形式を知らず、使う形式の読み取りを `readDrawing` に渡す。形式は拡張子ではなく中身で判定する。
 
 ## できること
@@ -41,6 +45,8 @@ npm には未公開（0.x の公開準備中）。
   背景と見分けにくい色（白背景の白、黒背景の黒）は反対の色で描く。
 - 線の太さどおりの表示と、細線表示の切り替え。
 - 図面の情報（表題欄、作成ソフト、用紙）と、省略・代替した内容の件数（読み取りの注意）。
+- 構造モデル（ST-Bridge 2.0・2.1）の 3D 表示。部材を断面の形で押し出し、階と通り芯を示す。階で絞ると伏図、
+  通り芯で絞ると軸組図になる。部材を選ぶと、断面・材料・階・元の XML の属性を確かめられる。
 
 ## 使い方
 
@@ -108,6 +114,21 @@ const scene = sxfToScene(drawing); // 必要なら表示用モデルにする
 `Scene` は用紙の mm・Y 軸上向きの座標で、部分図・作図部品の配置を解決済みの図形を持つ。
 要素ごとに属性の一覧と、部分図の中の要素なら元の座標への変換（実寸の計測用、`toReal`）を持つ。
 
+構造モデル（ST-Bridge）は、`useStbFile` で読み、`StbViewer` で 3D に表示する。`readStb` だけなら Node.js でも動く。
+
+```tsx
+import { StbViewer, useStbFile } from "@zumenjs/stb/react";
+
+export function StructureView({ file }: { file: File | null }) {
+  const { model, error } = useStbFile(file);
+  if (error) return <p role="alert">{error.message}</p>;
+  return model ? <StbViewer model={model} style={{ height: 640 }} /> : null;
+}
+```
+
+`StructureModel` は全体座標系の mm・Z 軸上向きで、部材ごとに立体・属性の一覧・元の XML の属性を持つ。
+詳しくは [packages/stb](packages/stb/README.md)（英語）と [ST-Bridge の扱い](docs/formats/st-bridge.md)。
+
 ## Rust と Python
 
 読み取りを Rust（`crates/`）に移し、Python の結合部（`bindings/python`）と WebAssembly（`bindings/wasm`）を作っている。
@@ -145,7 +166,9 @@ Python では、読み取りと描画の間 GIL を外す。
 - [SXF（SFC・P21）の扱い](docs/formats/sxf.md)
 - [JWW の扱い](docs/formats/jww.md)
 - [DXF の扱い（英語）](docs/formats/dxf.md)
+- [ST-Bridge の扱い](docs/formats/st-bridge.md)
 - [検証の記録（英語）](docs/verification.md)
+- [設計の判断の記録（英語）](docs/decisions/README.md)
 - [開発への参加（英語）](CONTRIBUTING.md)
 
 ## 開発
@@ -155,7 +178,7 @@ pnpm install --frozen-lockfile
 pnpm run check
 ```
 
-`check` は Biome、型検査、単体テスト、依存監査、各パッケージ（core、sxf・jww・dxf、react の順）と試用画面のビルドに加え、
+`check` は Biome、型検査、単体テスト、依存監査、各パッケージ（core、sxf・jww・dxf、react、stb の順）と試用画面のビルドに加え、
 Rust（rustfmt・Clippy・テスト・wasm32 のビルド）と Python の結合部（Ruff・maturin・pytest）を検査する。
 Rust は `rust-toolchain.toml`、Python は uv と `bindings/python/.python-version` に固定する。
 TS の読み取りを変えたら `pnpm run golden` で `tests/fixtures` の正解を作り直し、Rust の読み取りも同じ結果に直す。
@@ -164,9 +187,11 @@ Node.js は `.node-version`、pnpm は `package.json` の `packageManager` に�
 
 試用画面は `pnpm dev` で開く（ポートは [config/local-ports.json](config/local-ports.json) の `playground`、既定 24100）。
 Git に入れない図面は、置いたフォルダーを `ZUMEN_SAMPLES` に指定し、`http://127.0.0.1:24100/?sample=<ファイル名>` で開く。
-ファイルの選択・ドロップでも開ける。
+ファイルの選択・ドロップでも開ける。ST-Bridge は中身で見分けて 3D の表示に切り替える（three.js はそのときだけ読み込む）。
 
 ## ライセンス
 
-公開の前に決める。参照した第三者のソフトウェアは [packages/jww/THIRD_PARTY_NOTICES.md](packages/jww/THIRD_PARTY_NOTICES.md) に記録した。
+公開の前に決める。参照した第三者のソフトウェア・資料は [packages/jww/THIRD_PARTY_NOTICES.md](packages/jww/THIRD_PARTY_NOTICES.md)、
+[packages/dxf/THIRD_PARTY_NOTICES.md](packages/dxf/THIRD_PARTY_NOTICES.md)、
+[packages/stb/THIRD_PARTY_NOTICES.md](packages/stb/THIRD_PARTY_NOTICES.md) に記録した。
 `zumen-render` に同梱するフォントは BIZ UDゴシック（SIL Open Font License 1.1、[crates/zumen-render/fonts/OFL.txt](crates/zumen-render/fonts/OFL.txt)）。

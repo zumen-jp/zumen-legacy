@@ -29,4 +29,4 @@ Choices made before this folder existed are described in [the architecture notes
 
 ## Records
 
-None yet.
+- [0001: Keep ST-Bridge structural models in zumen as a TypeScript package](0001-st-bridge-in-zumen.md) (2026-10-19, Accepted)
