@@ -1,0 +1,793 @@
+{
+  "format": "dxf",
+  "version": "DXF AC1018",
+  "views": [
+    {
+      "id": "Model",
+      "name": "モデル"
+    },
+    {
+      "id": "Inches",
+      "name": "Inches"
+    },
+    {
+      "id": "Rotated",
+      "name": "Rotated"
+    }
+  ],
+  "view": "Model",
+  "sheet": null,
+  "bounds": {
+    "minX": -5000,
+    "minY": -5000,
+    "maxX": 500000,
+    "maxY": 500000.00000000023
+  },
+  "layers": [
+    {
+      "id": 1,
+      "name": "0",
+      "visible": true
+    },
+    {
+      "id": 2,
+      "name": "HIDE",
+      "visible": true
+    }
+  ],
+  "entities": [
+    {
+      "id": "40",
+      "type": "線分",
+      "source": "LINE",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            0,
+            30000,
+            0
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": [
+            500,
+            250
+          ]
+        }
+      ],
+      "bbox": {
+        "minX": 0,
+        "minY": 0,
+        "maxX": 30000,
+        "maxY": 0
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "線分（LINE）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "40"
+        },
+        {
+          "label": "レイヤ",
+          "value": "0"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "DASHED"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "始点",
+          "value": "0, 0"
+        },
+        {
+          "label": "終点",
+          "value": "30, 0"
+        },
+        {
+          "label": "長さ",
+          "value": "30"
+        }
+      ],
+      "placement": {
+        "name": "モデル空間（m）",
+        "scaleX": 1,
+        "scaleY": 1,
+        "inverse": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": "41",
+      "type": "線分",
+      "source": "LINE",
+      "layers": [
+        2
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            5000,
+            30000,
+            5000
+          ],
+          "closed": false,
+          "color": "#ff0000",
+          "width": 0.25,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 0,
+        "minY": 5000,
+        "maxX": 30000,
+        "maxY": 5000
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "線分（LINE）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "41"
+        },
+        {
+          "label": "レイヤ",
+          "value": "HIDE"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "始点",
+          "value": "0, 5"
+        },
+        {
+          "label": "終点",
+          "value": "30, 5"
+        },
+        {
+          "label": "長さ",
+          "value": "30"
+        }
+      ],
+      "placement": {
+        "name": "モデル空間（m）",
+        "scaleX": 1,
+        "scaleY": 1,
+        "inverse": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": "42",
+      "type": "文字",
+      "source": "TEXT",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "text",
+          "text": "oúY‡W",
+          "color": "#ffffff",
+          "fontFamily": "\"MS Gothic\", \"Hiragino Kaku Gothic ProN\", \"Hiragino Sans\", \"Yu Gothic\", \"Noto Sans JP\", \"Noto Sans CJK JP\", sans-serif",
+          "height": 2.272727272727273,
+          "scaleX": 1,
+          "cells": [
+            {
+              "char": "o",
+              "x": 0.5681818181818182,
+              "y": 1.1363636363636365
+            },
+            {
+              "char": "",
+              "x": 2.272727272727273,
+              "y": 1.1363636363636365
+            },
+            {
+              "char": "ú",
+              "x": 4.545454545454546,
+              "y": 1.1363636363636365
+            },
+            {
+              "char": "Y",
+              "x": 6.25,
+              "y": 1.1363636363636365
+            },
+            {
+              "char": "‡",
+              "x": 7.954545454545455,
+              "y": 1.1363636363636365
+            },
+            {
+              "char": "W",
+              "x": 9.65909090909091,
+              "y": 1.1363636363636365
+            }
+          ],
+          "boxWidth": 10.227272727272728,
+          "boxHeight": 2.272727272727273,
+          "matrix": [
+            1000,
+            0,
+            0,
+            1000,
+            -2000,
+            9727.272727272728
+          ]
+        }
+      ],
+      "bbox": {
+        "minX": -2000,
+        "minY": 9727.272727272728,
+        "maxX": 8227.272727272728,
+        "maxY": 12000
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "文字（TEXT）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "42"
+        },
+        {
+          "label": "レイヤ",
+          "value": "0"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "文字列",
+          "value": "oúY‡W"
+        },
+        {
+          "label": "高さ",
+          "value": "2"
+        },
+        {
+          "label": "文字スタイル",
+          "value": "STANDARD"
+        }
+      ],
+      "placement": {
+        "name": "モデル空間（m）",
+        "scaleX": 1,
+        "scaleY": 1,
+        "inverse": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": "43",
+      "type": "塗り（ソリッド）",
+      "source": "SOLID",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "fill",
+          "color": "#ffffff",
+          "rings": [
+            [
+              25000,
+              -5000,
+              40000,
+              -5000,
+              40000,
+              2000,
+              25000,
+              2000
+            ]
+          ]
+        }
+      ],
+      "bbox": {
+        "minX": 25000,
+        "minY": -5000,
+        "maxX": 40000,
+        "maxY": 2000
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "塗り（ソリッド）（SOLID）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "43"
+        },
+        {
+          "label": "レイヤ",
+          "value": "0"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        }
+      ],
+      "placement": {
+        "name": "モデル空間（m）",
+        "scaleX": 1,
+        "scaleY": 1,
+        "inverse": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": "44",
+      "type": "点",
+      "source": "POINT",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "dot",
+          "x": 5000,
+          "y": 2000,
+          "color": "#ffffff"
+        }
+      ],
+      "bbox": {
+        "minX": 5000,
+        "minY": 2000,
+        "maxX": 5000,
+        "maxY": 2000
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "点（POINT）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "44"
+        },
+        {
+          "label": "レイヤ",
+          "value": "0"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "位置",
+          "value": "5, 2"
+        }
+      ],
+      "placement": {
+        "name": "モデル空間（m）",
+        "scaleX": 1,
+        "scaleY": 1,
+        "inverse": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": "45",
+      "type": "点",
+      "source": "POINT",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "dot",
+          "x": 500000,
+          "y": 500000,
+          "color": "#ffffff"
+        }
+      ],
+      "bbox": {
+        "minX": 500000,
+        "minY": 500000,
+        "maxX": 500000,
+        "maxY": 500000
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "点（POINT）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "45"
+        },
+        {
+          "label": "レイヤ",
+          "value": "0"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "位置",
+          "value": "500, 500"
+        }
+      ],
+      "placement": {
+        "name": "モデル空間（m）",
+        "scaleX": 1,
+        "scaleY": 1,
+        "inverse": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": "46",
+      "type": "ハッチング",
+      "source": "HATCH",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "clipped",
+          "rings": [
+            [
+              -5000,
+              -5000,
+              10000,
+              -5000,
+              10000,
+              8000,
+              -5000,
+              8000,
+              -5000,
+              -5000
+            ]
+          ],
+          "strokes": [
+            {
+              "kind": "stroke",
+              "points": [
+                -6000,
+                -5000,
+                10000,
+                -5000,
+                -6000,
+                -4000,
+                10000,
+                -4000,
+                -6000,
+                -3000,
+                10000,
+                -3000,
+                -6000,
+                -2000,
+                10000,
+                -2000,
+                -6000,
+                -1000,
+                10000,
+                -1000,
+                -6000,
+                0,
+                10000,
+                0,
+                -6000,
+                1000,
+                10000,
+                1000,
+                -6000,
+                2000,
+                10000,
+                2000,
+                -6000,
+                3000,
+                10000,
+                3000,
+                -6000,
+                4000,
+                10000,
+                4000,
+                -6000,
+                5000,
+                10000,
+                5000,
+                -6000,
+                6000,
+                10000,
+                6000,
+                -6000,
+                7000,
+                10000,
+                7000,
+                -6000,
+                8000,
+                10000,
+                8000
+              ],
+              "closed": false,
+              "segments": true,
+              "color": "#ffffff",
+              "width": 0,
+              "dashes": [
+                2000,
+                1000
+              ]
+            }
+          ]
+        }
+      ],
+      "bbox": {
+        "minX": -5000,
+        "minY": -5000,
+        "maxX": 10000,
+        "maxY": 8000
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "ハッチング（HATCH）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "46"
+        },
+        {
+          "label": "レイヤ",
+          "value": "0"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "模様",
+          "value": "LINES"
+        },
+        {
+          "label": "模様の尺度",
+          "value": "1"
+        },
+        {
+          "label": "模様の角度",
+          "value": "0°"
+        }
+      ],
+      "placement": {
+        "name": "モデル空間（m）",
+        "scaleX": 1,
+        "scaleY": 1,
+        "inverse": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": "47",
+      "type": "構築線",
+      "source": "XLINE",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            -5000,
+            0,
+            500000.00000000023
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 0,
+        "minY": -5000,
+        "maxX": 0,
+        "maxY": 500000.00000000023
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "構築線（XLINE）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "47"
+        },
+        {
+          "label": "レイヤ",
+          "value": "0"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        }
+      ],
+      "placement": {
+        "name": "モデル空間（m）",
+        "scaleX": 1,
+        "scaleY": 1,
+        "inverse": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ]
+      }
+    }
+  ],
+  "notices": [
+    {
+      "level": "warning",
+      "code": "unknown-layout",
+      "message": "レイアウト Missing が見つからないため、モデル空間を表示しました",
+      "count": 1
+    },
+    {
+      "level": "info",
+      "code": "paper-space",
+      "message": "レイアウト（紙空間）の図形はモデル空間の表示に含めていません。表示を切り替えると見られます",
+      "count": 2
+    },
+    {
+      "level": "info",
+      "code": "xline",
+      "message": "構築線・放射線は、ほかの図形の範囲で切って描きました",
+      "count": 1
+    },
+    {
+      "level": "info",
+      "code": "shx-font",
+      "message": "SHX フォント（txt）は同梱していないため、代わりのフォントで描きました",
+      "count": 1
+    }
+  ],
+  "metadata": [
+    {
+      "label": "形式",
+      "value": "DXF AutoCAD 2004（AC1018、テキスト）"
+    },
+    {
+      "label": "文字コード",
+      "value": "西欧（Windows-1252）（指定なし）"
+    },
+    {
+      "label": "単位",
+      "value": "m"
+    },
+    {
+      "label": "レイアウト",
+      "value": "Inches・Rotated"
+    },
+    {
+      "label": "表示",
+      "value": "モデル空間"
+    }
+  ],
+  "background": "dark"
+}

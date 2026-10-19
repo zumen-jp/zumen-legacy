@@ -110,6 +110,43 @@ Checked on 2026-10-19 on macOS (Apple Silicon) with Rust 1.99.0, Node.js 24.21.0
 - `zumen render` draws `D0LS004Z.SFC` (A1) at 60 dpi in 0.06 s with the notes, dimension values, hatching, tables and
   the yellow border of the original. Not compared pixel by pixel with the viewer yet.
 
+## DXF in Rust
+
+Checked on 2026-10-19 on macOS (Apple Silicon) with Rust 1.99.0, Node.js 24.21.0 and wasm-pack 0.15.0.
+
+- 18 synthetic DXF drawings in `tests/fixtures/dxf` give the same scenes in Rust (`crates/zumen/tests/golden.rs`), in the
+  WebAssembly build (`pnpm run wasm`) and through Python as in TypeScript, in their default view and in five other views
+  (layouts, model space and a missing layout). They cover the code pages (`ANSI_932`, Shift_JIS guessed in R12, Western,
+  UTF-8 declared as `ANSI_1252`, an unknown code page), binary DXF (R12 and R2000), lines out of step, nested blocks with
+  attributes and arrays, layouts and viewports (scales, clipping, frozen layers, twisted and 3D views, R12 viewports),
+  MULTILEADER, MLINE, a drawing with every supported entity type, and the limits of
+  [How DXF is handled](formats/dxf.md#limits). Four numbers differ, in the last bit of trigonometric results (two in
+  `features.dxf` and two in the model space of `r12.dxf`); everything else is equal bit for bit.
+- All 26 DXF files of the local samples (the ACadSharp samples of R12 to 2018 in ASCII and binary, the public drawings of
+  Yokosuka City and Imizu City, and generated MULTILEADER and MLINE drawings) give the same scenes in Rust as in TypeScript
+  in their default view and in all 54 other views (`pnpm run parity`, which now compares every view).
+- `pnpm run fuzz` read 60,000 damaged copies of the DXF fixtures (six seeds of 10,000) and 20,000 of all fixtures with
+  TypeScript and WebAssembly: the scenes or the error messages were the same for every input. Before that, it found one difference in
+  the new `js::string_to_number` (`Number("--1")` was 1 in Rust and NaN in JavaScript) and a drawing whose dimension
+  block contains itself twice: it grows to 2³² entities and exhausted the memory of both readers. Porting found
+  three more inputs that hang or overflow the stack in both (a dimension block that contains itself once, a polygon mesh
+  of 10⁸ × 10⁸ and a hatch with a NaN pattern base point). All four are now limits that both readers share.
+- The changes to `@zumenjs/dxf` leave the TypeScript scenes of every local sample unchanged, in every view (160 scenes),
+  compared with the build of the previous commit.
+- Time (median of seven runs in Node.js after a warm-up, `readDrawing` and `sceneToJson` against `readSceneJson`):
+  `jp-yokosuka-minami-survey-plan.dxf` (2.7 MB, 9,260 entities) 140 ms in TypeScript and 79 ms in WebAssembly;
+  `sample_AC1009_ascii.dxf` 35 ms and 18 ms; `sample_AC1015_binary.dxf` (1.4 MB) 24 ms and 8 ms. Natively, the first
+  takes 19 ms to parse, 28 ms to build the scene and 10 ms to write the JSON. Building the scene took 73 ms before
+  `js::to_fixed` computed `toFixed` with 128-bit integers instead of a full decimal expansion (checked against Node.js on
+  140,196 values, ties and subnormal numbers included), and parsing the binary sample took 34 ms before binary data was
+  turned into hexadecimal with a table.
+- A block that contains itself twice stops at the limit of 1,000,000 entities in 0.2 s in TypeScript and 0.5 s natively
+  when the blocks are empty, and in 1.3 s and 2.4 s when each copy draws a line (333,342 entities, a 290 MB scene JSON).
+- WebAssembly with the SXF, JWW and DXF readers: 1,167,943 bytes (gzip −9: 545,663, brotli −11: 419,049), 425,427 bytes
+  (brotli 123,851) more than with SXF and JWW. Most of it is the DXF reader and the `encoding_rs` tables of the Chinese,
+  Korean and other code pages, which browsers decode with their own `TextDecoder`.
+- `zumen render` draws the Yokosuka cross sections and the `Layout1` of `sample_AC1015_ascii.dxf` in 0.05 s.
+
 ## Rust readers, rendering and bindings
 
 Checked on 2026-10-18 on macOS (Apple Silicon) with Rust 1.99.0, Node.js 24.21.0, Python 3.15.0, wasm-pack 0.15.0

@@ -27,13 +27,13 @@ fn background_name(background: Background) -> &'static str {
 
 #[pymethods]
 impl Scene {
-    /// 形式の名前（sfc・p21・jww など）
+    /// 形式の名前（sfc・p21・jww・dxf など）
     #[getter]
     fn format(&self) -> &str {
         &self.inner.format
     }
 
-    /// 形式の版（SXF 3.1、JWW 700 など）
+    /// 形式の版（SXF 3.1、JWW 700、DXF AC1032 など）
     #[getter]
     fn version(&self) -> &str {
         &self.inner.version
@@ -189,7 +189,7 @@ impl Scene {
     }
 }
 
-/// 図面の形式を中身から判定する（sfc・p21・jww など）。読めない形式なら None
+/// 図面の形式を中身から判定する（sfc・p21・jww・dxf など）。読めない形式なら None
 #[pyfunction]
 fn detect(data: &[u8]) -> Option<&'static str> {
     zumen::detect(data)

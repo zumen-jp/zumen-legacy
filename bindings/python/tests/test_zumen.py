@@ -26,6 +26,15 @@ def test_reads_sxf_and_detects_sfc_and_p21():
     assert scene.sheet == {"name": "道路", "size": "A1 横", "width": 841.0, "height": 594.0}
 
 
+def test_reads_a_dxf_layout_as_a_view():
+    dxf = (FIXTURES / "dxf" / "layout.dxf").read_bytes()
+    assert zumen.detect(dxf) == "dxf"
+    scene = zumen.read(dxf, view="Layout1")
+    assert (scene.format, scene.view, scene.views) == ("dxf", "Layout1", [("Model", "モデル"), ("Layout1", "Layout1")])
+    golden = json.loads((FIXTURES / "dxf" / "layout@Layout1.scene.json").read_text(encoding="utf-8"))
+    assert json.loads(scene.to_json()) == golden
+
+
 def test_renders_png_and_reports_unreadable_input():
     scene = zumen.read((FIXTURES / "jww" / "minimal-v600.jww").read_bytes())
     png = scene.render_png(dpi=50)

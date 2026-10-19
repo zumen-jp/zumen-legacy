@@ -27,7 +27,7 @@ def read(
 ) -> Scene:
     """Read a drawing from bytes or a file path into a ``Scene``.
 
-    ``format`` forces a format (``"sfc"``, ``"p21"`` or ``"jww"``) instead of detecting it from the contents.
+    ``format`` forces a format (``"sfc"``, ``"p21"``, ``"jww"`` or ``"dxf"``) instead of detecting it from the contents.
     ``view`` chooses a view such as a DXF layout (see ``Scene.views``).
     Raises ``ReadError`` when the drawing cannot be read.
     """

@@ -133,7 +133,7 @@ export function StructureView({ file }: { file: File | null }) {
 
 読み取りを Rust（`crates/`）に移し、Python の結合部（`bindings/python`）と WebAssembly（`bindings/wasm`）を作っている。
 Rust の読み取りは TypeScript と同じ `Scene` を返す。`tests/fixtures` の図面で両方の結果を比べ、手元の図面は
-`pnpm run parity` で比べる。JWW と SXF は移植済みで、DXF・DWG が続く。ブラウザのパッケージは、形式ごとに結果が
+`pnpm run parity` で比べる。JWW・SXF・DXF は移植済みで、DWG が続く。ブラウザのパッケージは、形式ごとに結果が
 一致したものから WebAssembly の読み取りに切り替える。
 
 ```python
@@ -154,6 +154,7 @@ cargo run --release -p zumen-cli -- render plan.jww -o plan.png --dpi 150
 | `zumen-core` | 表示用モデル（`@zumenjs/core` と同じ JSON）、幾何、文字の配置 |
 | `zumen-sxf` | `parse_sfc`・`parse_p21`（SXF のフィーチャのモデル）、`sxf_to_scene`、読み取りの `SXF` |
 | `zumen-jww` | `read_jww`（JWW のままのモデル）、`jww_to_scene`、読み取りの `JWW` |
+| `zumen-dxf` | `parse_dxf`（DWG と共有する AutoCAD の図形モデル）、`dxf_to_scene`、読み取りの `DXF` |
 | `zumen` | すべての読み取りをまとめた `read`・`detect` |
 | `zumen-render` | ブラウザの描画と同じ規則で PNG に描く。日本語の文字は同梱の BIZ UDゴシックで描く |
 | `zumen-cli` | `zumen` コマンド（`detect`、`scene` で JSON、`render` で PNG） |

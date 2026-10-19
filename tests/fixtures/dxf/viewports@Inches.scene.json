@@ -1,0 +1,135 @@
+{
+  "format": "dxf",
+  "version": "DXF AC1018",
+  "views": [
+    {
+      "id": "Model",
+      "name": "モデル"
+    },
+    {
+      "id": "Inches",
+      "name": "Inches"
+    },
+    {
+      "id": "Rotated",
+      "name": "Rotated"
+    }
+  ],
+  "view": "Inches",
+  "sheet": {
+    "name": "Inches",
+    "size": "レイアウト",
+    "width": 139.7,
+    "height": 114.3
+  },
+  "bounds": {
+    "minX": 0,
+    "minY": 0,
+    "maxX": 139.7,
+    "maxY": 139.7
+  },
+  "layers": [
+    {
+      "id": 1,
+      "name": "0",
+      "visible": true
+    }
+  ],
+  "entities": [
+    {
+      "id": "61",
+      "type": "線分",
+      "source": "LINE",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            12.7,
+            12.7,
+            139.7,
+            139.7
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 12.7,
+        "minY": 12.7,
+        "maxX": 139.7,
+        "maxY": 139.7
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "線分（LINE）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "61"
+        },
+        {
+          "label": "レイヤ",
+          "value": "0"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "始点",
+          "value": "0, 0"
+        },
+        {
+          "label": "終点",
+          "value": "10, 10"
+        },
+        {
+          "label": "長さ",
+          "value": "14.1421"
+        }
+      ]
+    }
+  ],
+  "notices": [],
+  "metadata": [
+    {
+      "label": "形式",
+      "value": "DXF AutoCAD 2004（AC1018、テキスト）"
+    },
+    {
+      "label": "文字コード",
+      "value": "西欧（Windows-1252）（指定なし）"
+    },
+    {
+      "label": "単位",
+      "value": "m"
+    },
+    {
+      "label": "レイアウト",
+      "value": "Inches・Rotated"
+    },
+    {
+      "label": "表示",
+      "value": "レイアウト Inches"
+    },
+    {
+      "label": "用紙",
+      "value": "レイアウト（139.7×114.3 mm）"
+    }
+  ],
+  "background": "light"
+}

@@ -1,0 +1,162 @@
+{
+  "format": "dxf",
+  "version": "DXF AC1009",
+  "views": [
+    {
+      "id": "Model",
+      "name": "モデル"
+    }
+  ],
+  "view": "Model",
+  "sheet": null,
+  "bounds": {
+    "minX": 0,
+    "minY": -0.13636363636363638,
+    "maxX": 2.272727272727273,
+    "maxY": 1
+  },
+  "layers": [
+    {
+      "id": 1,
+      "name": "0",
+      "visible": true
+    }
+  ],
+  "entities": [
+    {
+      "id": "?",
+      "type": "文字",
+      "source": "TEXT",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "text",
+          "text": "45°",
+          "color": "#ffffff",
+          "fontFamily": "\"MS Gothic\", \"Hiragino Kaku Gothic ProN\", \"Hiragino Sans\", \"Yu Gothic\", \"Noto Sans JP\", \"Noto Sans CJK JP\", sans-serif",
+          "height": 1.1363636363636365,
+          "scaleX": 1,
+          "cells": [
+            {
+              "char": "4",
+              "x": 0.2840909090909091,
+              "y": 0.5681818181818182
+            },
+            {
+              "char": "5",
+              "x": 0.8522727272727273,
+              "y": 0.5681818181818182
+            },
+            {
+              "char": "°",
+              "x": 1.7045454545454546,
+              "y": 0.5681818181818182
+            }
+          ],
+          "boxWidth": 2.272727272727273,
+          "boxHeight": 1.1363636363636365,
+          "matrix": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            -0.13636363636363638
+          ]
+        }
+      ],
+      "bbox": {
+        "minX": 0,
+        "minY": -0.13636363636363638,
+        "maxX": 2.272727272727273,
+        "maxY": 1
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "文字（TEXT）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "?"
+        },
+        {
+          "label": "レイヤ",
+          "value": "0"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "文字列",
+          "value": "45°"
+        },
+        {
+          "label": "高さ",
+          "value": "1"
+        },
+        {
+          "label": "文字スタイル",
+          "value": "STANDARD"
+        }
+      ],
+      "placement": {
+        "name": "モデル空間（mm（指定なし））",
+        "scaleX": 1,
+        "scaleY": 1,
+        "inverse": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ]
+      }
+    }
+  ],
+  "notices": [
+    {
+      "level": "info",
+      "code": "unit-assumed",
+      "message": "長さの単位の指定がないため、mm とみなしました",
+      "count": 1
+    },
+    {
+      "level": "info",
+      "code": "shx-font",
+      "message": "SHX フォント（txt）は同梱していないため、代わりのフォントで描きました",
+      "count": 1
+    }
+  ],
+  "metadata": [
+    {
+      "label": "形式",
+      "value": "DXF AutoCAD R12（AC1009、テキスト）"
+    },
+    {
+      "label": "文字コード",
+      "value": "西欧（Windows-1252）（指定なし）"
+    },
+    {
+      "label": "単位",
+      "value": "mm（指定なし）"
+    },
+    {
+      "label": "表示",
+      "value": "モデル空間"
+    }
+  ],
+  "background": "dark"
+}

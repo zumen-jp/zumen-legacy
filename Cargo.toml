@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/zumen-core", "crates/zumen-jww", "crates/zumen-sxf", "crates/zumen", "crates/zumen-render", "crates/zumen-cli", "bindings/python", "bindings/wasm"]
+members = ["crates/zumen-core", "crates/zumen-jww", "crates/zumen-sxf", "crates/zumen-dxf", "crates/zumen", "crates/zumen-render", "crates/zumen-cli", "bindings/python", "bindings/wasm"]
 
 [workspace.package]
 version = "0.1.0"
@@ -14,6 +14,7 @@ zumen = { path = "crates/zumen" }
 zumen-core = { path = "crates/zumen-core" }
 zumen-jww = { path = "crates/zumen-jww" }
 zumen-sxf = { path = "crates/zumen-sxf" }
+zumen-dxf = { path = "crates/zumen-dxf" }
 zumen-render = { path = "crates/zumen-render" }
 encoding_rs = "0.8.42"
 libm = "0.2.16"

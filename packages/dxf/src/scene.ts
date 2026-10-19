@@ -173,6 +173,11 @@ const DIMENSION_KINDS = ["長さ寸法", "平行寸法", "角度寸法", "直径
 /** 弦と弧のずれの許容（表示用の図面の mm）。大きい円は半径に比例して粗くする */
 const TOLERANCE = 0.02;
 const MAX_DEPTH = 32;
+/**
+ * ブロック参照・寸法の中で描く図形の数の上限。自分を 2 回以上含むブロックは、入れ子の深さの上限（32 段）より前に
+ * 図形が指数的に増えて、読み取りが終わらずにメモリを使い果たす
+ */
+const MAX_BLOCK_ENTITIES = 1_000_000;
 const MAX_PATTERN_LINES = 5000;
 const DEFAULT_LINEWEIGHT = 0.25;
 /** 文字の高さ（大文字の高さ）に対する字形の em の大きさ。全角を含む文字は漢字の高さを合わせる */
@@ -358,6 +363,8 @@ class Builder {
   readonly model: DxfEntity[] = [];
   private readonly shxFonts = new Set<string>();
   private shxCount = 0;
+  /** ブロック参照・寸法の中で描いた図形の数 */
+  private expanded = 0;
   private readonly infinite: { entity: DxfXLine; ctx: Ctx }[] = [];
 
   constructor(readonly doc: DxfDocument) {
@@ -669,6 +676,10 @@ class Builder {
   emit(entity: DxfEntity, ctx: Ctx): void {
     if (entity.invisible) return;
     if (ctx.frozen?.has(this.effectiveLayer(entity, ctx).toUpperCase())) return;
+    if (ctx.depth > 0 && ++this.expanded > MAX_BLOCK_ENTITIES) {
+      this.notices.add("warning", "block-limit", "ブロックの中の図形が 100 万個を超えたため、残りを描いていません");
+      return;
+    }
     switch (entity.type) {
       case "LINE": {
         const [x1, y1] = apply(ctx.local, entity.start[0], entity.start[1]);
@@ -957,8 +968,10 @@ class Builder {
       const nCount = entity.n_count ?? 0;
       const segments: number[] = [];
       const at = (i: number, j: number) => entity.points[i * nCount + j];
-      for (let i = 0; i < mCount; i++) {
-        for (let j = 0; j < nCount; j++) {
+      // 頂点の数を超える格子の位置には頂点がないので、そこで止める（71・72 が大きすぎる図面でも終わる）
+      const rows = nCount > 0 ? Math.min(mCount, Math.ceil(entity.points.length / nCount)) : 0;
+      for (let i = 0; i < rows; i++) {
+        for (let j = 0; j < nCount && i * nCount + j < entity.points.length; j++) {
           const p = at(i, j);
           const right = j + 1 < nCount ? at(i, j + 1) : flags & 32 ? at(i, 0) : undefined;
           const down = i + 1 < mCount ? at(i + 1, j) : flags & 1 ? at(0, j) : undefined;
@@ -1411,6 +1424,11 @@ class Builder {
       : undefined;
     if (!contents) {
       this.notices.add("warning", "dimension-block", "表示のブロックがない寸法を省きました");
+      return;
+    }
+    // 表示のブロックが自分を指す寸法を含んでも、ブロック参照と同じ深さで止める
+    if (ctx.depth >= MAX_DEPTH) {
+      this.notices.add("warning", "block-depth", "入れ子が深すぎるブロック参照を省きました");
       return;
     }
     // ブロックの中の図形は寸法の OCS にあり、12 の位置へ動かす（ezdxf の Dimension.__virtual_entities__ と同じ）
@@ -2124,7 +2142,8 @@ class Builder {
       const k0 = Math.floor(Math.min(...ts));
       const k1 = Math.ceil(Math.max(...ts));
       count += k1 - k0 + 1;
-      if (count > MAX_PATTERN_LINES) return null;
+      // 本数が数えられない（基点・間隔が NaN の）ときも、多すぎるものとして扱う
+      if (!(count <= MAX_PATTERN_LINES)) return null;
       const period = line.dashes.reduce((sum, value) => sum + Math.abs(value), 0);
       const segments: number[] = [];
       for (let k = k0; k <= k1; k++) {

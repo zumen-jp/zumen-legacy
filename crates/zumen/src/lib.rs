@@ -1,6 +1,6 @@
 //! zumen: 建築・土木の 2D 図面を読み、形式に依存しない表示用モデル（`Scene`）にする。
 //!
-//! 形式は拡張子ではなく中身で判定する。読める形式は SXF（SFC・P21）と JWW（DXF・DWG を順に加える）。
+//! 形式は拡張子ではなく中身で判定する。読める形式は SXF（SFC・P21）・JWW・DXF（DWG を加える）。
 //!
 //! ```no_run
 //! let bytes = std::fs::read("plan.jww").unwrap();
@@ -10,17 +10,18 @@
 #![forbid(unsafe_code)]
 
 pub use zumen_core::*;
+pub use zumen_dxf as dxf;
 pub use zumen_jww as jww;
 pub use zumen_sxf as sxf;
 
 /// 組み込みの読み取り（判定する順）
 pub fn readers() -> Vec<&'static dyn DrawingReader> {
-    vec![&zumen_sxf::SXF, &zumen_jww::JWW]
+    vec![&zumen_sxf::SXF, &zumen_jww::JWW, &zumen_dxf::DXF]
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ReadDrawingOptions {
-    /// 分かっている場合の形式（sfc・p21・jww など）。省略すると中身から判定する
+    /// 分かっている場合の形式（sfc・p21・jww・dxf など）。省略すると中身から判定する
     pub format: Option<String>,
     /// 描く表示（Scene.views の id）。省略すると形式ごとの既定の表示
     pub view: Option<String>,
