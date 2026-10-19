@@ -12,6 +12,9 @@ format, version, authoring software, and the notices the viewer shows.
 
 - Node.js from `.node-version` (24) and pnpm from `packageManager` in `package.json` (enable it with `corepack enable`).
 - Rust from `rust-toolchain.toml` (installed by rustup on first use) and [uv](https://docs.astral.sh/uv/) for the Python bindings.
+- wasm-bindgen-cli of the version of `wasm-bindgen` in `Cargo.lock`, which builds the WebAssembly reader of
+  `@zumenjs/dwg` (`cargo install wasm-bindgen-cli --locked --version 0.2.129`; `node scripts/wasm.mjs` prints the
+  command for the current version when it differs).
 - Install and run every check:
 
   ```bash
@@ -19,7 +22,9 @@ format, version, authoring software, and the notices the viewer shows.
   pnpm run check
   ```
 
-- Open the playground with `pnpm dev`. It listens on `127.0.0.1` at the `playground` port in
+- Open the playground with `pnpm dev`, which first builds the WebAssembly reader into `packages/dwg/wasm`
+  (`scripts/wasm.mjs`; `pnpm test`, the type checker and the builds need it too). It listens on `127.0.0.1` at the
+  `playground` port in
   [config/local-ports.json](config/local-ports.json) (24100); set `PORT` to override it.
   To open drawings that are not in Git, set `ZUMEN_SAMPLES` to their folder and visit `/?sample=<file name>`.
   ST-Bridge models open the same way; the playground tells them from drawings by their contents.
@@ -43,7 +48,9 @@ implementation or check UI text. Build test drawings inside the test (see `packa
 
 The Rust readers must return the same scenes as the TypeScript readers. The synthetic drawings that the TypeScript
 tests build are also written to `tests/fixtures` with the scenes they produce; after changing a TypeScript reader, run
-`pnpm run golden` and make the Rust reader match (`cargo test -p zumen`). To compare both on your own drawings,
+`pnpm run golden` and make the Rust reader match (`cargo test -p zumen`). DWG has no TypeScript reader: its drawings
+are written by the Rust tests (`UPDATE_GOLDEN=1 cargo test -p zumen-dwg`) and their scenes by `pnpm run golden` through
+the WebAssembly reader. To compare both on your own drawings,
 build them (`pnpm run build`, `cargo build --release -p zumen-cli`) and run `pnpm run parity <folder>`.
 `pnpm run fuzz [cases] [seed] [formats…]` reads randomly damaged copies of the fixtures with both (after `pnpm run build` and
 `pnpm run wasm`) and reports any input where the scenes or the error messages differ. With `ZUMEN_FUZZ_TRACE=1` it writes

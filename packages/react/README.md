@@ -16,7 +16,8 @@ export function DrawingView({ file }: { file: File | null }) {
 }
 ```
 
-For drawings with several views (DXF model space and layouts), pass `{ view }` to `useCadFile` and
-`onViewChange` to `CadViewer`, which then shows a view selector.
+For drawings with several views (DXF and DWG model space and layouts), pass `{ view }` to `useCadFile` and
+`onViewChange` to `CadViewer`, which then shows a view selector. `useCadFile` reads as soon as the file is loaded, so
+wait for `initDwg()` of `@zumenjs/dwg` before passing it a DWG.
 
 Requires React 19.3 or a later 19.x release.
