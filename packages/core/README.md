@@ -12,7 +12,7 @@ const scene = readDrawing(bytes, [sxf, jww]);
 const viewer = new DrawingViewer(element, scene);
 ```
 
-Drawings with several views (DXF model space and layouts) list them in `scene.views`; pick one with
+Drawings with several views (DXF and DWG model space and layouts) list them in `scene.views`; pick one with
 `readDrawing(bytes, readers, { view })`.
 Geometry helpers for format authors are exported from `@zumenjs/core/geometry`, and text layout from `@zumenjs/core/text`.
 See the [main README](https://github.com/zumenjs/zumen#readme) and the
