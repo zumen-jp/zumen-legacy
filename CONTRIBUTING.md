@@ -22,11 +22,13 @@ format, version, authoring software, and the notices the viewer shows.
 - Open the playground with `pnpm dev`. It listens on `127.0.0.1` at the `playground` port in
   [config/local-ports.json](config/local-ports.json) (24100); set `PORT` to override it.
   To open drawings that are not in Git, set `ZUMEN_SAMPLES` to their folder and visit `/?sample=<file name>`.
+  ST-Bridge models open the same way; the playground tells them from drawings by their contents.
 
 ## How the code is organized
 
 Read [docs/architecture.md](docs/architecture.md) first. In short: format packages depend only on `@zumenjs/core`,
-parsing never touches the DOM, and interaction belongs in `DrawingViewer`.
+parsing never touches the DOM, and interaction belongs in `DrawingViewer`. Structural models (`@zumenjs/stb`) are a
+separate 3D line with its own model and a three.js view.
 
 - Follow the public specification of each format and cite the section in a comment.
   Write down behavior you had to infer in `docs/formats/`.

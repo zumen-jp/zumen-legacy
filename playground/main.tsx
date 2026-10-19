@@ -1,26 +1,55 @@
 import { dxf } from "@zumenjs/dxf";
 import { jww } from "@zumenjs/jww";
 import { CadViewer, useCadFile } from "@zumenjs/react";
+import { isStb } from "@zumenjs/stb";
 import { sxf } from "@zumenjs/sxf";
-import { type DragEvent, StrictMode, useEffect, useState } from "react";
+import { type DragEvent, lazy, StrictMode, Suspense, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
+import type { StructureStatus } from "./structure-view.js";
 
-const ACCEPT = ".sfc,.p21,.jww,.dxf";
+const ACCEPT = ".sfc,.p21,.jww,.dxf,.stb";
 const READERS = [sxf, jww, dxf];
+const StructureView = lazy(() => import("./structure-view.js").then((module) => ({ default: module.StructureView })));
 
-/** 図面を選ぶ・ドロップする・?sample=名前 で開く試用画面 */
+/** 図面・構造モデルを選ぶ・ドロップする・?sample=名前 で開く試用画面 */
 function App() {
   const [file, setFile] = useState<File | null>(null);
+  // ST-Bridge の構造モデルか図面かは、拡張子ではなく中身で決める。今のファイルについて決まるまでは null
+  const [detected, setDetected] = useState<{ file: File; structure: boolean } | null>(null);
+  const structure = file && detected?.file === file ? detected.structure : null;
+  const [structureStatus, setStructureStatus] = useState<StructureStatus>({ loading: false, error: null });
   // DXF のモデル空間・レイアウトなど、図面の中の表示。ファイルを変えたら既定の表示に戻す
   const [view, setView] = useState<string | undefined>(
     () => new URLSearchParams(window.location.search).get("view") ?? undefined,
   );
   const [over, setOver] = useState(false);
-  const { scene, error, loading } = useCadFile(file, READERS, { view });
+  const drawing = useCadFile(structure === false ? file : null, READERS, { view });
+  const { error, loading } = structure
+    ? structureStatus
+    : { error: drawing.error, loading: drawing.loading || (file !== null && structure === null) };
   const open = (next: File | null) => {
     setView(undefined);
     setFile(next);
   };
+
+  useEffect(() => {
+    if (!file) return;
+    let current = true;
+    file
+      .slice(0, 4096)
+      .arrayBuffer()
+      .then(
+        (head) => {
+          if (current) setDetected({ file, structure: isStb(head) });
+        },
+        () => {
+          if (current) setDetected({ file, structure: false });
+        },
+      );
+    return () => {
+      current = false;
+    };
+  }, [file]);
 
   useEffect(() => {
     const sample = new URLSearchParams(window.location.search).get("sample");
@@ -59,9 +88,9 @@ function App() {
       onDrop={onDrop}
     >
       <header style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12 }}>
-        <h1 style={{ margin: 0, fontSize: 18 }}>CAD 図面ビューア</h1>
+        <h1 style={{ margin: 0, fontSize: 18 }}>図面・構造モデルのビューア</h1>
         <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-          図面ファイル（SFC・P21・JWW・DXF）
+          図面（SFC・P21・JWW・DXF）・構造モデル（ST-Bridge）
           <input type="file" accept={ACCEPT} onChange={(event) => open(event.currentTarget.files?.[0] ?? null)} />
         </label>
         <span aria-live="polite">
@@ -75,8 +104,12 @@ function App() {
         </span>
       </header>
       <div style={{ minHeight: 0, outline: over ? "3px dashed #0031d8" : undefined }}>
-        {scene ? (
-          <CadViewer scene={scene} label={file?.name} style={{ height: "100%" }} onViewChange={setView} />
+        {structure && file ? (
+          <Suspense fallback={null}>
+            <StructureView file={file} onStatus={setStructureStatus} />
+          </Suspense>
+        ) : drawing.scene ? (
+          <CadViewer scene={drawing.scene} label={file?.name} style={{ height: "100%" }} onViewChange={setView} />
         ) : null}
       </div>
     </main>
