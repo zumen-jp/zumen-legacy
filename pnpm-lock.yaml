@@ -29,6 +29,9 @@ importers:
       '@zumenjs/core':
         specifier: workspace:*
         version: link:packages/core
+      '@zumenjs/dwg':
+        specifier: workspace:*
+        version: link:packages/dwg
       '@zumenjs/dxf':
         specifier: workspace:*
         version: link:packages/dxf
@@ -67,6 +70,12 @@ importers:
         version: 5.0.3(@types/node@24.19.2)(@vitest/browser-playwright@5.0.3)(@vitest/ui@5.0.3)(vite@8.3.4(@types/node@24.19.2))
 
   packages/core: {}
+
+  packages/dwg:
+    dependencies:
+      '@zumenjs/core':
+        specifier: workspace:*
+        version: link:../core
 
   packages/dxf:
     dependencies:

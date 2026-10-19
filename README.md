@@ -15,7 +15,7 @@ and gives you a framework-agnostic drawing engine and React components to build 
   and no browser package or React component for JWW.
 - **DXF** from AutoCAD and other CAD software is read in TypeScript, including Japanese drawings in Shift_JIS and binary DXF.
   **DWG** (AutoCAD 2000 to 2018) is read into the same AutoCAD drawing model by our own decoder in Rust, without GPL
-  components; for now through the `zumen` command, Python and the WebAssembly build.
+  components, and in the browser through its WebAssembly build (`@zumenjs/dwg`).
 - Structural design data in Japan is exchanged as **ST-Bridge** (`.stb`). We found no browser library for it either,
   so `@zumenjs/stb` reads versions 2.0 and 2.1 and shows the members in 3D.
 
@@ -26,8 +26,10 @@ and gives you a framework-agnostic drawing engine and React components to build 
   DXF R12 to 2018 in ASCII and binary (lines, arcs, polylines with bulges and widths, splines, text and formatted MTEXT,
   blocks with attributes and arrays, dimensions, hatches, leaders, solids, wipeouts), with layers, line types,
   line weights, ACI and true colors, transparency and text styles;
-  DWG AutoCAD 2000 to 2018 in Rust, drawn like DXF (see [How DWG is handled](docs/formats/dwg.md)).
-- DXF model space and layouts: viewports draw model space at their scale, and measurements inside them return real-world units.
+  DWG AutoCAD 2000 to 2018 in Rust, in the browser through WebAssembly, drawn like DXF
+  (see [How DWG is handled](docs/formats/dwg.md)).
+- DXF and DWG model space and layouts: viewports draw model space at their scale, and measurements inside them return
+  real-world units.
 - Fit, zoom (wheel, pinch, buttons, keyboard) and pan (drag, arrow keys).
 - Layer visibility. JWW layer groups can be toggled at once.
 - Pick an entity to see its properties: type, layer, color, line type, width, coordinates, dimension values, scale.
@@ -37,7 +39,8 @@ and gives you a framework-agnostic drawing engine and React components to build 
 - Drawing metadata (title block, authoring software, sheet) and a list of everything that was skipped or substituted.
 - Structural models: ST-Bridge 2.0 and 2.1 in 3D, with members extruded from their sections, stories and grid axes,
   plans and elevations by filtering, and member properties (section, materials, story and the original attributes).
-- No runtime dependencies; the 3D view uses three.js as an optional peer dependency. Parsing also runs in Node.js.
+- No runtime dependencies; the 3D view uses three.js as an optional peer dependency, and `@zumenjs/dwg` ships its
+  WebAssembly reader. Parsing also runs in Node.js.
 
 ## Packages
 
@@ -47,6 +50,7 @@ and gives you a framework-agnostic drawing engine and React components to build 
 | [`@zumenjs/sxf`](packages/sxf) | `parseSfc` and `parseP21` (the SXF feature model), `sxfToScene`, the `sxf` reader |
 | [`@zumenjs/jww`](packages/jww) | `readJww` (the JWW document model), `jwwToScene`, the `jww` reader |
 | [`@zumenjs/dxf`](packages/dxf) | `parseDxf` (the AutoCAD drawing model, shared with DWG), `dxfToScene`, the `dxf` reader |
+| [`@zumenjs/dwg`](packages/dwg) | The `dwg` reader, with the Rust DWG reader built to WebAssembly (`initDwg` loads it) |
 | [`@zumenjs/react`](packages/react) | `CadViewer` (a complete viewer), `useDrawingViewer` and `useCadFile` hooks |
 | [`@zumenjs/stb`](packages/stb) | `readStb` and `isStb` (the 3D structural model), `StructureView` (three.js) and `StbViewer` (React) |
 
@@ -77,6 +81,21 @@ export function DrawingView({ file }: { file: File | null }) {
   if (loading) return <p>Loading…</p>;
   if (error) return <p role="alert">{error.message}</p>;
   return scene ? <CadViewer scene={scene} onViewChange={setView} style={{ height: 640 }} /> : null;
+}
+```
+
+DWG: add `dwg` from `@zumenjs/dwg` to the readers and wait for `initDwg()`, which loads the WebAssembly reader
+(494 KB with brotli), before a DWG is read. `isDwg` tells DWG apart without it, so the reader can be loaded when the
+first DWG is opened, as the playground does.
+
+```ts
+import { readDrawing } from "@zumenjs/core";
+import { dwg, initDwg, isDwg } from "@zumenjs/dwg";
+
+async function read(file: File) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (isDwg(bytes)) await initDwg(); // the first DWG loads the reader; later calls return at once
+  return readDrawing(bytes, [sxf, jww, dxf, dwg]);
 }
 ```
 
@@ -144,8 +163,8 @@ The readers are being ported to Rust (`crates/`), with Python bindings (`binding
 (`bindings/wasm`), so servers and data pipelines can read the same drawings. The Rust readers return the same `Scene`
 as the TypeScript ones: both are compared on the drawings in `tests/fixtures`, and on local samples with
 `pnpm run parity`. JWW, SXF and DXF are ported. DWG is read in Rust only and checked against the DXF that AutoCAD
-writes for the same drawing. The browser packages will switch to the WebAssembly readers format by format, once each
-one matches.
+writes for the same drawing; `@zumenjs/dwg` brings it to the browser. The other browser packages will switch to the
+WebAssembly readers format by format, once each one matches.
 
 ```python
 import zumen
@@ -189,12 +208,14 @@ Reading and rendering release the GIL in Python.
 
 ## Privacy
 
-Drawings are read from memory in the browser. The libraries make no network requests,
-so confidential drawings can be viewed without sending them anywhere.
+Drawings are read from memory in the browser. The libraries make no network requests, except that `@zumenjs/dwg`
+fetches its own WebAssembly file from where the application serves it, so confidential drawings can be viewed without
+sending them anywhere.
 
 ## Supported environments
 
-- Browsers with Canvas 2D. Verified in Chromium; Firefox and Safari are expected to work but are not tested yet.
+- Browsers with Canvas 2D, and WebAssembly for DWG. Verified in Chromium; Firefox and Safari are expected to work but
+  are not tested yet.
 - WebGL and three.js 0.186 for the 3D view of `@zumenjs/stb`.
 - React 19.3 for `@zumenjs/react` and `@zumenjs/stb/react`.
 - Node.js 24 for parsing and for development.
@@ -204,8 +225,8 @@ so confidential drawings can be viewed without sending them anywhere.
 1. Split into readers, the drawing engine and React (done).
 2. DXF, with an AutoCAD object model shared with DWG (done, including MULTILEADER and MLINE).
 3. Rust readers with Python and WebAssembly bindings, and PNG, SVG and PDF rendering on servers (JWW, SXF and DXF done).
-4. DWG, read into the same AutoCAD object model (2000 to 2018 done in Rust; R13 and R14, and DWG in the browser
-   packages, are next).
+4. DWG, read into the same AutoCAD object model (2000 to 2018 done in Rust and in the browser through WebAssembly;
+   R13 and R14 are next).
 5. Writing and converting drawings, analysis (tables, rooms and areas, revision comparison), markup and PDF drawings.
 6. Plan and elevation drawings of ST-Bridge models as scenes, to view, measure and render them like drawings.
 

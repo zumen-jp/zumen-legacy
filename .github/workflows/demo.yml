@@ -31,7 +31,15 @@ jobs:
         with:
           node-version-file: .node-version
           cache: pnpm
+      # The playground opens DWG with the WebAssembly reader, built from the Rust crates (see ci.yml)
+      - run: rustup toolchain install
+      # Swatinem/rust-cache v2.9.2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+      - run: >-
+          cargo install wasm-bindgen-cli --locked --version
+          "$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n 's/^version = "\(.*\)"$/\1/p')"
       - run: pnpm install --frozen-lockfile
+      - run: node scripts/wasm.mjs
       - run: pnpm run playground:build
       # actions/configure-pages v6.0.0
       - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d

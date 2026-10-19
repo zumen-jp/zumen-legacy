@@ -1,4 +1,4 @@
-// TS の読み取り（packages/ のビルド結果）と WebAssembly の読み取り（bindings/wasm/pkg）を、
+// TS の読み取り（packages/ のビルド結果）と WebAssembly の読み取り（packages/dwg/wasm）を、
 // tests/fixtures の図面を無作為に壊した入力で比べる。壊れた図面でも、同じ Scene か同じエラーになることを確かめる。
 //
 //   pnpm run build && pnpm run wasm
@@ -18,15 +18,17 @@ import { readDrawing, sceneToJson } from "@zumenjs/core";
 import { dxf } from "@zumenjs/dxf";
 import { jww } from "@zumenjs/jww";
 import { sxf } from "@zumenjs/sxf";
-import { initSync, readSceneJson } from "../bindings/wasm/pkg/zumen_wasm.js";
+import { initSync, readSceneJson } from "../packages/dwg/wasm/zumen_wasm.js";
 import { compareScenes } from "./compare-scenes.mjs";
 
-initSync({ module: readFileSync(new URL("../bindings/wasm/pkg/zumen_wasm_bg.wasm", import.meta.url)) });
+initSync({ module: readFileSync(new URL("../packages/dwg/wasm/zumen_wasm_bg.wasm", import.meta.url)) });
 
 const [count = "2000", seed = "1", ...formats] = process.argv.slice(2);
 const fixtures = new URL("../tests/fixtures/", import.meta.url);
+// DWG は TypeScript では読まないので比べない（crates/zumen-dwg/examples/fuzz.rs が Rust の読み取りだけを壊した図面で試す）
 const drawings = readdirSync(fixtures, { withFileTypes: true })
-  .filter((entry) => entry.isDirectory() && (formats.length === 0 || formats.includes(entry.name)))
+  .filter((entry) => entry.isDirectory() && entry.name !== "dwg")
+  .filter((entry) => formats.length === 0 || formats.includes(entry.name))
   .flatMap((entry) =>
     readdirSync(new URL(`${entry.name}/`, fixtures))
       .filter((name) => !name.endsWith(".json") && !name.startsWith("."))

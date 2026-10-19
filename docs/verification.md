@@ -211,7 +211,49 @@ TypeScript DWG reader, so each DWG is compared with the DXF that AutoCAD wrote f
   63,074) more than `main` without it. It returns the scenes of all 31 fixtures (`scripts/wasm-check.mjs`).
 - Not checked: DWG files written by programs other than AutoCAD, Japanese text in real DWG files before 2007 (only the
   synthetic `ANSI_932` test), files over 2 MB, external references, proxy graphics, R2007 files other than the
-  ACadSharp sample, and DWG in the browser packages and the playground, which do not read it yet.
+  ACadSharp sample, and DWG in the browser, which [DWG in the browser](#dwg-in-the-browser) checks.
+
+## DWG in the browser
+
+Checked on 2026-10-20 on macOS (Apple M2 Pro) with Rust 1.99.0, Node.js 24.21.0, wasm-bindgen 0.2.129, Vite 8.3.4 and
+Chromium 152. Times are medians of seven runs after a warm-up.
+
+- Seven tests in `packages/dwg/tests`. The two DWG fixtures (`tests/fixtures/dwg`, the drawing of the Rust tests as
+  R2000 in `ANSI_932` and as R2018 in UTF-16, 3.3 and 3.7 KB) give the same scenes in model space and in `Layout1`
+  through `@zumenjs/dwg` in Node.js (the golden files), natively (`crates/zumen/tests/golden.rs`) and in
+  `scripts/wasm-check.mjs` with the other 31 fixtures. Reading before `initDwg` throws an error that names it, a failed
+  load is retried, `isDwg` agrees with the WebAssembly `detect` on every fixture and 11 short inputs, an R14 file
+  throws the reader's message, and point lists are `Float64Array`.
+- Size: the module (`packages/dwg/wasm/zumen_wasm_bg.wasm`, all four readers, no `wasm-opt`) is 1,560,473 bytes
+  (gzip −9: 630,299, brotli −11: 493,835), and the JavaScript glue 8,483 bytes. `pnpm pack` of `@zumenjs/dwg` is
+  643,606 bytes. Through `wasm-opt -O` (wasm-pack 0.15.0, Binaryen 117) the module would be 1,366,317 bytes (brotli
+  482,539) and read the Yokosuka plan in the same 62–64 ms in Node.js; with the DWG reader only, 992,405 bytes (brotli
+  367,123).
+- The playground's main script grows by 4.9 kB (gzip 2.0 kB) to 494.45 kB. The module is a separate file, fetched only
+  when a DWG is opened: opening a JWW first does not fetch it.
+- Loading: in Node.js, `initDwg()` reads, compiles and instantiates the module in 15 ms. In Chromium, compiling it
+  from the production build of the playground (`WebAssembly.compileStreaming`, the file served as `application/wasm`)
+  takes 3.6 ms, because V8 compiles each function when it is first called. In that build, the Yokosuka plan appeared
+  153 ms after it was dropped on the page, including the module, reading and drawing.
+- Reading in Chromium (`readDrawing`; the WebAssembly part includes writing and decoding the JSON):
+  `sample_AC1032.dwg` (1.1 MB, 207 entities, 0.9 MB of JSON) in 9.9 ms (7.0 ms in WebAssembly, 2.6 ms in
+  `sceneFromJson`), the Yokosuka plan (0.4 MB, 9,260 entities, 8.8 MB of JSON) in 89.9 ms (66.2 and 24.2 ms), and
+  `farmhouse.dwg` (1.9 MB, 25,873 entities, 39.8 MB of JSON) in 383.9 ms (290.5 and 99.3 ms). `@zumenjs/dxf` reads the
+  same drawings as ASCII DXF in 16.9 and 65.2 ms. In Node.js through the built package: 10, 103 and 414 ms.
+- Memory: the WebAssembly memory grows to 160 MB while reading `farmhouse.dwg` and stays there when it is read twelve
+  times and other drawings after it (freed memory is reused; WebAssembly memory does not shrink).
+- In the playground: `sample_AC1032.dwg` in model space and in its three layouts, from the view menu and from
+  `?view=Layout1`. In the `Layout1` viewport (1:1.442, inches), a line measures 57.6 mm on paper and 83.1 mm in real
+  units, the same as in `sample_AC1032_ascii.dxf` at the same points. The Yokosuka plan (UTF-16, 15 layers with
+  Japanese names) in model space, where the left sheet frame measures 574.0 mm, as in its DXF. `sample_AC1014.dwg`
+  shows 「対応していない DWG の版です（AC1014、AutoCAD R13・R14）。R2000 以降の DWG を読めます」. A JWW opened after a
+  DWG reads as before.
+- The packed `@zumenjs/core` and `@zumenjs/dwg`, installed in a separate Vite app: `initDwg()` without an argument
+  loads the module in the development server (from `node_modules`, after dependency pre-bundling) and in a build
+  (`assets/zumen_wasm_bg-[hash].wasm`, 5.97 kB of JavaScript), and the same installed package reads the R2018 fixture
+  in Node.js.
+- Not checked: Firefox and Safari, webpack and other bundlers, Web Workers, slow networks and devices, and pages with a
+  Content Security Policy.
 
 ## Rust readers, rendering and bindings
 
