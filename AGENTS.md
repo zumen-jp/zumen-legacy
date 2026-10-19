@@ -12,7 +12,8 @@
   and record the reason in `docs/architecture.md`.
 - Dependency directions: `@zumenjs/react` → `@zumenjs/core`, and each format package → `@zumenjs/core` only.
   Keep format knowledge out of `@zumenjs/core`, and keep format packages from importing each other.
-  The exception is the DWG reader, which reads into the AutoCAD drawing model of `@zumenjs/dxf` and uses `dxfToScene`.
+  DWG has no TypeScript reader: `zumen-dwg` reads it in Rust into the AutoCAD drawing model of `zumen-dxf` and draws it
+  with `dxf_to_scene`, the one crate that depends on another format crate.
 - Parsing (`parse*`, `read*` and everything below them) must not depend on the DOM, React or the renderer, and uses
   only the types and `NoticeList` from `@zumenjs/core`. The `*ToScene` conversions use the geometry and text helpers.
 - Interaction (zoom, selection, measurement) belongs in `DrawingViewer`. `@zumenjs/react` only shows the state and
@@ -22,7 +23,8 @@
   React in `src/react/`. Read ST-Bridge 2.0 and 2.1 into the same `StructureModel`, never one of them only, and never
   copy the text of the specification.
 - Never put client names, client drawings or private repository details in this repository.
-- The Rust readers (`crates/`) are ports of the TypeScript readers and must return the same scene. Keep the structure
+- The Rust readers (`crates/`) are ports of the TypeScript readers and must return the same scene (`zumen-dwg`, which has
+  no TypeScript reader, is checked against the DXF that AutoCAD writes for the same drawing). Keep the structure
   and order of operations, format user-visible numbers and sort with `zumen_core::js` (`js::sort_by` orders like V8),
   bound recursion and loops on malformed input with limits that both readers share, and after changing a TypeScript
   reader run `pnpm run golden` and fix the Rust side until `cargo test -p zumen` passes. Never change a golden file by hand.

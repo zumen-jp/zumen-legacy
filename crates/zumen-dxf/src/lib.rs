@@ -18,7 +18,7 @@ pub use mtext::{
 };
 pub use parse::parse_dxf;
 pub use scene::{dash_array, dxf_to_scene};
-pub use tags::{is_ascii_dxf, is_binary_dxf};
+pub use tags::{codepage_encoding, decode_escapes, is_ascii_dxf, is_binary_dxf};
 
 use zumen_core::{DrawingReader, ReadError, ReadOptions, Scene};
 

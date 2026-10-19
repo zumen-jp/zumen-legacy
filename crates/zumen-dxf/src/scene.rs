@@ -135,6 +135,8 @@ const MAX_DEPTH: u32 = 32;
 /// 図形が指数的に増えて、読み取りが終わらずにメモリを使い果たす
 const MAX_BLOCK_ENTITIES: u64 = 1_000_000;
 const MAX_PATTERN_LINES: f64 = 5000.0;
+/// JavaScript の Number.MAX_SAFE_INTEGER（2⁵³ − 1）。これより大きい数は、1 を足しても変わらないことがある
+const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
 const DEFAULT_LINEWEIGHT: f64 = 0.25;
 /// 文字の高さ（大文字の高さ）に対する字形の em の大きさ。全角を含む文字は漢字の高さを合わせる
 const EM_LATIN: f64 = 1.0 / 0.72;
@@ -2338,7 +2340,7 @@ impl<'a> Builder<'a> {
                         let t = match line_params(v, e).and_then(|params| params.first()) {
                             Some(t) => *t,
                             None => {
-                                // 41 がない（DWG）ときは、スタイルのずれ・位置合わせ・尺度から、留め継ぎの向きへの距離を求める
+                                // 41 がないときは、スタイルのずれ・位置合わせ・尺度から、留め継ぎの向きへの距離を求める
                                 let d = direction(v);
                                 let across = -m[0] * d[1] + m[1] * d[0];
                                 let offset = (element.offset + shift) * entity.scale;
@@ -2711,8 +2713,9 @@ impl<'a> Builder<'a> {
             let k0 = min_of(&ts).floor();
             let k1 = max_of(&ts).ceil();
             count += k1 - k0 + 1.0;
-            // 本数が数えられない（基点・間隔が NaN の）ときも、多すぎるものとして扱う
-            if count.is_nan() || count > MAX_PATTERN_LINES {
+            // 本数が数えられない（基点・間隔が NaN の）ときと、基点が遠すぎて線の番号に 1 を足しても変わらない
+            // （2⁵³ を超える）ときも、多すぎるものとして扱う
+            if count.is_nan() || count > MAX_PATTERN_LINES || k0.abs().max(k1.abs()) > MAX_SAFE_INTEGER {
                 return None;
             }
             let period = line.dashes.iter().fold(0.0, |sum, value| sum + value.abs());
@@ -3093,15 +3096,21 @@ fn default_view(doc: &DxfDocument, builder: &Builder<'_>) -> String {
     paper.iter().find(|layout| has_content(layout)).map_or_else(|| "Model".into(), |layout| layout.name.clone())
 }
 
+/// 形式の名前。DWG から読んだ文書（zumen-dwg）は DWG
+fn format_name(doc: &DxfDocument) -> &'static str {
+    if doc.format == "dwg" { "DWG" } else { "DXF" }
+}
+
 fn metadata_base(doc: &DxfDocument, unit_name: &str) -> Vec<Property> {
     let encoding = match doc.encoding {
         "utf-8" => "UTF-8",
+        "utf-16le" => "UTF-16",
         "shift_jis" => "Shift_JIS（CP932）",
         "windows-1252" => "西欧（Windows-1252）",
         other => other,
     };
     let source = match doc.encoding_source {
-        EncodingSource::Version => "AutoCAD 2007 以降の DXF".to_string(),
+        EncodingSource::Version => format!("AutoCAD 2007 以降の {}", format_name(doc)),
         EncodingSource::Codepage => {
             js::trim(&format!("$DWGCODEPAGE {}", doc.header.codepage.as_deref().unwrap_or(""))).to_string()
         }
@@ -3116,7 +3125,11 @@ fn metadata_base(doc: &DxfDocument, unit_name: &str) -> Vec<Property> {
     let mut metadata = vec![
         Property::new(
             "形式",
-            format!("DXF {format}（{}、{}）", doc.version, if doc.binary { "バイナリ" } else { "テキスト" }),
+            if doc.format == "dwg" {
+                format!("DWG {format}（{}）", doc.version)
+            } else {
+                format!("DXF {format}（{}、{}）", doc.version, if doc.binary { "バイナリ" } else { "テキスト" })
+            },
         ),
         Property::new("文字コード", format!("{encoding}（{source}）")),
         Property::new("単位", unit_name),
@@ -3324,8 +3337,8 @@ pub fn dxf_to_scene(doc: &DxfDocument, layout: Option<&str>) -> Scene {
     builder.finish_notices();
     let layers = builder.layers();
     Scene {
-        format: "dxf".into(),
-        version: format!("DXF {}", doc.version),
+        format: doc.format.into(),
+        version: format!("{} {}", format_name(doc), doc.version),
         views: Some(views(doc)),
         view: Some(view),
         sheet,

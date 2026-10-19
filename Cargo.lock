@@ -461,6 +461,7 @@ version = "0.1.0"
 dependencies = [
  "serde_json",
  "zumen-core",
+ "zumen-dwg",
  "zumen-dxf",
  "zumen-jww",
  "zumen-sxf",
@@ -483,6 +484,16 @@ dependencies = [
  "serde",
  "serde_json",
  "unicode-normalization",
+]
+
+[[package]]
+name = "zumen-dwg"
+version = "0.1.0"
+dependencies = [
+ "encoding_rs",
+ "serde_json",
+ "zumen-core",
+ "zumen-dxf",
 ]
 
 [[package]]

@@ -1,4 +1,4 @@
-//! AutoCAD の図面のモデル（`@zumenjs/dxf` の model.ts）。DXF の読み取り（parse_dxf）と、これから作る DWG の読み取りで
+//! AutoCAD の図面のモデル（`@zumenjs/dxf` の model.ts）。DXF の読み取り（parse_dxf）と DWG の読み取り（zumen-dwg）で
 //! 共有し、dxf_to_scene で表示用の図面にする。属性の名前は ezdxf の DXF 属性名と ezdwg に合わせた。
 //! 座標は図面の単位（$INSUNITS）のままで、角度は度。数は JavaScript と同じく f64 で持つ。
 
@@ -474,7 +474,7 @@ pub struct DxfMLine {
     pub vertex_directions: Vec<Vec3>,
     /// 頂点の留め継ぎの向き（13）
     pub miter_directions: Vec<Vec3>,
-    /// 頂点ごと・要素ごとの線のパラメータ（74・41）。DWG（ezdwg）は持たない
+    /// 頂点ごと・要素ごとの線のパラメータ（74・41）。ないときは MLINESTYLE から求める
     pub line_params: Option<Vec<Vec<Vec<f64>>>>,
     /// 頂点ごと・要素ごとの塗りのパラメータ（75・42）
     pub fill_params: Option<Vec<Vec<Vec<f64>>>>,
@@ -822,7 +822,7 @@ pub struct DxfDocument {
     pub linetypes: Vec<DxfLinetype>,
     pub styles: Vec<DxfTextStyle>,
     pub dimstyles: Vec<DxfDimStyle>,
-    /// マルチラインのスタイル。DWG（ezdwg）は読まないので None にできる
+    /// マルチラインのスタイル。None なら、マルチラインを STANDARD の 2 本の線で描く
     pub mline_styles: Option<Vec<DxfMLineStyle>>,
     pub blocks: Vec<DxfBlock>,
     pub layouts: Vec<DxfLayout>,

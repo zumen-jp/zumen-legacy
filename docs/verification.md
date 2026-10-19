@@ -147,6 +147,72 @@ Checked on 2026-10-19 on macOS (Apple Silicon) with Rust 1.99.0, Node.js 24.21.0
   Korean and other code pages, which browsers decode with their own `TextDecoder`.
 - `zumen render` draws the Yokosuka cross sections and the `Layout1` of `sample_AC1015_ascii.dxf` in 0.05 s.
 
+## DWG in Rust
+
+Checked on 2026-10-20 on macOS (Apple M2 Pro) with Rust 1.99.0, Node.js 24.21.0 and wasm-pack 0.15.0. There is no
+TypeScript DWG reader, so each DWG is compared with the DXF that AutoCAD wrote for the same drawing
+(`crates/zumen-dwg/examples/compare.rs` for the documents and every view, `pnpm run parity` for the scenes).
+
+- Five tests in `crates/zumen-dwg/tests` write the smallest DWG that pins a rule (`tests/writer`, R2000 and R2018). A
+  drawing with three layers (one off), four line types, a text style, a dimension style, a block and an anonymous
+  dimension block, two layouts, and a line, a TEXT whose Shift_JIS second bytes are 0x5C (`表示ソ能`), a two-line MTEXT,
+  an INSERT, an ARC, a closed LWPOLYLINE with a bulge, a linear DIMENSION and a paper space line reads the same as the
+  DXF written for it, as R2000 in `ANSI_932` and as R2018 in UTF-16, and gives the same scenes in model space and in the
+  layout. A spline stored by its fit points and end tangents gets AutoCAD's control points, a leader with an annotation
+  gets its hook vertex, anonymous blocks are named as AutoCAD names them in DXF (`*D7`, and `*U1` for a dynamic block
+  saved as R2000), and 800 damaged copies of the drawing finish without a panic, each within five seconds. Writing
+  the TEXT angle one degree off in the DXF, or multiplying the byte position in `Bits::at` without saturation, makes
+  them fail.
+- The ACadSharp samples ([ACadSharp](https://github.com/DomCR/ACadSharp) (MIT), commit 2f8b099), one drawing saved by
+  AutoCAD as DWG 2000 to 2018 and as ASCII and binary DXF:
+  - 327 (2000), 328 (2004 to 2013) and 326 (2018) of the 335 entities and attributes equal those of the ASCII DXF
+    value for value (numbers to a relative 1e-9). The others are the SPLINE flags that DWG does not store (2), the
+    background index (63) that DXF adds to MTEXT with a true color background (2, 2004 and later), the background colors
+    of R2000 MULTILEADER, which are indexes in DWG (3), the generation flags (71) that the DXF reader takes from the
+    attribute type of R2018 multi-line ATTRIB and ATTDEF (2), and two INSERT and one MTEXT that AutoCAD wrote with new
+    handles in DXF.
+  - The tables, blocks, layouts and draw order are the same, except the handles of two layers and a block that AutoCAD
+    renumbered in DXF, the index (62) that DXF adds to the three layers with a true color or a color book color (2004
+    and later; DWG stores only the color), and DIMASZ and DIMTXT of the four dimension styles, which DXF leaves out at
+    their default (0.18) and the DXF reader takes as 0 (the drawing then uses `$DIMASZ`, the same value, and does not
+    use DIMTXT).
+  - The three layouts give the same scenes in every version. Model space differs only in the ids of the three entities
+    with new handles. Against binary DXF of 2004 and later, four MTEXT also differ, because the DXF reader keeps their
+    line feeds instead of breaking paragraphs.
+  - The AC1014 (R14) file is refused with a message.
+- The Yokosuka City survey plan as DWG 2018 (0.4 MB, read locally), against the DXF of the same drawing used in
+  [DXF](#dxf): all 9,260 entities equal those of the DXF value for value, including the Japanese layer names and texts,
+  and so do the tables, except the index that DXF adds to two layers with a true color and the dimension style
+  defaults that DXF leaves out. In the scene, 37 hatches and 31 arcs have a different number of segments, because DXF
+  rounds numbers to 16 digits: a hatch bulge of 1.0000000000000002 is 1.0 in DXF, and a half circle from
+  225.73767313748996° to 45.737673137489956° is 225.7376731374899° to 45.73767313748995°.
+- Samples without a DXF, read without broken objects: the ezdwg samples ([ezdwg](https://github.com/monozukuri-ai/ezdwg)
+  (MIT), commit d5e4336, `examples/data`) of an arc, a line, a 2D polyline, a text and an MTEXT (2000, code page
+  `ANSI_1251`), an INSERT (2004, code page number 45, unknown, read as Windows-1252 and reported) and an imperial
+  mechanical drawing (2010, 71 entities; its 17 dimensions have no block in the file and are reported, as from DXF);
+  ACadSharp's `BLOCKPOINTPARAMETER.dwg` (a dynamic block, 2018); and `farmhouse.dwg` (2013, 1.9 MB, 25,873 entities in
+  model space and 26 layouts, source not recorded), where 45 REGION are not read and 162 splines with fit points but
+  no tangents are drawn through their points.
+- `pnpm run parity` over the local samples: the 37 SXF, JWW and DXF drawings and their 54 other views still give the
+  same scenes in TypeScript and Rust, and the 20 layouts of the 7 DWG with a DXF equal the DXF ones; their model spaces
+  differ as above.
+- `crates/zumen-dwg/examples/fuzz.rs`, built with overflow checks and debug assertions, read 64,040 damaged copies of
+  the 17 DWG samples (1,000 of each of 16 per seed with four seeds, and 40 of `farmhouse.dwg`): 28,135 were read and
+  drawn in every view, 35,905 were refused with a message, none panicked and none took more than four times as long as
+  the undamaged drawing (or 2 s). Before that, it found two damaged hatches that hung both `dxf_to_scene` and
+  `dxfToScene`: their pattern base points (6.6 × 10¹¹⁶ and −5.8 × 10¹⁹⁹) made the line numbers so large that adding 1
+  no longer changed them. Both readers now draw such a hatch as its outline (`hatch-dense`, a new hatch in
+  `tests/fixtures/dxf/limits.dxf`).
+- Time (median of seven runs after a warm-up): natively, `read_dwg` takes 0.5 to 0.9 ms for the ACadSharp samples,
+  5.6 ms for the Yokosuka plan (0.4 MB) and 29 ms for `farmhouse.dwg`, and the model space scene 1.7, 29 and 113 ms. In
+  Node.js, `readSceneJson` (WebAssembly, with the JSON) reads the 2018 sample in 6 ms, the Yokosuka plan in 63 ms and
+  `farmhouse.dwg` in 253 ms; the same drawings as DXF take 10 and 78 ms in WebAssembly and 12 and 99 ms in TypeScript.
+- WebAssembly with the DWG reader: 1,366,446 bytes (gzip −9: 617,613, brotli −11: 482,377), 198,503 bytes (brotli
+  63,074) more than `main` without it. It returns the scenes of all 31 fixtures (`scripts/wasm-check.mjs`).
+- Not checked: DWG files written by programs other than AutoCAD, Japanese text in real DWG files before 2007 (only the
+  synthetic `ANSI_932` test), files over 2 MB, external references, proxy graphics, R2007 files other than the
+  ACadSharp sample, and DWG in the browser packages and the playground, which do not read it yet.
+
 ## Rust readers, rendering and bindings
 
 Checked on 2026-10-18 on macOS (Apple Silicon) with Rust 1.99.0, Node.js 24.21.0, Python 3.15.0, wasm-pack 0.15.0
