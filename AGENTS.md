@@ -17,6 +17,10 @@
   only the types and `NoticeList` from `@zumenjs/core`. The `*ToScene` conversions use the geometry and text helpers.
 - Interaction (zoom, selection, measurement) belongs in `DrawingViewer`. `@zumenjs/react` only shows the state and
   calls the viewer's methods.
+- `@zumenjs/stb` (ST-Bridge structural models) is a separate 3D line that imports no other package. Its parsing
+  (`src/`, `src/xml/`, `src/stb/`) must not depend on the DOM, three.js or React; three.js belongs in `src/three/` and
+  React in `src/react/`. Read ST-Bridge 2.0 and 2.1 into the same `StructureModel`, never one of them only, and never
+  copy the text of the specification.
 - Never put client names, client drawings or private repository details in this repository.
 - The Rust readers (`crates/`) are ports of the TypeScript readers and must return the same scene. Keep the structure
   and order of operations, format user-visible numbers with `zumen_core::js`, and after changing a TypeScript reader run

@@ -1,0 +1,78 @@
+{
+  "name": "@zumenjs/stb",
+  "version": "0.1.0",
+  "description": "Read ST-Bridge structural models (.stb 2.0 and 2.1) and view their members in 3D with three.js and React, for zumen",
+  "keywords": [
+    "st-bridge",
+    "structural",
+    "bim",
+    "three",
+    "aec"
+  ],
+  "homepage": "https://github.com/zumenjs/zumen/tree/main/packages/stb#readme",
+  "bugs": {
+    "url": "https://github.com/zumenjs/zumen/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zumenjs/zumen.git",
+    "directory": "packages/stb"
+  },
+  "private": true,
+  "type": "module",
+  "license": "UNLICENSED",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "exports": {
+    ".": {
+      "@zumenjs/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./three": {
+      "@zumenjs/source": "./src/three/index.ts",
+      "types": "./dist/three/index.d.ts",
+      "default": "./dist/three/index.js"
+    },
+    "./react": {
+      "@zumenjs/source": "./src/react/index.ts",
+      "types": "./dist/react/index.d.ts",
+      "default": "./dist/react/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./three": {
+        "types": "./dist/three/index.d.ts",
+        "default": "./dist/three/index.js"
+      },
+      "./react": {
+        "types": "./dist/react/index.d.ts",
+        "default": "./dist/react/index.js"
+      },
+      "./package.json": "./package.json"
+    }
+  },
+  "peerDependencies": {
+    "react": "^19.3.0",
+    "three": "^0.186.1"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "three": {
+      "optional": true
+    }
+  }
+}
