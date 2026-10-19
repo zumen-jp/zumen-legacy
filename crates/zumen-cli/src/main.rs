@@ -6,6 +6,7 @@ use std::collections::HashSet;
 use std::io::{BufWriter, Write};
 use std::process::ExitCode;
 use zumen::extract::{EntityFilter, EntityText, entity_text, layer_names, scene_texts, select_entities};
+use zumen::title::{TitleKey, title_block, title_fields};
 use zumen::{BBox, Background, ReadDrawingOptions, Scene, SceneEntity};
 use zumen_render::{ImageSize, RenderOptions, RenderedImage};
 
@@ -15,12 +16,14 @@ Usage:
   zumen scene <file> [--format <name>] [--view <id>] [--pretty]
   zumen texts <file> [--region <x0>,<y0>,<x1>,<y1>] [--all-layers] [--format <name>] [--view <id>]
   zumen entities <file> [--region <x0>,<y0>,<x1>,<y1>] [--all-layers] [--format <name>] [--view <id>]
+  zumen title <file> [--format <name>] [--view <id>]
   zumen render <file> -o <out.png> [--dpi <n> | --size <w>x<h> [--margin <px>]] [--dpr <n>]
                [--region <x0>,<y0>,<x1>,<y1>] [--all-layers] [--map <out.json>]
                [--theme light|dark] [--thin] [--format <name>] [--view <id>]
 
 Reads SXF, JWW, DXF and DWG drawings into zumen's scene model.
 texts and entities write one JSON object per line, in paper millimeters (Y up) rounded to 0.001.
+title finds the drawing number, revision, title, project, scale and date in the title block.
 --region selects a part of the sheet in paper millimeters, and --all-layers includes the layers
 that the drawing hides. --map writes the size of the image,
 the conversion between pixels and paper millimeters, and the pixel box of every entity drawn.";
@@ -225,6 +228,31 @@ fn run(args: Args) -> Result<(), String> {
         }
         "texts" => {
             write_lines(scene_texts(&scene, &filter).iter().map(|(entity, text)| text_json(&scene, entity, text)))?
+        }
+        "title" => {
+            let mut object = Map::new();
+            let best = title_block(&scene);
+            for key in TitleKey::ALL {
+                let value = best.iter().find(|field| field.key == key).map(|field| field.value.clone());
+                object.insert(key.name().into(), json!(value));
+            }
+            let fields: Vec<Value> = title_fields(&scene)
+                .into_iter()
+                .map(|field| {
+                    json!({
+                        "key": field.key.name(),
+                        "value": field.value,
+                        "label": field.label,
+                        "source": field.source.name(),
+                        "entity": field.entity,
+                        "labelEntity": field.label_entity,
+                        "x": mm(field.x),
+                        "y": mm(field.y),
+                    })
+                })
+                .collect();
+            object.insert("fields".into(), Value::Array(fields));
+            println!("{}", serde_json::to_string_pretty(&Value::Object(object)).map_err(|error| error.to_string())?);
         }
         "entities" => {
             write_lines(select_entities(&scene, &filter).into_iter().map(|entity| entity_json(&scene, entity)))?
