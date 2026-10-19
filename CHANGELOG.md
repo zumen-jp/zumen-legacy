@@ -4,6 +4,11 @@ All packages share one version during 0.x.
 
 ## Unreleased (0.1.0)
 
+- Rust and Python: compare two revisions of a drawing. `zumen_core::compare` matches entities by shape and text, not
+  by id, so revisions saved again or in another format compare too. It reports the removed, added and changed entities
+  and the regions that changed, aligns a revision that moved as a whole by its texts, and draws the result as a scene
+  (red before, blue after, gray unchanged). `zumen.compare` and `Comparison` in Python, `zumen compare` in the command
+  line, and `compare_drawings` in the MCP server.
 - Rust: `zumen-dwg` reads DWG from AutoCAD 2000 to 2018 (AC1015 to AC1032) with its own decoder, which follows the Open
   Design Specification for .dwg files 5.4.1, into the AutoCAD drawing model of `zumen-dxf`, and draws it with
   `dxf_to_scene`: header variables, layers, line types, text and dimension styles, blocks, layouts, draw order,

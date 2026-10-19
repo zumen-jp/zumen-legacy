@@ -104,14 +104,14 @@ bytes ─▶ zumen-sxf, zumen-jww, zumen-dxf, zumen-dwg ─▶ Scene (zumen-core
 
 | Crate | Responsibility |
 | --- | --- |
-| `zumen-core` | The `Scene` types (serde, the same JSON as `sceneToJson`), `NoticeList`, `DrawingReader` and `read_drawing`, geometry (`geometry`), text layout (`text`), measurement, texts and entities for servers (`extract`), and JavaScript-compatible number handling (`js`). |
+| `zumen-core` | The `Scene` types (serde, the same JSON as `sceneToJson`), `NoticeList`, `DrawingReader` and `read_drawing`, geometry (`geometry`), text layout (`text`), measurement, texts and entities for servers (`extract`), the comparison of two revisions (`compare`), and JavaScript-compatible number handling (`js`). |
 | `zumen-sxf` | SFC and P21 parsing into the SXF feature model (`parse_sfc`, `parse_p21` → `SxfDrawing`), conversion to a scene (`sxf_to_scene`), and the `SXF` reader. |
 | `zumen-jww` | JWW parsing into the JWW document model (`read_jww`), conversion to a scene (`jww_to_scene`), and the `JWW` reader. |
 | `zumen-dxf` | DXF parsing (ASCII and binary) into the AutoCAD drawing model (`parse_dxf` → `DxfDocument`), conversion of model space or a layout to a scene (`dxf_to_scene`), and the `DXF` reader. |
 | `zumen-dwg` | DWG decoding (AutoCAD 2000 to 2018) into the AutoCAD drawing model of `zumen-dxf` (`read_dwg` → `DxfDocument`), drawn with `dxf_to_scene`, and the `DWG` reader. |
 | `zumen` | `read` and `detect` over every reader. The entry point for applications. |
 | `zumen-render` | Draws a scene to PNG with the rules of `render.ts` (color inversion, line weights with a 1 px minimum, dash rules, even-odd fills, clipping, per-character text, small text as a line), and reports which entities it drew and where (`render_image`, `drawn_entities`, `View::pixel_box`). |
-| `zumen-cli` | The `zumen` command (`detect`, `scene`, `texts`, `entities`, `render`). |
+| `zumen-cli` | The `zumen` command (`detect`, `scene`, `texts`, `entities`, `render`, `compare`). |
 | `bindings/python` | PyO3 bindings, built with maturin as an abi3 wheel for Python 3.10 and later. The GIL is released while reading and rendering. `Scene.to_arrow` needs pyarrow (Apache-2.0, `zumen[arrow]`), and the MCP server `zumen.mcp` needs the MCP SDK (MIT, `zumen[mcp]`); both are optional dependencies. |
 | `bindings/wasm` | wasm-bindgen bindings that return scene JSON (`readSceneJson`). |
 
@@ -129,8 +129,19 @@ conversion between pixels and paper millimeters, and `drawn_entities` with `View
 entity drawn, in pixels. An application can then show the entity that a model refers to, or render the part of the
 sheet around it. These work on the scene, so every format gets them at once. There is no TypeScript counterpart yet.
 
+`zumen_core::compare` compares two revisions of a drawing. Entity ids change when some formats are saved again, so
+entities are matched by type, shape and text instead, in three passes: shapes equal after rounding coordinates to the
+tolerance (0.01 mm by default; the direction of a line and the start of a ring do not matter), shapes split by the
+rounding (coordinates within twice the tolerance), and then entities of the same type that sit in the same place,
+which count as changed (a text at the same position, or boxes that overlap by half). Colors, line weights, line types
+and layers count only when asked. When a revision moved as a whole (DXF model space shifted by different extents),
+the most common offset between texts that occur once in both revisions moves it back. Changes near each other are
+grouped into regions, and `diff_scene` draws the result as a scene with three layers: unchanged entities in gray,
+removed ones and the old state of changed ones in red, added ones and the new state in blue.
+
 `zumen.mcp` serves them to AI applications as MCP tools over stdio (`zumen-mcp`): open a drawing, render a region,
-find texts and entities, show one entity and measure in real-world millimeters through the scale of a placement. The
+find texts and entities, show one entity, measure in real-world millimeters through the scale of a placement and
+compare two revisions. The
 tools only read, take local paths limited by `--root`, and bound file sizes, image sizes and result counts
 ([decision 0004](decisions/0004-mcp-server-in-the-python-package.md)).
 
