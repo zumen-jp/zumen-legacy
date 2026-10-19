@@ -4,6 +4,10 @@ All packages share one version during 0.x.
 
 ## Unreleased (0.1.0)
 
+- `@zumenjs/stb`: read ST-Bridge 2.0 and 2.1 structural models (UTF-8 and Shift_JIS, including mismatched declarations)
+  into a 3D model of members extruded from their sections, with stories, grid axes, materials and the original XML
+  attributes. `@zumenjs/stb/three` draws it with three.js (filters by kind, story and axis, picking), and
+  `@zumenjs/stb/react` adds `StbViewer` and `useStbFile`. The playground opens ST-Bridge files next to drawings.
 - `@zumenjs/sxf`: read SXF Ver.2.0–3.1 SFC (all 34 features) and P21 (the STEP AP202 subset) into the SXF feature
   model, and convert it to a scene.
 - `@zumenjs/jww`: read Jw_cad JWW versions 600 and 700 (lines, arcs, ellipses, points, text, solids, blocks,

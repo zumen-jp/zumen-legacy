@@ -14,6 +14,8 @@ zumen is not public yet. This is the checklist for the first public release and 
 5. **GitHub.** Make the repository public, enable private vulnerability reporting, protect `main` with the CI check,
    choose "GitHub Actions" as the Pages source, and set the repository variable `DEPLOY_DEMO` to `true`.
 6. **npm.** Create the `zumenjs` organization with two-factor authentication required for all members.
+7. **ST-Bridge.** Confirm with buildingSMART Japan the terms for publishing an implementation of the ST-Bridge
+   specification, which its web page does not state ([decision 0001](decisions/0001-st-bridge-in-zumen.md)).
 
 ## Versions
 
@@ -25,7 +27,8 @@ If npm does not allow adding a trusted publisher before a package exists, publis
 
 1. Run `pnpm install --frozen-lockfile` and `pnpm run check` on a clean checkout of `main`.
 2. Publish in dependency order with two-factor authentication:
-   `pnpm --filter @zumenjs/core publish`, then `@zumenjs/sxf` and `@zumenjs/jww`, then `@zumenjs/react`.
+   `pnpm --filter @zumenjs/core publish`, then `@zumenjs/sxf`, `@zumenjs/jww` and `@zumenjs/dxf`, then `@zumenjs/react`
+   and `@zumenjs/stb`.
    pnpm replaces `workspace:*` with the version, and `publishConfig.exports` drops the development-only condition.
 3. On npm, add a trusted publisher (GitHub Actions, repository `zumenjs/zumen`, the release workflow) to each package.
 4. Add the release workflow, which publishes with provenance from GitHub Actions (`id-token: write`).
