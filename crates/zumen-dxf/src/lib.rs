@@ -9,6 +9,7 @@ mod mtext;
 mod parse;
 mod scene;
 mod tags;
+mod write;
 
 pub use colors::{ACI, aci_color, is_transparent, true_color};
 pub use model::*;
@@ -19,6 +20,7 @@ pub use mtext::{
 pub use parse::parse_dxf;
 pub use scene::{dash_array, dxf_to_scene};
 pub use tags::{codepage_encoding, decode_escapes, is_ascii_dxf, is_binary_dxf};
+pub use write::{DxfWritten, write_dxf};
 
 use zumen_core::{DrawingReader, ReadError, ReadOptions, Scene};
 

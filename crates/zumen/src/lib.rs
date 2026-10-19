@@ -33,6 +33,26 @@ pub fn detect(bytes: &[u8]) -> Option<&'static str> {
     detect_format(bytes, &readers())
 }
 
+/// DXF・DWG の図面を DXF（ASCII、AutoCAD 2013 形式、UTF-8）に書き直す。書けなかった図形の種類と件数も返す。
+/// SXF・JWW は AutoCAD の図面のモデルにまだ変換できない
+pub fn convert_to_dxf(bytes: &[u8], options: &ReadDrawingOptions) -> Result<dxf::DxfWritten, ReadError> {
+    let format = match options.format.as_deref() {
+        Some(format) => format,
+        None => detect(bytes).ok_or_else(|| ReadError::new("対応していない形式のファイルです"))?,
+    };
+    let doc = match format {
+        "dxf" => dxf::parse_dxf(bytes),
+        "dwg" => dwg::read_dwg(bytes).map_err(ReadError::new)?,
+        other => {
+            return Err(ReadError::new(format!(
+                "{} は DXF に変換できません（変換できるのは DXF・DWG）",
+                other.to_uppercase()
+            )));
+        }
+    };
+    Ok(dxf::write_dxf(&doc))
+}
+
 /// 図面のバイト列を読み、表示用の図面にする
 pub fn read(bytes: &[u8], options: &ReadDrawingOptions) -> Result<Scene, ReadError> {
     let read_options = ReadOptions { view: options.view.clone() };
