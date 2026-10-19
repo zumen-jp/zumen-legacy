@@ -5,13 +5,17 @@
 //   node scripts/fuzz-parity.mjs [回数（既定 2000）] [種（既定 1）] [形式のフォルダー名…]
 //
 // 違いの出た入力は一時フォルダー（os.tmpdir()）に zumen-fuzz-<種>-<番号>.bin として書く。
+// ZUMEN_FUZZ_TRACE=1 なら、読む前の入力を zumen-fuzz-<種>-current.bin に書く（読み取りが止まらない・落ちるときに調べる）。
 //
 // Node.js は Shift_JIS を ICU で復号し、ブラウザと Rust（WHATWG）と違う文字になる並び（0x80、壊れた 2 バイト文字、
 // 制御文字 0x1A・0x1C・0x7F）がある。比べるのは読み取りの違いなので、壊した図面からそれらを空白に置き換える。
+// DXF の \U+D83D のような対にならないサロゲートは、JavaScript の文字列には残り、Rust の文字列では U+FFFD になる。
+// これも読み取りの違いではないので、TS の Scene の文字列を toWellFormed でそろえてから比べる。
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readDrawing, sceneToJson } from "@zumenjs/core";
+import { dxf } from "@zumenjs/dxf";
 import { jww } from "@zumenjs/jww";
 import { sxf } from "@zumenjs/sxf";
 import { initSync, readSceneJson } from "../bindings/wasm/pkg/zumen_wasm.js";
@@ -100,6 +104,49 @@ const TOKENS = [
   "ハ",
   "ｶ",
   " ",
+  // DXF のタグ・セクション・書式コード
+  "\r\n0\r\n",
+  "\r\n999\r\n",
+  "0\r\nSECTION\r\n2\r\nENTITIES\r\n",
+  "0\r\nENDSEC\r\n",
+  "0\r\nEOF\r\n",
+  "0\r\nBLOCK\r\n2\r\nX\r\n",
+  "0\r\nENDBLK\r\n",
+  "0\r\nINSERT\r\n2\r\nX\r\n",
+  "0\r\nSEQEND\r\n",
+  "102\r\n{ACAD_REACTORS\r\n",
+  "1001\r\nACAD\r\n",
+  "100\r\nAcDbEntity\r\n",
+  "$ACADVER",
+  "AC1009",
+  "AC1021",
+  "ANSI_932",
+  "*Paper_Space",
+  "\\P",
+  "\\U+3042",
+  "\\U+D83D",
+  "\\M+18140",
+  "%%c",
+  "%%u",
+  "%%065",
+  "{",
+  "}",
+  "\\S1/2;",
+  "\\S1#2;",
+  "\\S1^2;",
+  "\\H2x;",
+  "\\W0.8;",
+  "\\C1;",
+  "\\c255;",
+  "\\fArial|b1;",
+  "\\Fromans.shx;",
+  "\\pqc;",
+  "\\A1;",
+  "\\L",
+  "\\~",
+  "^J",
+  "^I",
+  "^",
 ];
 const BYTES = [
   0x5c, 0x27, 0x28, 0x29, 0x2c, 0x23, 0x3d, 0x3b, 0x81, 0x82, 0x83, 0x95, 0xe0, 0xfc, 0xa0, 0xff, 0x00, 0x0a,
@@ -171,6 +218,16 @@ function sanitize(bytes) {
   return out;
 }
 
+/** 対にならないサロゲートを U+FFFD にする（Rust の文字列と同じ） */
+function wellFormed(value) {
+  if (typeof value === "string") return value.toWellFormed();
+  if (Array.isArray(value)) return value.map(wellFormed);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, wellFormed(item)]));
+  }
+  return value;
+}
+
 function run(read) {
   try {
     return { json: read() };
@@ -184,7 +241,8 @@ let failed = 0;
 for (let index = 0; index < Number(count); index++) {
   const drawing = drawings[index % drawings.length];
   const bytes = mutate(drawing.bytes, state);
-  const ts = run(() => JSON.parse(sceneToJson(readDrawing(bytes, [sxf, jww]))));
+  if (process.env.ZUMEN_FUZZ_TRACE) writeFileSync(join(tmpdir(), `zumen-fuzz-${seed}-current.bin`), bytes);
+  const ts = run(() => wellFormed(JSON.parse(sceneToJson(readDrawing(bytes, [sxf, jww, dxf])))));
   const rust = run(() => JSON.parse(readSceneJson(bytes)));
   let differences = [];
   if (ts.error !== undefined || rust.error !== undefined) {

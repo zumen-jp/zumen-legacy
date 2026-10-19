@@ -1,0 +1,161 @@
+{
+  "format": "dxf",
+  "version": "DXF AC1032",
+  "views": [
+    {
+      "id": "Model",
+      "name": "モデル"
+    }
+  ],
+  "view": "Model",
+  "sheet": null,
+  "bounds": {
+    "minX": 0,
+    "minY": -1,
+    "maxX": 11,
+    "maxY": 10
+  },
+  "layers": [
+    {
+      "id": 1,
+      "name": "0",
+      "visible": true
+    }
+  ],
+  "entities": [
+    {
+      "id": "30",
+      "type": "マルチライン",
+      "source": "MLINE",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            1,
+            3,
+            1
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        },
+        {
+          "kind": "stroke",
+          "points": [
+            5,
+            1,
+            9,
+            1,
+            9,
+            10
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        },
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            -1,
+            11,
+            -1,
+            11,
+            10
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 0,
+        "minY": -1,
+        "maxX": 11,
+        "maxY": 10
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "マルチライン（MLINE）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "30"
+        },
+        {
+          "label": "レイヤ",
+          "value": "0"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "スタイル",
+          "value": "STANDARD"
+        },
+        {
+          "label": "尺度",
+          "value": "2"
+        },
+        {
+          "label": "位置合わせ",
+          "value": "ゼロ"
+        },
+        {
+          "label": "頂点",
+          "value": "3 点"
+        }
+      ],
+      "placement": {
+        "name": "モデル空間（mm）",
+        "scaleX": 1,
+        "scaleY": 1,
+        "inverse": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ]
+      }
+    }
+  ],
+  "notices": [],
+  "metadata": [
+    {
+      "label": "形式",
+      "value": "DXF AutoCAD 2018（AC1032、テキスト）"
+    },
+    {
+      "label": "文字コード",
+      "value": "UTF-8（AutoCAD 2007 以降の DXF）"
+    },
+    {
+      "label": "単位",
+      "value": "mm"
+    },
+    {
+      "label": "表示",
+      "value": "モデル空間"
+    }
+  ],
+  "background": "dark"
+}

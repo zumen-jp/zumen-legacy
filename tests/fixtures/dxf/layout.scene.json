@@ -1,0 +1,135 @@
+{
+  "format": "dxf",
+  "version": "DXF AC1015",
+  "views": [
+    {
+      "id": "Model",
+      "name": "モデル"
+    },
+    {
+      "id": "Layout1",
+      "name": "Layout1"
+    }
+  ],
+  "view": "Model",
+  "sheet": null,
+  "bounds": {
+    "minX": 0,
+    "minY": 0,
+    "maxX": 1000,
+    "maxY": 0
+  },
+  "layers": [
+    {
+      "id": 1,
+      "name": "0",
+      "visible": true
+    }
+  ],
+  "entities": [
+    {
+      "id": "40",
+      "type": "線分",
+      "source": "LINE",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            0,
+            1000,
+            0
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 0,
+        "minY": 0,
+        "maxX": 1000,
+        "maxY": 0
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "線分（LINE）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "40"
+        },
+        {
+          "label": "レイヤ",
+          "value": "0"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "始点",
+          "value": "0, 0"
+        },
+        {
+          "label": "終点",
+          "value": "1,000, 0"
+        },
+        {
+          "label": "長さ",
+          "value": "1,000"
+        }
+      ],
+      "placement": {
+        "name": "モデル空間（mm）",
+        "scaleX": 1,
+        "scaleY": 1,
+        "inverse": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ]
+      }
+    }
+  ],
+  "notices": [],
+  "metadata": [
+    {
+      "label": "形式",
+      "value": "DXF AutoCAD 2000（AC1015、テキスト）"
+    },
+    {
+      "label": "文字コード",
+      "value": "西欧（Windows-1252）（指定なし）"
+    },
+    {
+      "label": "単位",
+      "value": "mm"
+    },
+    {
+      "label": "レイアウト",
+      "value": "Layout1"
+    },
+    {
+      "label": "表示",
+      "value": "モデル空間"
+    }
+  ],
+  "background": "dark"
+}

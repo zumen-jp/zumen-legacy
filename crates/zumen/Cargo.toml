@@ -1,6 +1,6 @@
 [package]
 name = "zumen"
-description = "Read 2D drawings (SXF and JWW; DXF and DWG to follow) into one scene model"
+description = "Read 2D drawings (SXF, JWW and DXF; DWG to follow) into one scene model"
 version.workspace = true
 edition.workspace = true
 repository.workspace = true
@@ -8,6 +8,7 @@ publish.workspace = true
 
 [dependencies]
 zumen-core.workspace = true
+zumen-dxf.workspace = true
 zumen-jww.workspace = true
 zumen-sxf.workspace = true
 

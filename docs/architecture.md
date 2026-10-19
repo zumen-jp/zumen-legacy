@@ -96,7 +96,7 @@ switch to its WebAssembly build format by format, once the Rust reader returns t
 on the fixtures and on real drawings. Until then both are maintained, and the TypeScript reader is the reference.
 
 ```text
-bytes ─▶ zumen-sxf, zumen-jww (and later zumen-dxf, zumen-dwg) ─▶ Scene (zumen-core) ─┬▶ JSON ─▶ sceneFromJson ─▶ DrawingViewer
+bytes ─▶ zumen-sxf, zumen-jww, zumen-dxf (and later zumen-dwg) ─▶ Scene (zumen-core) ─┬▶ JSON ─▶ sceneFromJson ─▶ DrawingViewer
                                                                                         ├▶ PNG (zumen-render)
                                                                                         └▶ Python (bindings/python), WebAssembly (bindings/wasm)
 ```
@@ -106,6 +106,7 @@ bytes ─▶ zumen-sxf, zumen-jww (and later zumen-dxf, zumen-dwg) ─▶ Scene 
 | `zumen-core` | The `Scene` types (serde, the same JSON as `sceneToJson`), `NoticeList`, `DrawingReader` and `read_drawing`, geometry (`geometry`), text layout (`text`), measurement, and JavaScript-compatible number handling (`js`). |
 | `zumen-sxf` | SFC and P21 parsing into the SXF feature model (`parse_sfc`, `parse_p21` → `SxfDrawing`), conversion to a scene (`sxf_to_scene`), and the `SXF` reader. |
 | `zumen-jww` | JWW parsing into the JWW document model (`read_jww`), conversion to a scene (`jww_to_scene`), and the `JWW` reader. |
+| `zumen-dxf` | DXF parsing (ASCII and binary) into the AutoCAD drawing model (`parse_dxf` → `DxfDocument`), conversion of model space or a layout to a scene (`dxf_to_scene`), and the `DXF` reader. |
 | `zumen` | `read` and `detect` over every reader. The entry point for applications. |
 | `zumen-render` | Draws a scene to PNG with the rules of `render.ts` (color inversion, line weights with a 1 px minimum, dash rules, even-odd fills, clipping, per-character text, small text as a line). |
 | `zumen-cli` | The `zumen` command (`detect`, `scene`, `render`). |
@@ -119,24 +120,36 @@ The dependency rules follow the TypeScript packages: format crates depend only o
 
 - A port keeps the structure and the order of operations of the TypeScript code, so that the scenes are equal value
   for value: entity ids, properties, notices and their order, and coordinates.
-- Strings shown to users follow JavaScript exactly. `zumen_core::js` reproduces `toFixed`, `String(number)`,
-  `Intl.NumberFormat("ja-JP")`, `Math.max`/`Math.min` with NaN and signed zeros, V8's `Math.hypot`, and the white space
-  of `String.prototype.trim`. Trigonometry uses `libm`, so native and WebAssembly builds give the same values.
+- Strings shown to users follow JavaScript exactly. `zumen_core::js` reproduces `toFixed`, `toPrecision`,
+  `String(number)`, `Number(string)`, `parseInt`, `parseFloat`, ToInt32, `Intl.NumberFormat("ja-JP")`,
+  `Math.max`/`Math.min` with NaN and signed zeros, V8's `Math.hypot`, and the white space of `String.prototype.trim`.
+  Trigonometry uses `libm`, so native and WebAssembly builds give the same values.
+- Sorting uses `js::sort_by`, a port of V8's `Array.prototype.sort` (TimSort with the same merges and galloping), because
+  some comparisons are inconsistent on purpose or on malformed input (draw order that ignores missing handles, NaN offsets),
+  and their result depends on the algorithm. Rust's `sort_by` may also panic on such comparisons.
+- Tables keyed by names, which are plain objects in TypeScript (DXF `sort_handles` and `skipped`), keep JavaScript's key
+  order: names that are array indexes first, in numeric order, then the others in insertion order.
 - Text decoding uses `encoding_rs`, the WHATWG decoders that browsers implement. Node.js decodes Shift_JIS with ICU,
   which differs from WHATWG for byte 0x80 (U+0080 in browsers and Rust, U+FFFD in Node.js), for broken two-byte
   characters (ICU drops an ASCII second byte that WHATWG keeps) and for the control characters 0x1A, 0x1C and 0x7F.
   Every two-byte character that ICU accepts decodes the same in both.
+- Text that the TypeScript readers walk by UTF-16 code units (MTEXT format codes, `\U+XXXX` escapes) is processed as
+  UTF-16 in Rust too. A lone surrogate (`\U+D83D`) stays in a JavaScript string and becomes U+FFFD in a Rust string.
 - Readers do not depend on the user's locale (no `localeCompare` or locale-sensitive formatting other than the fixed
-  `ja-JP` number format), and they bound recursion and work on malformed input (nesting depth, curve subdivision,
-  hatch lines), so that both implementations stop at the same place instead of overflowing the stack or hanging.
+  `ja-JP` number format), and they bound recursion and work on malformed input (nesting depth, entities drawn inside
+  blocks, curve subdivision, hatch lines, mesh grids), so that both implementations stop at the same place instead of
+  overflowing the stack, hanging or exhausting memory.
 - `tests/fixtures/<format>/` holds synthetic drawings built by the TypeScript tests and the scenes the TypeScript readers
   return (`*.scene.json`). `pnpm run golden` rewrites them. The TypeScript tests check that they are current, and
-  `crates/zumen/tests/golden.rs` checks that Rust returns the same scenes (numbers to a relative 1e-9).
-- `pnpm run parity` compares the TypeScript and Rust readers on drawings that are not in Git (`ZUMEN_SAMPLES`),
-  and `pnpm run wasm` builds the WebAssembly package and checks it against the fixtures.
-- `pnpm run fuzz` reads randomly damaged copies of the fixtures (inserted escapes, quotes and brackets, removed and
-  repeated ranges, changed numbers) with the built TypeScript packages and the WebAssembly build, and reports any input
-  where the scenes or the error messages differ. Bytes that ICU and WHATWG decode differently are replaced first.
+  `crates/zumen/tests/golden.rs` checks that Rust returns the same scenes. Both compare numbers to a relative 1e-9:
+  besides Rust's `libm`, Node.js itself gives `Math.sin` and `Math.cos` results that differ in the last bits between x64
+  and arm64, so a scene written on one computer does not match another one character for character.
+- `pnpm run parity` compares the TypeScript and Rust readers on drawings that are not in Git (`ZUMEN_SAMPLES`), in every
+  view (DXF layouts), and `pnpm run wasm` builds the WebAssembly package and checks it against the fixtures.
+- `pnpm run fuzz` reads randomly damaged copies of the fixtures (inserted escapes, quotes and brackets, DXF tags and
+  MTEXT format codes, removed and repeated ranges, changed numbers) with the built TypeScript packages and the WebAssembly
+  build, and reports any input where the scenes or the error messages differ. Bytes that ICU and WHATWG decode
+  differently are replaced first, and lone surrogates in the TypeScript scene are replaced with U+FFFD before comparing.
 
 ### Rust dependencies
 
@@ -145,7 +158,7 @@ Runtime dependencies are permissive and work in WebAssembly. Recorded with the r
 | Crate | License | Why |
 | --- | --- | --- |
 | `serde`, `serde_json` | MIT OR Apache-2.0 | The scene JSON shared with the browser |
-| `encoding_rs` | (MIT OR Apache-2.0) AND BSD-3-Clause | Shift_JIS (CP932) and UTF-16 with the WHATWG rules of `TextDecoder` |
+| `encoding_rs` | (MIT OR Apache-2.0) AND BSD-3-Clause | Shift_JIS (CP932), the DXF code pages (`$DWGCODEPAGE`) and UTF-16 with the WHATWG rules of `TextDecoder` |
 | `unicode-normalization` | (MIT OR Apache-2.0) AND Unicode-3.0 | NFKC for font names, as `String.prototype.normalize` (about 128 KB of the WebAssembly build) |
 | `libm` | MIT | The same trigonometry on every target |
 | `tiny-skia` | BSD-3-Clause | CPU rasterization for PNG, with anti-aliasing, dashes, even-odd fills and masks |

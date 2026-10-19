@@ -1,0 +1,196 @@
+{
+  "format": "dxf",
+  "version": "DXF AC1032",
+  "views": [
+    {
+      "id": "Model",
+      "name": "モデル"
+    }
+  ],
+  "view": "Model",
+  "sheet": null,
+  "bounds": {
+    "minX": 0,
+    "minY": 0,
+    "maxX": 26.208333333333336,
+    "maxY": 11.805555555555557
+  },
+  "layers": [
+    {
+      "id": 1,
+      "name": "0",
+      "visible": true
+    }
+  ],
+  "entities": [
+    {
+      "id": "20",
+      "type": "マルチ引出線",
+      "source": "MULTILEADER",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "text",
+          "text": "ABC",
+          "color": "#ffffff",
+          "fontFamily": "\"MS Gothic\", \"Hiragino Kaku Gothic ProN\", \"Hiragino Sans\", \"Yu Gothic\", \"Noto Sans JP\", \"Noto Sans CJK JP\", sans-serif",
+          "height": 3.4722222222222223,
+          "scaleX": 1.0000000000000002,
+          "cells": [
+            {
+              "char": "A",
+              "x": 0.8680555555555557,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "B",
+              "x": 2.604166666666667,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "C",
+              "x": 4.340277777777779,
+              "y": 1.7361111111111112
+            }
+          ],
+          "boxWidth": 5.208333333333334,
+          "boxHeight": 3.4722222222222223,
+          "matrix": [
+            1,
+            0,
+            0,
+            1,
+            21,
+            8.333333333333334
+          ]
+        },
+        {
+          "kind": "fill",
+          "color": "#ffffff",
+          "rings": [
+            [
+              0,
+              0,
+              1.5193302946757827,
+              1.3426639813413894,
+              1.8726629213445694,
+              0.7773317786713307
+            ]
+          ]
+        },
+        {
+          "kind": "stroke",
+          "points": [
+            1.695996608010176,
+            1.05999788000636,
+            16,
+            10
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        },
+        {
+          "kind": "stroke",
+          "points": [
+            16,
+            10,
+            20,
+            10
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 0,
+        "minY": 0,
+        "maxX": 26.208333333333336,
+        "maxY": 11.805555555555557
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "マルチ引出線（MULTILEADER）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "20"
+        },
+        {
+          "label": "レイヤ",
+          "value": "0"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "文字列",
+          "value": "ABC"
+        },
+        {
+          "label": "高さ",
+          "value": "2.5"
+        },
+        {
+          "label": "引出線",
+          "value": "1 本"
+        }
+      ],
+      "placement": {
+        "name": "モデル空間（mm）",
+        "scaleX": 1,
+        "scaleY": 1,
+        "inverse": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ]
+      }
+    }
+  ],
+  "notices": [
+    {
+      "level": "info",
+      "code": "shx-font",
+      "message": "SHX フォント（txt）は同梱していないため、代わりのフォントで描きました",
+      "count": 1
+    }
+  ],
+  "metadata": [
+    {
+      "label": "形式",
+      "value": "DXF AutoCAD 2018（AC1032、テキスト）"
+    },
+    {
+      "label": "文字コード",
+      "value": "UTF-8（AutoCAD 2007 以降の DXF）"
+    },
+    {
+      "label": "単位",
+      "value": "mm"
+    },
+    {
+      "label": "表示",
+      "value": "モデル空間"
+    }
+  ],
+  "background": "dark"
+}

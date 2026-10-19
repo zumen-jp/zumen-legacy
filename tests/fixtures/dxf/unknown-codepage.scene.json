@@ -1,0 +1,183 @@
+{
+  "format": "dxf",
+  "version": "DXF AC1015",
+  "views": [
+    {
+      "id": "Model",
+      "name": "モデル"
+    }
+  ],
+  "view": "Model",
+  "sheet": null,
+  "bounds": {
+    "minX": 0,
+    "minY": -0.27272727272727276,
+    "maxX": 7.954545454545455,
+    "maxY": 2
+  },
+  "layers": [
+    {
+      "id": 1,
+      "name": "0",
+      "visible": true
+    }
+  ],
+  "entities": [
+    {
+      "id": "?",
+      "type": "文字",
+      "source": "TEXT",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "text",
+          "text": "Straße",
+          "color": "#ffffff",
+          "fontFamily": "\"MS Gothic\", \"Hiragino Kaku Gothic ProN\", \"Hiragino Sans\", \"Yu Gothic\", \"Noto Sans JP\", \"Noto Sans CJK JP\", sans-serif",
+          "height": 2.272727272727273,
+          "scaleX": 1,
+          "cells": [
+            {
+              "char": "S",
+              "x": 0.5681818181818182,
+              "y": 1.1363636363636365
+            },
+            {
+              "char": "t",
+              "x": 1.7045454545454546,
+              "y": 1.1363636363636365
+            },
+            {
+              "char": "r",
+              "x": 2.8409090909090913,
+              "y": 1.1363636363636365
+            },
+            {
+              "char": "a",
+              "x": 3.9772727272727275,
+              "y": 1.1363636363636365
+            },
+            {
+              "char": "ß",
+              "x": 5.6818181818181825,
+              "y": 1.1363636363636365
+            },
+            {
+              "char": "e",
+              "x": 7.386363636363637,
+              "y": 1.1363636363636365
+            }
+          ],
+          "boxWidth": 7.954545454545455,
+          "boxHeight": 2.272727272727273,
+          "matrix": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            -0.27272727272727276
+          ]
+        }
+      ],
+      "bbox": {
+        "minX": 0,
+        "minY": -0.27272727272727276,
+        "maxX": 7.954545454545455,
+        "maxY": 2
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "文字（TEXT）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "?"
+        },
+        {
+          "label": "レイヤ",
+          "value": "0"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "文字列",
+          "value": "Straße"
+        },
+        {
+          "label": "高さ",
+          "value": "2"
+        },
+        {
+          "label": "文字スタイル",
+          "value": "STANDARD"
+        }
+      ],
+      "placement": {
+        "name": "モデル空間（mm（指定なし））",
+        "scaleX": 1,
+        "scaleY": 1,
+        "inverse": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ]
+      }
+    }
+  ],
+  "notices": [
+    {
+      "level": "warning",
+      "code": "unknown-codepage",
+      "message": "対応していない文字コード ANSI_9999 の文字列を西欧の文字として読みました",
+      "count": 1
+    },
+    {
+      "level": "info",
+      "code": "unit-assumed",
+      "message": "長さの単位の指定がないため、mm とみなしました",
+      "count": 1
+    },
+    {
+      "level": "info",
+      "code": "shx-font",
+      "message": "SHX フォント（txt）は同梱していないため、代わりのフォントで描きました",
+      "count": 1
+    }
+  ],
+  "metadata": [
+    {
+      "label": "形式",
+      "value": "DXF AutoCAD 2000（AC1015、テキスト）"
+    },
+    {
+      "label": "文字コード",
+      "value": "西欧（Windows-1252）（$DWGCODEPAGE ANSI_9999）"
+    },
+    {
+      "label": "単位",
+      "value": "mm（指定なし）"
+    },
+    {
+      "label": "表示",
+      "value": "モデル空間"
+    }
+  ],
+  "background": "dark"
+}

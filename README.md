@@ -141,7 +141,7 @@ original XML attributes. See [packages/stb](packages/stb/README.md).
 The readers are being ported to Rust (`crates/`), with Python bindings (`bindings/python`) and a WebAssembly build
 (`bindings/wasm`), so servers and data pipelines can read the same drawings. The Rust readers return the same `Scene`
 as the TypeScript ones: both are compared on the drawings in `tests/fixtures`, and on local samples with
-`pnpm run parity`. JWW and SXF are ported; DXF and DWG follow. The browser packages will switch to the WebAssembly
+`pnpm run parity`. JWW, SXF and DXF are ported; DWG follows. The browser packages will switch to the WebAssembly
 readers format by format, once each one matches.
 
 ```python
@@ -162,6 +162,7 @@ cargo run --release -p zumen-cli -- render plan.jww -o plan.png --dpi 150
 | [`zumen-core`](crates/zumen-core) | The scene model (the same JSON as `@zumenjs/core`), geometry and text layout |
 | [`zumen-sxf`](crates/zumen-sxf) | `parse_sfc` and `parse_p21` (the SXF feature model), `sxf_to_scene`, the `SXF` reader |
 | [`zumen-jww`](crates/zumen-jww) | `read_jww` (the JWW document model), `jww_to_scene`, the `JWW` reader |
+| [`zumen-dxf`](crates/zumen-dxf) | `parse_dxf` (the AutoCAD drawing model, shared with DWG), `dxf_to_scene`, the `DXF` reader |
 | [`zumen`](crates/zumen) | `read` and `detect` over every reader |
 | [`zumen-render`](crates/zumen-render) | PNG rendering with the rules of the browser renderer; BIZ UDGothic is bundled for Japanese text |
 | [`zumen-cli`](crates/zumen-cli) | The `zumen` command: `detect`, `scene` (JSON) and `render` (PNG) |
@@ -184,7 +185,7 @@ so confidential drawings can be viewed without sending them anywhere.
 
 1. Split into readers, the drawing engine and React (done).
 2. DXF, with an AutoCAD object model shared with DWG (done, including MULTILEADER and MLINE).
-3. Rust readers with Python and WebAssembly bindings, and PNG rendering on servers (JWW and SXF done; DXF next).
+3. Rust readers with Python and WebAssembly bindings, and PNG rendering on servers (JWW, SXF and DXF done).
 4. DWG, read into the same AutoCAD object model.
 5. Writing and converting drawings, analysis (tables, rooms and areas, revision comparison), markup and PDF drawings.
 6. Plan and elevation drawings of ST-Bridge models as scenes, to view, measure and render them like drawings.

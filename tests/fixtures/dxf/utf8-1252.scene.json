@@ -1,0 +1,198 @@
+{
+  "format": "dxf",
+  "version": "DXF AC1018",
+  "views": [
+    {
+      "id": "Model",
+      "name": "モデル"
+    }
+  ],
+  "view": "Model",
+  "sheet": null,
+  "bounds": {
+    "minX": 0,
+    "minY": -0.27272727272727276,
+    "maxX": 14.772727272727273,
+    "maxY": 2
+  },
+  "layers": [
+    {
+      "id": 1,
+      "name": "0",
+      "visible": true
+    }
+  ],
+  "entities": [
+    {
+      "id": "?",
+      "type": "文字",
+      "source": "TEXT",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "text",
+          "text": "Café ü 日本",
+          "color": "#ffffff",
+          "fontFamily": "\"MS Gothic\", \"Hiragino Kaku Gothic ProN\", \"Hiragino Sans\", \"Yu Gothic\", \"Noto Sans JP\", \"Noto Sans CJK JP\", sans-serif",
+          "height": 2.272727272727273,
+          "scaleX": 1,
+          "cells": [
+            {
+              "char": "C",
+              "x": 0.5681818181818182,
+              "y": 1.1363636363636365
+            },
+            {
+              "char": "a",
+              "x": 1.7045454545454546,
+              "y": 1.1363636363636365
+            },
+            {
+              "char": "f",
+              "x": 2.8409090909090913,
+              "y": 1.1363636363636365
+            },
+            {
+              "char": "é",
+              "x": 4.545454545454546,
+              "y": 1.1363636363636365
+            },
+            {
+              "char": " ",
+              "x": 6.25,
+              "y": 1.1363636363636365
+            },
+            {
+              "char": "ü",
+              "x": 7.954545454545455,
+              "y": 1.1363636363636365
+            },
+            {
+              "char": " ",
+              "x": 9.65909090909091,
+              "y": 1.1363636363636365
+            },
+            {
+              "char": "日",
+              "x": 11.363636363636365,
+              "y": 1.1363636363636365
+            },
+            {
+              "char": "本",
+              "x": 13.636363636363638,
+              "y": 1.1363636363636365
+            }
+          ],
+          "boxWidth": 14.772727272727273,
+          "boxHeight": 2.272727272727273,
+          "matrix": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            -0.27272727272727276
+          ]
+        }
+      ],
+      "bbox": {
+        "minX": 0,
+        "minY": -0.27272727272727276,
+        "maxX": 14.772727272727273,
+        "maxY": 2
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "文字（TEXT）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "?"
+        },
+        {
+          "label": "レイヤ",
+          "value": "0"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "文字列",
+          "value": "Café ü 日本"
+        },
+        {
+          "label": "高さ",
+          "value": "2"
+        },
+        {
+          "label": "文字スタイル",
+          "value": "STANDARD"
+        }
+      ],
+      "placement": {
+        "name": "モデル空間（mm（指定なし））",
+        "scaleX": 1,
+        "scaleY": 1,
+        "inverse": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ]
+      }
+    }
+  ],
+  "notices": [
+    {
+      "level": "info",
+      "code": "utf8-codepage",
+      "message": "西欧の文字コードの指定と違い、UTF-8 として読みました",
+      "count": 1
+    },
+    {
+      "level": "info",
+      "code": "unit-assumed",
+      "message": "長さの単位の指定がないため、mm とみなしました",
+      "count": 1
+    },
+    {
+      "level": "info",
+      "code": "shx-font",
+      "message": "SHX フォント（txt）は同梱していないため、代わりのフォントで描きました",
+      "count": 1
+    }
+  ],
+  "metadata": [
+    {
+      "label": "形式",
+      "value": "DXF AutoCAD 2004（AC1018、テキスト）"
+    },
+    {
+      "label": "文字コード",
+      "value": "UTF-8（中身から判断）"
+    },
+    {
+      "label": "単位",
+      "value": "mm（指定なし）"
+    },
+    {
+      "label": "表示",
+      "value": "モデル空間"
+    }
+  ],
+  "background": "dark"
+}

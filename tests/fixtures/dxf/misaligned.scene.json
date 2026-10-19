@@ -1,0 +1,140 @@
+{
+  "format": "dxf",
+  "version": "DXF AC1009",
+  "views": [
+    {
+      "id": "Model",
+      "name": "モデル"
+    }
+  ],
+  "view": "Model",
+  "sheet": null,
+  "bounds": {
+    "minX": 1,
+    "minY": 2,
+    "maxX": 3,
+    "maxY": 4
+  },
+  "layers": [
+    {
+      "id": 1,
+      "name": "0",
+      "visible": true
+    }
+  ],
+  "entities": [
+    {
+      "id": "?",
+      "type": "線分",
+      "source": "LINE",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 1,
+        "minY": 2,
+        "maxX": 3,
+        "maxY": 4
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "線分（LINE）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "?"
+        },
+        {
+          "label": "レイヤ",
+          "value": "0"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "始点",
+          "value": "1, 2"
+        },
+        {
+          "label": "終点",
+          "value": "3, 4"
+        },
+        {
+          "label": "長さ",
+          "value": "2.8284"
+        }
+      ],
+      "placement": {
+        "name": "モデル空間（mm（指定なし））",
+        "scaleX": 1,
+        "scaleY": 1,
+        "inverse": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ]
+      }
+    }
+  ],
+  "notices": [
+    {
+      "level": "warning",
+      "code": "bad-tag",
+      "message": "グループコードとして読めない行を飛ばしました",
+      "count": 1
+    },
+    {
+      "level": "info",
+      "code": "unit-assumed",
+      "message": "長さの単位の指定がないため、mm とみなしました",
+      "count": 1
+    }
+  ],
+  "metadata": [
+    {
+      "label": "形式",
+      "value": "DXF AutoCAD R12（AC1009、テキスト）"
+    },
+    {
+      "label": "文字コード",
+      "value": "西欧（Windows-1252）（指定なし）"
+    },
+    {
+      "label": "単位",
+      "value": "mm（指定なし）"
+    },
+    {
+      "label": "表示",
+      "value": "モデル空間"
+    }
+  ],
+  "background": "dark"
+}
