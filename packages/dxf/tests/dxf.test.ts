@@ -3,15 +3,18 @@ import { describe, expect, it } from "vitest";
 import {
   type DxfAttdef,
   type DxfAttrib,
+  type DxfInsert,
   type DxfLine,
   type DxfMLine,
   type DxfMText,
+  type DxfMTextContent,
   type DxfText,
   dxf,
   dxfToScene,
   parseDxf,
 } from "../src/index.js";
 import {
+  ATTRIBUTES_MULTILINE,
   ATTRIBUTES_R2018,
   ascii,
   BINARY,
@@ -256,5 +259,51 @@ describe("DXF の値と同じ図面の DWG", () => {
       return Math.round(((ax + bx) / 2 - tx) * 1e6) / 1e6;
     });
     expect(arrows).toEqual([0.18, 2.5]);
+  });
+});
+
+/**
+ * AutoCAD 2018 の複数行の属性の文字は、属性の後の埋め込みの MTEXT にだけある（1 行の文字は空）。MTEXT と同じ配置点・
+ * 行の間隔で描き、非表示（70 の 1）・属性定義の規則（ブロックの外ではタグ、ブロックの中では定数だけ）は 1 行の属性と同じ
+ */
+describe("DXF の複数行の属性", () => {
+  it("埋め込みの MTEXT の文字を、属性の色で MTEXT と同じ位置・同じ行に描く", () => {
+    const doc = parseDxf(ATTRIBUTES_MULTILINE);
+    const insert = doc.entities.find((entity) => entity.type === "INSERT") as DxfInsert;
+    const [note, hidden] = insert.attribs as [DxfAttrib, DxfAttrib];
+    expect(note).toMatchObject({ text: "", tag: "NOTE", attribute_flags: 0, color_index: 3 });
+    expect(note.mtext).toMatchObject({
+      raw_text: "First line\\PSecond line",
+      text: "First line\nSecond line",
+      insert: [100, 0, 0],
+      char_height: 2.5,
+      attachment_point: 1,
+      line_spacing_factor: 1,
+    });
+    expect(hidden.mtext?.raw_text).toBe("Hidden");
+    const scene = dxfToScene(doc);
+    const attribute = scene.entities.find((entity) => entity.id === "50>51");
+    expect(attribute).toMatchObject({ type: "属性", source: "ATTRIB" });
+    expect(attribute?.properties).toContainEqual({ label: "タグ", value: "NOTE" });
+    expect(texts(attribute).map((item) => [item.text, item.color])).toEqual([
+      ["First line", "#00ff00"],
+      ["Second line", "#00ff00"],
+    ]);
+    // 同じ値の MTEXT と同じ文字の並び
+    const mtext: DxfMText = { ...note, ...(note.mtext as DxfMTextContent), type: "MTEXT" };
+    expect(texts(attribute)).toEqual(texts(dxfToScene({ ...doc, entities: [mtext] }).entities[0]));
+    expect(scene.entities.find((entity) => entity.id === "50>52")).toBeUndefined();
+  });
+
+  it("属性定義は、ブロックの外ではタグを、ブロックの中では定数の既定値だけを描く", () => {
+    const scene = readDrawing(ATTRIBUTES_MULTILINE, [dxf]);
+    const shown = (id: string) => texts(scene.entities.find((entity) => entity.id === id)).map((item) => item.text);
+    expect(shown("54")).toEqual(["TITLE"]);
+    expect(shown("50>43")).toEqual(["Fixed", "value"]);
+    expect(scene.entities.find((entity) => entity.id === "50>42")).toBeUndefined();
+    // タグの左上は、属性定義の埋め込みの MTEXT の配置点（0, 20）。1 行目のベースラインは高さの分だけ下
+    const [title] = texts(scene.entities.find((entity) => entity.id === "54"));
+    const [value] = texts(scene.entities.find((entity) => entity.id === "50>51"));
+    expect((title?.matrix[5] ?? 0) - 20).toBeCloseTo((value?.matrix[5] ?? 0) - 0);
   });
 });

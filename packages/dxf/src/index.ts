@@ -35,6 +35,7 @@ export type {
   DxfMLineStyle,
   DxfMLineStyleElement,
   DxfMText,
+  DxfMTextContent,
   DxfPatternLine,
   DxfPoint,
   DxfPolyline,

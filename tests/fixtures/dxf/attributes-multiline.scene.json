@@ -1,0 +1,559 @@
+{
+  "format": "dxf",
+  "version": "DXF AC1032",
+  "views": [
+    {
+      "id": "Model",
+      "name": "モデル"
+    }
+  ],
+  "view": "Model",
+  "sheet": null,
+  "bounds": {
+    "minX": 0,
+    "minY": -17.083333333333336,
+    "maxX": 119.09722222222223,
+    "maxY": 20.555555555555554
+  },
+  "layers": [
+    {
+      "id": 1,
+      "name": "0",
+      "visible": true
+    }
+  ],
+  "entities": [
+    {
+      "id": "50>43",
+      "type": "属性定義",
+      "source": "ATTDEF",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "text",
+          "text": "Fixed",
+          "color": "#ffffff",
+          "fontFamily": "\"MS Gothic\", \"Hiragino Kaku Gothic ProN\", \"Hiragino Sans\", \"Yu Gothic\", \"Noto Sans JP\", \"Noto Sans CJK JP\", sans-serif",
+          "height": 3.4722222222222223,
+          "scaleX": 1,
+          "cells": [
+            {
+              "char": "F",
+              "x": 0.8680555555555556,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "i",
+              "x": 2.604166666666667,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "x",
+              "x": 4.340277777777778,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "e",
+              "x": 6.076388888888889,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "d",
+              "x": 7.8125,
+              "y": 1.7361111111111112
+            }
+          ],
+          "boxWidth": 8.680555555555555,
+          "boxHeight": 3.4722222222222223,
+          "matrix": [
+            1,
+            0,
+            0,
+            1,
+            100,
+            -12.916666666666666
+          ]
+        },
+        {
+          "kind": "text",
+          "text": "value",
+          "color": "#ffffff",
+          "fontFamily": "\"MS Gothic\", \"Hiragino Kaku Gothic ProN\", \"Hiragino Sans\", \"Yu Gothic\", \"Noto Sans JP\", \"Noto Sans CJK JP\", sans-serif",
+          "height": 3.4722222222222223,
+          "scaleX": 1,
+          "cells": [
+            {
+              "char": "v",
+              "x": 0.8680555555555556,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "a",
+              "x": 2.604166666666667,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "l",
+              "x": 4.340277777777778,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "u",
+              "x": 6.076388888888889,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "e",
+              "x": 7.8125,
+              "y": 1.7361111111111112
+            }
+          ],
+          "boxWidth": 8.680555555555555,
+          "boxHeight": 3.4722222222222223,
+          "matrix": [
+            1,
+            0,
+            0,
+            1,
+            100,
+            -17.083333333333336
+          ]
+        }
+      ],
+      "bbox": {
+        "minX": 100,
+        "minY": -17.083333333333336,
+        "maxX": 108.68055555555556,
+        "maxY": -9.444444444444443
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "属性定義（ATTDEF）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "50>43"
+        },
+        {
+          "label": "レイヤ",
+          "value": "0"
+        },
+        {
+          "label": "ブロック",
+          "value": "LABEL"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "文字列",
+          "value": "Fixed\nvalue"
+        },
+        {
+          "label": "タグ",
+          "value": "FIXED"
+        },
+        {
+          "label": "高さ",
+          "value": "2.5"
+        },
+        {
+          "label": "文字スタイル",
+          "value": "STANDARD"
+        }
+      ],
+      "placement": {
+        "name": "モデル空間（mm）",
+        "scaleX": 1,
+        "scaleY": 1,
+        "inverse": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": "50>51",
+      "type": "属性",
+      "source": "ATTRIB",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "text",
+          "text": "First line",
+          "color": "#00ff00",
+          "fontFamily": "\"MS Gothic\", \"Hiragino Kaku Gothic ProN\", \"Hiragino Sans\", \"Yu Gothic\", \"Noto Sans JP\", \"Noto Sans CJK JP\", sans-serif",
+          "height": 3.4722222222222223,
+          "scaleX": 1,
+          "cells": [
+            {
+              "char": "F",
+              "x": 0.8680555555555556,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "i",
+              "x": 2.604166666666667,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "r",
+              "x": 4.340277777777778,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "s",
+              "x": 6.076388888888889,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "t",
+              "x": 7.8125,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": " ",
+              "x": 9.54861111111111,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "l",
+              "x": 11.284722222222221,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "i",
+              "x": 13.020833333333332,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "n",
+              "x": 14.756944444444443,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "e",
+              "x": 16.493055555555554,
+              "y": 1.7361111111111112
+            }
+          ],
+          "boxWidth": 17.36111111111111,
+          "boxHeight": 3.4722222222222223,
+          "matrix": [
+            1,
+            0,
+            0,
+            1,
+            100,
+            -2.9166666666666665
+          ]
+        },
+        {
+          "kind": "text",
+          "text": "Second line",
+          "color": "#00ff00",
+          "fontFamily": "\"MS Gothic\", \"Hiragino Kaku Gothic ProN\", \"Hiragino Sans\", \"Yu Gothic\", \"Noto Sans JP\", \"Noto Sans CJK JP\", sans-serif",
+          "height": 3.4722222222222223,
+          "scaleX": 0.9999999999999999,
+          "cells": [
+            {
+              "char": "S",
+              "x": 0.8680555555555555,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "e",
+              "x": 2.6041666666666665,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "c",
+              "x": 4.340277777777778,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "o",
+              "x": 6.076388888888888,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "n",
+              "x": 7.812499999999999,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "d",
+              "x": 9.54861111111111,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": " ",
+              "x": 11.284722222222221,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "l",
+              "x": 13.020833333333332,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "i",
+              "x": 14.756944444444443,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "n",
+              "x": 16.493055555555554,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "e",
+              "x": 18.229166666666668,
+              "y": 1.7361111111111112
+            }
+          ],
+          "boxWidth": 19.09722222222222,
+          "boxHeight": 3.4722222222222223,
+          "matrix": [
+            1,
+            0,
+            0,
+            1,
+            100,
+            -7.083333333333334
+          ]
+        }
+      ],
+      "bbox": {
+        "minX": 100,
+        "minY": -7.083333333333334,
+        "maxX": 119.09722222222223,
+        "maxY": 0.5555555555555558
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "属性（ATTRIB）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "50>51"
+        },
+        {
+          "label": "レイヤ",
+          "value": "0"
+        },
+        {
+          "label": "ブロック",
+          "value": "LABEL"
+        },
+        {
+          "label": "色",
+          "value": "ACI 3"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "文字列",
+          "value": "First line\nSecond line"
+        },
+        {
+          "label": "タグ",
+          "value": "NOTE"
+        },
+        {
+          "label": "高さ",
+          "value": "2.5"
+        },
+        {
+          "label": "文字スタイル",
+          "value": "STANDARD"
+        }
+      ],
+      "placement": {
+        "name": "モデル空間（mm）",
+        "scaleX": 1,
+        "scaleY": 1,
+        "inverse": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": "54",
+      "type": "属性定義",
+      "source": "ATTDEF",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "text",
+          "text": "TITLE",
+          "color": "#ffffff",
+          "fontFamily": "\"MS Gothic\", \"Hiragino Kaku Gothic ProN\", \"Hiragino Sans\", \"Yu Gothic\", \"Noto Sans JP\", \"Noto Sans CJK JP\", sans-serif",
+          "height": 3.4722222222222223,
+          "scaleX": 1,
+          "cells": [
+            {
+              "char": "T",
+              "x": 0.8680555555555556,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "I",
+              "x": 2.604166666666667,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "T",
+              "x": 4.340277777777778,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "L",
+              "x": 6.076388888888889,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "E",
+              "x": 7.8125,
+              "y": 1.7361111111111112
+            }
+          ],
+          "boxWidth": 8.680555555555555,
+          "boxHeight": 3.4722222222222223,
+          "matrix": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            17.083333333333332
+          ]
+        }
+      ],
+      "bbox": {
+        "minX": 0,
+        "minY": 17.083333333333332,
+        "maxX": 8.680555555555555,
+        "maxY": 20.555555555555554
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "属性定義（ATTDEF）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "54"
+        },
+        {
+          "label": "レイヤ",
+          "value": "0"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "文字列",
+          "value": "TITLE"
+        },
+        {
+          "label": "タグ",
+          "value": "TITLE"
+        },
+        {
+          "label": "高さ",
+          "value": "2.5"
+        },
+        {
+          "label": "文字スタイル",
+          "value": "STANDARD"
+        }
+      ],
+      "placement": {
+        "name": "モデル空間（mm）",
+        "scaleX": 1,
+        "scaleY": 1,
+        "inverse": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ]
+      }
+    }
+  ],
+  "notices": [
+    {
+      "level": "info",
+      "code": "shx-font",
+      "message": "SHX フォント（txt）は同梱していないため、代わりのフォントで描きました",
+      "count": 3
+    }
+  ],
+  "metadata": [
+    {
+      "label": "形式",
+      "value": "DXF AutoCAD 2018（AC1032、テキスト）"
+    },
+    {
+      "label": "文字コード",
+      "value": "UTF-8（AutoCAD 2007 以降の DXF）"
+    },
+    {
+      "label": "単位",
+      "value": "mm"
+    },
+    {
+      "label": "ブロック",
+      "value": "1 件"
+    },
+    {
+      "label": "表示",
+      "value": "モデル空間"
+    }
+  ],
+  "background": "dark"
+}

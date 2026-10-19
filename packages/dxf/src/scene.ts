@@ -66,6 +66,7 @@ import type {
   DxfMLine,
   DxfMLineStyle,
   DxfMText,
+  DxfMTextContent,
   DxfPolyline,
   DxfTable,
   DxfText,
@@ -1161,6 +1162,10 @@ class Builder {
   private text(entity: DxfText | DxfAttrib | DxfAttdef, ctx: Ctx): void {
     if (entity.type === "ATTRIB" && entity.attribute_flags & 1) return;
     if (entity.type === "ATTDEF" && entity.attribute_flags & 1 && ctx.depth === 0) return;
+    if (entity.type !== "TEXT" && entity.mtext) {
+      this.multilineAttribute(entity, entity.mtext, ctx);
+      return;
+    }
     const content = entity.type === "ATTDEF" && ctx.depth === 0 ? entity.tag : entity.text;
     if (!content) return;
     const style = this.style(entity.style);
@@ -1214,10 +1219,29 @@ class Builder {
   }
 
   /**
-   * MTEXT（DXF Reference「MTEXT」）。折り返しの幅があれば、語・全角の文字の境目で折り返す。
-   * 描いた文字の範囲を、文字の座標系（配置点が原点、文字の進む向きが X）で返す
+   * 複数行の属性（AutoCAD 2018 以降）は、埋め込みの MTEXT を属性の色・レイヤ・押し出し方向で描く。
+   * ブロックの外の属性定義は、1 行の属性定義と同じくタグを描く（書式コードとしては読まない）
    */
-  private mtext(entity: DxfMText, ctx: Ctx): MTextLayout | null {
+  private multilineAttribute(entity: DxfAttrib | DxfAttdef, content: DxfMTextContent, ctx: Ctx): void {
+    const tag = entity.type === "ATTDEF" && ctx.depth === 0;
+    this.mtext(
+      {
+        ...entity,
+        ...content,
+        type: "MTEXT",
+        text: tag ? entity.tag : content.text,
+        raw_text: tag ? entity.tag.replace(/[\\{}]/g, "\\$&") : content.raw_text,
+      },
+      ctx,
+      entity,
+    );
+  }
+
+  /**
+   * MTEXT（DXF Reference「MTEXT」）。折り返しの幅があれば、語・全角の文字の境目で折り返す。
+   * 描いた文字の範囲を、文字の座標系（配置点が原点、文字の進む向きが X）で返す。attribute は複数行の属性
+   */
+  private mtext(entity: DxfMText, ctx: Ctx, attribute?: DxfAttrib | DxfAttdef): MTextLayout | null {
     const style = this.style(entity.style);
     const base =
       entity.char_height > 0
@@ -1353,8 +1377,9 @@ class Builder {
       if (result.shx) shx = true;
     });
     this.countShx(shx);
-    this.add(entity, ctx, primitives, [
+    this.add(attribute ?? entity, ctx, primitives, [
       { label: "文字列", value: entity.text },
+      ...(attribute ? [{ label: "タグ", value: attribute.tag }] : []),
       { label: "高さ", value: fmt(base * meanScale(ctx.local)) },
       {
         label: "文字スタイル",
@@ -1404,7 +1429,11 @@ class Builder {
           // 属性定義は、定数（2）のものだけを描く。値は ATTRIB が持つ
           if (member.type === "ATTDEF" && (member.attribute_flags & 2) === 0) {
             const value = values?.get(member.handle);
-            if (value !== undefined) this.emit({ ...member, type: "ATTRIB", text: value }, child);
+            if (value === undefined) continue;
+            const attribute: DxfAttrib = { ...member, type: "ATTRIB", text: value };
+            // 複数行の属性定義は、値を埋め込みの MTEXT の文字にする
+            if (member.mtext) attribute.mtext = { ...member.mtext, text: mtextPlainText(value), raw_text: value };
+            this.emit(attribute, child);
             continue;
           }
           this.emit(member, child);

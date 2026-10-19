@@ -165,6 +165,11 @@ export interface DxfAttrib extends DxfEntityBase, DxfTextBase {
   tag: string;
   /** 1 は非表示、2 は定数、4 は確認、8 は既定値 */
   attribute_flags: number;
+  /**
+   * 複数行の属性（AutoCAD 2018 以降）の文字。DXF では AcDbAttribute の後の「101 Embedded Object」に続く MTEXT の値、
+   * DWG では埋め込みの MTEXT。AutoCAD は 1 行の文字（text）を空にする。押し出し方向は属性のものを使う
+   */
+  mtext?: DxfMTextContent;
 }
 
 export interface DxfAttdef extends DxfEntityBase, DxfTextBase {
@@ -172,10 +177,16 @@ export interface DxfAttdef extends DxfEntityBase, DxfTextBase {
   tag: string;
   prompt: string;
   attribute_flags: number;
+  /** 複数行の属性定義（AutoCAD 2018 以降）の既定値。DxfAttrib の mtext と同じ */
+  mtext?: DxfMTextContent;
 }
 
-export interface DxfMText extends DxfEntityBase {
+export interface DxfMText extends DxfEntityBase, DxfMTextContent {
   type: "MTEXT";
+}
+
+/** MTEXT の文字の値。MTEXT と、複数行の属性（ATTRIB・ATTDEF）の埋め込みの MTEXT が持つ */
+export interface DxfMTextContent {
   /** 書式コードを除いた文字列（\P は改行） */
   text: string;
   /** 書式コードを含む元の文字列。改行の文字はテキストの DXF と同じく ^J */
