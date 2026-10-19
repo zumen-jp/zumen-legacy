@@ -705,6 +705,68 @@ export const BINARY_LIMITS = binary(
   [0, "ENDSEC"], [0, "EOF"],
 );
 
+/**
+ * AutoCAD 2018 の DXF は、AcDbAttribute・AcDbAttributeDefinition の 71 に属性の種類（1 は 1 行、2 は複数行の属性、
+ * 4 は複数行の属性定義）を書く。文字の生成フラグ（2 は左右反転、4 は上下反転）は AcDbText の 71 にある。取り違えると、
+ * 複数行の属性定義が黙って上下反転する。属性定義は AutoCAD が書く形（文字は埋め込みの MTEXT に入る）
+ */
+// biome-ignore format: DXF のタグ（グループコードと値）の組を 1 行に並べて読めるようにする
+export const ATTRIBUTES_R2018 = latin1(ascii(
+  0, "SECTION", 2, "HEADER", 9, "$ACADVER", 1, "AC1032", 9, "$INSUNITS", 70, 4, 0, "ENDSEC",
+  0, "SECTION", 2, "ENTITIES",
+  ...entity("ATTDEF", "20", "0", [], "AcDbText", 10, 0, 20, 0, 30, 0, 40, 2.5, 1, "",
+    100, "AcDbAttributeDefinition", 280, 0, 3, "Prompt", 2, "MULTI", 70, 0, 280, 1, 71, 4, 72, 0,
+    101, "Embedded Object", 10, 0, 20, 0, 30, 0, 40, 2.5, 41, 0, 46, 0, 71, 1, 72, 5, 1, "", 73, 1, 44, 1),
+  // 左右反転（AcDbText の 71 が 2）の 1 行の属性
+  ...entity("ATTRIB", "21", "0", [], "AcDbText", 10, 0, 20, -10, 30, 0, 40, 2.5, 1, "ABC", 71, 2,
+    100, "AcDbAttribute", 280, 0, 2, "SINGLE", 70, 0, 280, 1, 71, 1),
+  0, "ENDSEC", 0, "EOF",
+));
+
+/**
+ * バイナリの DXF は文字列の制御文字と ^ を文字のまま書き、テキストの DXF は ^J（改行）・^I（タブ）・「^ 」と書く
+ * （DXF Reference「About ASCII Control Characters in DXF Files」）。AutoCAD 2004 以降のバイナリの MTEXT の改行は、
+ * テキストの DXF の ^J と同じく段落を分ける。^ は MTEXT でも TEXT でも ^ のまま描く
+ */
+// biome-ignore format: DXF のタグ（グループコードと値）の組を 1 行に並べて読めるようにする
+export const BINARY_TEXT = binary(
+  false,
+  [0, "SECTION"], [2, "HEADER"], [9, "$ACADVER"], [1, "AC1018"], [9, "$DWGCODEPAGE"], [3, "ANSI_1252"],
+  [9, "$INSUNITS"], [70, 4, "h"], [0, "ENDSEC"],
+  [0, "SECTION"], [2, "ENTITIES"],
+  [0, "MTEXT"], [5, "20"], [100, "AcDbEntity"], [8, "0"], [100, "AcDbMText"],
+  [10, 0, "d"], [20, 0, "d"], [30, 0, "d"], [40, 2.5, "d"], [41, 0, "d"], [71, 1, "h"], [72, 5, "h"],
+  [1, "First line\nSecond\tline"],
+  [0, "MTEXT"], [5, "21"], [100, "AcDbEntity"], [8, "0"], [100, "AcDbMText"],
+  [10, 0, "d"], [20, -20, "d"], [30, 0, "d"], [40, 2.5, "d"], [41, 0, "d"], [71, 1, "h"], [72, 5, "h"],
+  [1, "x^2"],
+  [0, "TEXT"], [5, "22"], [100, "AcDbEntity"], [8, "0"], [100, "AcDbText"],
+  [10, 0, "d"], [20, -30, "d"], [30, 0, "d"], [40, 2.5, "d"], [1, "m^2"], [100, "AcDbText"],
+  [0, "ENDSEC"], [0, "EOF"],
+);
+
+/**
+ * AutoCAD の DXF（R2000 以降）は、寸法スタイルの既定値と同じ値（DIMASZ・DIMTXT 0.18 など）を書かない。既定値は
+ * $MEASUREMENT によらない。ヘッダの $DIMASZ（今の寸法スタイルの値）で埋めると、引出線の矢印の大きさが黙って変わる
+ */
+// biome-ignore format: DXF のタグ（グループコードと値）の組を 1 行に並べて読めるようにする
+export const DIMSTYLE_DEFAULTS = latin1(ascii(
+  0, "SECTION", 2, "HEADER", 9, "$ACADVER", 1, "AC1015", 9, "$INSUNITS", 70, 4, 9, "$MEASUREMENT", 70, 1,
+  9, "$DIMSTYLE", 2, "ISO-25", 9, "$DIMSCALE", 40, 1, 9, "$DIMASZ", 40, 2.5, 9, "$DIMTXT", 40, 2.5, 0, "ENDSEC",
+  0, "SECTION", 2, "TABLES",
+  0, "TABLE", 2, "DIMSTYLE", 70, 2,
+  0, "DIMSTYLE", 105, "27", 100, "AcDbSymbolTableRecord", 100, "AcDbDimStyleTableRecord", 2, "Standard", 70, 0,
+  0, "DIMSTYLE", 105, "28", 100, "AcDbSymbolTableRecord", 100, "AcDbDimStyleTableRecord", 2, "ISO-25", 70, 0,
+  41, 2.5, 140, 2.5,
+  0, "ENDTAB", 0, "ENDSEC",
+  0, "SECTION", 2, "ENTITIES",
+  ...entity("LEADER", "30", "0", [], "AcDbLeader", 3, "Standard", 71, 1, 72, 0, 73, 3, 76, 2,
+    10, 0, 20, 0, 30, 0, 10, 10, 20, 0, 30, 0),
+  ...entity("LEADER", "31", "0", [], "AcDbLeader", 3, "ISO-25", 71, 1, 72, 0, 73, 3, 76, 2,
+    10, 0, 20, 10, 30, 0, 10, 10, 20, 10, 30, 0),
+  0, "ENDSEC", 0, "EOF",
+));
+
 /** 正解ファイルにする図面と、既定の表示のほかに描く表示（レイアウト） */
 export const DRAWINGS: [string, Uint8Array, string[]][] = [
   ["codepage", CODEPAGE, []],
@@ -725,4 +787,7 @@ export const DRAWINGS: [string, Uint8Array, string[]][] = [
   ["unknown-codepage", UNKNOWN_CODEPAGE, []],
   ["limits", LIMITS, []],
   ["binary-limits", BINARY_LIMITS, []],
+  ["attributes-r2018", ATTRIBUTES_R2018, []],
+  ["binary-text", BINARY_TEXT, []],
+  ["dimstyle-defaults", DIMSTYLE_DEFAULTS, []],
 ];

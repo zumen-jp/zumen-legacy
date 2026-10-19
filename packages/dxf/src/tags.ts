@@ -336,14 +336,33 @@ class BinaryTags {
     let end = start;
     const bytes = this.bytes;
     let ascii = true;
+    let caret = false;
     while (end < bytes.length && bytes[end] !== 0) {
-      if ((bytes[end] as number) >= 0x80) ascii = false;
+      const byte = bytes[end] as number;
+      if (byte >= 0x80) ascii = false;
+      else if (byte < 0x20 || byte === 0x5e) caret = true;
       end++;
     }
     if (end >= bytes.length) throw new RangeError("unterminated string");
     this.pos = end + 1;
-    return ascii ? latin1(bytes, start, end) : this.decoder.decode(bytes.subarray(start, end));
+    const text = ascii ? latin1(bytes, start, end) : this.decoder.decode(bytes.subarray(start, end));
+    return caret ? caretNotation(text) : text;
   }
+}
+
+/**
+ * テキストの DXF の文字列の書き方（DXF Reference「About ASCII Control Characters in DXF Files」）。制御文字は ^ と
+ * 0x40 を足した文字（改行は ^J）、^ は「^ 」と書く。バイナリの DXF は文字のまま書くので、テキストの DXF と同じ値にする
+ */
+function caretNotation(text: string): string {
+  let out = "";
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    if (code < 0x20) out += `^${String.fromCharCode(code + 0x40)}`;
+    else if (code === 0x5e) out += "^ ";
+    else out += text[i];
+  }
+  return out;
 }
 
 function binaryHeaderValue(bytes: Uint8Array, name: string): string | undefined {
