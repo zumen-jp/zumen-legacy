@@ -3,6 +3,8 @@
 `@zumenjs/dxf` reads DXF written by AutoCAD R12 (AC1009) to AutoCAD 2018 and later (AC1032), in ASCII and binary form,
 following the [Autodesk DXF Reference](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-235B22E0-A567-4CF6-92D3-38A2306D73F3.htm)
 (AutoCAD 2026, checked 2026-10-18). It is written in TypeScript without dependencies other than `@zumenjs/core`.
+`zumen-dxf` (`crates/zumen-dxf`) is its Rust port and returns the same scenes
+(see [verification.md](../verification.md#dxf-in-rust)).
 
 ```text
 bytes ─▶ readTags (ASCII or binary, decoded) ─▶ parseDxf ─▶ DxfDocument ─▶ dxfToScene(doc, { layout }) ─▶ Scene
@@ -180,6 +182,20 @@ those marked *inferred* are not stated by Autodesk.
   describes (2 and 5, 3 and 4 of six elements; ezdxf joins only the first pair). Miters (flag 2) are drawn at inner vertices.
 - Element colors and line types of BYBLOCK take the MLINE's own, but the MLINE's true color is not used (*inferred*, as ezdxf notes);
   caps use the MLINE's line type. An MLINE whose style is missing is drawn with the two lines of STANDARD and reported.
+
+### Limits
+
+Damaged or hostile drawings must not hang the reader or exhaust memory, and the TypeScript and Rust readers stop at the
+same place. What is left out is reported.
+
+| Limit | Value | Notice |
+| --- | --- | --- |
+| Nesting of block references, dimension blocks and multileader blocks | 32 levels | `block-depth` |
+| Entities drawn inside blocks and dimensions, per view (a block that contains itself twice grows to 2³² entities first) | 1,000,000 | `block-limit` |
+| Copies of an MINSERT array | 10,000 (only the first copy is drawn beyond) | `minsert-large` |
+| Pattern lines of one hatch, also when the count is not a number (NaN in binary DXF) | 5,000 (the outline is drawn instead) | `hatch-dense` |
+| Polygon mesh grid (71 × 72) | Only the positions that have vertices are visited | |
+| Segments of an arc or ellipse, steps of a spline | 4,096 | |
 
 ### Text and fonts
 

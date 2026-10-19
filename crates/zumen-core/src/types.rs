@@ -202,7 +202,7 @@ pub enum Background {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Scene {
-    /// 形式の名前（sfc、p21、jww など）
+    /// 形式の名前（sfc、p21、jww、dxf など）
     pub format: String,
     /// 形式の版（SXF 3.1、JWW 700 など）
     pub version: String,

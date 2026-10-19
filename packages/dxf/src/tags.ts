@@ -221,6 +221,7 @@ function asciiTags(text: string, notices: NoticeList): DxfTags {
   for (;;) {
     const codeLine = nextLine();
     if (codeLine === null) break;
+    const valueStart = pos;
     const valueLine = nextLine();
     if (valueLine === null) {
       if (codeLine.trim() !== "") bad++;
@@ -229,8 +230,8 @@ function asciiTags(text: string, notices: NoticeList): DxfTags {
     const code = Number.parseInt(codeLine, 10);
     if (!Number.isFinite(code)) {
       bad++;
-      // 1 行ずれた図面は、次の行から読み直す
-      pos -= valueLine.length + 1;
+      // 1 行ずれた図面は、次の行から読み直す（行末の \r の分も戻す）
+      pos = valueStart;
       continue;
     }
     if (code === 999) continue;

@@ -1,0 +1,634 @@
+{
+  "format": "dxf",
+  "version": "DXF AC1009",
+  "views": [
+    {
+      "id": "Model",
+      "name": "モデル"
+    }
+  ],
+  "view": "Model",
+  "sheet": null,
+  "bounds": {
+    "minX": 0,
+    "minY": 0,
+    "maxX": 10,
+    "maxY": 1
+  },
+  "layers": [
+    {
+      "id": 1,
+      "name": "0",
+      "visible": true
+    }
+  ],
+  "entities": [
+    {
+      "id": "D1",
+      "type": "長さ寸法",
+      "source": "DIMENSION",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            0,
+            10,
+            0
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        },
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            0,
+            10,
+            0
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        },
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            0,
+            10,
+            0
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        },
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            0,
+            10,
+            0
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        },
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            0,
+            10,
+            0
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        },
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            0,
+            10,
+            0
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        },
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            0,
+            10,
+            0
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        },
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            0,
+            10,
+            0
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        },
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            0,
+            10,
+            0
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        },
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            0,
+            10,
+            0
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        },
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            0,
+            10,
+            0
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        },
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            0,
+            10,
+            0
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        },
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            0,
+            10,
+            0
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        },
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            0,
+            10,
+            0
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        },
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            0,
+            10,
+            0
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        },
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            0,
+            10,
+            0
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        },
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            0,
+            10,
+            0
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        },
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            0,
+            10,
+            0
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        },
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            0,
+            10,
+            0
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        },
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            0,
+            10,
+            0
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        },
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            0,
+            10,
+            0
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        },
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            0,
+            10,
+            0
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        },
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            0,
+            10,
+            0
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        },
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            0,
+            10,
+            0
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        },
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            0,
+            10,
+            0
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        },
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            0,
+            10,
+            0
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        },
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            0,
+            10,
+            0
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        },
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            0,
+            10,
+            0
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        },
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            0,
+            10,
+            0
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        },
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            0,
+            10,
+            0
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        },
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            0,
+            10,
+            0
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        },
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            0,
+            10,
+            0
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 0,
+        "minY": 0,
+        "maxX": 10,
+        "maxY": 0
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "長さ寸法（DIMENSION）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "D1"
+        },
+        {
+          "label": "レイヤ",
+          "value": "0"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "寸法の種類",
+          "value": "長さ寸法"
+        },
+        {
+          "label": "寸法値",
+          "value": "10"
+        },
+        {
+          "label": "寸法スタイル",
+          "value": "STANDARD"
+        }
+      ],
+      "placement": {
+        "name": "モデル空間（mm（指定なし））",
+        "scaleX": 1,
+        "scaleY": 1,
+        "inverse": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": "P1",
+      "type": "ポリゴンメッシュ",
+      "source": "POLYLINE",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            0,
+            1,
+            0,
+            1,
+            0,
+            0,
+            1,
+            0,
+            1,
+            1,
+            1
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": [],
+          "segments": true
+        }
+      ],
+      "bbox": {
+        "minX": 0,
+        "minY": 0,
+        "maxX": 1,
+        "maxY": 1
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "ポリゴンメッシュ（POLYLINE）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "P1"
+        },
+        {
+          "label": "レイヤ",
+          "value": "0"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "頂点",
+          "value": "100000000 × 100000000"
+        }
+      ],
+      "placement": {
+        "name": "モデル空間（mm（指定なし））",
+        "scaleX": 1,
+        "scaleY": 1,
+        "inverse": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ]
+      }
+    }
+  ],
+  "notices": [
+    {
+      "level": "info",
+      "code": "unit-assumed",
+      "message": "長さの単位の指定がないため、mm とみなしました",
+      "count": 1
+    },
+    {
+      "level": "warning",
+      "code": "block-depth",
+      "message": "入れ子が深すぎるブロック参照を省きました",
+      "count": 499959
+    },
+    {
+      "level": "warning",
+      "code": "block-limit",
+      "message": "ブロックの中の図形が 100 万個を超えたため、残りを描いていません",
+      "count": 22
+    }
+  ],
+  "metadata": [
+    {
+      "label": "形式",
+      "value": "DXF AutoCAD R12（AC1009、テキスト）"
+    },
+    {
+      "label": "文字コード",
+      "value": "西欧（Windows-1252）（指定なし）"
+    },
+    {
+      "label": "単位",
+      "value": "mm（指定なし）"
+    },
+    {
+      "label": "ブロック",
+      "value": "1 件"
+    },
+    {
+      "label": "表示",
+      "value": "モデル空間"
+    }
+  ],
+  "background": "dark"
+}

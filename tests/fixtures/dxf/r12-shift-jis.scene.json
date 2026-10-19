@@ -1,0 +1,300 @@
+{
+  "format": "dxf",
+  "version": "DXF AC1009",
+  "views": [
+    {
+      "id": "Model",
+      "name": "モデル"
+    }
+  ],
+  "view": "Model",
+  "sheet": null,
+  "bounds": {
+    "minX": 0,
+    "minY": -17.007575757575758,
+    "maxX": 14.204545454545457,
+    "maxY": 2.5000000000000004
+  },
+  "layers": [
+    {
+      "id": 1,
+      "name": "平面図",
+      "visible": true
+    }
+  ],
+  "entities": [
+    {
+      "id": "10",
+      "type": "文字",
+      "source": "TEXT",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "text",
+          "text": "表示ソ能平",
+          "color": "#ffff00",
+          "fontFamily": "\"MS Gothic\", \"Hiragino Kaku Gothic ProN\", \"Hiragino Sans\", \"Yu Gothic\", \"Noto Sans JP\", \"Noto Sans CJK JP\", sans-serif",
+          "height": 2.8409090909090913,
+          "scaleX": 1,
+          "cells": [
+            {
+              "char": "表",
+              "x": 1.4204545454545456,
+              "y": 1.4204545454545456
+            },
+            {
+              "char": "示",
+              "x": 4.261363636363637,
+              "y": 1.4204545454545456
+            },
+            {
+              "char": "ソ",
+              "x": 7.102272727272728,
+              "y": 1.4204545454545456
+            },
+            {
+              "char": "能",
+              "x": 9.943181818181818,
+              "y": 1.4204545454545456
+            },
+            {
+              "char": "平",
+              "x": 12.78409090909091,
+              "y": 1.4204545454545456
+            }
+          ],
+          "boxWidth": 14.204545454545457,
+          "boxHeight": 2.8409090909090913,
+          "matrix": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            -0.34090909090909094
+          ]
+        }
+      ],
+      "bbox": {
+        "minX": 0,
+        "minY": -0.34090909090909094,
+        "maxX": 14.204545454545457,
+        "maxY": 2.5000000000000004
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "文字（TEXT）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "10"
+        },
+        {
+          "label": "レイヤ",
+          "value": "平面図"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "文字列",
+          "value": "表示ソ能平"
+        },
+        {
+          "label": "高さ",
+          "value": "2.5"
+        },
+        {
+          "label": "文字スタイル",
+          "value": "STANDARD"
+        }
+      ],
+      "placement": {
+        "name": "モデル空間（mm（指定なし））",
+        "scaleX": 1,
+        "scaleY": 1,
+        "inverse": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": "11",
+      "type": "複数行文字",
+      "source": "MTEXT",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "text",
+          "text": "表",
+          "color": "#ffff00",
+          "fontFamily": "\"MS Gothic\", \"Hiragino Kaku Gothic ProN\", \"Hiragino Sans\", \"Yu Gothic\", \"Noto Sans JP\", \"Noto Sans CJK JP\", sans-serif",
+          "height": 2.8409090909090913,
+          "scaleX": 1,
+          "cells": [
+            {
+              "char": "表",
+              "x": 1.4204545454545456,
+              "y": 1.4204545454545456
+            }
+          ],
+          "boxWidth": 2.8409090909090913,
+          "boxHeight": 2.8409090909090913,
+          "matrix": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            -12.840909090909092
+          ]
+        },
+        {
+          "kind": "text",
+          "text": "能ソ",
+          "color": "#ffff00",
+          "fontFamily": "\"MS Gothic\", \"Hiragino Kaku Gothic ProN\", \"Hiragino Sans\", \"Yu Gothic\", \"Noto Sans JP\", \"Noto Sans CJK JP\", sans-serif",
+          "height": 2.8409090909090913,
+          "scaleX": 1,
+          "cells": [
+            {
+              "char": "能",
+              "x": 1.4204545454545456,
+              "y": 1.4204545454545456
+            },
+            {
+              "char": "ソ",
+              "x": 4.261363636363637,
+              "y": 1.4204545454545456
+            }
+          ],
+          "boxWidth": 5.6818181818181825,
+          "boxHeight": 2.8409090909090913,
+          "matrix": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            -17.007575757575758
+          ]
+        }
+      ],
+      "bbox": {
+        "minX": 0,
+        "minY": -17.007575757575758,
+        "maxX": 5.6818181818181825,
+        "maxY": -10
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "複数行文字（MTEXT）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "11"
+        },
+        {
+          "label": "レイヤ",
+          "value": "平面図"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "文字列",
+          "value": "表\n能ソ"
+        },
+        {
+          "label": "高さ",
+          "value": "2.5"
+        },
+        {
+          "label": "文字スタイル",
+          "value": "STANDARD"
+        }
+      ],
+      "placement": {
+        "name": "モデル空間（mm（指定なし））",
+        "scaleX": 1,
+        "scaleY": 1,
+        "inverse": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ]
+      }
+    }
+  ],
+  "notices": [
+    {
+      "level": "info",
+      "code": "guessed-shift-jis",
+      "message": "文字コードの指定がないため、日本語（Shift_JIS）と判断して読みました",
+      "count": 1
+    },
+    {
+      "level": "info",
+      "code": "unit-assumed",
+      "message": "長さの単位の指定がないため、mm とみなしました",
+      "count": 1
+    },
+    {
+      "level": "info",
+      "code": "shx-font",
+      "message": "SHX フォント（txt）は同梱していないため、代わりのフォントで描きました",
+      "count": 2
+    }
+  ],
+  "metadata": [
+    {
+      "label": "形式",
+      "value": "DXF AutoCAD R12（AC1009、テキスト）"
+    },
+    {
+      "label": "文字コード",
+      "value": "Shift_JIS（CP932）（中身から判断）"
+    },
+    {
+      "label": "単位",
+      "value": "mm（指定なし）"
+    },
+    {
+      "label": "表示",
+      "value": "モデル空間"
+    }
+  ],
+  "background": "dark"
+}

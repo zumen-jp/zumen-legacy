@@ -46,7 +46,9 @@ tests build are also written to `tests/fixtures` with the scenes they produce; a
 `pnpm run golden` and make the Rust reader match (`cargo test -p zumen`). To compare both on your own drawings,
 build them (`pnpm run build`, `cargo build --release -p zumen-cli`) and run `pnpm run parity <folder>`.
 `pnpm run fuzz [cases] [seed] [formats…]` reads randomly damaged copies of the fixtures with both (after `pnpm run build` and
-`pnpm run wasm`) and reports any input where the scenes or the error messages differ.
+`pnpm run wasm`) and reports any input where the scenes or the error messages differ. With `ZUMEN_FUZZ_TRACE=1` it writes
+each input to the temporary folder before reading it, so an input that hangs or crashes a reader can be found.
+A reader must finish on any input: bound recursion and loops by limits that both implementations share.
 
 ## Style
 

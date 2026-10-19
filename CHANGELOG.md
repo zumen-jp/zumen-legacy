@@ -28,6 +28,22 @@ All packages share one version during 0.x.
   64 levels are reported (`sfig-depth`), and layer codes above 4,294,967,295 are read as no layer (`layer-range`).
 - `@zumenjs/core`: `clothoidPoints` stops the Simpson integration at 4,096 steps; a clothoid 10¹¹ mm long hung the reader.
 - `pnpm run fuzz` compares the TypeScript and WebAssembly readers on randomly damaged copies of the fixtures.
+- Rust: `zumen-dxf`, a port of the DXF reader (ASCII and binary, all code pages, layouts and viewports, MULTILEADER and
+  MLINE) that returns the same scenes as `@zumenjs/dxf` on the fixtures, every layout included, and on 26 public DXF
+  samples. `zumen.read`, the `zumen` command, the Python bindings and the WebAssembly build read DXF.
+- `@zumenjs/dxf`: limits so that damaged or hostile drawings finish. A dimension whose block refers to itself stops at the
+  depth limit of block references (it overflowed the stack); a polygon mesh visits only the grid positions that have
+  vertices (an M × N of 10⁸ × 10⁸ hung the reader); a hatch pattern whose line count is not a number is treated as too
+  dense (a NaN base point turned the 5,000-line limit off); and at most 1,000,000 entities are drawn inside blocks
+  (`block-limit`), since a block that contains itself twice grows to 2³² entities before the depth limit.
+- `@zumenjs/dxf`: a line that is not a group code is skipped and reading resumes on the next line in CRLF drawings too
+  (the value was read one character off), and block names or entity types such as `__proto__` are counted and sorted
+  like any other name.
+- `zumen-core`: `js::sort_by` follows V8's `Array.prototype.sort` (TimSort), so orders match TypeScript even when a
+  comparison is inconsistent (NaN); `js::string_to_number`, `parse_int` and `to_precision` follow `Number`, `parseInt`
+  and `toPrecision`; and `js::to_fixed` computes `toFixed` with 128-bit integers, which builds scenes faster.
+- `pnpm run parity` also compares every other view (DXF layouts). `pnpm run fuzz` damages DXF tags and MTEXT format
+  codes too, and with `ZUMEN_FUZZ_TRACE=1` writes each input before reading it, to find inputs that hang or crash.
 - Rust (`crates/`): `zumen-core` (the scene model with the same JSON, geometry, text layout and JavaScript-compatible
   number formatting), `zumen-jww` (a port of the JWW reader that returns the same scenes on the fixtures and on 205 public
   samples), `zumen` (`read` and `detect`), `zumen-render` (PNG rendering with the bundled BIZ UDGothic) and the `zumen`

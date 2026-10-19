@@ -23,8 +23,9 @@
   copy the text of the specification.
 - Never put client names, client drawings or private repository details in this repository.
 - The Rust readers (`crates/`) are ports of the TypeScript readers and must return the same scene. Keep the structure
-  and order of operations, format user-visible numbers with `zumen_core::js`, and after changing a TypeScript reader run
-  `pnpm run golden` and fix the Rust side until `cargo test -p zumen` passes. Never change a golden file by hand.
+  and order of operations, format user-visible numbers and sort with `zumen_core::js` (`js::sort_by` orders like V8),
+  bound recursion and loops on malformed input with limits that both readers share, and after changing a TypeScript
+  reader run `pnpm run golden` and fix the Rust side until `cargo test -p zumen` passes. Never change a golden file by hand.
 - Rust runtime dependencies follow the same rules as npm ones (no GPL or AGPL, works in WebAssembly) and are recorded
   with the reason in `docs/architecture.md`.
 - Work on a branch cut from the latest `origin/main` and open a pull request for every change; do not push to `main`.

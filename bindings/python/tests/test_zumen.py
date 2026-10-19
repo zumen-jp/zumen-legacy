@@ -1,12 +1,24 @@
 """Smallest checks that the bindings pass data through correctly. The readers are tested in Rust."""
 
 import json
+import math
 import pathlib
 
 import pytest
 import zumen
 
 FIXTURES = pathlib.Path(__file__).parents[3] / "tests" / "fixtures"
+
+
+def same_scene(expected, actual) -> bool:
+    """Numbers equal to a relative 1e-9, as in crates/zumen/tests/golden.rs (the golden may come from another CPU)."""
+    if isinstance(expected, float | int) and isinstance(actual, float | int):
+        return math.isclose(expected, actual, rel_tol=1e-9, abs_tol=1e-9)
+    if isinstance(expected, list) and isinstance(actual, list):
+        return len(expected) == len(actual) and all(map(same_scene, expected, actual))
+    if isinstance(expected, dict) and isinstance(actual, dict):
+        return expected.keys() == actual.keys() and all(same_scene(expected[key], actual[key]) for key in expected)
+    return expected == actual
 
 
 def test_reads_a_drawing_from_a_path_and_returns_the_typescript_scene():
@@ -24,6 +36,15 @@ def test_reads_sxf_and_detects_sfc_and_p21():
     scene = zumen.read(sfc)
     assert (scene.format, scene.version, len(scene)) == ("sfc", "SXF 3.1", 6)
     assert scene.sheet == {"name": "道路", "size": "A1 横", "width": 841.0, "height": 594.0}
+
+
+def test_reads_a_dxf_layout_as_a_view():
+    dxf = (FIXTURES / "dxf" / "layout.dxf").read_bytes()
+    assert zumen.detect(dxf) == "dxf"
+    scene = zumen.read(dxf, view="Layout1")
+    assert (scene.format, scene.view, scene.views) == ("dxf", "Layout1", [("Model", "モデル"), ("Layout1", "Layout1")])
+    golden = json.loads((FIXTURES / "dxf" / "layout@Layout1.scene.json").read_text(encoding="utf-8"))
+    assert same_scene(golden, json.loads(scene.to_json()))
 
 
 def test_renders_png_and_reports_unreadable_input():
