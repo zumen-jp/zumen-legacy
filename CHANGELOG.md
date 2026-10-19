@@ -73,6 +73,11 @@ All packages share one version during 0.x.
   notation of ASCII DXF (`^J`, `^I`, `^ `), so the line feeds of MTEXT in binary DXF of AutoCAD 2004 and later break
   paragraphs, and TEXT draws `^ ` as `^` and `^I` as a tab. A dimension style whose DIMASZ or DIMTXT AutoCAD left out
   of the DXF gets 0.18 instead of 0, so a leader no longer takes its arrow size from `$DIMASZ`.
+- `@zumenjs/dxf`, `zumen-dxf` and `zumen-dwg`: the multi-line attributes of AutoCAD 2018 are drawn. Their text is in an
+  embedded MTEXT, which no reader read, and AutoCAD leaves the attribute's own text empty, so these attributes were
+  neither drawn nor reported. `DxfAttrib` and `DxfAttdef` keep it in `mtext` (`DxfEmbeddedMText`), drawn as MTEXT with
+  the attribute's color, layer and line type. `zumen-dwg` reads the "Is NOT annotative" bit of R2018 MTEXT the right
+  way round: the values after an embedded MTEXT were out of step, which gave these attributes wrong flags.
 - `zumen-core`: `js::sort_by` follows V8's `Array.prototype.sort` (TimSort), so orders match TypeScript even when a
   comparison is inconsistent (NaN); `js::string_to_number`, `parse_int` and `to_precision` follow `Number`, `parseInt`
   and `toPrecision`; and `js::to_fixed` computes `toFixed` with 128-bit integers, which builds scenes faster.

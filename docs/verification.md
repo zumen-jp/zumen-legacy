@@ -101,7 +101,7 @@ describes.
     0 in DXF.
   - The R2018 multi-line ATTRIB and ATTDEF have the generation flags of DWG (0; DXF had 2 and 4). They still differ in
     their attribute flags (70: 0 in DXF, 28 and 235 in DWG), which the first difference had hidden; that is for the DWG
-    reader.
+    reader (fixed since, see [Multi-line attributes of AutoCAD 2018](#multi-line-attributes-of-autocad-2018)).
   - The four MTEXT with line feeds in binary DXF of 2004 and later equal those of ASCII DXF and DWG (`^J`), so 328
     entities of 2004 to 2013 and 326 of 2018 equal DWG, as for ASCII DXF (324 and 322 before).
   - Model space of ASCII and of binary DXF now differs from DWG only in the ids of the three entities AutoCAD renumbered
@@ -115,7 +115,49 @@ describes.
   Parsing the binary 2000 and 2018 samples takes 22 and 15 ms (21 and 17 ms before, within the variation between runs).
 - Not checked: an AutoCAD DXF of a metric drawing (whether AutoCAD also leaves out the imperial defaults there), DXF
   from other programs that leave dimension style values out, control characters in TEXT other than the tab, and drawing
-  the text of multi-line attributes (their embedded MTEXT is not read yet).
+  the text of multi-line attributes (their embedded MTEXT is not read yet; drawn since, see
+  [Multi-line attributes of AutoCAD 2018](#multi-line-attributes-of-autocad-2018)).
+
+## Multi-line attributes of AutoCAD 2018
+
+Checked on 2026-10-20 on macOS (Apple M2 Pro) with Node.js 24.21.0, Rust 1.99.0 and wasm-bindgen 0.2.129. AutoCAD 2018
+keeps the text of a multi-line ATTRIB or ATTDEF in an embedded MTEXT, which neither the DXF readers nor the DWG reader
+read, and the DWG reader read the values after it out of step. Both are now read as
+[How DXF is handled](formats/dxf.md#reading) and [How DWG is handled](formats/dwg.md#text) describe.
+
+- `tests/fixtures/dxf/attributes-multiline` and three unit tests pin the rules in TypeScript and Rust: a two-line ATTRIB
+  of an INSERT is drawn in its own color with the same text as an MTEXT of the same values; a hidden one is not drawn;
+  the extrusion is the embedded MTEXT's, not the attribute's; in the block, the constant ATTDEF draws its value and the
+  other ATTDEF nothing; the ATTDEF in model space draws its tag where its MTEXT is; and a MULTILEADER whose content is
+  the block draws its attribute value (302) as the text of the ATTDEF's MTEXT. In `attributes-r2018`, the tag of the
+  multi-line ATTDEF is now laid out from its MTEXT, one line lower than the single-line text was, because the synthetic
+  drawing leaves out the alignment point that AutoCAD writes. Taking out the multi-line branch or the attribute value
+  in TypeScript or in Rust makes them fail.
+- `crates/zumen-dwg/tests`: the test writer now writes R2018 MTEXT as AutoCAD does (not annotative, with the redundant
+  fields and no columns), attributes with an embedded MTEXT, and an INSERT with attributes. A drawing with the
+  attributes above reads the same as its DXF, entity by entity and in the scene, with the flags 8, 1 and 4 that were
+  written; reading the bit the old way gives 128 instead of 8. `tests/fixtures/dwg/r2018.dwg` is rewritten for the new
+  MTEXT form; its scenes do not change.
+- The ACadSharp samples:
+  - In 2018, the ATTDEF and ATTRIB now equal those of ASCII and binary DXF, flags included (DWG had 235 and 28), so 328
+    of the 335 entities and attributes equal DXF, as in 2004 to 2013 (326 before). With the bit read as the
+    specification says, the data of every MTEXT and of both attributes is read to its last bit (a temporary check);
+    read the other way, 299 to 581 bits were left after each MTEXT.
+  - The ATTRIB (`my multi line text for the attrrib`, one line) is drawn at the same place from DWG, ASCII and binary
+    DXF (24,822.95 and 679.282 mm in model space, `zumen texts`), so model space has 208 entities, as in 2000 to 2013
+    (207 before). Those versions hold it as single-line text, which AutoCAD placed 4.0 mm to the left and 0.7 mm
+    lower. The ATTDEF is in a block and not constant, so it is not drawn.
+  - The other versions compare as before.
+- The other 16 local DWG files (two more of 2018, without MTEXT) and the other 24 local DXF files give the same scenes
+  as before in their default views. `pnpm run parity` gives the same scenes in TypeScript and Rust for the 37 local
+  drawings and their 54 other views, and the 20 layouts of the 7 DWG with a DXF equal the DXF ones.
+- `crates/zumen-dwg/examples/fuzz.rs`, with overflow checks, read 12,000 damaged copies of the 2018 sample and
+  `r2018.dwg` (3,000 of each per seed, two seeds): 3,502 were read and drawn, 8,498 were refused with a message, and
+  none panicked or was slow. `scripts/fuzz-parity.mjs` compared TypeScript and WebAssembly on 12,000 damaged copies of
+  the 22 DXF fixtures (three seeds of 4,000): the same scene or error everywhere, except 30 unreadable inputs whose
+  messages differ in the list of formats (WebAssembly lists DWG, which the TypeScript readers do not read).
+- Not checked: AutoCAD multi-line attributes with several lines, columns or a tilted MTEXT (the sample has one line),
+  annotative MTEXT (none in the samples), and how AutoCAD itself displays these attributes.
 
 ## SXF in Rust
 
@@ -205,8 +247,9 @@ TypeScript DWG reader, so each DWG is compared with the DXF that AutoCAD wrote f
     background index (63) that DXF adds to MTEXT with a true color background (2, 2004 and later), the background colors
     of R2000 MULTILEADER, which are indexes in DWG (3), the generation flags (71) that the DXF reader took from the
     attribute type of R2018 multi-line ATTRIB and ATTDEF (2; fixed since, see
-    [DXF against the DWG of the same drawing](#dxf-against-the-dwg-of-the-same-drawing)), and two INSERT and one MTEXT
-    that AutoCAD wrote with new handles in DXF.
+    [DXF against the DWG of the same drawing](#dxf-against-the-dwg-of-the-same-drawing), and their attribute flags,
+    which DWG read out of step, in [Multi-line attributes of AutoCAD 2018](#multi-line-attributes-of-autocad-2018)), and
+    two INSERT and one MTEXT that AutoCAD wrote with new handles in DXF.
   - The tables, blocks, layouts and draw order are the same, except the handles of two layers and a block that AutoCAD
     renumbered in DXF, the index (62) that DXF adds to the three layers with a true color or a color book color (2004
     and later; DWG stores only the color), and DIMASZ and DIMTXT of the four dimension styles, which DXF leaves out at
