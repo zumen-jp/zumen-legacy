@@ -44,12 +44,12 @@ the differences that remain are in [How DWG is handled](dwg.md).
   after optional `999` comments.
 - **Binary DXF**: group codes are 2 bytes (1 byte and the `255` escape in R12); values are read by the type of the group code range
   ([Group Code Value Types Reference](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-2553CF98-44F6-4828-82DD-FE3BC7448113.htm)).
-  Strings are written as ASCII DXF writes them
+  Strings are read into the form that ASCII DXF uses
   ([About ASCII Control Characters in DXF Files](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-77D34F88-73CC-495D-B48C-37628EE61D73.htm)):
   a control character becomes `^` and the character 64 above it (`^J` for a line feed, `^I` for a tab) and `^` becomes `^ `.
   Binary DXF keeps them as they are, so without this the line feeds that AutoCAD 2004 and later write in MTEXT (R2000
   writes `\P`) would not break paragraphs. The model therefore holds the same strings for ASCII and binary DXF, and for
-  DWG. ezdxf writes `^` as is in ASCII DXF too; MTEXT stacks (`\S+0.1^-0.2;`) are drawn the same either way.
+  DWG. ezdxf writes `^` without the space in ASCII DXF as well; MTEXT stacks (`\S+0.1^-0.2;`) are drawn the same either way.
 - **Text encoding**: AC1021 (2007) and later are UTF-8. Earlier files use `$DWGCODEPAGE` (`ANSI_932` is Japanese Shift_JIS/CP932;
   the table follows ezdxf). When the code page is missing, or is Western (`ANSI_1252`) but the bytes are valid UTF-8, UTF-8 is used.
   When it is missing and the bytes are valid Shift_JIS with kana or at least two kanji, Shift_JIS is used.
@@ -60,18 +60,18 @@ the differences that remain are in [How DWG is handled](dwg.md).
 - 102 groups (`{ACAD_REACTORS`…), extended data (1001 and later) and embedded objects (101) are skipped when reading entity attributes.
   Common attributes are taken from the `AcDbEntity` subclass only, so table cell colors of `ACAD_TABLE` are not mistaken for its color.
 - `POLYLINE`/`VERTEX`/`SEQEND` and `INSERT`/`ATTRIB`/`SEQEND` sequences are assembled into one entity.
-- ATTRIB and ATTDEF take the text generation flags (71) from the `AcDbText` subclass only. The
-  [ATTRIB table](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-7DD8B495-C3F8-48CD-A766-14F9D7D0DD9B.htm)
+- ATTRIB and ATTDEF take the text generation flags (71) from the `AcDbText` subclass only. The [ATTRIB
+  table](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-7DD8B495-C3F8-48CD-A766-14F9D7D0DD9B.htm)
   lists them in `AcDbAttribute`, but AutoCAD 2018 writes the attribute type there (1 single line, 2 multi-line
   attribute, 4 multi-line attribute definition), as ezdxf (`attribute_type`) and ACadSharp (`AttributeType`) read it;
-  taken as generation flags, it drew multi-line attribute definitions upside down. The text of a multi-line attribute
-  is in its embedded MTEXT (101), which is not read yet: AutoCAD 2018 leaves the attribute's own text empty, so it is
-  not drawn.
-- **Dimension styles**: AutoCAD (R2000 and later in the samples; R12 writes every value) leaves out of DIMSTYLE the values
-  equal to its defaults. A missing DIMSCALE is 1, and a missing DIMASZ or DIMTXT is 0.18, which the DWG of the same
-  drawing stores, whatever `$MEASUREMENT` says: the imperial ACadSharp sample writes the 2.5 of its ISO-25 style and leaves
-  out the 0.18 of the others, and ACadSharp and netDxf read missing values as 0.18 too (*inferred* for metric drawings,
-  as no AutoCAD DXF of a metric drawing was at hand).
+  taken as generation flags, it drew multi-line attribute definitions upside down. The text of a multi-line attribute is
+  in its embedded MTEXT (101), which is not read yet: AutoCAD 2018 leaves the attribute's own text empty, so it is not
+  drawn.
+- **Dimension styles**: AutoCAD (R2000 and later in the samples; R12 writes every value) leaves out of DIMSTYLE the
+  values equal to its defaults. A missing DIMSCALE is 1, and a missing DIMASZ or DIMTXT is 0.18, which the DWG of the
+  same drawing stores, whatever `$MEASUREMENT` says: the imperial ACadSharp sample writes the 2.5 of its ISO-25 style
+  and leaves out the 0.18 of the others, and ACadSharp and netDxf read missing values as 0.18 too (*inferred* for metric
+  drawings, as no AutoCAD DXF of a metric drawing was at hand).
 - R12 files without `LAYOUT` objects get one `Layout1` when they have paper space entities. R12 viewport settings are read
   from the `ACAD` `MVIEW` extended data, as ezdxf does.
 
