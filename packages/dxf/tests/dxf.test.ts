@@ -312,4 +312,14 @@ describe("DXF の複数行の属性", () => {
     const [value] = texts(scene.entities.find((entity) => entity.id === "50>51"));
     expect((title?.matrix[5] ?? 0) - 20).toBeCloseTo((value?.matrix[5] ?? 0) - 0);
   });
+
+  it("マルチ引出線のブロックの複数行の属性定義には、属性の値（302）を埋め込みの MTEXT の文字として描く", () => {
+    const scene = readDrawing(ATTRIBUTES_MULTILINE, [dxf]);
+    const leader = scene.entities.find((entity) => entity.id === "60");
+    expect(texts(leader).map((item) => item.text)).toEqual(["Leader", "note", "Fixed", "value"]);
+    // 値の左上は、ブロックの配置点（0, -40）に動かした属性定義の MTEXT の配置点（0, 0）
+    const [first] = texts(leader);
+    const [inBlock] = texts(scene.entities.find((entity) => entity.id === "50>51"));
+    expect((first?.matrix[5] ?? 0) + 40).toBeCloseTo(inBlock?.matrix[5] ?? 0);
+  });
 });

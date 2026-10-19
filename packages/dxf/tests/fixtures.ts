@@ -756,7 +756,7 @@ function multilineAttribute(
 /**
  * AutoCAD 2018 の複数行の属性の文字は埋め込みの MTEXT にだけあり、読まないと属性が黙って消える。配置の 2 行の属性
  * （属性の色）、非表示の属性、ブロックの中の値の属性定義（描かない）と定数の属性定義（既定値を描く）、
- * 図面に置いた属性定義（タグを描く）
+ * 図面に置いた属性定義（タグを描く）、同じブロックを内容とするマルチ引出線（値の属性定義に属性の値を描く）
  */
 // biome-ignore format: DXF のタグ（グループコードと値）の組を 1 行に並べて読めるようにする
 export const ATTRIBUTES_MULTILINE = latin1(ascii(
@@ -773,6 +773,12 @@ export const ATTRIBUTES_MULTILINE = latin1(ascii(
   ...multilineAttribute("ATTRIB", "52", "50", [], "HIDDEN", 1, [100, -20], "Hidden"),
   0, "SEQEND", 5, "53", 330, "50", 100, "AcDbEntity", 8, "0",
   ...multilineAttribute("ATTDEF", "54", "1F", [], "TITLE", 0, [0, 20], "Default"),
+  ...entity("MULTILEADER", "60", "0", [], "AcDbMLeader", 270, 2,
+    300, "CONTEXT_DATA{", 40, 1, 10, 0, 20, -40, 30, 0, 41, 2.5, 140, 1, 145, 1,
+    290, 0, 296, 1, 341, "40", 14, 0, 24, 0, 34, 1, 15, 0, 25, -40, 35, 0, 16, 1, 26, 1, 36, 1, 46, 0, 93, -1023410171,
+    301, "}",
+    340, "0", 170, 0, 91, -1023410171, 171, -2, 290, 0, 291, 0, 172, 1, 344, "40",
+    330, "42", 177, 1, 44, 1, 302, "Leader\\Pnote"),
   0, "ENDSEC", 0, "EOF",
 ));
 

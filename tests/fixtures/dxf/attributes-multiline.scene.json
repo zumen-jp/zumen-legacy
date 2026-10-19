@@ -11,7 +11,7 @@
   "sheet": null,
   "bounds": {
     "minX": 0,
-    "minY": -17.083333333333336,
+    "minY": -57.08333333333333,
     "maxX": 119.09722222222223,
     "maxY": 20.555555555555554
   },
@@ -523,6 +523,249 @@
           0
         ]
       }
+    },
+    {
+      "id": "60",
+      "type": "マルチ引出線",
+      "source": "MULTILEADER",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "text",
+          "text": "Leader",
+          "color": "#ffffff",
+          "fontFamily": "\"MS Gothic\", \"Hiragino Kaku Gothic ProN\", \"Hiragino Sans\", \"Yu Gothic\", \"Noto Sans JP\", \"Noto Sans CJK JP\", sans-serif",
+          "height": 3.4722222222222223,
+          "scaleX": 1.0000000000000002,
+          "cells": [
+            {
+              "char": "L",
+              "x": 0.8680555555555557,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "e",
+              "x": 2.604166666666667,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "a",
+              "x": 4.340277777777779,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "d",
+              "x": 6.076388888888889,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "e",
+              "x": 7.812500000000001,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "r",
+              "x": 9.548611111111112,
+              "y": 1.7361111111111112
+            }
+          ],
+          "boxWidth": 10.416666666666668,
+          "boxHeight": 3.4722222222222223,
+          "matrix": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            -42.916666666666664
+          ]
+        },
+        {
+          "kind": "text",
+          "text": "note",
+          "color": "#ffffff",
+          "fontFamily": "\"MS Gothic\", \"Hiragino Kaku Gothic ProN\", \"Hiragino Sans\", \"Yu Gothic\", \"Noto Sans JP\", \"Noto Sans CJK JP\", sans-serif",
+          "height": 3.4722222222222223,
+          "scaleX": 1,
+          "cells": [
+            {
+              "char": "n",
+              "x": 0.8680555555555556,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "o",
+              "x": 2.604166666666667,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "t",
+              "x": 4.340277777777778,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "e",
+              "x": 6.076388888888889,
+              "y": 1.7361111111111112
+            }
+          ],
+          "boxWidth": 6.944444444444445,
+          "boxHeight": 3.4722222222222223,
+          "matrix": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            -47.08333333333333
+          ]
+        },
+        {
+          "kind": "text",
+          "text": "Fixed",
+          "color": "#ffffff",
+          "fontFamily": "\"MS Gothic\", \"Hiragino Kaku Gothic ProN\", \"Hiragino Sans\", \"Yu Gothic\", \"Noto Sans JP\", \"Noto Sans CJK JP\", sans-serif",
+          "height": 3.4722222222222223,
+          "scaleX": 1,
+          "cells": [
+            {
+              "char": "F",
+              "x": 0.8680555555555556,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "i",
+              "x": 2.604166666666667,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "x",
+              "x": 4.340277777777778,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "e",
+              "x": 6.076388888888889,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "d",
+              "x": 7.8125,
+              "y": 1.7361111111111112
+            }
+          ],
+          "boxWidth": 8.680555555555555,
+          "boxHeight": 3.4722222222222223,
+          "matrix": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            -52.916666666666664
+          ]
+        },
+        {
+          "kind": "text",
+          "text": "value",
+          "color": "#ffffff",
+          "fontFamily": "\"MS Gothic\", \"Hiragino Kaku Gothic ProN\", \"Hiragino Sans\", \"Yu Gothic\", \"Noto Sans JP\", \"Noto Sans CJK JP\", sans-serif",
+          "height": 3.4722222222222223,
+          "scaleX": 1,
+          "cells": [
+            {
+              "char": "v",
+              "x": 0.8680555555555556,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "a",
+              "x": 2.604166666666667,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "l",
+              "x": 4.340277777777778,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "u",
+              "x": 6.076388888888889,
+              "y": 1.7361111111111112
+            },
+            {
+              "char": "e",
+              "x": 7.8125,
+              "y": 1.7361111111111112
+            }
+          ],
+          "boxWidth": 8.680555555555555,
+          "boxHeight": 3.4722222222222223,
+          "matrix": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            -57.08333333333333
+          ]
+        }
+      ],
+      "bbox": {
+        "minX": 0,
+        "minY": -57.08333333333333,
+        "maxX": 10.416666666666668,
+        "maxY": -39.44444444444444
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "マルチ引出線（MULTILEADER）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "60"
+        },
+        {
+          "label": "レイヤ",
+          "value": "0"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "内容のブロック",
+          "value": "LABEL"
+        },
+        {
+          "label": "引出線",
+          "value": "0 本"
+        }
+      ],
+      "placement": {
+        "name": "モデル空間（mm）",
+        "scaleX": 1,
+        "scaleY": 1,
+        "inverse": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ]
+      }
     }
   ],
   "notices": [
@@ -530,7 +773,7 @@
       "level": "info",
       "code": "shx-font",
       "message": "SHX フォント（txt）は同梱していないため、代わりのフォントで描きました",
-      "count": 3
+      "count": 5
     }
   ],
   "metadata": [
