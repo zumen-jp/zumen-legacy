@@ -5,7 +5,8 @@ AutoCAD drawing model of `zumen-dxf` (`DxfDocument`), and `dxf_to_scene` draws i
 only, with its own decoder that follows the Open Design Alliance's
 [Open Design Specification for .dwg files](https://opendesign.com/files/guestdownloads/OpenDesign_Specification_for_.dwg_files.pdf)
 5.4.1 and cites its sections in comments ([decision 0003](../decisions/0003-dwg-in-rust.md)). There is no TypeScript
-DWG reader: the `zumen` command, Python and the WebAssembly build (`bindings/wasm`) read DWG.
+DWG reader: the `zumen` command, Python and the WebAssembly build (`bindings/wasm`) read DWG, and browsers read it
+through that build with `@zumenjs/dwg` ([DWG in the browser](../architecture.md#dwg-in-the-browser)).
 
 ```text
 bytes ─▶ file (container, pages, decompression) ─▶ objects (bit streams) ─▶ read_dwg ─▶ DxfDocument ─▶ dxf_to_scene ─▶ Scene
