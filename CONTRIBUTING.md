@@ -20,7 +20,7 @@ format, version, authoring software, and the notices the viewer shows.
   ```
 
 - Open the playground with `pnpm dev`. It listens on `127.0.0.1` at the `playground` port in
-  [config/local-ports.json](config/local-ports.json) (24055); set `PORT` to override it.
+  [config/local-ports.json](config/local-ports.json) (24100); set `PORT` to override it.
   To open drawings that are not in Git, set `ZUMEN_SAMPLES` to their folder and visit `/?sample=<file name>`.
 
 ## How the code is organized
