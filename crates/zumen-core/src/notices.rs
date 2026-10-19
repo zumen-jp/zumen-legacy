@@ -11,6 +11,15 @@ impl NoticeList {
         Self::default()
     }
 
+    /// 読み取りの結果の notices から始める（TypeScript の `new NoticeList(initial)`）
+    pub fn from_notices(initial: &[Notice]) -> Self {
+        let mut list = Self::new();
+        for notice in initial {
+            list.add_count(notice.level, &notice.code, notice.message.clone(), notice.count);
+        }
+        list
+    }
+
     /// 1 件として数える
     pub fn add(&mut self, level: NoticeLevel, code: &str, message: impl Into<String>) {
         self.add_count(level, code, message, 1);

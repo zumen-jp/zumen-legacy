@@ -1,5 +1,6 @@
 import type { DrawingReader } from "@zumenjs/core";
 import { parseP21 } from "./p21.js";
+import { latin1 } from "./p21-reader.js";
 import { sxfToScene } from "./scene.js";
 import { parseSfc } from "./sfc.js";
 
@@ -17,7 +18,7 @@ export function detectSxf(bytes: Uint8Array): "sfc" | "p21" | null {
   let start = 0;
   while (start < bytes.length && (bytes[start] === 0x20 || bytes[start] === 0x0d || bytes[start] === 0x0a)) start++;
   if (!startsWithAscii(bytes, "ISO-10303-21", start)) return null;
-  const head = new TextDecoder("latin1").decode(bytes.subarray(0, Math.min(bytes.length, 64 * 1024)));
+  const head = latin1(bytes.subarray(0, Math.min(bytes.length, 64 * 1024)));
   if (head.includes("/*SXF")) return "sfc";
   if (/FILE_DESCRIPTION\s*\(\s*\(\s*'SCADEC level\d feature_mode'/.test(head)) return "sfc";
   return "p21";

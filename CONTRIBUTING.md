@@ -43,6 +43,8 @@ The Rust readers must return the same scenes as the TypeScript readers. The synt
 tests build are also written to `tests/fixtures` with the scenes they produce; after changing a TypeScript reader, run
 `pnpm run golden` and make the Rust reader match (`cargo test -p zumen`). To compare both on your own drawings,
 build them (`pnpm run build`, `cargo build --release -p zumen-cli`) and run `pnpm run parity <folder>`.
+`pnpm run fuzz [cases] [seed] [formats…]` reads randomly damaged copies of the fixtures with both (after `pnpm run build` and
+`pnpm run wasm`) and reports any input where the scenes or the error messages differ.
 
 ## Style
 

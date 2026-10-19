@@ -196,9 +196,10 @@ export function clothoidPoints(
   const sin = Math.sin(theta);
   const side = ccw ? 1 : -1;
   const a2 = 2 * a * a;
-  // 接線角 s²/(2A²) をシンプソン則で積分して、基点からの局所座標を求める
+  // 接線角 s²/(2A²) をシンプソン則で積分して、基点からの局所座標を求める。
+  // 分割数は A に対する長さに比例させ、極端に長いもの（A の 256 倍超）は 4096 で打ち切る
   const local = (s: number): [number, number] => {
-    const n = Math.max(8, Math.ceil(Math.abs(s) / Math.max(a, 1e-9)) * 16);
+    const n = Math.min(Math.max(8, Math.ceil(Math.abs(s) / Math.max(a, 1e-9)) * 16), 4096);
     const h = s / n;
     let sx = 0;
     let sy = 0;

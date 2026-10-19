@@ -27,6 +27,8 @@ export interface SfcReadResult {
 }
 
 const decoder = new TextDecoder("shift_jis");
+/** 引数の集合の入れ子の上限。仕様の書き方は 2 段までで、深すぎるものは読めないフィーチャとして省く */
+const MAX_NESTING = 64;
 const BACKSLASH = 0x5c;
 const QUOTE = 0x27;
 const COMMA = 0x2c;
@@ -79,7 +81,8 @@ class ParamReader {
   }
 
   /** "(" の直後から、対応する ")" までの引数の並びを読む */
-  readList(stringParams?: Set<number>): SfcValue[] {
+  readList(stringParams?: Set<number>, depth = 0): SfcValue[] {
+    if (depth > MAX_NESTING) throw new ParseError("引数の入れ子が深すぎます");
     const values: SfcValue[] = [];
     if (this.peek() === CLOSE) {
       this.pos++;
@@ -87,7 +90,7 @@ class ParamReader {
     }
     for (;;) {
       if (this.peek() === BACKSLASH && this.bytes[this.pos + 1] === QUOTE) stringParams?.add(values.length);
-      values.push(this.readValue());
+      values.push(this.readValue(depth));
       const next = this.peek();
       this.pos++;
       if (next === COMMA) continue;
@@ -96,14 +99,14 @@ class ParamReader {
     }
   }
 
-  private readValue(): SfcValue {
+  private readValue(depth: number): SfcValue {
     const byte = this.peek();
     if (byte === undefined) throw new ParseError("引数が途中で終わっています");
     if (byte === BACKSLASH && this.bytes[this.pos + 1] === QUOTE) return this.readText();
     if (byte === QUOTE) return this.readQuoted();
     if (byte === OPEN) {
       this.pos++;
-      return this.readList();
+      return this.readList(undefined, depth + 1);
     }
     const start = this.pos;
     while (this.pos < this.end && this.bytes[this.pos] !== COMMA && this.bytes[this.pos] !== CLOSE) this.pos++;

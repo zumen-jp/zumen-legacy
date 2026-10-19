@@ -1,0 +1,492 @@
+{
+  "format": "p21",
+  "version": "SXF 3.1",
+  "sheet": {
+    "name": "表示",
+    "size": "A1 横",
+    "width": 841,
+    "height": 594
+  },
+  "bounds": {
+    "minX": 0,
+    "minY": -0.625,
+    "maxX": 841,
+    "maxY": 594
+  },
+  "layers": [
+    {
+      "id": 1,
+      "name": "線",
+      "visible": true
+    },
+    {
+      "id": 2,
+      "name": "DIM",
+      "visible": false
+    }
+  ],
+  "entities": [
+    {
+      "id": "#77>#46",
+      "type": "線分",
+      "source": "line_feature",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            100,
+            50,
+            150,
+            50
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 100,
+        "minY": 50,
+        "maxX": 150,
+        "maxY": 50
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "線分"
+        },
+        {
+          "label": "番号",
+          "value": "#77>#46"
+        },
+        {
+          "label": "レイヤ",
+          "value": "線"
+        },
+        {
+          "label": "配置",
+          "value": "部分図（数学座標系） 平面図（縮尺 1/20）"
+        },
+        {
+          "label": "色",
+          "value": "白（8）"
+        },
+        {
+          "label": "線種",
+          "value": "実線（1）"
+        },
+        {
+          "label": "線幅",
+          "value": "0.25mm（3）"
+        },
+        {
+          "label": "始点",
+          "value": "0, 0"
+        },
+        {
+          "label": "終点",
+          "value": "1,000, 0"
+        },
+        {
+          "label": "長さ",
+          "value": "1,000"
+        }
+      ],
+      "placement": {
+        "name": "部分図（数学座標系） 平面図",
+        "scaleX": 0.05,
+        "scaleY": 0.05,
+        "inverse": [
+          19.999999999999996,
+          0,
+          0,
+          19.999999999999996,
+          -1999.9999999999995,
+          -999.9999999999998
+        ]
+      }
+    },
+    {
+      "id": "#77>#53",
+      "type": "円弧",
+      "source": "arc_feature",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            100.5,
+            50,
+            100.46193976625564,
+            49.80865828381746,
+            100.35355339059328,
+            49.64644660940672,
+            100.19134171618255,
+            49.53806023374435,
+            100,
+            49.5,
+            99.80865828381745,
+            49.53806023374435,
+            99.64644660940672,
+            49.64644660940672,
+            99.53806023374436,
+            49.80865828381745,
+            99.5,
+            50,
+            99.53806023374436,
+            50.19134171618254,
+            99.64644660940672,
+            50.35355339059327,
+            99.80865828381745,
+            50.46193976625564,
+            100,
+            50.5
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 99.5,
+        "minY": 49.5,
+        "maxX": 100.5,
+        "maxY": 50.5
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "円弧"
+        },
+        {
+          "label": "番号",
+          "value": "#77>#53"
+        },
+        {
+          "label": "レイヤ",
+          "value": "線"
+        },
+        {
+          "label": "配置",
+          "value": "部分図（数学座標系） 平面図（縮尺 1/20）"
+        },
+        {
+          "label": "色",
+          "value": "白（8）"
+        },
+        {
+          "label": "線種",
+          "value": "実線（1）"
+        },
+        {
+          "label": "線幅",
+          "value": "0.25mm（3）"
+        },
+        {
+          "label": "中心",
+          "value": "0, 0"
+        },
+        {
+          "label": "半径",
+          "value": "10"
+        },
+        {
+          "label": "角度",
+          "value": "0° → 90°（時計回り）"
+        }
+      ],
+      "placement": {
+        "name": "部分図（数学座標系） 平面図",
+        "scaleX": 0.05,
+        "scaleY": 0.05,
+        "inverse": [
+          19.999999999999996,
+          0,
+          0,
+          19.999999999999996,
+          -1999.9999999999995,
+          -999.9999999999998
+        ]
+      }
+    },
+    {
+      "id": "#77>#69",
+      "type": "文字",
+      "source": "text_string_feature",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "text",
+          "text": "表示",
+          "color": "#00ccff",
+          "fontFamily": "\"MS Gothic\", \"Hiragino Kaku Gothic ProN\", \"Hiragino Sans\", \"Yu Gothic\", \"Noto Sans JP\", \"Noto Sans CJK JP\", sans-serif",
+          "height": 50,
+          "scaleX": 3,
+          "cells": [
+            {
+              "char": "表",
+              "x": 75,
+              "y": 25
+            },
+            {
+              "char": "示",
+              "x": 225,
+              "y": 25
+            }
+          ],
+          "boxWidth": 300,
+          "boxHeight": 50,
+          "matrix": [
+            0.05,
+            0,
+            0,
+            0.05,
+            90,
+            57.5
+          ]
+        }
+      ],
+      "bbox": {
+        "minX": 90,
+        "minY": 57.5,
+        "maxX": 105,
+        "maxY": 60
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "文字"
+        },
+        {
+          "label": "番号",
+          "value": "#77>#69"
+        },
+        {
+          "label": "レイヤ",
+          "value": "線"
+        },
+        {
+          "label": "配置",
+          "value": "部分図（数学座標系） 平面図（縮尺 1/20）"
+        },
+        {
+          "label": "文字列",
+          "value": "表示"
+        },
+        {
+          "label": "色",
+          "value": "ユーザ定義 RGB(0, 204, 255)（17）"
+        },
+        {
+          "label": "フォント",
+          "value": "ＭＳ ゴシック"
+        },
+        {
+          "label": "文字範囲",
+          "value": "高さ 50・幅 300"
+        },
+        {
+          "label": "位置",
+          "value": "100, 200"
+        },
+        {
+          "label": "回転角",
+          "value": "0°"
+        }
+      ],
+      "placement": {
+        "name": "部分図（数学座標系） 平面図",
+        "scaleX": 0.05,
+        "scaleY": 0.05,
+        "inverse": [
+          19.999999999999996,
+          0,
+          0,
+          19.999999999999996,
+          -1999.9999999999995,
+          -999.9999999999998
+        ]
+      }
+    },
+    {
+      "id": "#98",
+      "type": "直線寸法",
+      "source": "linear_dim_feature",
+      "layers": [
+        2
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            0,
+            60,
+            0
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        },
+        {
+          "kind": "fill",
+          "color": "#ffffff",
+          "rings": [
+            [
+              0,
+              0,
+              3.75,
+              -0.625,
+              3.75,
+              0.625
+            ]
+          ]
+        },
+        {
+          "kind": "fill",
+          "color": "#ffffff",
+          "rings": [
+            [
+              60,
+              0,
+              63.75,
+              -0.625,
+              63.75,
+              0.625
+            ]
+          ]
+        }
+      ],
+      "bbox": {
+        "minX": 0,
+        "minY": -0.625,
+        "maxX": 63.75,
+        "maxY": 0.625
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "直線寸法"
+        },
+        {
+          "label": "番号",
+          "value": "#98"
+        },
+        {
+          "label": "レイヤ",
+          "value": "DIM"
+        },
+        {
+          "label": "色",
+          "value": "白（8）"
+        },
+        {
+          "label": "線種",
+          "value": "実線（1）"
+        },
+        {
+          "label": "線幅",
+          "value": "0.25mm（3）"
+        },
+        {
+          "label": "寸法線",
+          "value": "0, 0 → 60, 0"
+        },
+        {
+          "label": "矢印",
+          "value": "filled arrow（外向き）・filled arrow（内向き）"
+        }
+      ]
+    },
+    {
+      "id": "#113",
+      "type": "ハッチング（塗り）",
+      "source": "fill_area_style_colour_feature",
+      "layers": [
+        2
+      ],
+      "primitives": [
+        {
+          "kind": "fill",
+          "color": "#c00080",
+          "rings": [
+            [
+              0,
+              0,
+              10,
+              0,
+              10,
+              10,
+              0,
+              10,
+              0,
+              0
+            ]
+          ]
+        }
+      ],
+      "bbox": {
+        "minX": 0,
+        "minY": 0,
+        "maxX": 10,
+        "maxY": 10
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "ハッチング（塗り）"
+        },
+        {
+          "label": "番号",
+          "value": "#113"
+        },
+        {
+          "label": "レイヤ",
+          "value": "DIM"
+        },
+        {
+          "label": "色",
+          "value": "牡丹（9）"
+        },
+        {
+          "label": "中抜き",
+          "value": "0 件"
+        }
+      ]
+    }
+  ],
+  "notices": [],
+  "metadata": [
+    {
+      "label": "形式",
+      "value": "P21（SXF 3.1）"
+    },
+    {
+      "label": "用紙",
+      "value": "表示・A1 横（841×594mm）"
+    },
+    {
+      "label": "作成ソフト",
+      "value": "test"
+    },
+    {
+      "label": "出力ライブラリ",
+      "value": "SCADEC_API_Ver3.10$$3.1"
+    },
+    {
+      "label": "複合図形",
+      "value": "1 件（部分図 1 件）"
+    }
+  ],
+  "background": "dark"
+}

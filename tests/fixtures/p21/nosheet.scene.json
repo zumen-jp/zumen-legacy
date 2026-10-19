@@ -1,0 +1,36 @@
+{
+  "format": "p21",
+  "version": "SXF",
+  "sheet": null,
+  "bounds": {
+    "minX": null,
+    "minY": null,
+    "maxX": null,
+    "maxY": null
+  },
+  "layers": [],
+  "entities": [],
+  "notices": [
+    {
+      "level": "warning",
+      "code": "no-sheet",
+      "message": "用紙（drawing_sheet_revision）がありません",
+      "count": 1
+    }
+  ],
+  "metadata": [
+    {
+      "label": "形式",
+      "value": "P21（SXF）"
+    },
+    {
+      "label": "作成ソフト",
+      "value": "zumen テスト it's"
+    },
+    {
+      "label": "出力ライブラリ",
+      "value": "zumen"
+    }
+  ],
+  "background": "dark"
+}

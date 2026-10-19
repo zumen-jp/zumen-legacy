@@ -18,6 +18,14 @@ def test_reads_a_drawing_from_a_path_and_returns_the_typescript_scene():
     assert json.loads(scene.to_json()) == golden
 
 
+def test_reads_sxf_and_detects_sfc_and_p21():
+    sfc = (FIXTURES / "sfc" / "sample.sfc").read_bytes()
+    assert (zumen.detect(sfc), zumen.detect((FIXTURES / "p21" / "sample.p21").read_bytes())) == ("sfc", "p21")
+    scene = zumen.read(sfc)
+    assert (scene.format, scene.version, len(scene)) == ("sfc", "SXF 3.1", 6)
+    assert scene.sheet == {"name": "道路", "size": "A1 横", "width": 841.0, "height": 594.0}
+
+
 def test_renders_png_and_reports_unreadable_input():
     scene = zumen.read((FIXTURES / "jww" / "minimal-v600.jww").read_bytes())
     png = scene.render_png(dpi=50)

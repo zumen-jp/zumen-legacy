@@ -219,9 +219,10 @@ pub fn clothoid_points(
     let sin = js::sin(theta);
     let side = if ccw { 1.0 } else { -1.0 };
     let a2 = 2.0 * a * a;
-    // 接線角 s²/(2A²) をシンプソン則で積分して、基点からの局所座標を求める
+    // 接線角 s²/(2A²) をシンプソン則で積分して、基点からの局所座標を求める。
+    // 分割数は A に対する長さに比例させ、極端に長いもの（A の 256 倍超）は 4096 で打ち切る
     let local = |s: f64| -> (f64, f64) {
-        let n = js::max(8.0, (s.abs() / js::max(a, 1e-9)).ceil() * 16.0);
+        let n = js::min(js::max(8.0, (s.abs() / js::max(a, 1e-9)).ceil() * 16.0), 4096.0);
         let h = s / n;
         let mut sx = 0.0;
         let mut sy = 0.0;

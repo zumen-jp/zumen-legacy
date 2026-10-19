@@ -1,0 +1,564 @@
+{
+  "format": "sfc",
+  "version": "SXF 3.1",
+  "sheet": {
+    "name": "道路",
+    "size": "A1 横",
+    "width": 841,
+    "height": 594
+  },
+  "bounds": {
+    "minX": 0,
+    "minY": 0,
+    "maxX": 841,
+    "maxY": 594
+  },
+  "layers": [
+    {
+      "id": 1,
+      "name": "部分",
+      "visible": true
+    },
+    {
+      "id": 2,
+      "name": "図",
+      "visible": false
+    }
+  ],
+  "entities": [
+    {
+      "id": "#110",
+      "type": "ハッチング（塗り）",
+      "source": "fill_area_style_colour_feature",
+      "layers": [
+        2
+      ],
+      "primitives": [
+        {
+          "kind": "fill",
+          "color": "#0a141e",
+          "rings": [
+            [
+              0,
+              0,
+              10,
+              0,
+              10,
+              10,
+              0,
+              10,
+              0,
+              0
+            ]
+          ]
+        },
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            0,
+            10,
+            0,
+            10,
+            10,
+            0,
+            10,
+            0,
+            0
+          ],
+          "closed": true,
+          "color": "#0a141e",
+          "width": 0.4,
+          "dashes": [
+            2,
+            1
+          ]
+        }
+      ],
+      "bbox": {
+        "minX": 0,
+        "minY": 0,
+        "maxX": 10,
+        "maxY": 10
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "ハッチング（塗り）"
+        },
+        {
+          "label": "番号",
+          "value": "#110"
+        },
+        {
+          "label": "レイヤ",
+          "value": "図"
+        },
+        {
+          "label": "色",
+          "value": "ユーザ定義 RGB(10, 20, 30)（17）"
+        },
+        {
+          "label": "中抜き",
+          "value": "0 件"
+        }
+      ]
+    },
+    {
+      "id": "#120>#80",
+      "type": "線分",
+      "source": "line_feature",
+      "layers": [
+        1,
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            100,
+            50,
+            150,
+            50
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 100,
+        "minY": 50,
+        "maxX": 150,
+        "maxY": 50
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "線分"
+        },
+        {
+          "label": "番号",
+          "value": "#120>#80"
+        },
+        {
+          "label": "レイヤ",
+          "value": "部分"
+        },
+        {
+          "label": "配置",
+          "value": "部分図（数学座標系） 平面図（縮尺 1/20）"
+        },
+        {
+          "label": "色",
+          "value": "白（8）"
+        },
+        {
+          "label": "線種",
+          "value": "実線（1）"
+        },
+        {
+          "label": "線幅",
+          "value": "0.25mm（3）"
+        },
+        {
+          "label": "始点",
+          "value": "0, 0"
+        },
+        {
+          "label": "終点",
+          "value": "1,000, 0"
+        },
+        {
+          "label": "長さ",
+          "value": "1,000"
+        }
+      ],
+      "placement": {
+        "name": "部分図（数学座標系） 平面図",
+        "scaleX": 0.05,
+        "scaleY": 0.05,
+        "inverse": [
+          19.999999999999996,
+          0,
+          0,
+          19.999999999999996,
+          -1999.9999999999995,
+          -999.9999999999998
+        ]
+      }
+    },
+    {
+      "id": "#120>#90",
+      "type": "文字",
+      "source": "text_string_feature",
+      "layers": [
+        1,
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "text",
+          "text": "表示ソ能\\x",
+          "color": "#ffffff",
+          "fontFamily": "\"MS Mincho\", \"Hiragino Mincho ProN\", \"Yu Mincho\", \"Noto Serif JP\", \"Noto Serif CJK JP\", serif",
+          "height": 50,
+          "scaleX": 1.2,
+          "cells": [
+            {
+              "char": "表",
+              "x": 30,
+              "y": 25
+            },
+            {
+              "char": "示",
+              "x": 90,
+              "y": 25
+            },
+            {
+              "char": "ソ",
+              "x": 150,
+              "y": 25
+            },
+            {
+              "char": "能",
+              "x": 210,
+              "y": 25
+            },
+            {
+              "char": "\\",
+              "x": 255,
+              "y": 25
+            },
+            {
+              "char": "x",
+              "x": 285,
+              "y": 25
+            }
+          ],
+          "boxWidth": 300,
+          "boxHeight": 50,
+          "matrix": [
+            0.05,
+            0,
+            0,
+            0.05,
+            100,
+            55
+          ]
+        }
+      ],
+      "bbox": {
+        "minX": 100,
+        "minY": 55,
+        "maxX": 115,
+        "maxY": 57.5
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "文字"
+        },
+        {
+          "label": "番号",
+          "value": "#120>#90"
+        },
+        {
+          "label": "レイヤ",
+          "value": "部分"
+        },
+        {
+          "label": "配置",
+          "value": "部分図（数学座標系） 平面図（縮尺 1/20）"
+        },
+        {
+          "label": "文字列",
+          "value": "表示ソ能\\x"
+        },
+        {
+          "label": "色",
+          "value": "白（8）"
+        },
+        {
+          "label": "フォント",
+          "value": "Century"
+        },
+        {
+          "label": "文字範囲",
+          "value": "高さ 50・幅 300"
+        },
+        {
+          "label": "位置",
+          "value": "0, 100"
+        },
+        {
+          "label": "回転角",
+          "value": "0°"
+        }
+      ],
+      "placement": {
+        "name": "部分図（数学座標系） 平面図",
+        "scaleX": 0.05,
+        "scaleY": 0.05,
+        "inverse": [
+          19.999999999999996,
+          0,
+          0,
+          19.999999999999996,
+          -1999.9999999999995,
+          -999.9999999999998
+        ]
+      }
+    },
+    {
+      "id": "#240>#200",
+      "type": "線分",
+      "source": "line_feature",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            0,
+            10,
+            0
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.13,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 0,
+        "minY": 0,
+        "maxX": 10,
+        "maxY": 0
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "線分"
+        },
+        {
+          "label": "番号",
+          "value": "#240>#200"
+        },
+        {
+          "label": "レイヤ",
+          "value": "部分"
+        },
+        {
+          "label": "色",
+          "value": "白（8）"
+        },
+        {
+          "label": "線種",
+          "value": "実線（1）"
+        },
+        {
+          "label": "線幅",
+          "value": "0.13mm（1）"
+        },
+        {
+          "label": "始点",
+          "value": "0, 0"
+        },
+        {
+          "label": "終点",
+          "value": "10, 0"
+        },
+        {
+          "label": "長さ",
+          "value": "10"
+        }
+      ]
+    },
+    {
+      "id": "#250>#220",
+      "type": "線分",
+      "source": "line_feature",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            300,
+            300,
+            300,
+            310
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.13,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 300,
+        "minY": 300,
+        "maxX": 300,
+        "maxY": 310
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "線分"
+        },
+        {
+          "label": "番号",
+          "value": "#250>#220"
+        },
+        {
+          "label": "レイヤ",
+          "value": "部分"
+        },
+        {
+          "label": "配置",
+          "value": "部分図（測地座標系） S（縮尺 1/1）"
+        },
+        {
+          "label": "色",
+          "value": "白（8）"
+        },
+        {
+          "label": "線種",
+          "value": "実線（1）"
+        },
+        {
+          "label": "線幅",
+          "value": "0.13mm（1）"
+        },
+        {
+          "label": "始点",
+          "value": "0, 0"
+        },
+        {
+          "label": "終点",
+          "value": "10, 0"
+        },
+        {
+          "label": "長さ",
+          "value": "10"
+        }
+      ],
+      "placement": {
+        "name": "部分図（測地座標系） S",
+        "scaleX": 1,
+        "scaleY": 1,
+        "inverse": [
+          1,
+          0,
+          0,
+          1,
+          -300,
+          -300
+        ]
+      }
+    },
+    {
+      "id": "#160",
+      "type": "線分",
+      "source": "line_feature",
+      "layers": [
+        2
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            0,
+            1,
+            1
+          ],
+          "closed": false,
+          "color": "#000000",
+          "width": 0.13,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 0,
+        "minY": 0,
+        "maxX": 1,
+        "maxY": 1
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "線分"
+        },
+        {
+          "label": "番号",
+          "value": "#160"
+        },
+        {
+          "label": "レイヤ",
+          "value": "図"
+        },
+        {
+          "label": "色",
+          "value": "黒（1）"
+        },
+        {
+          "label": "線種",
+          "value": "実線（1）"
+        },
+        {
+          "label": "線幅",
+          "value": "0.13mm（1）"
+        },
+        {
+          "label": "始点",
+          "value": "0, 0"
+        },
+        {
+          "label": "終点",
+          "value": "1, 1"
+        },
+        {
+          "label": "長さ",
+          "value": "1.414"
+        }
+      ]
+    }
+  ],
+  "notices": [
+    {
+      "level": "warning",
+      "code": "after-sheet",
+      "message": "用紙より後に書かれた要素を用紙に加えました",
+      "count": 1
+    }
+  ],
+  "metadata": [
+    {
+      "label": "形式",
+      "value": "SFC（SXF 3.1）"
+    },
+    {
+      "label": "用紙",
+      "value": "道路・A1 横（841×594mm）"
+    },
+    {
+      "label": "作成ソフト",
+      "value": "test"
+    },
+    {
+      "label": "出力ライブラリ",
+      "value": "SCADEC_API_Ver3.10$$3.1"
+    },
+    {
+      "label": "複合図形",
+      "value": "3 件（部分図 2 件）"
+    }
+  ],
+  "background": "dark"
+}
