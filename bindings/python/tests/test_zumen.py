@@ -83,12 +83,13 @@ def test_extracts_texts_and_entities_in_paper_millimeters():
     every = scene.entities(hidden_layers=[])
     assert len(every) == len(scene) and every[0] == scene.entity(every[0]["id"])
 
-    # 複数行文字は行ごとに改行を入れ、ブロックの中の図形は配置の縮尺を持つ
+    # Multiline text breaks between lines, and entities inside blocks carry the scale of their placement
     dxf = zumen.read(FIXTURES / "dxf" / "features.dxf")
     lines = next(text["text"] for text in dxf.texts() if text["id"] == "151").split("\n")
     assert lines[:2] == ["長い文章を折り返す", "folding long"]
     inside = next(entity for entity in zumen.read(FIXTURES / "dxf" / "blocks.dxf").entities() if entity["placement"])
-    assert set(inside["placement"]) == {"name", "scale_x", "scale_y"}
+    assert set(inside["placement"]) == {"name", "scale_x", "scale_y", "inverse"}
+    assert len(inside["placement"]["inverse"]) == 6
 
 
 def test_lists_entities_as_an_arrow_table():
@@ -124,7 +125,7 @@ def test_renders_with_the_pixel_box_of_each_entity():
     hits = [entity["id"] for entity in image.entities_at((left + right) / 2, (top + bottom) / 2)]
     assert "#700" in hits
 
-    # 範囲を指定すると、その範囲に写る図形だけを返す
+    # With a region, only the entities drawn in that region
     part = scene.render(dpi=100, region=(0, 215, 30, 230))
     assert part.scale == pytest.approx(100 / 25.4)
     assert part.region[0] == pytest.approx(0) and part.region[3] == pytest.approx(230)

@@ -5,9 +5,12 @@ __version__: str
 Box: TypeAlias = tuple[float, float, float, float]
 
 class Placement(TypedDict):
+    """Paper millimeters per original millimeter, and the conversion from paper to original coordinates."""
+
     name: str
     scale_x: float
     scale_y: float
+    inverse: tuple[float, float, float, float, float, float]
 
 class Entity(TypedDict):
     """An entity of ``Scene.entities`` and ``Scene.entity`` (type checking only)."""

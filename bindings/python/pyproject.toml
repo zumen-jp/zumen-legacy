@@ -21,12 +21,17 @@ dynamic = ["version"]
 [project.optional-dependencies]
 # Scene.to_arrow の表（Apache-2.0）
 arrow = ["pyarrow>=14"]
+# MCP サーバー（zumen-mcp、公式の Python SDK、MIT）
+mcp = ["mcp>=2.3,<3"]
+
+[project.scripts]
+zumen-mcp = "zumen.mcp:main"
 
 [project.urls]
 Repository = "https://github.com/zumenjs/zumen"
 
 [dependency-groups]
-dev = ["maturin==1.15.0", "pyarrow==25.0.1", "pytest==9.1.1", "ruff==0.17.1"]
+dev = ["maturin==1.15.0", "mcp==2.3.0", "pyarrow==25.0.1", "pytest==9.1.1", "ruff==0.17.1"]
 
 [tool.maturin]
 python-source = "python"
