@@ -10,6 +10,7 @@ pub mod js;
 mod measure;
 mod notices;
 mod read;
+mod sort;
 pub mod text;
 mod types;
 

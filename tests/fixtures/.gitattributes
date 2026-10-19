@@ -3,3 +3,4 @@
 *.scene.json text eol=lf
 *.sfc binary
 *.p21 binary
+*.dxf binary

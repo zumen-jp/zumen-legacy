@@ -12,7 +12,7 @@ Usage:
   zumen render <file> -o <out.png> [--dpi <n> | --size <w>x<h> [--margin <px>]] [--dpr <n>]
                [--theme light|dark] [--thin] [--format <name>] [--view <id>]
 
-Reads SXF, JWW, DXF and DWG drawings into zumen's scene model (SXF and JWW for now).";
+Reads SXF, JWW, DXF and DWG drawings into zumen's scene model (SXF, JWW and DXF for now).";
 
 struct Args {
     command: String,

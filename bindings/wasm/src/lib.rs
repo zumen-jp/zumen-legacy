@@ -4,7 +4,7 @@
 use wasm_bindgen::prelude::*;
 use zumen::ReadDrawingOptions;
 
-/// 図面の形式を中身から判定する（sfc・p21・jww など）。読めない形式なら undefined
+/// 図面の形式を中身から判定する（sfc・p21・jww・dxf など）。読めない形式なら undefined
 #[wasm_bindgen]
 pub fn detect(bytes: &[u8]) -> Option<String> {
     zumen::detect(bytes).map(String::from)

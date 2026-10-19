@@ -1,0 +1,219 @@
+{
+  "format": "dxf",
+  "version": "DXF AC1015",
+  "views": [
+    {
+      "id": "Model",
+      "name": "モデル"
+    },
+    {
+      "id": "Layout1",
+      "name": "Layout1"
+    }
+  ],
+  "view": "Layout1",
+  "sheet": {
+    "name": "Layout1",
+    "size": "A4",
+    "width": 297,
+    "height": 210
+  },
+  "bounds": {
+    "minX": 0,
+    "minY": 0,
+    "maxX": 297,
+    "maxY": 210
+  },
+  "layers": [
+    {
+      "id": 1,
+      "name": "0",
+      "visible": true
+    }
+  ],
+  "entities": [
+    {
+      "id": "42:40",
+      "type": "線分",
+      "source": "LINE",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            95,
+            100,
+            105,
+            100
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 95,
+        "minY": 100,
+        "maxX": 105,
+        "maxY": 100
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "線分（LINE）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "42:40"
+        },
+        {
+          "label": "レイヤ",
+          "value": "0"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "始点",
+          "value": "0, 0"
+        },
+        {
+          "label": "終点",
+          "value": "1,000, 0"
+        },
+        {
+          "label": "長さ",
+          "value": "1,000"
+        }
+      ],
+      "placement": {
+        "name": "ビューポート（1:100）",
+        "scaleX": 0.01,
+        "scaleY": 0.01,
+        "inverse": [
+          100,
+          0,
+          0,
+          100,
+          -9500,
+          -10000
+        ]
+      }
+    },
+    {
+      "id": "42",
+      "type": "ビューポート",
+      "source": "VIEWPORT",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            50,
+            75,
+            150,
+            75,
+            150,
+            125,
+            50,
+            125
+          ],
+          "closed": true,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 50,
+        "minY": 75,
+        "maxX": 150,
+        "maxY": 125
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "ビューポート（VIEWPORT）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "42"
+        },
+        {
+          "label": "レイヤ",
+          "value": "0"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "縮尺",
+          "value": "1:100"
+        },
+        {
+          "label": "表示の中心（モデル）",
+          "value": "500, 0"
+        },
+        {
+          "label": "表示の高さ（モデル）",
+          "value": "5,000"
+        }
+      ]
+    }
+  ],
+  "notices": [],
+  "metadata": [
+    {
+      "label": "形式",
+      "value": "DXF AutoCAD 2000（AC1015、テキスト）"
+    },
+    {
+      "label": "文字コード",
+      "value": "西欧（Windows-1252）（指定なし）"
+    },
+    {
+      "label": "単位",
+      "value": "mm"
+    },
+    {
+      "label": "レイアウト",
+      "value": "Layout1"
+    },
+    {
+      "label": "表示",
+      "value": "レイアウト Layout1"
+    },
+    {
+      "label": "用紙",
+      "value": "A4（297×210 mm）"
+    },
+    {
+      "label": "ビューポートの縮尺",
+      "value": "1:100"
+    }
+  ],
+  "background": "light"
+}

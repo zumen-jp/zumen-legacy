@@ -1,0 +1,135 @@
+{
+  "format": "dxf",
+  "version": "DXF AC1015",
+  "views": [
+    {
+      "id": "Model",
+      "name": "モデル"
+    }
+  ],
+  "view": "Model",
+  "sheet": null,
+  "bounds": {
+    "minX": 10000,
+    "minY": 0,
+    "maxX": 10000,
+    "maxY": 2000
+  },
+  "layers": [
+    {
+      "id": 2,
+      "name": "A",
+      "visible": true
+    }
+  ],
+  "entities": [
+    {
+      "id": "20>B2>B1",
+      "type": "線分",
+      "source": "LINE",
+      "layers": [
+        2
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            10000,
+            0,
+            10000,
+            2000
+          ],
+          "closed": false,
+          "color": "#ff0000",
+          "width": 0.25,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 10000,
+        "minY": 0,
+        "maxX": 10000,
+        "maxY": 2000
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "線分（LINE）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "20>B2>B1"
+        },
+        {
+          "label": "レイヤ",
+          "value": "A"
+        },
+        {
+          "label": "ブロック",
+          "value": "OUTER › INNER"
+        },
+        {
+          "label": "色",
+          "value": "BYBLOCK"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "始点",
+          "value": "10, 0"
+        },
+        {
+          "label": "終点",
+          "value": "10, 2"
+        },
+        {
+          "label": "長さ",
+          "value": "2"
+        }
+      ],
+      "placement": {
+        "name": "モデル空間（m）",
+        "scaleX": 1,
+        "scaleY": 1,
+        "inverse": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ]
+      }
+    }
+  ],
+  "notices": [],
+  "metadata": [
+    {
+      "label": "形式",
+      "value": "DXF AutoCAD 2000（AC1015、テキスト）"
+    },
+    {
+      "label": "文字コード",
+      "value": "西欧（Windows-1252）（指定なし）"
+    },
+    {
+      "label": "単位",
+      "value": "m"
+    },
+    {
+      "label": "ブロック",
+      "value": "2 件"
+    },
+    {
+      "label": "表示",
+      "value": "モデル空間"
+    }
+  ],
+  "background": "dark"
+}

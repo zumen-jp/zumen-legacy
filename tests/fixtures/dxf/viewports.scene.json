@@ -1,0 +1,1552 @@
+{
+  "format": "dxf",
+  "version": "DXF AC1018",
+  "views": [
+    {
+      "id": "Model",
+      "name": "モデル"
+    },
+    {
+      "id": "Inches",
+      "name": "Inches"
+    },
+    {
+      "id": "Rotated",
+      "name": "Rotated"
+    }
+  ],
+  "view": "Rotated",
+  "sheet": {
+    "name": "Rotated",
+    "size": "ISO A4 (297.00 x 210.00 MM)",
+    "width": 210,
+    "height": 297
+  },
+  "bounds": {
+    "minX": 0,
+    "minY": 0,
+    "maxX": 269,
+    "maxY": 297
+  },
+  "layers": [
+    {
+      "id": 1,
+      "name": "0",
+      "visible": true
+    },
+    {
+      "id": 2,
+      "name": "HIDE",
+      "visible": true
+    }
+  ],
+  "entities": [
+    {
+      "id": "50",
+      "type": "文字",
+      "source": "TEXT",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "text",
+          "text": "\u0019z“n‡W",
+          "color": "#ffffff",
+          "fontFamily": "\"MS Gothic\", \"Hiragino Kaku Gothic ProN\", \"Hiragino Sans\", \"Yu Gothic\", \"Noto Sans JP\", \"Noto Sans CJK JP\", sans-serif",
+          "height": 3.409090909090909,
+          "scaleX": 1,
+          "cells": [
+            {
+              "char": "\u0019",
+              "x": 1.7045454545454546,
+              "y": 1.7045454545454546
+            },
+            {
+              "char": "z",
+              "x": 4.261363636363637,
+              "y": 1.7045454545454546
+            },
+            {
+              "char": "“",
+              "x": 6.818181818181818,
+              "y": 1.7045454545454546
+            },
+            {
+              "char": "n",
+              "x": 9.375,
+              "y": 1.7045454545454546
+            },
+            {
+              "char": "‡",
+              "x": 11.931818181818183,
+              "y": 1.7045454545454546
+            },
+            {
+              "char": "W",
+              "x": 14.488636363636363,
+              "y": 1.7045454545454546
+            }
+          ],
+          "boxWidth": 15.340909090909092,
+          "boxHeight": 3.409090909090909,
+          "matrix": [
+            1,
+            0,
+            0,
+            1,
+            19,
+            17.59090909090909
+          ]
+        }
+      ],
+      "bbox": {
+        "minX": 19,
+        "minY": 17.59090909090909,
+        "maxX": 34.34090909090909,
+        "maxY": 21
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "文字（TEXT）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "50"
+        },
+        {
+          "label": "レイヤ",
+          "value": "0"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "文字列",
+          "value": "\u0019z“n‡W"
+        },
+        {
+          "label": "高さ",
+          "value": "3"
+        },
+        {
+          "label": "文字スタイル",
+          "value": "STANDARD"
+        }
+      ]
+    },
+    {
+      "id": "52:40",
+      "type": "線分",
+      "source": "LINE",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            59.02404735808355,
+            84.91987298107782,
+            123.97595264191645,
+            122.41987298107782
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": [
+            0.5,
+            0.25
+          ]
+        }
+      ],
+      "bbox": {
+        "minX": 59.02404735808355,
+        "minY": 84.91987298107782,
+        "maxX": 123.97595264191645,
+        "maxY": 122.41987298107782
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "線分（LINE）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "52:40"
+        },
+        {
+          "label": "レイヤ",
+          "value": "0"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "DASHED"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "始点",
+          "value": "0, 0"
+        },
+        {
+          "label": "終点",
+          "value": "30, 0"
+        },
+        {
+          "label": "長さ",
+          "value": "30"
+        }
+      ],
+      "placement": {
+        "name": "ビューポート（1:400）",
+        "scaleX": 0.0025,
+        "scaleY": 0.0025,
+        "inverse": [
+          346.4101615137755,
+          -199.99999999999994,
+          199.99999999999994,
+          346.4101615137755,
+          -37430.50437472601,
+          -17612.29744348776
+        ]
+      }
+    },
+    {
+      "id": "52:42",
+      "type": "文字",
+      "source": "TEXT",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "text",
+          "text": "oúY‡W",
+          "color": "#ffffff",
+          "fontFamily": "\"MS Gothic\", \"Hiragino Kaku Gothic ProN\", \"Hiragino Sans\", \"Yu Gothic\", \"Noto Sans JP\", \"Noto Sans CJK JP\", sans-serif",
+          "height": 2.272727272727273,
+          "scaleX": 1,
+          "cells": [
+            {
+              "char": "o",
+              "x": 0.5681818181818182,
+              "y": 1.1363636363636365
+            },
+            {
+              "char": "",
+              "x": 2.272727272727273,
+              "y": 1.1363636363636365
+            },
+            {
+              "char": "ú",
+              "x": 4.545454545454546,
+              "y": 1.1363636363636365
+            },
+            {
+              "char": "Y",
+              "x": 6.25,
+              "y": 1.1363636363636365
+            },
+            {
+              "char": "‡",
+              "x": 7.954545454545455,
+              "y": 1.1363636363636365
+            },
+            {
+              "char": "W",
+              "x": 9.65909090909091,
+              "y": 1.1363636363636365
+            }
+          ],
+          "boxWidth": 10.227272727272728,
+          "boxHeight": 2.272727272727273,
+          "matrix": [
+            2.165063509461097,
+            1.2499999999999998,
+            -1.2499999999999998,
+            2.165063509461097,
+            42.53482943007045,
+            103.48003620947213
+          ]
+        }
+      ],
+      "bbox": {
+        "minX": 39.69392033916136,
+        "minY": 103.48003620947213,
+        "maxX": 64.6775244131953,
+        "maxY": 121.1847260037019
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "文字（TEXT）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "52:42"
+        },
+        {
+          "label": "レイヤ",
+          "value": "0"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "文字列",
+          "value": "oúY‡W"
+        },
+        {
+          "label": "高さ",
+          "value": "2"
+        },
+        {
+          "label": "文字スタイル",
+          "value": "STANDARD"
+        }
+      ],
+      "placement": {
+        "name": "ビューポート（1:400）",
+        "scaleX": 0.0025,
+        "scaleY": 0.0025,
+        "inverse": [
+          346.4101615137755,
+          -199.99999999999994,
+          199.99999999999994,
+          346.4101615137755,
+          -37430.50437472601,
+          -17612.29744348776
+        ]
+      }
+    },
+    {
+      "id": "52:43",
+      "type": "塗り（ソリッド）",
+      "source": "SOLID",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "fill",
+          "color": "#ffffff",
+          "rings": [
+            [
+              119.40063509461098,
+              105.34455543377233,
+              139,
+              116.66025403784438,
+              139,
+              136.86751345948127,
+              110.65063509461098,
+              120.5
+            ]
+          ]
+        }
+      ],
+      "bbox": {
+        "minX": 110.65063509461098,
+        "minY": 105.34455543377233,
+        "maxX": 139,
+        "maxY": 136.86751345948127
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "塗り（ソリッド）（SOLID）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "52:43"
+        },
+        {
+          "label": "レイヤ",
+          "value": "0"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        }
+      ],
+      "placement": {
+        "name": "ビューポート（1:400）",
+        "scaleX": 0.0025,
+        "scaleY": 0.0025,
+        "inverse": [
+          346.4101615137755,
+          -199.99999999999994,
+          199.99999999999994,
+          346.4101615137755,
+          -37430.50437472601,
+          -17612.29744348776
+        ]
+      }
+    },
+    {
+      "id": "52:44",
+      "type": "点",
+      "source": "POINT",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "dot",
+          "x": 67.34936490538904,
+          "y": 95.50000000000001,
+          "color": "#ffffff"
+        }
+      ],
+      "bbox": {
+        "minX": 67.34936490538904,
+        "minY": 95.50000000000001,
+        "maxX": 67.34936490538904,
+        "maxY": 95.50000000000001
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "点（POINT）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "52:44"
+        },
+        {
+          "label": "レイヤ",
+          "value": "0"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "位置",
+          "value": "5, 2"
+        }
+      ],
+      "placement": {
+        "name": "ビューポート（1:400）",
+        "scaleX": 0.0025,
+        "scaleY": 0.0025,
+        "inverse": [
+          346.4101615137755,
+          -199.99999999999994,
+          199.99999999999994,
+          346.4101615137755,
+          -37430.50437472601,
+          -17612.29744348776
+        ]
+      }
+    },
+    {
+      "id": "52:46",
+      "type": "ハッチング",
+      "source": "HATCH",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "clipped",
+          "rings": [
+            [
+              72.03847577293368,
+              78,
+              86.92468245269453,
+              86.59455543377233,
+              70.67468245269453,
+              114.74038105676658,
+              39,
+              96.45299461620749,
+              39,
+              94.60254037844388,
+              48.585481156726196,
+              78
+            ]
+          ],
+          "strokes": [
+            {
+              "kind": "stroke",
+              "points": [
+                52.28366630131697,
+                66.59455543377234,
+                86.92468245269453,
+                86.59455543377233,
+                51.03366630131697,
+                68.75961894323343,
+                85.67468245269453,
+                88.75961894323342,
+                49.78366630131697,
+                70.92468245269453,
+                84.42468245269453,
+                90.92468245269453,
+                48.53366630131697,
+                73.08974596215563,
+                83.17468245269453,
+                93.08974596215562,
+                47.28366630131697,
+                75.25480947161672,
+                81.92468245269453,
+                95.25480947161671,
+                46.03366630131697,
+                77.41987298107782,
+                80.67468245269453,
+                97.41987298107782,
+                44.78366630131697,
+                79.58493649053892,
+                79.42468245269453,
+                99.58493649053891,
+                43.53366630131697,
+                81.75000000000001,
+                78.17468245269453,
+                101.75,
+                42.28366630131697,
+                83.9150635094611,
+                76.92468245269453,
+                103.9150635094611,
+                41.03366630131697,
+                86.08012701892221,
+                75.67468245269453,
+                106.0801270189222,
+                39.78366630131697,
+                88.2451905283833,
+                74.42468245269453,
+                108.24519052838329,
+                38.53366630131697,
+                90.4102540378444,
+                73.17468245269453,
+                110.4102540378444,
+                37.28366630131697,
+                92.5753175473055,
+                71.92468245269453,
+                112.57531754730549,
+                36.03366630131697,
+                94.7403810567666,
+                70.67468245269453,
+                114.74038105676658
+              ],
+              "closed": false,
+              "segments": true,
+              "color": "#ffffff",
+              "width": 0,
+              "dashes": [
+                5,
+                2.5
+              ]
+            }
+          ]
+        }
+      ],
+      "bbox": {
+        "minX": 39,
+        "minY": 78,
+        "maxX": 86.92468245269453,
+        "maxY": 114.74038105676658
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "ハッチング（HATCH）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "52:46"
+        },
+        {
+          "label": "レイヤ",
+          "value": "0"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "模様",
+          "value": "LINES"
+        },
+        {
+          "label": "模様の尺度",
+          "value": "1"
+        },
+        {
+          "label": "模様の角度",
+          "value": "0°"
+        }
+      ],
+      "placement": {
+        "name": "ビューポート（1:400）",
+        "scaleX": 0.0025,
+        "scaleY": 0.0025,
+        "inverse": [
+          346.4101615137755,
+          -199.99999999999994,
+          199.99999999999994,
+          346.4101615137755,
+          -37430.50437472601,
+          -17612.29744348776
+        ]
+      }
+    },
+    {
+      "id": "52",
+      "type": "ビューポート",
+      "source": "VIEWPORT",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            39,
+            78,
+            139,
+            78,
+            139,
+            138,
+            39,
+            138
+          ],
+          "closed": true,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 39,
+        "minY": 78,
+        "maxX": 139,
+        "maxY": 138
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "ビューポート（VIEWPORT）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "52"
+        },
+        {
+          "label": "レイヤ",
+          "value": "0"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "縮尺",
+          "value": "1:400"
+        },
+        {
+          "label": "表示の中心（モデル）",
+          "value": "15, 2"
+        },
+        {
+          "label": "表示の高さ（モデル）",
+          "value": "24"
+        },
+        {
+          "label": "ねじれの角度",
+          "value": "30°"
+        }
+      ]
+    },
+    {
+      "id": "53:40",
+      "type": "線分",
+      "source": "LINE",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            199,
+            68,
+            259,
+            68
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": [
+            0.5,
+            0.25
+          ]
+        }
+      ],
+      "bbox": {
+        "minX": 199,
+        "minY": 68,
+        "maxX": 259,
+        "maxY": 68
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "線分（LINE）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "53:40"
+        },
+        {
+          "label": "レイヤ",
+          "value": "0"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "DASHED"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "始点",
+          "value": "0, 0"
+        },
+        {
+          "label": "終点",
+          "value": "30, 0"
+        },
+        {
+          "label": "長さ",
+          "value": "30"
+        }
+      ],
+      "placement": {
+        "name": "ビューポート（1:500）",
+        "scaleX": 0.002,
+        "scaleY": 0.002,
+        "inverse": [
+          500,
+          0,
+          0,
+          500,
+          -99500,
+          -34000
+        ]
+      }
+    },
+    {
+      "id": "53:41",
+      "type": "線分",
+      "source": "LINE",
+      "layers": [
+        2
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            199,
+            78,
+            259,
+            78
+          ],
+          "closed": false,
+          "color": "#ff0000",
+          "width": 0.25,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 199,
+        "minY": 78,
+        "maxX": 259,
+        "maxY": 78
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "線分（LINE）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "53:41"
+        },
+        {
+          "label": "レイヤ",
+          "value": "HIDE"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "始点",
+          "value": "0, 5"
+        },
+        {
+          "label": "終点",
+          "value": "30, 5"
+        },
+        {
+          "label": "長さ",
+          "value": "30"
+        }
+      ],
+      "placement": {
+        "name": "ビューポート（1:500）",
+        "scaleX": 0.002,
+        "scaleY": 0.002,
+        "inverse": [
+          500,
+          0,
+          0,
+          500,
+          -99500,
+          -34000
+        ]
+      }
+    },
+    {
+      "id": "53:42",
+      "type": "文字",
+      "source": "TEXT",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "text",
+          "text": "oúY‡W",
+          "color": "#ffffff",
+          "fontFamily": "\"MS Gothic\", \"Hiragino Kaku Gothic ProN\", \"Hiragino Sans\", \"Yu Gothic\", \"Noto Sans JP\", \"Noto Sans CJK JP\", sans-serif",
+          "height": 2.272727272727273,
+          "scaleX": 1,
+          "cells": [
+            {
+              "char": "o",
+              "x": 0.5681818181818182,
+              "y": 1.1363636363636365
+            },
+            {
+              "char": "",
+              "x": 2.272727272727273,
+              "y": 1.1363636363636365
+            },
+            {
+              "char": "ú",
+              "x": 4.545454545454546,
+              "y": 1.1363636363636365
+            },
+            {
+              "char": "Y",
+              "x": 6.25,
+              "y": 1.1363636363636365
+            },
+            {
+              "char": "‡",
+              "x": 7.954545454545455,
+              "y": 1.1363636363636365
+            },
+            {
+              "char": "W",
+              "x": 9.65909090909091,
+              "y": 1.1363636363636365
+            }
+          ],
+          "boxWidth": 10.227272727272728,
+          "boxHeight": 2.272727272727273,
+          "matrix": [
+            2,
+            0,
+            0,
+            2,
+            195,
+            87.45454545454545
+          ]
+        }
+      ],
+      "bbox": {
+        "minX": 195,
+        "minY": 87.45454545454545,
+        "maxX": 215.45454545454547,
+        "maxY": 92
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "文字（TEXT）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "53:42"
+        },
+        {
+          "label": "レイヤ",
+          "value": "0"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "文字列",
+          "value": "oúY‡W"
+        },
+        {
+          "label": "高さ",
+          "value": "2"
+        },
+        {
+          "label": "文字スタイル",
+          "value": "STANDARD"
+        }
+      ],
+      "placement": {
+        "name": "ビューポート（1:500）",
+        "scaleX": 0.002,
+        "scaleY": 0.002,
+        "inverse": [
+          500,
+          0,
+          0,
+          500,
+          -99500,
+          -34000
+        ]
+      }
+    },
+    {
+      "id": "53:43",
+      "type": "塗り（ソリッド）",
+      "source": "SOLID",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "fill",
+          "color": "#ffffff",
+          "rings": [
+            [
+              249,
+              58,
+              269,
+              58,
+              269,
+              72,
+              249,
+              72
+            ]
+          ]
+        }
+      ],
+      "bbox": {
+        "minX": 249,
+        "minY": 58,
+        "maxX": 269,
+        "maxY": 72
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "塗り（ソリッド）（SOLID）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "53:43"
+        },
+        {
+          "label": "レイヤ",
+          "value": "0"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        }
+      ],
+      "placement": {
+        "name": "ビューポート（1:500）",
+        "scaleX": 0.002,
+        "scaleY": 0.002,
+        "inverse": [
+          500,
+          0,
+          0,
+          500,
+          -99500,
+          -34000
+        ]
+      }
+    },
+    {
+      "id": "53:44",
+      "type": "点",
+      "source": "POINT",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "dot",
+          "x": 209,
+          "y": 72,
+          "color": "#ffffff"
+        }
+      ],
+      "bbox": {
+        "minX": 209,
+        "minY": 72,
+        "maxX": 209,
+        "maxY": 72
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "点（POINT）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "53:44"
+        },
+        {
+          "label": "レイヤ",
+          "value": "0"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "位置",
+          "value": "5, 2"
+        }
+      ],
+      "placement": {
+        "name": "ビューポート（1:500）",
+        "scaleX": 0.002,
+        "scaleY": 0.002,
+        "inverse": [
+          500,
+          0,
+          0,
+          500,
+          -99500,
+          -34000
+        ]
+      }
+    },
+    {
+      "id": "53:46",
+      "type": "ハッチング",
+      "source": "HATCH",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "clipped",
+          "rings": [
+            [
+              189,
+              58,
+              219,
+              58,
+              219,
+              84,
+              189,
+              84,
+              189,
+              58
+            ]
+          ],
+          "strokes": [
+            {
+              "kind": "stroke",
+              "points": [
+                187,
+                58,
+                219,
+                58,
+                187,
+                60,
+                219,
+                60,
+                187,
+                62,
+                219,
+                62,
+                187,
+                64,
+                219,
+                64,
+                187,
+                66,
+                219,
+                66,
+                187,
+                68,
+                219,
+                68,
+                187,
+                70,
+                219,
+                70,
+                187,
+                72,
+                219,
+                72,
+                187,
+                74,
+                219,
+                74,
+                187,
+                76,
+                219,
+                76,
+                187,
+                78,
+                219,
+                78,
+                187,
+                80,
+                219,
+                80,
+                187,
+                82,
+                219,
+                82,
+                187,
+                84,
+                219,
+                84
+              ],
+              "closed": false,
+              "segments": true,
+              "color": "#ffffff",
+              "width": 0,
+              "dashes": [
+                4,
+                2
+              ]
+            }
+          ]
+        }
+      ],
+      "bbox": {
+        "minX": 189,
+        "minY": 58,
+        "maxX": 219,
+        "maxY": 84
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "ハッチング（HATCH）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "53:46"
+        },
+        {
+          "label": "レイヤ",
+          "value": "0"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "模様",
+          "value": "LINES"
+        },
+        {
+          "label": "模様の尺度",
+          "value": "1"
+        },
+        {
+          "label": "模様の角度",
+          "value": "0°"
+        }
+      ],
+      "placement": {
+        "name": "ビューポート（1:500）",
+        "scaleX": 0.002,
+        "scaleY": 0.002,
+        "inverse": [
+          500,
+          0,
+          0,
+          500,
+          -99500,
+          -34000
+        ]
+      }
+    },
+    {
+      "id": "53",
+      "type": "ビューポート",
+      "source": "VIEWPORT",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            189,
+            38,
+            269,
+            38,
+            269,
+            98,
+            189,
+            98
+          ],
+          "closed": true,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 189,
+        "minY": 38,
+        "maxX": 269,
+        "maxY": 98
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "ビューポート（VIEWPORT）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "53"
+        },
+        {
+          "label": "レイヤ",
+          "value": "0"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "縮尺",
+          "value": "1:500"
+        },
+        {
+          "label": "表示の中心（モデル）",
+          "value": "15, 0"
+        },
+        {
+          "label": "表示の高さ（モデル）",
+          "value": "30"
+        }
+      ]
+    },
+    {
+      "id": "52:47",
+      "type": "構築線",
+      "source": "XLINE",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            63.01923788646678,
+            78,
+            39,
+            119.60254037844378
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 39,
+        "minY": 78,
+        "maxX": 63.01923788646678,
+        "maxY": 119.60254037844378
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "構築線（XLINE）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "52:47"
+        },
+        {
+          "label": "レイヤ",
+          "value": "0"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        }
+      ],
+      "placement": {
+        "name": "ビューポート（1:400）",
+        "scaleX": 0.0025,
+        "scaleY": 0.0025,
+        "inverse": [
+          346.4101615137755,
+          -199.99999999999994,
+          199.99999999999994,
+          346.4101615137755,
+          -37430.50437472601,
+          -17612.29744348776
+        ]
+      }
+    },
+    {
+      "id": "53:47",
+      "type": "構築線",
+      "source": "XLINE",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            199,
+            38,
+            199,
+            98
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 199,
+        "minY": 38,
+        "maxX": 199,
+        "maxY": 98
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "構築線（XLINE）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "53:47"
+        },
+        {
+          "label": "レイヤ",
+          "value": "0"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        }
+      ],
+      "placement": {
+        "name": "ビューポート（1:500）",
+        "scaleX": 0.002,
+        "scaleY": 0.002,
+        "inverse": [
+          500,
+          0,
+          0,
+          500,
+          -99500,
+          -34000
+        ]
+      }
+    }
+  ],
+  "notices": [
+    {
+      "level": "info",
+      "code": "viewport-clip",
+      "message": "矩形でないビューポートは、外接矩形で切り取りました",
+      "count": 1
+    },
+    {
+      "level": "info",
+      "code": "viewport-view",
+      "message": "上から見た向きでないビューポート（3D の表示）は描いていません",
+      "count": 1
+    },
+    {
+      "level": "info",
+      "code": "xline",
+      "message": "構築線・放射線は、ほかの図形の範囲で切って描きました",
+      "count": 2
+    },
+    {
+      "level": "info",
+      "code": "shx-font",
+      "message": "SHX フォント（txt）は同梱していないため、代わりのフォントで描きました",
+      "count": 3
+    }
+  ],
+  "metadata": [
+    {
+      "label": "形式",
+      "value": "DXF AutoCAD 2004（AC1018、テキスト）"
+    },
+    {
+      "label": "文字コード",
+      "value": "西欧（Windows-1252）（指定なし）"
+    },
+    {
+      "label": "単位",
+      "value": "m"
+    },
+    {
+      "label": "レイアウト",
+      "value": "Inches・Rotated"
+    },
+    {
+      "label": "表示",
+      "value": "レイアウト Rotated"
+    },
+    {
+      "label": "用紙",
+      "value": "ISO A4 (297.00 x 210.00 MM)（210×297 mm）"
+    },
+    {
+      "label": "ビューポートの縮尺",
+      "value": "1:400・1:500"
+    }
+  ],
+  "background": "light"
+}

@@ -151,8 +151,9 @@ class Parser {
       blocks: [],
       layouts: [],
       entities: [],
-      sort_handles: {},
-      skipped: {},
+      // 名前（ブロック・図形の種類）をキーにするので、__proto__ などが Object の既定の値と重ならないようにする
+      sort_handles: Object.create(null) as DxfDocument["sort_handles"],
+      skipped: Object.create(null) as DxfDocument["skipped"],
       notices: [],
     };
   }
@@ -1916,7 +1917,7 @@ class Parser {
     const own = this.subclassBody(body, "AcDbSortentsTable");
     let owner = "";
     let entity = "";
-    const handles: Record<string, string> = {};
+    const handles: Record<string, string> = Object.create(null);
     for (const k of own) {
       const code = this.code(k);
       if (code === 330 && !owner) owner = this.raw(k).trim().toUpperCase();

@@ -14,14 +14,26 @@ initSync({ module: readFileSync(new URL("../bindings/wasm/pkg/zumen_wasm_bg.wasm
 const fixtures = new URL("../tests/fixtures/", import.meta.url);
 let failed = 0;
 for (const format of readdirSync(fixtures, { withFileTypes: true }).filter((entry) => entry.isDirectory())) {
-  for (const name of readdirSync(new URL(`${format.name}/`, fixtures))) {
+  const names = readdirSync(new URL(`${format.name}/`, fixtures));
+  for (const name of names) {
     if (name.endsWith(".json") || name.startsWith(".")) continue;
     const bytes = readFileSync(new URL(`${format.name}/${name}`, fixtures));
-    const golden = readFileSync(new URL(`${format.name}/${name.replace(/\.[^.]+$/, "")}.scene.json`, fixtures), "utf8");
-    const same =
-      detect(bytes) === format.name && compareScenes(JSON.parse(golden), JSON.parse(readSceneJson(bytes))).length === 0;
-    console.log(`${same ? "same" : "DIFF"}  ${format.name}/${name}`);
-    if (!same) failed++;
+    const stem = name.replace(/\.[^.]+$/, "");
+    // 既定の表示は <名前>.scene.json、ほかの表示は <名前>@<表示>.scene.json
+    const views = [
+      undefined,
+      ...names.filter((golden) => golden.startsWith(`${stem}@`)).map((golden) => golden.slice(stem.length + 1, -11)),
+    ];
+    for (const view of views) {
+      const golden = readFileSync(
+        new URL(`${format.name}/${stem}${view ? `@${view}` : ""}.scene.json`, fixtures),
+        "utf8",
+      );
+      const actual = JSON.parse(readSceneJson(bytes, undefined, view));
+      const same = detect(bytes) === format.name && compareScenes(JSON.parse(golden), actual).length === 0;
+      console.log(`${same ? "same" : "DIFF"}  ${format.name}/${name}${view ? ` @${view}` : ""}`);
+      if (!same) failed++;
+    }
   }
 }
 

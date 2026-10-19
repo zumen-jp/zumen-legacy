@@ -15,7 +15,7 @@
     "check:rust": "cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace --exclude zumen-python && cargo build -p zumen-wasm --target wasm32-unknown-unknown --release",
     "dev": "vite",
     "format": "biome check --write .",
-    "fuzz": "node scripts/fuzz-parity.mjs",
+    "fuzz": "node --max-old-space-size=8192 scripts/fuzz-parity.mjs",
     "golden": "UPDATE_GOLDEN=1 vitest run",
     "lint": "biome check .",
     "parity": "node scripts/parity.mjs",
