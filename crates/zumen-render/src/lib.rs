@@ -14,9 +14,12 @@ use tiny_skia::{
     Color, FillRule, LineCap, LineJoin, Mask, Paint, Path, PathBuilder, Pixmap, Rect, Stroke, StrokeDash, Transform,
 };
 use ttf_parser::{Face, OutlineBuilder};
+use zumen_core::extract::{EntityFilter, select_entities};
 use zumen_core::{
     BACKGROUND_COLOR, BBox, Background, Matrix, Primitive, Scene, SceneEntity, StrokePrimitive, TextPrimitive,
 };
+
+pub use zumen_core::extract::is_entity_visible;
 
 /// 同梱の日本語フォント（BIZ UDゴシック Regular、SIL Open Font License 1.1。fonts/OFL.txt）
 pub const BUNDLED_FONT: &[u8] = include_bytes!("../fonts/BIZUDGothic-Regular.ttf");
@@ -70,6 +73,46 @@ impl View {
             offset_y: height / 2.0 + ((bounds.min_y + bounds.max_y) / 2.0) * scale,
         }
     }
+
+    /// 用紙の mm を画像の px にする（左上が原点で、Y は下向き）
+    pub fn to_pixel(&self, x: f64, y: f64) -> (f64, f64) {
+        (self.offset_x + x * self.scale, self.offset_y - y * self.scale)
+    }
+
+    /// 画像の px を用紙の mm にする
+    pub fn to_paper(&self, px: f64, py: f64) -> (f64, f64) {
+        ((px - self.offset_x) / self.scale, (self.offset_y - py) / self.scale)
+    }
+
+    /// width × height px の画像に写る用紙の範囲（mm）
+    pub fn visible_region(&self, width: u32, height: u32) -> BBox {
+        let (min_x, min_y) = self.to_paper(0.0, f64::from(height));
+        let (max_x, max_y) = self.to_paper(f64::from(width), 0.0);
+        BBox { min_x, min_y, max_x, max_y }
+    }
+
+    /// 用紙の矩形を、width × height px の画像の上の矩形にする。画像からはみ出す部分は切り、
+    /// 画像と重ならなければ None
+    pub fn pixel_box(&self, bbox: &BBox, width: u32, height: u32) -> Option<PixelBox> {
+        let (x0, y0) = self.to_pixel(bbox.min_x, bbox.max_y);
+        let (x1, y1) = self.to_pixel(bbox.max_x, bbox.min_y);
+        let clipped = PixelBox {
+            left: x0.max(0.0),
+            top: y0.max(0.0),
+            right: x1.min(f64::from(width)),
+            bottom: y1.min(f64::from(height)),
+        };
+        (clipped.left <= clipped.right && clipped.top <= clipped.bottom).then_some(clipped)
+    }
+}
+
+/// 画像の上の矩形（px。左上が原点で、Y は下向き）
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PixelBox {
+    pub left: f64,
+    pub top: f64,
+    pub right: f64,
+    pub bottom: f64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -136,10 +179,6 @@ pub fn render(
     let mut pixmap = Pixmap::new(width.max(1), height.max(1)).ok_or_else(|| RenderError::new("画像を作れません"))?;
     let face = Face::parse(BUNDLED_FONT, 0).map_err(|_| RenderError::new("同梱のフォントを読めません"))?;
     let theme = options.theme.unwrap_or(scene.background);
-    let hidden: HashSet<u32> = match &options.hidden_layers {
-        Some(hidden) => hidden.clone(),
-        None => scene.layers.iter().filter(|layer| !layer.visible).map(|layer| layer.id).collect(),
-    };
     let background = match theme {
         Background::Dark => (0, 0, 0),
         Background::Light => (255, 255, 255),
@@ -158,19 +197,10 @@ pub fn render(
         report: RenderReport::default(),
         batch: None,
     };
-    let visible = BBox {
-        min_x: (0.0 - view.offset_x) / view.scale,
-        min_y: (view.offset_y - f64::from(height)) / view.scale,
-        max_x: (f64::from(width) - view.offset_x) / view.scale,
-        max_y: view.offset_y / view.scale,
-    };
     if options.sheet_frame {
         painter.sheet(scene);
     }
-    for entity in &scene.entities {
-        if !intersects(&entity.bbox, &visible) || !is_entity_visible(entity, &hidden) {
-            continue;
-        }
+    for entity in drawn_entities(scene, view, width, height, options) {
         for primitive in &entity.primitives {
             painter.primitive(primitive, None);
         }
@@ -180,6 +210,44 @@ pub fn render(
     Ok((pixmap, report))
 }
 
+/// 画像の大きさの決め方
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ImageSize {
+    /// 用紙の範囲を dpi（1 インチ = 25.4 mm あたりの px）で描く
+    Dpi(f64),
+    /// 用紙の範囲を width × height px に、余白 margin px を残して収める
+    Fit { width: u32, height: u32, margin: f64 },
+}
+
+/// PNG にした図面と、画像の px と用紙の mm の変換。描いた図形は `drawn_entities` で分かる
+#[derive(Debug, Clone, PartialEq)]
+pub struct RenderedImage {
+    pub png: Vec<u8>,
+    pub view: View,
+    pub width: u32,
+    pub height: u32,
+    pub report: RenderReport,
+}
+
+/// 図面の範囲 region（用紙の mm、None なら図面全体）を描き、PNG にする
+pub fn render_image(
+    scene: &Scene,
+    region: Option<BBox>,
+    size: ImageSize,
+    options: &RenderOptions,
+) -> Result<RenderedImage, RenderError> {
+    let region = region.unwrap_or(scene.bounds);
+    let (view, width, height) = match size {
+        ImageSize::Dpi(dpi) => View::for_region(&region, dpi)?,
+        ImageSize::Fit { width, height, margin } => {
+            (View::fit(&region, f64::from(width), f64::from(height), margin), width, height)
+        }
+    };
+    let (pixmap, report) = render(scene, &view, width, height, options)?;
+    let png = pixmap.encode_png().map_err(|error| RenderError::new(format!("PNG を作れません: {error}")))?;
+    Ok(RenderedImage { png, view, width, height, report })
+}
+
 /// 図面の範囲 region（用紙の mm、None なら図面全体）を dpi で描き、PNG にする
 pub fn render_png(
     scene: &Scene,
@@ -187,11 +255,8 @@ pub fn render_png(
     dpi: f64,
     options: &RenderOptions,
 ) -> Result<(Vec<u8>, RenderReport), RenderError> {
-    let region = region.unwrap_or(scene.bounds);
-    let (view, width, height) = View::for_region(&region, dpi)?;
-    let (pixmap, report) = render(scene, &view, width, height, options)?;
-    let png = pixmap.encode_png().map_err(|error| RenderError::new(format!("PNG を作れません: {error}")))?;
-    Ok((png, report))
+    let image = render_image(scene, region, ImageSize::Dpi(dpi), options)?;
+    Ok((image.png, image.report))
 }
 
 /// 図面の範囲 region（None なら図面全体）を width × height px に、余白 margin px を残して収めて描き、PNG にする
@@ -203,20 +268,21 @@ pub fn render_png_fit(
     margin: f64,
     options: &RenderOptions,
 ) -> Result<(Vec<u8>, RenderReport), RenderError> {
-    let region = region.unwrap_or(scene.bounds);
-    let view = View::fit(&region, f64::from(width), f64::from(height), margin);
-    let (pixmap, report) = render(scene, &view, width, height, options)?;
-    let png = pixmap.encode_png().map_err(|error| RenderError::new(format!("PNG を作れません: {error}")))?;
-    Ok((png, report))
+    let image = render_image(scene, region, ImageSize::Fit { width, height, margin }, options)?;
+    Ok((image.png, image.report))
 }
 
-/// TypeScript の isEntityVisible と同じ: 自分か配置元のレイヤが 1 つでも非表示なら描かない
-pub fn is_entity_visible(entity: &SceneEntity, hidden: &HashSet<u32>) -> bool {
-    hidden.is_empty() || !entity.layers.iter().any(|layer| hidden.contains(layer))
-}
-
-fn intersects(b: &BBox, visible: &BBox) -> bool {
-    !(b.max_x < visible.min_x || b.min_x > visible.max_x || b.max_y < visible.min_y || b.min_y > visible.max_y)
+/// render が描く図形を、描く順に返す。表示するレイヤにあり、外接矩形が画像に写る範囲と重なる図形
+pub fn drawn_entities<'a>(
+    scene: &'a Scene,
+    view: &View,
+    width: u32,
+    height: u32,
+    options: &RenderOptions,
+) -> Vec<&'a SceneEntity> {
+    let filter =
+        EntityFilter { region: Some(view.visible_region(width, height)), hidden_layers: options.hidden_layers.clone() };
+    select_entities(scene, &filter)
 }
 
 /// #rrggbb・#rrggbbaa を RGBA にする。読めない色は None
@@ -588,5 +654,99 @@ impl OutlineBuilder for Outline {
 
     fn close(&mut self) {
         self.commands.push(Command::Close);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zumen_core::{Primitive, SceneLayer, StrokePrimitive};
+
+    fn line(id: &str, layers: Vec<u32>, points: [f64; 4]) -> SceneEntity {
+        let [x0, y0, x1, y1] = points;
+        SceneEntity {
+            id: id.into(),
+            kind: "線分".into(),
+            source: "test".into(),
+            layers,
+            primitives: vec![Primitive::Stroke(StrokePrimitive {
+                points: points.to_vec(),
+                closed: false,
+                segments: None,
+                color: "#000000".into(),
+                width: 0.0,
+                dashes: Vec::new(),
+            })],
+            bbox: BBox { min_x: x0.min(x1), min_y: y0.min(y1), max_x: x0.max(x1), max_y: y0.max(y1) },
+            properties: Vec::new(),
+            placement: None,
+        }
+    }
+
+    fn scene() -> Scene {
+        Scene {
+            format: "test".into(),
+            version: "1".into(),
+            views: None,
+            view: None,
+            sheet: None,
+            bounds: BBox { min_x: 0.0, min_y: 0.0, max_x: 100.0, max_y: 50.0 },
+            layers: vec![
+                SceneLayer { id: 0, name: "表示".into(), visible: true, group: None },
+                SceneLayer { id: 1, name: "非表示".into(), visible: false, group: None },
+            ],
+            entities: vec![
+                line("a", vec![0], [0.0, 0.0, 100.0, 50.0]),
+                line("b", vec![1], [10.0, 10.0, 20.0, 10.0]),
+                line("c", vec![0], [80.0, 40.0, 90.0, 45.0]),
+            ],
+            notices: Vec::new(),
+            metadata: Vec::new(),
+            background: Background::Light,
+        }
+    }
+
+    #[test]
+    fn converts_between_pixels_and_paper_millimeters() {
+        // 用紙の (0, 0)〜(100, 50) を 1 mm = 2 px で描く
+        let (view, width, height) = View::for_region(&scene().bounds, 50.8).unwrap();
+        assert_eq!((view.scale, width, height), (2.0, 200, 100));
+        assert_eq!(view.to_pixel(0.0, 50.0), (0.0, 0.0));
+        assert_eq!(view.to_pixel(100.0, 0.0), (200.0, 100.0));
+        assert_eq!(view.to_paper(50.0, 25.0), (25.0, 37.5));
+        assert_eq!(view.visible_region(width, height), scene().bounds);
+        let inside = BBox { min_x: 10.0, min_y: 10.0, max_x: 20.0, max_y: 15.0 };
+        assert_eq!(
+            view.pixel_box(&inside, width, height),
+            Some(PixelBox { left: 20.0, top: 70.0, right: 40.0, bottom: 80.0 })
+        );
+        // 画像からはみ出す部分は切り、重ならなければ None
+        let across = BBox { min_x: -10.0, min_y: 40.0, max_x: 10.0, max_y: 60.0 };
+        assert_eq!(
+            view.pixel_box(&across, width, height),
+            Some(PixelBox { left: 0.0, top: 0.0, right: 20.0, bottom: 20.0 })
+        );
+        let outside = BBox { min_x: 120.0, min_y: 0.0, max_x: 130.0, max_y: 10.0 };
+        assert_eq!(view.pixel_box(&outside, width, height), None);
+    }
+
+    #[test]
+    fn reports_the_entities_it_draws() {
+        let scene = scene();
+        let ids = |entities: Vec<&SceneEntity>| entities.into_iter().map(|e| e.id.clone()).collect::<Vec<_>>();
+        let options = RenderOptions::default();
+        let image =
+            render_image(&scene, None, ImageSize::Fit { width: 200, height: 100, margin: 0.0 }, &options).unwrap();
+        assert!(image.png.starts_with(b"\x89PNG"));
+        assert_eq!((image.width, image.height, image.view.scale), (200, 100, 2.0));
+        assert_eq!(ids(drawn_entities(&scene, &image.view, image.width, image.height, &options)), ["a", "c"]);
+        // 非表示のレイヤも描くとき
+        let all = RenderOptions { hidden_layers: Some(HashSet::new()), ..RenderOptions::default() };
+        assert_eq!(ids(drawn_entities(&scene, &image.view, image.width, image.height, &all)), ["a", "b", "c"]);
+        // 範囲を指定すると、その範囲に写る図形だけ
+        let part = BBox { min_x: 0.0, min_y: 0.0, max_x: 30.0, max_y: 20.0 };
+        let image = render_image(&scene, Some(part), ImageSize::Dpi(25.4), &all).unwrap();
+        assert_eq!((image.width, image.height), (30, 20));
+        assert_eq!(ids(drawn_entities(&scene, &image.view, image.width, image.height, &all)), ["a", "b"]);
     }
 }

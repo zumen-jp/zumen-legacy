@@ -4,6 +4,11 @@ All packages share one version during 0.x.
 
 ## Unreleased (0.1.0)
 
+- Rust and Python: the texts and entities of a scene (`zumen_core::extract`; `Scene.texts`, `Scene.entities`,
+  `Scene.entity` and `Scene.to_arrow` in Python; `zumen texts` and `zumen entities` as JSON lines), and rendering that
+  returns the conversion between pixels and paper millimeters and the box of every entity drawn
+  (`zumen_render::render_image`, `Scene.render` and `Rendering`, `zumen render --map`), so that an application can show
+  the entity that a vision model refers to. `zumen render` takes `--region` and `--all-layers`.
 - `@zumenjs/stb`: read ST-Bridge 2.0 and 2.1 structural models (UTF-8 and Shift_JIS, including mismatched declarations)
   into a 3D model of members extruded from their sections, with stories, grid axes, materials and the original XML
   attributes. `@zumenjs/stb/three` draws it with three.js (filters by kind, story and axis, picking), and

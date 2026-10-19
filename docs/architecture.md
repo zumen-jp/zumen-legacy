@@ -103,18 +103,28 @@ bytes ─▶ zumen-sxf, zumen-jww, zumen-dxf (and later zumen-dwg) ─▶ Scene 
 
 | Crate | Responsibility |
 | --- | --- |
-| `zumen-core` | The `Scene` types (serde, the same JSON as `sceneToJson`), `NoticeList`, `DrawingReader` and `read_drawing`, geometry (`geometry`), text layout (`text`), measurement, and JavaScript-compatible number handling (`js`). |
+| `zumen-core` | The `Scene` types (serde, the same JSON as `sceneToJson`), `NoticeList`, `DrawingReader` and `read_drawing`, geometry (`geometry`), text layout (`text`), measurement, texts and entities for servers (`extract`), and JavaScript-compatible number handling (`js`). |
 | `zumen-sxf` | SFC and P21 parsing into the SXF feature model (`parse_sfc`, `parse_p21` → `SxfDrawing`), conversion to a scene (`sxf_to_scene`), and the `SXF` reader. |
 | `zumen-jww` | JWW parsing into the JWW document model (`read_jww`), conversion to a scene (`jww_to_scene`), and the `JWW` reader. |
 | `zumen-dxf` | DXF parsing (ASCII and binary) into the AutoCAD drawing model (`parse_dxf` → `DxfDocument`), conversion of model space or a layout to a scene (`dxf_to_scene`), and the `DXF` reader. |
 | `zumen` | `read` and `detect` over every reader. The entry point for applications. |
-| `zumen-render` | Draws a scene to PNG with the rules of `render.ts` (color inversion, line weights with a 1 px minimum, dash rules, even-odd fills, clipping, per-character text, small text as a line). |
-| `zumen-cli` | The `zumen` command (`detect`, `scene`, `render`). |
-| `bindings/python` | PyO3 bindings, built with maturin as an abi3 wheel for Python 3.10 and later. The GIL is released while reading and rendering. |
+| `zumen-render` | Draws a scene to PNG with the rules of `render.ts` (color inversion, line weights with a 1 px minimum, dash rules, even-odd fills, clipping, per-character text, small text as a line), and reports which entities it drew and where (`render_image`, `drawn_entities`, `View::pixel_box`). |
+| `zumen-cli` | The `zumen` command (`detect`, `scene`, `texts`, `entities`, `render`). |
+| `bindings/python` | PyO3 bindings, built with maturin as an abi3 wheel for Python 3.10 and later. The GIL is released while reading and rendering. `Scene.to_arrow` needs pyarrow (Apache-2.0), an optional dependency (`zumen[arrow]`). |
 | `bindings/wasm` | wasm-bindgen bindings that return scene JSON (`readSceneJson`). |
 
 The dependency rules follow the TypeScript packages: format crates depend only on `zumen-core` and never on each other
 (the planned `zumen-dwg` reads into the AutoCAD model of `zumen-dxf`), and parsing does not depend on rendering.
+
+### Texts, entities and images for servers
+
+Servers and vision models read a drawing from an image and from its contents together. `zumen_core::extract` selects
+the entities of a scene by region and layer visibility (the rules of the renderer) and gives the text of an entity:
+the text primitives on one line are joined, a line break separates lines (stacked fractions become two lines), and the
+position, height, angle and box are in paper millimeters. `zumen_render::render_image` returns the PNG with the
+conversion between pixels and paper millimeters, and `drawn_entities` with `View::pixel_box` gives the box of every
+entity drawn, in pixels. An application can then show the entity that a model refers to, or render the part of the
+sheet around it. These work on the scene, so every format gets them at once. There is no TypeScript counterpart yet.
 
 ### Keeping the two implementations equal
 

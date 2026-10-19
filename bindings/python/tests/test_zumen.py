@@ -56,3 +56,77 @@ def test_renders_png_and_reports_unreadable_input():
         zumen.read(b"not a drawing")
     with pytest.raises(zumen.RenderError):
         scene.render_png(dpi=0)
+
+
+def test_extracts_texts_and_entities_in_paper_millimeters():
+    scene = zumen.read(FIXTURES / "sfc" / "features.sfc")
+    texts = {text["id"]: text for text in scene.texts()}
+    assert texts["#700"] == {
+        "id": "#700",
+        "type": "文字",
+        "text": "平面図",
+        "x": 10.0,
+        "y": 220.0,
+        "height": 5.0,
+        "angle": 0.0,
+        "bbox": (10.0, 220.0, 25.0, 225.0),
+        "layers": ["寸法"],
+    }
+    assert math.isclose(texts["#710"]["angle"], 30.0)
+    assert [text["id"] for text in scene.texts(region=(0, 215, 30, 230))] == ["#700"]
+
+    entity = scene.entity("#700")
+    assert entity is not None
+    assert (entity["type"], entity["text"], entity["layers"], entity["placement"]) == ("文字", "平面図", ["寸法"], None)
+    assert ("文字列", "平面図") in entity["properties"]
+    assert scene.entity("no such id") is None
+    every = scene.entities(hidden_layers=[])
+    assert len(every) == len(scene) and every[0] == scene.entity(every[0]["id"])
+
+    # 複数行文字は行ごとに改行を入れ、ブロックの中の図形は配置の縮尺を持つ
+    dxf = zumen.read(FIXTURES / "dxf" / "features.dxf")
+    lines = next(text["text"] for text in dxf.texts() if text["id"] == "151").split("\n")
+    assert lines[:2] == ["長い文章を折り返す", "folding long"]
+    inside = next(entity for entity in zumen.read(FIXTURES / "dxf" / "blocks.dxf").entities() if entity["placement"])
+    assert set(inside["placement"]) == {"name", "scale_x", "scale_y"}
+
+
+def test_lists_entities_as_an_arrow_table():
+    pa = pytest.importorskip("pyarrow")
+    scene = zumen.read(FIXTURES / "sfc" / "features.sfc")
+    table = scene.to_arrow()
+    assert table.num_rows == len(scene.entities())
+    assert table.schema.field("layers").type == pa.list_(pa.string())
+    assert table.schema.field("properties").type == pa.list_(
+        pa.struct([("label", pa.string()), ("value", pa.string())])
+    )
+    row = next(row for row in table.to_pylist() if row["id"] == "#700")
+    assert (row["text"], row["min_x"], row["max_y"], row["placement"]) == ("平面図", 10.0, 225.0, None)
+    assert {"label": "文字列", "value": "平面図"} in row["properties"]
+    assert scene.to_arrow(region=(0, 215, 30, 230)).column("id").to_pylist() == ["#700"]
+
+
+def test_renders_with_the_pixel_box_of_each_entity():
+    scene = zumen.read(FIXTURES / "sfc" / "features.sfc")
+    image = scene.render(size=(800, 600), margin=10)
+    assert isinstance(image, zumen.Rendering)
+    assert image.png.startswith(b"\x89PNG\r\n\x1a\n") and image._repr_png_() == image.png
+    assert (image.width, image.height) == (800, 600)
+    x, y = image.to_paper(*image.to_pixel(12.5, 34.5))
+    assert math.isclose(x, 12.5) and math.isclose(y, 34.5)
+
+    drawn = {entity["id"]: entity for entity in image.entities}
+    text = drawn["#700"]
+    left, top = image.to_pixel(10.0, 225.0)
+    right, bottom = image.to_pixel(25.0, 220.0)
+    assert text["text"] == "平面図"
+    assert all(math.isclose(a, b) for a, b in zip(text["box"], (left, top, right, bottom), strict=True))
+    hits = [entity["id"] for entity in image.entities_at((left + right) / 2, (top + bottom) / 2)]
+    assert "#700" in hits
+
+    # 範囲を指定すると、その範囲に写る図形だけを返す
+    part = scene.render(dpi=100, region=(0, 215, 30, 230))
+    assert part.scale == pytest.approx(100 / 25.4)
+    assert part.region[0] == pytest.approx(0) and part.region[3] == pytest.approx(230)
+    assert "#700" in {entity["id"] for entity in part.entities}
+    assert "#750" not in {entity["id"] for entity in part.entities}
