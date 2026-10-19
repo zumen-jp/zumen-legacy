@@ -1,10 +1,10 @@
 import type { Notice } from "@zumenjs/core";
 
 /**
- * AutoCAD の図面のモデル。DXF の読み取り（parseDxf）と DWG の読み取りで共有し、dxfToScene で表示用の図面にする。
- * 属性の名前は ezdxf の DXF 属性名に合わせ、ezdxf と違う名前を使う ezdwg（高水準 API と WASM 版の JSON）の属性は
- * ezdwg の名前（color_index、linetype_scale、view_center など）にした。ezdwg の図形は名前を変えずに入る。
- * 座標は図面の単位（$INSUNITS）のままで、角度は度。DXF の配列（[x, y, z]）は ezdwg の JSON と同じ形。
+ * AutoCAD の図面のモデル。DXF の読み取り（parseDxf）が作り、dxfToScene で表示用の図面にする。Rust の移植（zumen-dxf）は
+ * DWG の読み取り（zumen-dwg）とこのモデルを共有する。属性の名前は ezdxf の DXF 属性名に合わせ、ezdxf と違う名前を使う
+ * ezdwg（高水準 API と WASM 版の JSON）の属性は ezdwg の名前（color_index、linetype_scale、view_center など）にした。
+ * 座標は図面の単位（$INSUNITS）のままで、角度は度。点は [x, y, z] の配列。
  */
 
 export type Vec2 = [number, number];
@@ -511,7 +511,7 @@ export interface DxfMLine extends DxfEntityBase {
   miter_directions: Vec3[];
   /**
    * 頂点ごと・要素ごとの線のパラメータ（74・41）。1 つ目は頂点から留め継ぎの向きへの要素の距離、
-   * 2 つ目以降は要素の線の始まりと切れ目の位置（MLEDIT の切断）。DWG（ezdwg）は持たず、MLINESTYLE から求める
+   * 2 つ目以降は要素の線の始まりと切れ目の位置（MLEDIT の切断）。ないときは MLINESTYLE から求める
    */
   line_params?: number[][][];
   /** 頂点ごと・要素ごとの塗りのパラメータ（75・42） */
@@ -770,7 +770,7 @@ export interface DxfDocument {
   linetypes: DxfLinetype[];
   styles: DxfTextStyle[];
   dimstyles: DxfDimStyle[];
-  /** マルチラインのスタイル。DWG（ezdwg）は読まないので省略できる（STANDARD の 2 本の線で描く） */
+  /** マルチラインのスタイル。省略すると、マルチラインを STANDARD の 2 本の線で描く */
   mline_styles?: DxfMLineStyle[];
   blocks: DxfBlock[];
   layouts: DxfLayout[];

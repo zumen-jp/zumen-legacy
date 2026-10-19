@@ -1851,7 +1851,7 @@ class Builder {
         const m = miter(v);
         let t = entity.line_params?.[v]?.[e]?.[0];
         if (t === undefined) {
-          // 41 がない（DWG）ときは、スタイルのずれ・位置合わせ・尺度から、留め継ぎの向きへの距離を求める
+          // 41 がないときは、スタイルのずれ・位置合わせ・尺度から、留め継ぎの向きへの距離を求める
           const d = direction(v);
           const across = -m[0] * d[1] + m[1] * d[0];
           const offset = (element.offset + shift) * entity.scale;
@@ -2142,8 +2142,9 @@ class Builder {
       const k0 = Math.floor(Math.min(...ts));
       const k1 = Math.ceil(Math.max(...ts));
       count += k1 - k0 + 1;
-      // 本数が数えられない（基点・間隔が NaN の）ときも、多すぎるものとして扱う
-      if (!(count <= MAX_PATTERN_LINES)) return null;
+      // 本数が数えられない（基点・間隔が NaN の）ときと、基点が遠すぎて線の番号に 1 を足しても変わらない
+      // （2⁵³ を超える）ときも、多すぎるものとして扱う
+      if (!(count <= MAX_PATTERN_LINES) || Math.max(Math.abs(k0), Math.abs(k1)) > Number.MAX_SAFE_INTEGER) return null;
       const period = line.dashes.reduce((sum, value) => sum + Math.abs(value), 0);
       const segments: number[] = [];
       for (let k = k0; k <= k1; k++) {
@@ -2411,17 +2412,23 @@ function defaultView(doc: DxfDocument, builder: Builder): string {
   return paperLayouts.find(hasContent)?.name ?? "Model";
 }
 
+/** 形式の名前。DWG から読んだ文書（zumen-dwg）は DWG */
+function formatName(doc: DxfDocument): string {
+  return doc.format === "dwg" ? "DWG" : "DXF";
+}
+
 function metadataBase(doc: DxfDocument, unitName: string): Property[] {
   const release = RELEASES[doc.version];
   const encodingLabels: Record<string, string> = {
     "utf-8": "UTF-8",
+    "utf-16le": "UTF-16",
     shift_jis: "Shift_JIS（CP932）",
     "windows-1252": "西欧（Windows-1252）",
   };
   const encoding = encodingLabels[doc.encoding] ?? doc.encoding;
   const source =
     doc.encoding_source === "version"
-      ? "AutoCAD 2007 以降の DXF"
+      ? `AutoCAD 2007 以降の ${formatName(doc)}`
       : doc.encoding_source === "codepage"
         ? `$DWGCODEPAGE ${doc.header.codepage ?? ""}`.trim()
         : doc.encoding_source === "detected"
@@ -2431,7 +2438,10 @@ function metadataBase(doc: DxfDocument, unitName: string): Property[] {
   const metadata: Property[] = [
     {
       label: "形式",
-      value: `DXF ${release ? `AutoCAD ${release}` : doc.version}（${doc.version}、${doc.binary ? "バイナリ" : "テキスト"}）`,
+      value:
+        doc.format === "dwg"
+          ? `DWG ${release ? `AutoCAD ${release}` : doc.version}（${doc.version}）`
+          : `DXF ${release ? `AutoCAD ${release}` : doc.version}（${doc.version}、${doc.binary ? "バイナリ" : "テキスト"}）`,
     },
     { label: "文字コード", value: `${encoding}（${source}）` },
     { label: "単位", value: unitName },
@@ -2561,8 +2571,8 @@ export function dxfToScene(doc: DxfDocument, options: DxfSceneOptions = {}): Sce
   for (const entity of builder.entities) unionBox(bounds, entity.bbox);
   builder.finishNotices();
   return {
-    format: "dxf",
-    version: `DXF ${doc.version}`,
+    format: doc.format,
+    version: `${formatName(doc)} ${doc.version}`,
     views: views(doc),
     view,
     sheet,

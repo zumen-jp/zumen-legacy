@@ -24,15 +24,15 @@ bytes ─▶ readStb ─▶ StructureModel ─▶ StructureView (three.js) ─�
 | `@zumenjs/core` | The `Scene` model and its types, `NoticeList`, `readDrawing` and the `DrawingReader` interface, the Canvas 2D renderer, hit testing and snapping (`HitIndex`), distance measurement (`measureDistance`, `toReal`), and `DrawingViewer`. Geometry helpers are exported from `@zumenjs/core/geometry` and text layout from `@zumenjs/core/text`. |
 | `@zumenjs/sxf` | SFC and P21 parsing into the SXF feature model (`parseSfc`, `parseP21` → `SxfDrawing`), conversion to a scene (`sxfToScene`), and the `sxf` reader. |
 | `@zumenjs/jww` | JWW parsing into the JWW document model (`readJww` → `JwwDocument`), conversion to a scene (`jwwToScene`), and the `jww` reader. |
-| `@zumenjs/dxf` | DXF parsing (ASCII and binary) into the AutoCAD drawing model (`parseDxf` → `DxfDocument`), conversion of model space or a layout to a scene (`dxfToScene`), and the `dxf` reader. The model and the conversion are shared with the DWG reader. |
+| `@zumenjs/dxf` | DXF parsing (ASCII and binary) into the AutoCAD drawing model (`parseDxf` → `DxfDocument`), conversion of model space or a layout to a scene (`dxfToScene`), and the `dxf` reader. Their Rust port (`zumen-dxf`) also draws DWG. |
 | `@zumenjs/react` | `useDrawingViewer` (the engine in React), `CadViewer` (a complete viewer), and `useCadFile`. |
 | `@zumenjs/stb` | ST-Bridge parsing into a 3D structural model (`isStb`, `readStb` → `StructureModel`) and member filters (`isMemberVisible`, `membersOnAxis`). `@zumenjs/stb/three` draws the model with three.js (`StructureView`, tessellation and picking), and `@zumenjs/stb/react` adds `StbViewer` and `useStbFile`. |
 
 1. Format packages depend only on `@zumenjs/core`, never on each other.
    For example, `@zumenjs/jww` keeps its own copy of the SXF-compatible colors and line types.
-   The one exception is the planned `@zumenjs/dwg`: DXF and DWG are two encodings of the same AutoCAD drawing database,
-   so the DWG reader produces a `DxfDocument` and draws it with `dxfToScene` from `@zumenjs/dxf`
-   (see [How DXF is handled](formats/dxf.md#the-autocad-drawing-model)).
+   DWG has no TypeScript package: DXF and DWG are two encodings of the same AutoCAD drawing database, and DWG is read
+   only in Rust, by `zumen-dwg` into the `DxfDocument` of `zumen-dxf` (see [decision 0003](decisions/0003-dwg-in-rust.md)
+   and [How DWG is handled](formats/dwg.md)). A future `@zumenjs/dwg` wraps the WebAssembly build.
 2. `@zumenjs/core` has no knowledge of any format. Formats are passed to `readDrawing` as `DrawingReader`s.
 3. Parsing (`parse*`, `read*` and everything below them) does not use the DOM, React or the renderer.
    It uses only the types and `NoticeList` from `@zumenjs/core`. The `*ToScene` conversions use the geometry
@@ -94,11 +94,12 @@ The readers are being ported to Rust so that servers, data pipelines and Python 
 results as the browser. The Rust code will become the single implementation of the readers: the browser packages
 switch to its WebAssembly build format by format, once the Rust reader returns the same scene as the TypeScript one
 on the fixtures and on real drawings. Until then both are maintained, and the TypeScript reader is the reference.
+DWG is the first format read only in Rust ([decision 0003](decisions/0003-dwg-in-rust.md)).
 
 ```text
-bytes ─▶ zumen-sxf, zumen-jww, zumen-dxf (and later zumen-dwg) ─▶ Scene (zumen-core) ─┬▶ JSON ─▶ sceneFromJson ─▶ DrawingViewer
-                                                                                        ├▶ PNG (zumen-render)
-                                                                                        └▶ Python (bindings/python), WebAssembly (bindings/wasm)
+bytes ─▶ zumen-sxf, zumen-jww, zumen-dxf, zumen-dwg ─▶ Scene (zumen-core) ─┬▶ JSON ─▶ sceneFromJson ─▶ DrawingViewer
+                                                                             ├▶ PNG (zumen-render)
+                                                                             └▶ Python (bindings/python), WebAssembly (bindings/wasm)
 ```
 
 | Crate | Responsibility |
@@ -107,6 +108,7 @@ bytes ─▶ zumen-sxf, zumen-jww, zumen-dxf (and later zumen-dwg) ─▶ Scene 
 | `zumen-sxf` | SFC and P21 parsing into the SXF feature model (`parse_sfc`, `parse_p21` → `SxfDrawing`), conversion to a scene (`sxf_to_scene`), and the `SXF` reader. |
 | `zumen-jww` | JWW parsing into the JWW document model (`read_jww`), conversion to a scene (`jww_to_scene`), and the `JWW` reader. |
 | `zumen-dxf` | DXF parsing (ASCII and binary) into the AutoCAD drawing model (`parse_dxf` → `DxfDocument`), conversion of model space or a layout to a scene (`dxf_to_scene`), and the `DXF` reader. |
+| `zumen-dwg` | DWG decoding (AutoCAD 2000 to 2018) into the AutoCAD drawing model of `zumen-dxf` (`read_dwg` → `DxfDocument`), drawn with `dxf_to_scene`, and the `DWG` reader. |
 | `zumen` | `read` and `detect` over every reader. The entry point for applications. |
 | `zumen-render` | Draws a scene to PNG with the rules of `render.ts` (color inversion, line weights with a 1 px minimum, dash rules, even-odd fills, clipping, per-character text, small text as a line), and reports which entities it drew and where (`render_image`, `drawn_entities`, `View::pixel_box`). |
 | `zumen-cli` | The `zumen` command (`detect`, `scene`, `texts`, `entities`, `render`). |
@@ -114,7 +116,8 @@ bytes ─▶ zumen-sxf, zumen-jww, zumen-dxf (and later zumen-dwg) ─▶ Scene 
 | `bindings/wasm` | wasm-bindgen bindings that return scene JSON (`readSceneJson`). |
 
 The dependency rules follow the TypeScript packages: format crates depend only on `zumen-core` and never on each other
-(the planned `zumen-dwg` reads into the AutoCAD model of `zumen-dxf`), and parsing does not depend on rendering.
+(the exception is `zumen-dwg`, which reads into the AutoCAD model of `zumen-dxf` and draws with `dxf_to_scene`), and
+parsing does not depend on rendering.
 
 ### Texts, entities and images for servers
 
@@ -165,6 +168,12 @@ tools only read, take local paths limited by `--root`, and bound file sizes, ima
   MTEXT format codes, removed and repeated ranges, changed numbers) with the built TypeScript packages and the WebAssembly
   build, and reports any input where the scenes or the error messages differ. Bytes that ICU and WHATWG decode
   differently are replaced first, and lone surrogates in the TypeScript scene are replaced with U+FFFD before comparing.
+- DWG has no TypeScript reader to compare with. `pnpm run parity` compares the Rust scene of `<name>.dwg` with the
+  TypeScript scene of `<name>.dxf` or `<name>_ascii.dxf`, without the format, version and metadata, and reports
+  differences without failing, because AutoCAD rounds numbers and gives some entities new handles in DXF.
+  `crates/zumen-dwg/examples/compare.rs` compares the two `DxfDocument`s entity by entity and every view, and
+  `crates/zumen-dwg/examples/fuzz.rs` reads damaged copies of DWG files natively with overflow checks and reports panics
+  and inputs that take too long.
 
 ### Rust dependencies
 
@@ -173,7 +182,7 @@ Runtime dependencies are permissive and work in WebAssembly. Recorded with the r
 | Crate | License | Why |
 | --- | --- | --- |
 | `serde`, `serde_json` | MIT OR Apache-2.0 | The scene JSON shared with the browser |
-| `encoding_rs` | (MIT OR Apache-2.0) AND BSD-3-Clause | Shift_JIS (CP932), the DXF code pages (`$DWGCODEPAGE`) and UTF-16 with the WHATWG rules of `TextDecoder` |
+| `encoding_rs` | (MIT OR Apache-2.0) AND BSD-3-Clause | Shift_JIS (CP932), the DXF and DWG code pages (`$DWGCODEPAGE`) and UTF-16 (DWG 2007 and later) with the WHATWG rules of `TextDecoder` |
 | `unicode-normalization` | (MIT OR Apache-2.0) AND Unicode-3.0 | NFKC for font names, as `String.prototype.normalize` (about 128 KB of the WebAssembly build) |
 | `libm` | MIT | The same trigonometry on every target |
 | `tiny-skia` | BSD-3-Clause | CPU rasterization for PNG, with anti-aliasing, dashes, even-odd fills and masks |
