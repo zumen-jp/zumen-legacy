@@ -131,3 +131,44 @@ def test_renders_with_the_pixel_box_of_each_entity():
     assert part.region[0] == pytest.approx(0) and part.region[3] == pytest.approx(230)
     assert "#700" in {entity["id"] for entity in part.entities}
     assert "#750" not in {entity["id"] for entity in part.entities}
+
+
+def test_stops_reading_at_the_limits():
+    path = FIXTURES / "sfc" / "features.sfc"
+    total = len(zumen.read(path))
+    roomy = zumen.read(path, max_bytes=path.stat().st_size, max_entities=total, timeout=60)
+    assert roomy.to_json() == zumen.read(path).to_json()
+    for limits, limit in [
+        ({"max_entities": total - 1}, "entities"),
+        ({"timeout": 0}, "time"),
+        ({"max_bytes": 10}, "bytes"),
+    ]:
+        with pytest.raises(zumen.LimitError) as error:
+            zumen.read(path, **limits)
+        assert error.value.limit == limit and isinstance(error.value, zumen.ReadError)
+    with pytest.raises(zumen.LimitError) as error:
+        zumen.read(path.read_bytes(), max_bytes=10)
+    assert error.value.limit == "bytes"
+    with pytest.raises(ValueError):
+        zumen.read(path, timeout=-1)
+
+
+def test_reads_compressed_sxf_and_stops_unpacking_at_the_limit(tmp_path):
+    import zipfile
+
+    p21 = FIXTURES / "p21" / "sample.p21"
+    archive = tmp_path / "sample.p2z"
+    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as zipped:
+        zipped.write(p21, "DRAWING/SAMPLE.P21")
+    assert zumen.detect(archive.read_bytes()) == "p2z"
+    scene = zumen.read(archive)
+    assert json.loads(scene.to_json())["entities"] == json.loads(zumen.read(p21).to_json())["entities"]
+    assert ("圧縮", "P2Z（DRAWING/SAMPLE.P21）") in scene.metadata
+
+    bomb = tmp_path / "bomb.sfz"
+    with zipfile.ZipFile(bomb, "w", compression=zipfile.ZIP_DEFLATED) as zipped:
+        zipped.writestr("bomb.sfc", b" " * (1 << 22))
+    assert bomb.stat().st_size < 10_000
+    with pytest.raises(zumen.LimitError) as error:
+        zumen.read(bomb, max_bytes=1 << 20)
+    assert error.value.limit == "bytes"

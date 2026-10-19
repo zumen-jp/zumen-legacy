@@ -4,7 +4,8 @@ Read 2D drawings of Japanese construction and render them, with the Rust impleme
 [zumen](https://github.com/zumenjs/zumen). The result is the same `Scene` model as the
 `@zumenjs/core` viewer in the browser.
 
-> Status: before the first release. SXF (SFC and P21), Jw_cad JWW, DXF and DWG (AutoCAD 2000 to 2018) are supported.
+> Status: before the first release. SXF (SFC and P21, also compressed as P2Z and SFZ), Jw_cad JWW, DXF and DWG
+> (AutoCAD 2000 to 2018) are supported.
 
 ```python
 import zumen
@@ -61,10 +62,28 @@ claude mcp add zumen -- zumen-mcp --root ~/drawings  # Claude Code; other client
 | `get_entity` | One entity with its properties and the scale of its placement |
 | `measure_distance` | The distance between two points on the sheet and in real-world millimeters |
 
-`--root DIR` (repeatable) limits the directories the server may read, and `--max-bytes` the file size
-(256 MiB by default). Texts, layer names and properties come from the drawing file; clients should treat them as
+`--root DIR` (repeatable) limits the directories the server may read. `--max-bytes` (256 MiB by default, after
+unpacking P2Z and SFZ), `--max-entities` (2,000,000) and `--timeout` (60 seconds) limit each drawing it reads. Texts, layer names and properties come from the drawing file; clients should treat them as
 data, not as instructions. The functions behind the tools (`zumen.mcp.summary`, `render`, `find_texts`,
 `find_entities`, `get_entity`, `measure`) can be called without MCP.
+
+## Drawings from others
+
+Drawings received from others are not trusted: a file can be huge, unpack to gigabytes (P2Z and SFZ are ZIP
+archives) or grow without end when blocks contain each other. `read` stops part way at the limits you give and
+raises `LimitError`, a `ReadError` whose `limit` says which limit was reached:
+
+```python
+try:
+    scene = zumen.read(path, max_bytes=200_000_000, max_entities=1_000_000, timeout=30)
+except zumen.LimitError as error:
+    print(error.limit, error)  # "bytes", "entities" or "time", and a message for the user
+```
+
+`max_bytes` counts the size after unpacking P2Z and SFZ (2 GiB at most without it), and a file larger than
+`max_bytes` is not read into memory. `max_entities` counts the entities of the scene; work that ends in fewer
+entities, such as dimension blocks inside each other, is bounded by `timeout` (seconds) and by the readers' own
+limits. Without limits nothing changes.
 
 Reading and rendering release the GIL. Japanese text is drawn with the bundled
 BIZ UDGothic (SIL Open Font License 1.1).

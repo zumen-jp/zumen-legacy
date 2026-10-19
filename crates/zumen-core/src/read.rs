@@ -1,3 +1,4 @@
+use crate::limits::Limit;
 use crate::types::Scene;
 use std::fmt;
 
@@ -5,15 +6,26 @@ use std::fmt;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReadError {
     message: String,
+    limit: Option<Limit>,
 }
 
 impl ReadError {
     pub fn new(message: impl Into<String>) -> Self {
-        Self { message: message.into() }
+        Self { message: message.into(), limit: None }
+    }
+
+    /// 読み取りの上限（`ReadLimits`）を超えたための失敗
+    pub fn limit(limit: Limit, message: impl Into<String>) -> Self {
+        Self { message: message.into(), limit: Some(limit) }
     }
 
     pub fn message(&self) -> &str {
         &self.message
+    }
+
+    /// 上限を超えたための失敗なら、その上限
+    pub fn exceeded(&self) -> Option<Limit> {
+        self.limit
     }
 }
 

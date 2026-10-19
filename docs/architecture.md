@@ -104,12 +104,12 @@ bytes ─▶ zumen-sxf, zumen-jww, zumen-dxf, zumen-dwg ─▶ Scene (zumen-core
 
 | Crate | Responsibility |
 | --- | --- |
-| `zumen-core` | The `Scene` types (serde, the same JSON as `sceneToJson`), `NoticeList`, `DrawingReader` and `read_drawing`, geometry (`geometry`), text layout (`text`), measurement, texts and entities for servers (`extract`), and JavaScript-compatible number handling (`js`). |
+| `zumen-core` | The `Scene` types (serde, the same JSON as `sceneToJson`), `NoticeList`, `DrawingReader` and `read_drawing`, geometry (`geometry`), text layout (`text`), measurement, texts and entities for servers (`extract`), read limits (`limits`), and JavaScript-compatible number handling (`js`). |
 | `zumen-sxf` | SFC and P21 parsing into the SXF feature model (`parse_sfc`, `parse_p21` → `SxfDrawing`), conversion to a scene (`sxf_to_scene`), and the `SXF` reader. |
 | `zumen-jww` | JWW parsing into the JWW document model (`read_jww`), conversion to a scene (`jww_to_scene`), and the `JWW` reader. |
 | `zumen-dxf` | DXF parsing (ASCII and binary) into the AutoCAD drawing model (`parse_dxf` → `DxfDocument`), conversion of model space or a layout to a scene (`dxf_to_scene`), and the `DXF` reader. |
 | `zumen-dwg` | DWG decoding (AutoCAD 2000 to 2018) into the AutoCAD drawing model of `zumen-dxf` (`read_dwg` → `DxfDocument`), drawn with `dxf_to_scene`, and the `DWG` reader. |
-| `zumen` | `read` and `detect` over every reader. The entry point for applications. |
+| `zumen` | `read` and `detect` over every reader, with limits for untrusted drawings (`ReadDrawingOptions::limits`). The entry point for applications. |
 | `zumen-render` | Draws a scene to PNG with the rules of `render.ts` (color inversion, line weights with a 1 px minimum, dash rules, even-odd fills, clipping, per-character text, small text as a line), and reports which entities it drew and where (`render_image`, `drawn_entities`, `View::pixel_box`). |
 | `zumen-cli` | The `zumen` command (`detect`, `scene`, `texts`, `entities`, `render`). |
 | `bindings/python` | PyO3 bindings, built with maturin as an abi3 wheel for Python 3.10 and later. The GIL is released while reading and rendering. `Scene.to_arrow` needs pyarrow (Apache-2.0, `zumen[arrow]`), and the MCP server `zumen.mcp` needs the MCP SDK (MIT, `zumen[mcp]`); both are optional dependencies. |
@@ -133,6 +133,19 @@ sheet around it. These work on the scene, so every format gets them at once. The
 find texts and entities, show one entity and measure in real-world millimeters through the scale of a placement. The
 tools only read, take local paths limited by `--root`, and bound file sizes, image sizes and result counts
 ([decision 0004](decisions/0004-mcp-server-in-the-python-package.md)).
+
+### Limits for untrusted drawings
+
+Applications that read drawings from others set limits on bytes, entities and time (`ReadLimits`), and reading stops
+part way with an error that names the limit (`ReadError::exceeded`). `zumen::read` checks the size first, then runs
+the reader inside `zumen_core::limits::with_limits`, a budget kept in thread-local cells. Readers ask it whether they
+may add each entity (`admit`, at the one place where a scene builder pushes an entity; `release` gives back the parts
+that a DXF dimension merges into one) and call `tick` in loops over input records and at the start of each entity
+they draw, including entities inside blocks; `tick` reads the clock every 256 calls. Once a limit is reached, every
+later `admit` and `tick` says stop, loops end, and `zumen::read` returns the limit error instead of the partial scene.
+Outside `with_limits` these calls do nothing, so a read without limits returns what the TypeScript reader returns.
+The time limit is not available in WebAssembly, where there is no clock. P2Z and SFZ (ZIP archives of P21 and SFC)
+are unpacked up to `max_bytes`, or 2 GiB without it, so that a small archive cannot unpack to fill the memory.
 
 ### Keeping the two implementations equal
 

@@ -142,6 +142,7 @@ DXF と比べて確かめる。ブラウザのパッケージは、形式ごと�
 import zumen
 
 scene = zumen.read("plan.jww")  # 形式は中身で判定する
+received = zumen.read("D0001.P2Z", max_bytes=200_000_000, max_entities=1_000_000, timeout=30)  # 受け取った図面
 png = scene.render_png(dpi=150)  # サムネイルや、画像を読む AI への添付
 part = scene.render_png(dpi=300, region=(100, 50, 200, 120))  # 用紙の mm で範囲を指定して拡大
 json_text = scene.to_json()  # @zumenjs/core の sceneFromJson で Scene に戻せる
@@ -170,7 +171,7 @@ cargo run --release -p zumen-cli -- texts plan.jww --region 100,50,200,120  # 1 
 | `zumen-jww` | `read_jww`（JWW のままのモデル）、`jww_to_scene`、読み取りの `JWW` |
 | `zumen-dxf` | `parse_dxf`（DWG と共有する AutoCAD の図形モデル）、`dxf_to_scene`、読み取りの `DXF` |
 | `zumen-dwg` | `read_dwg`（DWG 2000〜2018 を `zumen-dxf` の AutoCAD の図形モデルにする）、読み取りの `DWG` |
-| `zumen` | すべての読み取りをまとめた `read`・`detect` |
+| `zumen` | すべての読み取りをまとめた `read`・`detect`。受け取った図面のためのバイト数・図形の数・時間の上限 |
 | `zumen-render` | ブラウザの描画と同じ規則で PNG に描き、描いた図形の画像の上の位置を返す。日本語の文字は同梱の BIZ UDゴシックで描く |
 | `zumen-cli` | `zumen` コマンド（`detect`、`scene` で JSON、`texts`・`entities` で 1 行 1 つの JSON、`render` で PNG） |
 

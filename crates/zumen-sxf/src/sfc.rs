@@ -56,6 +56,10 @@ pub fn parse_sfc(bytes: &[u8]) -> Result<SxfDrawing, ReadError> {
     let mut features = Vec::new();
     let mut versions: Vec<&str> = Vec::new();
     for record in &read.records {
+        // 読み取りの上限（zumen_core::limits）
+        if zumen_core::limits::tick() {
+            break;
+        }
         if !versions.contains(&record.version) {
             versions.push(record.version);
         }

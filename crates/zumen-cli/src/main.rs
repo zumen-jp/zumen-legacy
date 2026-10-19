@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use std::io::{BufWriter, Write};
 use std::process::ExitCode;
 use zumen::extract::{EntityFilter, EntityText, entity_text, layer_names, scene_texts, select_entities};
-use zumen::{BBox, Background, ReadDrawingOptions, Scene, SceneEntity};
+use zumen::{BBox, Background, ReadDrawingOptions, ReadLimits, Scene, SceneEntity};
 use zumen_render::{ImageSize, RenderOptions, RenderedImage};
 
 const USAGE: &str = "\
@@ -18,6 +18,9 @@ Usage:
   zumen render <file> -o <out.png> [--dpi <n> | --size <w>x<h> [--margin <px>]] [--dpr <n>]
                [--region <x0>,<y0>,<x1>,<y1>] [--all-layers] [--map <out.json>]
                [--theme light|dark] [--thin] [--format <name>] [--view <id>]
+
+Every command that reads takes --max-bytes <n>, --max-entities <n> and --timeout <seconds>, to stop
+reading an untrusted drawing that is too large (P2Z and SFZ after unpacking), too complex or too slow.
 
 Reads SXF, JWW, DXF and DWG drawings into zumen's scene model.
 texts and entities write one JSON object per line, in paper millimeters (Y up) rounded to 0.001.
@@ -41,6 +44,7 @@ struct Args {
     region: Option<BBox>,
     all_layers: bool,
     map: Option<String>,
+    limits: ReadLimits,
 }
 
 fn parse_region(text: &str) -> Result<BBox, String> {
@@ -82,6 +86,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
         region: None,
         all_layers: false,
         map: None,
+        limits: ReadLimits::default(),
     };
     while let Some(arg) = args.next() {
         let mut value = |name: &str| args.next().ok_or_else(|| format!("{name} needs a value"));
@@ -109,6 +114,19 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
             "--region" => parsed.region = Some(parse_region(&value("--region")?)?),
             "--all-layers" => parsed.all_layers = true,
             "--map" => parsed.map = Some(value("--map")?),
+            "--max-bytes" => {
+                parsed.limits.max_bytes = Some(value("--max-bytes")?.parse().map_err(|_| "--max-bytes needs a count")?)
+            }
+            "--max-entities" => {
+                parsed.limits.max_entities =
+                    Some(value("--max-entities")?.parse().map_err(|_| "--max-entities needs a count")?)
+            }
+            "--timeout" => {
+                let seconds: f64 = value("--timeout")?.parse().map_err(|_| "--timeout needs seconds")?;
+                let duration =
+                    std::time::Duration::try_from_secs_f64(seconds).map_err(|_| "--timeout needs seconds")?;
+                parsed.limits.max_duration = Some(duration);
+            }
             _ if arg.starts_with('-') => return Err(format!("unknown option: {arg}\n\n{USAGE}")),
             _ if parsed.file.is_empty() => parsed.file = arg,
             _ => return Err(format!("unexpected argument: {arg}")),
@@ -209,13 +227,19 @@ fn write_lines(lines: impl Iterator<Item = Value>) -> Result<(), String> {
 }
 
 fn run(args: Args) -> Result<(), String> {
+    // 大きすぎるファイルは、メモリに読む前に断る
+    if let Some(max) = args.limits.max_bytes
+        && std::fs::metadata(&args.file).map_err(|error| format!("{}: {error}", args.file))?.len() > max
+    {
+        return Err(zumen::limit_error(zumen::Limit::Bytes, &args.limits).to_string());
+    }
     let bytes = std::fs::read(&args.file).map_err(|error| format!("{}: {error}", args.file))?;
     if args.command == "detect" {
         let format = zumen::detect(&bytes).ok_or("unknown format")?;
         println!("{format}");
         return Ok(());
     }
-    let options = ReadDrawingOptions { format: args.format.clone(), view: args.view.clone() };
+    let options = ReadDrawingOptions { format: args.format.clone(), view: args.view.clone(), limits: args.limits };
     let scene = zumen::read(&bytes, &options).map_err(|error| error.to_string())?;
     let filter = EntityFilter { region: args.region, hidden_layers: args.all_layers.then(HashSet::new) };
     match args.command.as_str() {

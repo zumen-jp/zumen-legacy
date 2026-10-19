@@ -407,6 +407,10 @@ pub fn read_p21(bytes: &[u8]) -> Result<P21File, ReadError> {
     let mut entities = Entities::default();
     let mut skipped = 0;
     while lexer.peek() == Some(b'#') {
+        // 読み取りの上限（zumen_core::limits）
+        if zumen_core::limits::tick() {
+            break;
+        }
         let start = lexer.pos;
         match instance(&mut lexer) {
             Ok(entity) => entities.insert(entity),

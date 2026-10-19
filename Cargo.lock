@@ -537,6 +537,7 @@ name = "zumen-sxf"
 version = "0.1.0"
 dependencies = [
  "encoding_rs",
+ "miniz_oxide 0.8.9",
  "zumen-core",
 ]
 

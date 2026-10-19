@@ -13,7 +13,7 @@ pub fn detect(bytes: &[u8]) -> Option<String> {
 /// 図面を読み、Scene の JSON を返す。format は分かっている場合の形式、view は描く表示の id
 #[wasm_bindgen(js_name = readSceneJson)]
 pub fn read_scene_json(bytes: &[u8], format: Option<String>, view: Option<String>) -> Result<String, JsError> {
-    let scene =
-        zumen::read(bytes, &ReadDrawingOptions { format, view }).map_err(|error| JsError::new(error.message()))?;
+    let scene = zumen::read(bytes, &ReadDrawingOptions { format, view, ..ReadDrawingOptions::default() })
+        .map_err(|error| JsError::new(error.message()))?;
     serde_json::to_string(&scene).map_err(|error| JsError::new(&error.to_string()))
 }

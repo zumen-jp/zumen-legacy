@@ -18,7 +18,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from . import ReadError, RenderError, Scene, __version__, read
+from . import LimitError, ReadError, RenderError, Scene, __version__, read
 
 #: Long edge of a rendered image when the client does not ask for a size (pixels). Vision models see
 #: about this much detail; a larger image costs more and is often scaled down by the client.
@@ -27,8 +27,12 @@ DEFAULT_IMAGE_SIZE = 1568
 MAX_IMAGE_SIZE = 4096
 #: Most items one call returns.
 MAX_LIMIT = 1000
-#: Largest drawing file the server reads (bytes). Received files are not trusted.
+#: Largest drawing the server reads (bytes; P2Z and SFZ after unpacking). Received files are not trusted.
 DEFAULT_MAX_BYTES = 256 * 1024 * 1024
+#: Most entities a drawing may have.
+DEFAULT_MAX_ENTITIES = 2_000_000
+#: Longest time reading one drawing may take (seconds).
+DEFAULT_TIMEOUT = 60.0
 #: Distance (paper millimeters) within which ``measure_distance`` looks for the entity that gives the scale.
 PICK_MM = 1.0
 
@@ -82,10 +86,14 @@ class Drawings:
         roots: Sequence[str | os.PathLike[str]] = (),
         *,
         max_bytes: int = DEFAULT_MAX_BYTES,
+        max_entities: int | None = DEFAULT_MAX_ENTITIES,
+        timeout: float | None = DEFAULT_TIMEOUT,
         cache_size: int = 8,
     ) -> None:
         self.roots = [Path(root).expanduser().resolve() for root in roots]
         self.max_bytes = max_bytes
+        self.max_entities = max_entities
+        self.timeout = timeout
         self.cache_size = cache_size
         self._scenes: OrderedDict[tuple[Path, int, int, str | None], Scene] = OrderedDict()
 
@@ -111,7 +119,11 @@ class Drawings:
             self._scenes.move_to_end(key)
             return scene
         try:
-            scene = read(resolved, view=view)
+            scene = read(
+                resolved, view=view, max_bytes=self.max_bytes, max_entities=self.max_entities, timeout=self.timeout
+            )
+        except LimitError as error:
+            raise DrawingError(f"stopped reading {path} at the {error.limit} limit: {error}") from error
         except ReadError as error:
             raise DrawingError(f"cannot read {path}: {error}") from error
         self._scenes[key] = scene
@@ -556,12 +568,27 @@ def main(argv: Sequence[str] | None = None) -> None:
         type=int,
         default=DEFAULT_MAX_BYTES,
         metavar="N",
-        help=f"largest drawing file to read (default {DEFAULT_MAX_BYTES:,})",
+        help=f"largest drawing to read in bytes, P2Z and SFZ after unpacking (default {DEFAULT_MAX_BYTES:,})",
+    )
+    parser.add_argument(
+        "--max-entities",
+        type=int,
+        default=DEFAULT_MAX_ENTITIES,
+        metavar="N",
+        help=f"most entities a drawing may have (default {DEFAULT_MAX_ENTITIES:,})",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=DEFAULT_TIMEOUT,
+        metavar="SECONDS",
+        help=f"longest time reading one drawing may take (default {DEFAULT_TIMEOUT:g})",
     )
     parser.add_argument("--version", action="version", version=f"zumen-mcp {__version__}")
     args = parser.parse_args(argv)
     try:
-        server = create_server(Drawings(args.root, max_bytes=args.max_bytes))
+        drawings = Drawings(args.root, max_bytes=args.max_bytes, max_entities=args.max_entities, timeout=args.timeout)
+        server = create_server(drawings)
     except ImportError as error:
         print(f'zumen-mcp needs the MCP SDK: pip install "zumen[mcp]" ({error})', file=sys.stderr)
         raise SystemExit(2) from error
