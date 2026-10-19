@@ -48,6 +48,7 @@ import type {
   DxfDimension,
   DxfDimStyle,
   DxfDocument,
+  DxfEmbeddedMText,
   DxfEntity,
   DxfEntityBase,
   DxfHatch,
@@ -66,7 +67,6 @@ import type {
   DxfMLine,
   DxfMLineStyle,
   DxfMText,
-  DxfMTextContent,
   DxfPolyline,
   DxfTable,
   DxfText,
@@ -1219,16 +1219,18 @@ class Builder {
   }
 
   /**
-   * 複数行の属性（AutoCAD 2018 以降）は、埋め込みの MTEXT を属性の色・レイヤ・押し出し方向で描く。
-   * ブロックの外の属性定義は、1 行の属性定義と同じくタグを描く（書式コードとしては読まない）
+   * 複数行の属性（AutoCAD 2018 以降）は、埋め込みの MTEXT を、属性の色・レイヤ・線種と MTEXT の押し出し方向で描く
+   * （ezdxf の virtual_mtext_entity と同じ）。ブロックの外の属性定義は、1 行の属性定義と同じくタグを描く
+   * （書式コードとしては読まない）
    */
-  private multilineAttribute(entity: DxfAttrib | DxfAttdef, content: DxfMTextContent, ctx: Ctx): void {
+  private multilineAttribute(entity: DxfAttrib | DxfAttdef, content: DxfEmbeddedMText, ctx: Ctx): void {
     const tag = entity.type === "ATTDEF" && ctx.depth === 0;
     this.mtext(
       {
         ...entity,
         ...content,
         type: "MTEXT",
+        extrusion: content.extrusion,
         text: tag ? entity.tag : content.text,
         raw_text: tag ? entity.tag.replace(/[\\{}]/g, "\\$&") : content.raw_text,
       },

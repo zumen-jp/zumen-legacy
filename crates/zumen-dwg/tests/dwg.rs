@@ -423,8 +423,8 @@ fn multi_line_attributes_read_the_same_as_their_dxf() {
     };
     assert_eq!((text.text.as_str(), tag.as_str(), *attribute_flags), ("", "NOTE", 8.0));
     assert_eq!(
-        (mtext.raw_text.as_str(), mtext.insert, mtext.char_height),
-        ("First line\\PSecond line", [100.0, 0.0, 0.0], 2.5)
+        (mtext.content.raw_text.as_str(), mtext.content.insert, mtext.content.char_height, mtext.extrusion),
+        ("First line\\PSecond line", [100.0, 0.0, 0.0], 2.5, None)
     );
     let flags: Vec<f64> = ["42", "44"]
         .iter()

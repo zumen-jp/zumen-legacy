@@ -6,6 +6,7 @@ import type {
   DxfDimension,
   DxfDimStyle,
   DxfDocument,
+  DxfEmbeddedMText,
   DxfEntity,
   DxfEntityBase,
   DxfHatch,
@@ -910,8 +911,25 @@ class Parser {
     // 複数行の属性（AutoCAD 2018 以降）の文字は、AcDbAttribute の後の「101 Embedded Object」に続く MTEXT の値
     // （10 の配置点から。Open Design Specification for .dwg files 5.4.1 の 20.4.4）にあり、1 行の文字（AcDbText の 1）は空
     const embedded = this.embedded(start + 1, end);
-    if (embedded) entity.mtext = this.mtextContent(embedded);
+    if (embedded) {
+      const mtext: DxfEmbeddedMText = this.mtextContent(embedded);
+      const extrusion = this.extrusion(embedded);
+      if (extrusion) mtext.extrusion = extrusion;
+      entity.mtext = mtext;
+    }
     return entity as T extends "ATTRIB" ? DxfAttrib : DxfAttdef;
+  }
+
+  /** 押し出し方向（210・220・230）。(0, 0, 1) のときと、ないときは undefined */
+  private extrusion(body: Body): Vec3 | undefined {
+    let extrusion: Vec3 | undefined;
+    for (const k of body) {
+      const code = this.code(k);
+      if (code !== 210 && code !== 220 && code !== 230) continue;
+      extrusion ??= [0, 0, 1];
+      extrusion[code === 210 ? 0 : code === 220 ? 1 : 2] = this.num(k);
+    }
+    return extrusion && !(extrusion[0] === 0 && extrusion[1] === 0 && extrusion[2] === 1) ? extrusion : undefined;
   }
 
   /** 埋め込みの図形（101）のタグ。拡張データ（1000 以降）か次の埋め込みの図形の手前まで。ないときは null */

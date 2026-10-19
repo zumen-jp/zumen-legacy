@@ -167,9 +167,9 @@ export interface DxfAttrib extends DxfEntityBase, DxfTextBase {
   attribute_flags: number;
   /**
    * 複数行の属性（AutoCAD 2018 以降）の文字。DXF では AcDbAttribute の後の「101 Embedded Object」に続く MTEXT の値、
-   * DWG では埋め込みの MTEXT。AutoCAD は 1 行の文字（text）を空にする。押し出し方向は属性のものを使う
+   * DWG では埋め込みの MTEXT。AutoCAD は 1 行の文字（text）を空にする
    */
-  mtext?: DxfMTextContent;
+  mtext?: DxfEmbeddedMText;
 }
 
 export interface DxfAttdef extends DxfEntityBase, DxfTextBase {
@@ -178,7 +178,13 @@ export interface DxfAttdef extends DxfEntityBase, DxfTextBase {
   prompt: string;
   attribute_flags: number;
   /** 複数行の属性定義（AutoCAD 2018 以降）の既定値。DxfAttrib の mtext と同じ */
-  mtext?: DxfMTextContent;
+  mtext?: DxfEmbeddedMText;
+}
+
+/** 複数行の属性の埋め込みの MTEXT。色・レイヤ・線種などは属性のものを使い、押し出し方向は MTEXT のもの */
+export interface DxfEmbeddedMText extends DxfMTextContent {
+  /** 押し出し方向（210）。省略は (0, 0, 1) */
+  extrusion?: Vec3;
 }
 
 export interface DxfMText extends DxfEntityBase, DxfMTextContent {

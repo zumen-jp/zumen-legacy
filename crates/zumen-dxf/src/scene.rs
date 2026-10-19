@@ -1381,7 +1381,7 @@ impl<'a> Builder<'a> {
         entity: &DxfTextBase,
         tag: Option<&str>,
         attribute_flags: f64,
-        mtext: Option<&DxfMText>,
+        mtext: Option<&DxfEmbeddedMText>,
         ctx: &Ctx,
     ) {
         let kind = base.kind.as_str();
@@ -1476,9 +1476,11 @@ impl<'a> Builder<'a> {
         self.add(base, ctx, primitives, properties, None);
     }
 
-    /// 複数行の属性（AutoCAD 2018 以降）は、埋め込みの MTEXT を属性の色・レイヤ・押し出し方向で描く。
-    /// ブロックの外の属性定義は、1 行の属性定義と同じくタグを描く（書式コードとしては読まない）
-    fn multiline_attribute(&mut self, base: &DxfEntityBase, content: &DxfMText, tag: &str, ctx: &Ctx) {
+    /// 複数行の属性（AutoCAD 2018 以降）は、埋め込みの MTEXT を、属性の色・レイヤ・線種と MTEXT の押し出し方向で描く
+    /// （ezdxf の virtual_mtext_entity と同じ）。ブロックの外の属性定義は、1 行の属性定義と同じくタグを描く
+    /// （書式コードとしては読まない）
+    fn multiline_attribute(&mut self, base: &DxfEntityBase, embedded: &DxfEmbeddedMText, tag: &str, ctx: &Ctx) {
+        let base = DxfEntityBase { extrusion: embedded.extrusion, ..base.clone() };
         if base.kind == "ATTDEF" && ctx.depth == 0 {
             let mut raw = String::with_capacity(tag.len());
             for c in tag.chars() {
@@ -1487,10 +1489,10 @@ impl<'a> Builder<'a> {
                 }
                 raw.push(c);
             }
-            let shown = DxfMText { text: tag.to_string(), raw_text: raw, ..content.clone() };
-            self.mtext(base, &shown, Some(tag), ctx);
+            let shown = DxfMText { text: tag.to_string(), raw_text: raw, ..embedded.content.clone() };
+            self.mtext(&base, &shown, Some(tag), ctx);
         } else {
-            self.mtext(base, content, Some(tag), ctx);
+            self.mtext(&base, &embedded.content, Some(tag), ctx);
         }
     }
 
@@ -1775,10 +1777,13 @@ impl<'a> Builder<'a> {
                                     attribute_flags: *attribute_flags,
                                     // 複数行の属性定義は、値を埋め込みの MTEXT の文字にする
                                     mtext: mtext.as_ref().map(|mtext| {
-                                        Box::new(DxfMText {
-                                            text: mtext_plain_text(value),
-                                            raw_text: value.clone(),
-                                            ..(**mtext).clone()
+                                        Box::new(DxfEmbeddedMText {
+                                            content: DxfMText {
+                                                text: mtext_plain_text(value),
+                                                raw_text: value.clone(),
+                                                ..mtext.content.clone()
+                                            },
+                                            extrusion: mtext.extrusion,
                                         })
                                     }),
                                 },

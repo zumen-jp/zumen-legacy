@@ -3,11 +3,11 @@ import { describe, expect, it } from "vitest";
 import {
   type DxfAttdef,
   type DxfAttrib,
+  type DxfEmbeddedMText,
   type DxfInsert,
   type DxfLine,
   type DxfMLine,
   type DxfMText,
-  type DxfMTextContent,
   type DxfText,
   dxf,
   dxfToScene,
@@ -290,9 +290,15 @@ describe("DXF の複数行の属性", () => {
       ["Second line", "#00ff00"],
     ]);
     // 同じ値の MTEXT と同じ文字の並び
-    const mtext: DxfMText = { ...note, ...(note.mtext as DxfMTextContent), type: "MTEXT" };
+    const mtext: DxfMText = { ...note, ...(note.mtext as DxfEmbeddedMText), type: "MTEXT" };
     expect(texts(attribute)).toEqual(texts(dxfToScene({ ...doc, entities: [mtext] }).entities[0]));
     expect(scene.entities.find((entity) => entity.id === "50>52")).toBeUndefined();
+    // 押し出し方向は、属性（AcDbText の 210）ではなく埋め込みの MTEXT のもの（ezdxf の virtual_mtext_entity と同じ）
+    const drawn = () => texts(dxfToScene(doc).entities.find((entity) => entity.id === "50>51"));
+    note.extrusion = [0, 0, -1];
+    expect(drawn()).toEqual(texts(attribute));
+    (note.mtext as DxfEmbeddedMText).extrusion = [0, 0, -1];
+    expect(drawn().map((item) => Math.sign(item.matrix[0]))).toEqual([-1, -1]);
   });
 
   it("属性定義は、ブロックの外ではタグを、ブロックの中では定数の既定値だけを描く", () => {

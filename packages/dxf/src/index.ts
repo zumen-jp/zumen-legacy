@@ -10,6 +10,7 @@ export type {
   DxfDimStyle,
   DxfDocument,
   DxfEllipse,
+  DxfEmbeddedMText,
   DxfEntity,
   DxfEntityBase,
   DxfHatch,

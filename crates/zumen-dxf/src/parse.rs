@@ -908,13 +908,35 @@ impl<'a> Parser<'a> {
         let attribute_flags = self.number(&body, 70, 0.0);
         // 複数行の属性（AutoCAD 2018 以降）の文字は、AcDbAttribute の後の「101 Embedded Object」に続く MTEXT の値
         // （10 の配置点から。Open Design Specification for .dwg files 5.4.1 の 20.4.4）にあり、1 行の文字（AcDbText の 1）は空
-        let mtext = self.embedded(start + 1, end).map(|embedded| Box::new(self.mtext_content(&embedded)));
+        let mtext = self.embedded(start + 1, end).map(|embedded| {
+            Box::new(DxfEmbeddedMText { content: self.mtext_content(&embedded), extrusion: self.extrusion(&embedded) })
+        });
         let data = if kind == "ATTDEF" {
             DxfEntityData::Attdef { text, tag, prompt: self.text(&body, 3, ""), attribute_flags, mtext }
         } else {
             DxfEntityData::Attrib { text, tag, attribute_flags, mtext }
         };
         DxfEntity { base, data }
+    }
+
+    /// 押し出し方向（210・220・230）。(0, 0, 1) のときと、ないときは None
+    fn extrusion(&self, body: &[usize]) -> Option<Vec3> {
+        let mut extrusion: Option<Vec3> = None;
+        for &k in body {
+            let code = self.code(k);
+            if code != 210 && code != 220 && code != 230 {
+                continue;
+            }
+            let value = extrusion.get_or_insert([0.0, 0.0, 1.0]);
+            value[if code == 210 {
+                0
+            } else if code == 220 {
+                1
+            } else {
+                2
+            }] = self.num(k);
+        }
+        extrusion.filter(|value| !(value[0] == 0.0 && value[1] == 0.0 && value[2] == 1.0))
     }
 
     /// 埋め込みの図形（101）のタグ。拡張データ（1000 以降）か次の埋め込みの図形の手前まで。ないときは None
