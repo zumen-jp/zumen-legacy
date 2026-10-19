@@ -19,7 +19,7 @@ Usage:
                [--region <x0>,<y0>,<x1>,<y1>] [--all-layers] [--map <out.json>]
                [--theme light|dark] [--thin] [--format <name>] [--view <id>]
 
-Reads SXF, JWW, DXF and DWG drawings into zumen's scene model (SXF, JWW and DXF for now).
+Reads SXF, JWW, DXF and DWG drawings into zumen's scene model.
 texts and entities write one JSON object per line, in paper millimeters (Y up) rounded to 0.001.
 --region selects a part of the sheet in paper millimeters, and --all-layers includes the layers
 that the drawing hides. --map writes the size of the image,

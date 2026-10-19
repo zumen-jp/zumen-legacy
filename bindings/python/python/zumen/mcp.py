@@ -378,7 +378,7 @@ def measure(
 
 
 INSTRUCTIONS = """\
-Reads 2D construction drawings (SXF SFC/P21, Jw_cad JWW, DXF) from local files.
+Reads 2D construction drawings (SXF SFC/P21, Jw_cad JWW, DXF, DWG) from local files.
 Start with open_drawing to see the sheet, views, layers and entity types. render_drawing shows a region as an image;
 use its region and scale to turn pixels into paper millimeters. find_texts and find_entities search the contents,
 get_entity shows the properties of one entity, and measure_distance converts lengths to real-world millimeters.
@@ -401,10 +401,11 @@ def create_server(drawings: Drawings | None = None) -> Any:
     )
 
     DrawingPath = Annotated[
-        str, Field(description="Absolute path of the drawing file (.sfc, .p21, .jww, .dxf); ~ is expanded")
+        str, Field(description="Absolute path of the drawing file (.sfc, .p21, .jww, .dxf, .dwg); ~ is expanded")
     ]
     View = Annotated[
-        str | None, Field(description="View id from open_drawing, such as a DXF layout name; omit for the default")
+        str | None,
+        Field(description="View id from open_drawing, such as a DXF or DWG layout name; omit for the default"),
     ]
     Region = Annotated[
         list[float] | None,

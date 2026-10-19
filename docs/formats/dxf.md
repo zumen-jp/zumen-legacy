@@ -12,13 +12,13 @@ bytes ─▶ readTags (ASCII or binary, decoded) ─▶ parseDxf ─▶ DxfDocum
 
 ## The AutoCAD drawing model
 
-`DxfDocument` is the AutoCAD drawing database as plain data. It is shared with the DWG reader:
-a DWG file read with [ezdwg](https://github.com/monozukuri-ai/ezdwg) becomes the same `DxfDocument` and is drawn by the same `dxfToScene`.
+`DxfDocument` is the AutoCAD drawing database as plain data. It is shared with the DWG reader: `zumen-dwg` reads a DWG
+file into the same `DxfDocument` of `zumen-dxf`, drawn by the same `dxf_to_scene` (see [How DWG is handled](dwg.md)).
 
 - Attribute names follow [ezdxf](https://ezdxf.mozman.at/)'s DXF attribute names (`start`, `center`, `start_angle`, `insert`,
   `major_axis`, `ratio`, `char_height`, `attachment_point`, `defpoint2`…). Where ezdwg's high-level API uses a different name than ezdxf,
   the ezdwg name is used (`color_index`, `linetype_scale`, `raw_text`, `view_center`, `view_target`, `status_flags`,
-  `frozen_layer_handles`, `anonymous_block_name`), so ezdwg entities fit without renaming.
+  `frozen_layer_handles`, `anonymous_block_name`).
 - Coordinates stay in drawing units (`$INSUNITS`) and angles in degrees, as in DXF. Points are `[x, y, z]` arrays.
 - All entities of model space, paper space and block definitions are in one list, told apart by `space`
   (`"model"`, `"paper"`, `"block"`) and `block` (the block or paper space block name), like ezdwg's documents.
@@ -34,20 +34,9 @@ a DWG file read with [ezdwg](https://github.com/monozukuri-ai/ezdwg) becomes the
   `header` has the variables used for drawing plus every raw variable in `header.variables`;
   `sort_handles` keeps SORTENTSTABLE (draw order); `skipped` counts entity types that are not read.
 
-What a DWG reader changes when it maps ezdwg's JSON (`readDwgJson`) to `DxfDocument`:
-
-| ezdwg | `DxfDocument` |
-| --- | --- |
-| `handle` (integer) | `handle` (upper-case hexadecimal string, as in DXF) |
-| `POLYLINE_2D`, `POLYLINE_3D` | `POLYLINE` with `flags` (`8` for 3D) |
-| `MINSERT` | `INSERT` with `column_count`, `row_count`, `column_spacing`, `row_spacing` |
-| `dimtype` (`"LINEAR"`, `"RADIUS"`…) | `dimtype` (DXF group 70: 0 rotated, 1 aligned, 2 angular, 3 diameter, 4 radius, 5 angular 3-point, 6 ordinate) |
-| `block_handle` | `block` (the name, from ezdwg's `blocks`) |
-| HATCH `paths` (`{ closed, points }`) | the same, as polyline paths (`edges` are only used by DXF edge paths) |
-| MLINE (`points`, `vertex_directions`, `miter_directions`, `mlinestyle_handle`…) | the same names. ezdwg drops the element parameters (groups 41 and 42), so `line_params` is left out and the element positions are computed from the MLINESTYLE (see below) |
-
-ezdwg reads neither MLINESTYLE nor MULTILEADER: `mline_styles` may be left out (multilines are then drawn with the two lines of STANDARD
-and a notice), and MULTILEADER is only read from DXF for now.
+`zumen-dwg` fills the model with the values AutoCAD writes to the DXF of the same drawing: handles as upper-case
+hexadecimal strings, POLYLINE and DIMENSION types as DXF flags, angles in degrees, block names as in DXF. Its rules and
+the differences that remain are in [How DWG is handled](dwg.md).
 
 ## Reading
 
@@ -192,7 +181,7 @@ those marked *inferred* are not stated by Autodesk.
   the width of the crossing multiline) shows that they are positions, not dash lengths (*inferred*). They are taken from the miter point;
   whether a cut in an element that starts after the miter point is measured from there or from the element's start is not confirmed,
   as every cut element in the samples starts at the miter point.
-- Without group 41 (DWG), the offset is the MLINESTYLE offset, shifted by the justification (top: the largest offset on the reference
+- Without group 41, the offset is the MLINESTYLE offset, shifted by the justification (top: the largest offset on the reference
   line, bottom: the smallest) and multiplied by the scale, divided by the sine between the miter and the segment.
 - The fill is the area between the outermost elements, including round caps; fill breaks (group 42) are not drawn and reported.
   Caps follow MLINESTYLE flags 16/32/64 and 256/512/1024 unless the MLINE suppresses them (71 flags 4 and 8, which ezdxf ignores); inner arcs
@@ -211,7 +200,7 @@ same place. What is left out is reported.
 | Nesting of block references, dimension blocks and multileader blocks | 32 levels | `block-depth` |
 | Entities drawn inside blocks and dimensions, per view (a block that contains itself twice grows to 2³² entities first) | 1,000,000 | `block-limit` |
 | Copies of an MINSERT array | 10,000 (only the first copy is drawn beyond) | `minsert-large` |
-| Pattern lines of one hatch, also when the count is not a number (NaN in binary DXF) | 5,000 (the outline is drawn instead) | `hatch-dense` |
+| Pattern lines of one hatch, also when the count is not a number (NaN in binary DXF) or the line numbers pass 2⁵³ (a base point so far from the boundary that adding 1 no longer changes the number) | 5,000 (the outline is drawn instead) | `hatch-dense` |
 | Polygon mesh grid (71 × 72) | Only the positions that have vertices are visited | |
 | Segments of an arc or ellipse, steps of a spline | 4,096 | |
 

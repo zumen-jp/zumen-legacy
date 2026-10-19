@@ -6,7 +6,8 @@
 国交省の電子納品で使う **SXF（SFC・P21）** を公開仕様から、Jw_cad の **JWW** を形式の解説から実装した。
 2026-10 の調査では、SXF をブラウザで読める JS ライブラリはなく、JWW もブラウザ向けの npm と React の部品がなかった。
 AutoCAD などの **DXF**（Shift_JIS の日本語、バイナリを含む）も TypeScript で読む。
-次の **DWG** は同じ AutoCAD の図形モデルを使い、GPL の部品を使わず MIT のまま読むことを目指す。
+**DWG**（AutoCAD 2000〜2018）は、GPL の部品を使わない自前の読み取りで、Rust から同じ AutoCAD の図形モデルに読む
+（いまは `zumen` コマンド・Python・WebAssembly から使える）。
 構造設計データの国内標準 **ST-Bridge**（`.stb`）も 2.0 系・2.1 系を読み、部材を 3D で表示する。
 ブラウザで ST-Bridge を読める JS ライブラリも見つからなかった。
 読み取りを Rust に移し、Python（サーバーやデータ処理）と WebAssembly（ブラウザ）からも同じ結果で使えるようにしている。
@@ -28,7 +29,7 @@ npm には未公開（0.x の公開準備中）。
 | `@zumenjs/stb` | `packages/stb` | ST-Bridge の読み取り `readStb`・`isStb`（3D の構造モデル）、three.js の表示 `StructureView`（`/three`）、React の `StbViewer`・`useStbFile`（`/react`） |
 
 依存の向きは `@zumenjs/react` → `@zumenjs/core`、`@zumenjs/sxf`・`@zumenjs/jww`・`@zumenjs/dxf` → `@zumenjs/core` だけ
-（例外は、次の DWG の読み取りが `@zumenjs/dxf` のモデルと変換を使うこと）。
+（DWG は Rust だけで読み、`zumen-dwg` が `zumen-dxf` のモデルと変換を使う）。
 `@zumenjs/stb` は 3D の別の系統で、ほかのパッケージに依存しない。
 `@zumenjs/core` は形式を知らず、使う形式の読み取りを `readDrawing` に渡す。形式は拡張子ではなく中身で判定する。
 
@@ -39,6 +40,7 @@ npm には未公開（0.x の公開準備中）。
 - 図形を選んで属性を確認する。種類、レイヤ、色・線種・線幅、座標、寸法値、部分図の縮尺など。
 - DXF の R12〜2018（テキスト・バイナリ）。線分・円弧・ふくらみと幅のあるポリライン・スプライン・文字・書式つきの複数行文字・
   属性と配列のあるブロック・寸法・ハッチング・引出線・ソリッド・ワイプアウトを、レイヤ・線種・線の太さ・ACI とトゥルーカラー・透過度・文字スタイルとともに描く。
+- DWG の AutoCAD 2000〜2018。Rust で読み、DXF と同じく描く（[DWG の扱い（英語）](docs/formats/dwg.md)）。
 - DXF のモデル空間とレイアウト（紙空間）の切り替え。ビューポートの中はその縮尺で描き、計測すると実寸を返す。
 - 2 点間の距離の計測。端点・頂点、なければ線上の点に吸着し、部分図・部品（JWW はレイヤグループ、DXF は単位とビューポート）の縮尺から**実寸**も出す。
 - 黒背景と白背景の切り替え。初期値は図面の想定（SXF は黒、JWW はヘッダの背景色）。
@@ -133,8 +135,8 @@ export function StructureView({ file }: { file: File | null }) {
 
 読み取りを Rust（`crates/`）に移し、Python の結合部（`bindings/python`）と WebAssembly（`bindings/wasm`）を作っている。
 Rust の読み取りは TypeScript と同じ `Scene` を返す。`tests/fixtures` の図面で両方の結果を比べ、手元の図面は
-`pnpm run parity` で比べる。JWW・SXF・DXF は移植済みで、DWG が続く。ブラウザのパッケージは、形式ごとに結果が
-一致したものから WebAssembly の読み取りに切り替える。
+`pnpm run parity` で比べる。JWW・SXF・DXF は移植済み。DWG は Rust だけで読み、AutoCAD が同じ図面を書き出した
+DXF と比べて確かめる。ブラウザのパッケージは、形式ごとに結果が一致したものから WebAssembly の読み取りに切り替える。
 
 ```python
 import zumen
@@ -167,6 +169,7 @@ cargo run --release -p zumen-cli -- texts plan.jww --region 100,50,200,120  # 1 
 | `zumen-sxf` | `parse_sfc`・`parse_p21`（SXF のフィーチャのモデル）、`sxf_to_scene`、読み取りの `SXF` |
 | `zumen-jww` | `read_jww`（JWW のままのモデル）、`jww_to_scene`、読み取りの `JWW` |
 | `zumen-dxf` | `parse_dxf`（DWG と共有する AutoCAD の図形モデル）、`dxf_to_scene`、読み取りの `DXF` |
+| `zumen-dwg` | `read_dwg`（DWG 2000〜2018 を `zumen-dxf` の AutoCAD の図形モデルにする）、読み取りの `DWG` |
 | `zumen` | すべての読み取りをまとめた `read`・`detect` |
 | `zumen-render` | ブラウザの描画と同じ規則で PNG に描き、描いた図形の画像の上の位置を返す。日本語の文字は同梱の BIZ UDゴシックで描く |
 | `zumen-cli` | `zumen` コマンド（`detect`、`scene` で JSON、`texts`・`entities` で 1 行 1 つの JSON、`render` で PNG） |
@@ -179,6 +182,7 @@ Python では、読み取りと描画の間 GIL を外す。
 - [SXF（SFC・P21）の扱い](docs/formats/sxf.md)
 - [JWW の扱い](docs/formats/jww.md)
 - [DXF の扱い（英語）](docs/formats/dxf.md)
+- [DWG の扱い（英語）](docs/formats/dwg.md)
 - [ST-Bridge の扱い](docs/formats/st-bridge.md)
 - [検証の記録（英語）](docs/verification.md)
 - [設計の判断の記録（英語）](docs/decisions/README.md)

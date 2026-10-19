@@ -14,7 +14,8 @@ and gives you a framework-agnostic drawing engine and React components to build 
   In our survey (October 2026) we found no JavaScript library that reads SXF in the browser,
   and no browser package or React component for JWW.
 - **DXF** from AutoCAD and other CAD software is read in TypeScript, including Japanese drawings in Shift_JIS and binary DXF.
-  **DWG** comes next, sharing the same AutoCAD drawing model; it aims to stay MIT licensed, without GPL components.
+  **DWG** (AutoCAD 2000 to 2018) is read into the same AutoCAD drawing model by our own decoder in Rust, without GPL
+  components; for now through the `zumen` command, Python and the WebAssembly build.
 - Structural design data in Japan is exchanged as **ST-Bridge** (`.stb`). We found no browser library for it either,
   so `@zumenjs/stb` reads versions 2.0 and 2.1 and shows the members in 3D.
 
@@ -24,7 +25,8 @@ and gives you a framework-agnostic drawing engine and React components to build 
   JWW versions 600 and 700 (lines, arcs, ellipses, points, text, solids, blocks, dimensions);
   DXF R12 to 2018 in ASCII and binary (lines, arcs, polylines with bulges and widths, splines, text and formatted MTEXT,
   blocks with attributes and arrays, dimensions, hatches, leaders, solids, wipeouts), with layers, line types,
-  line weights, ACI and true colors, transparency and text styles.
+  line weights, ACI and true colors, transparency and text styles;
+  DWG AutoCAD 2000 to 2018 in Rust, drawn like DXF (see [How DWG is handled](docs/formats/dwg.md)).
 - DXF model space and layouts: viewports draw model space at their scale, and measurements inside them return real-world units.
 - Fit, zoom (wheel, pinch, buttons, keyboard) and pan (drag, arrow keys).
 - Layer visibility. JWW layer groups can be toggled at once.
@@ -141,8 +143,9 @@ original XML attributes. See [packages/stb](packages/stb/README.md).
 The readers are being ported to Rust (`crates/`), with Python bindings (`bindings/python`) and a WebAssembly build
 (`bindings/wasm`), so servers and data pipelines can read the same drawings. The Rust readers return the same `Scene`
 as the TypeScript ones: both are compared on the drawings in `tests/fixtures`, and on local samples with
-`pnpm run parity`. JWW, SXF and DXF are ported; DWG follows. The browser packages will switch to the WebAssembly
-readers format by format, once each one matches.
+`pnpm run parity`. JWW, SXF and DXF are ported. DWG is read in Rust only and checked against the DXF that AutoCAD
+writes for the same drawing. The browser packages will switch to the WebAssembly readers format by format, once each
+one matches.
 
 ```python
 import zumen
@@ -175,6 +178,7 @@ cargo run --release -p zumen-cli -- texts plan.jww --region 100,50,200,120  # on
 | [`zumen-sxf`](crates/zumen-sxf) | `parse_sfc` and `parse_p21` (the SXF feature model), `sxf_to_scene`, the `SXF` reader |
 | [`zumen-jww`](crates/zumen-jww) | `read_jww` (the JWW document model), `jww_to_scene`, the `JWW` reader |
 | [`zumen-dxf`](crates/zumen-dxf) | `parse_dxf` (the AutoCAD drawing model, shared with DWG), `dxf_to_scene`, the `DXF` reader |
+| [`zumen-dwg`](crates/zumen-dwg) | `read_dwg` (DWG 2000 to 2018 into the AutoCAD drawing model of `zumen-dxf`), the `DWG` reader |
 | [`zumen`](crates/zumen) | `read` and `detect` over every reader |
 | [`zumen-render`](crates/zumen-render) | PNG rendering with the rules of the browser renderer, and the pixel box of every entity drawn; BIZ UDGothic is bundled for Japanese text |
 | [`zumen-cli`](crates/zumen-cli) | The `zumen` command: `detect`, `scene` (JSON), `texts` and `entities` (JSON lines) and `render` (PNG) |
@@ -198,7 +202,8 @@ so confidential drawings can be viewed without sending them anywhere.
 1. Split into readers, the drawing engine and React (done).
 2. DXF, with an AutoCAD object model shared with DWG (done, including MULTILEADER and MLINE).
 3. Rust readers with Python and WebAssembly bindings, and PNG rendering on servers (JWW, SXF and DXF done).
-4. DWG, read into the same AutoCAD object model.
+4. DWG, read into the same AutoCAD object model (2000 to 2018 done in Rust; R13 and R14, and DWG in the browser
+   packages, are next).
 5. Writing and converting drawings, analysis (tables, rooms and areas, revision comparison), markup and PDF drawings.
 6. Plan and elevation drawings of ST-Bridge models as scenes, to view, measure and render them like drawings.
 
@@ -208,6 +213,7 @@ so confidential drawings can be viewed without sending them anywhere.
 - [How SXF is handled](docs/formats/sxf.md) (Japanese)
 - [How JWW is handled](docs/formats/jww.md) (Japanese)
 - [How DXF is handled](docs/formats/dxf.md)
+- [How DWG is handled](docs/formats/dwg.md)
 - [How ST-Bridge is handled](docs/formats/st-bridge.md) (Japanese)
 - [Verification records](docs/verification.md)
 - [Design decisions](docs/decisions/README.md)

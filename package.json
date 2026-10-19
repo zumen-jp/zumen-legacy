@@ -1,7 +1,7 @@
 {
   "name": "zumen-monorepo",
   "version": "0.1.0",
-  "description": "Monorepo of zumen: read, view and measure 2D drawings (SXF, JWW, DXF; DWG planned) in the browser, Rust and Python, and view ST-Bridge structural models in 3D",
+  "description": "Monorepo of zumen: read, view and measure 2D drawings (SXF, JWW, DXF and DWG) in the browser, Rust and Python, and view ST-Bridge structural models in 3D",
   "private": true,
   "type": "module",
   "license": "UNLICENSED",

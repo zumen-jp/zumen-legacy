@@ -4,6 +4,19 @@ All packages share one version during 0.x.
 
 ## Unreleased (0.1.0)
 
+- Rust: `zumen-dwg` reads DWG from AutoCAD 2000 to 2018 (AC1015 to AC1032) with its own decoder, which follows the Open
+  Design Specification for .dwg files 5.4.1, into the AutoCAD drawing model of `zumen-dxf`, and draws it with
+  `dxf_to_scene`: header variables, layers, line types, text and dimension styles, blocks, layouts, draw order,
+  MLINESTYLE and every entity that DXF draws except HELIX and MPOLYGON. What is not read is reported. `zumen.read`, the
+  `zumen` command, the Python bindings, the MCP server and the WebAssembly build read DWG. There is no TypeScript DWG
+  reader ([decision 0003](docs/decisions/0003-dwg-in-rust.md)).
+- `@zumenjs/dxf` and `zumen-dxf`: a scene of a DWG document is labeled DWG (format `dwg`, version `DWG AC1032`,
+  `DWG AutoCAD 2018（AC1032）`), and UTF-16 text `UTF-16`.
+- `@zumenjs/dxf`: a hatch whose pattern lines are numbered beyond 2⁵³ (a base point far from the boundary, where adding 1
+  no longer changes the number) is treated as too dense and drawn as its outline (`hatch-dense`); it hung the reader.
+  Found by fuzzing DWG.
+- `pnpm run parity` compares each DWG with the DXF of the same drawing (`<name>.dxf` or `<name>_ascii.dxf`) and reports
+  the differences without failing.
 - Python: an MCP server, `zumen-mcp` (`pip install "zumen[mcp]"`), with read-only tools for AI applications:
   `open_drawing`, `render_drawing`, `find_texts`, `find_entities`, `get_entity` and `measure_distance`. It serves over
   stdio, reads only below `--root` when given, and limits file sizes (`--max-bytes`), image sizes and result counts.

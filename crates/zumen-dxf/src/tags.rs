@@ -157,6 +157,11 @@ fn codepage_label(codepage: &str) -> Option<&'static str> {
     })
 }
 
+/// $DWGCODEPAGE の名前（ANSI_932 など）から TextDecoder の名前。DWG の文字コードの番号を名前にした後で使う
+pub fn codepage_encoding(codepage: &str) -> Option<&'static str> {
+    codepage_label(&js::trim(codepage).to_uppercase())
+}
+
 pub(crate) fn encoding(label: &str) -> &'static Encoding {
     Encoding::for_label(label.as_bytes()).unwrap_or(encoding_rs::WINDOWS_1252)
 }

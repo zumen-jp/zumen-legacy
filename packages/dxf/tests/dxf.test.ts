@@ -155,7 +155,7 @@ describe("DXF のマルチ引出線", () => {
 /**
  * MLINE の要素の位置は、頂点から留め継ぎの向きへの距離（41 の 1 つ目）で、角では 1 / sin の分だけ長い。
  * 41 の 2 つ目以降は MLEDIT で切った区間。読み違えると壁の線が角でずれたり、T 字の継ぎ目に線が残ったりする。
- * DWG（ezdwg）は 41 を持たないので、MLINESTYLE のずれ・位置合わせ・尺度から同じ位置を求める。
+ * 41 がないときは、MLINESTYLE のずれ・位置合わせ・尺度から同じ位置を求める。
  */
 describe("DXF のマルチライン", () => {
   const round = (lines: number[][]) => lines.map((line) => line.map((value) => Math.round(value * 1e6) / 1e6));
@@ -167,7 +167,7 @@ describe("DXF のマルチライン", () => {
       [5, 1, 9, 1, 9, 10],
       [0, -1, 11, -1, 11, 10],
     ]);
-    // DWG と同じく 41 のないマルチライン: 切れ目はなく、位置はスタイル（±0.5、ゼロの位置合わせ、尺度 2）から求める
+    // 41 のないマルチライン: 切れ目はなく、位置はスタイル（±0.5、ゼロの位置合わせ、尺度 2）から求める
     delete (doc.entities[0] as DxfMLine).line_params;
     expect(round(strokes(dxfToScene(doc).entities[0]))).toEqual([
       [0, 1, 9, 1, 9, 10],
@@ -189,6 +189,12 @@ describe("DXF の読み取りの上限", () => {
   it("M × N が頂点の数より大きいポリゴンメッシュは、頂点のある格子の位置だけを描く", () => {
     const mesh = readDrawing(LIMITS, [dxf]).entities.find((entity) => entity.type === "ポリゴンメッシュ");
     expect(strokes(mesh)).toEqual([[0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 1, 1]]);
+  });
+
+  it("模様の線の基点が遠く、線の番号に 1 を足しても変わらないハッチングは、多すぎる模様として外形を描く", () => {
+    const scene = readDrawing(LIMITS, [dxf]);
+    expect(scene.notices).toContainEqual(expect.objectContaining({ code: "hatch-dense", count: 1 }));
+    expect(stroke(scene.entities.find((entity) => entity.id === "H1"))).toEqual([0, 0, 100, 0, 100, 100, 0, 100, 0, 0]);
   });
 
   it("模様の線の本数が数えられない（NaN の）ハッチングは、多すぎる模様として外形を描く", () => {
