@@ -462,6 +462,7 @@ dependencies = [
  "serde_json",
  "zumen-core",
  "zumen-jww",
+ "zumen-sxf",
 ]
 
 [[package]]
@@ -508,6 +509,14 @@ version = "0.1.0"
 dependencies = [
  "tiny-skia",
  "ttf-parser",
+ "zumen-core",
+]
+
+[[package]]
+name = "zumen-sxf"
+version = "0.1.0"
+dependencies = [
+ "encoding_rs",
  "zumen-core",
 ]
 

@@ -88,6 +88,55 @@ pub fn atan2(y: f64, x: f64) -> f64 {
     libm::atan2(y, x)
 }
 
+/// `Math.round(x)`。ちょうど半分は大きい方（+∞ の側）に丸め、-0.5 以上の負の数は -0 になる
+pub fn round(x: f64) -> f64 {
+    if !x.is_finite() || x == 0.0 {
+        return x;
+    }
+    if (-0.5..0.0).contains(&x) {
+        return -0.0;
+    }
+    let floor = x.floor();
+    if x - floor >= 0.5 { floor + 1.0 } else { floor }
+}
+
+/// `Number.parseFloat(text)`。先頭の空白を除き、十進の数（Infinity を含む）として読める最も長い先頭部分を読む。
+/// 読めなければ NaN
+pub fn parse_float(text: &str) -> f64 {
+    let text = text.trim_start_matches(is_whitespace);
+    let bytes = text.as_bytes();
+    let (negative, start) = match bytes.first() {
+        Some(b'-') => (true, 1),
+        Some(b'+') => (false, 1),
+        _ => (false, 0),
+    };
+    let signed = |value: f64| if negative { -value } else { value };
+    if text[start..].starts_with("Infinity") {
+        return signed(f64::INFINITY);
+    }
+    let digits = |from: usize| bytes[from..].iter().take_while(|byte| byte.is_ascii_digit()).count();
+    let integer = digits(start);
+    let mut end = start + integer;
+    if bytes.get(end) == Some(&b'.') {
+        let fraction = digits(end + 1);
+        if integer == 0 && fraction == 0 {
+            return f64::NAN;
+        }
+        end += 1 + fraction;
+    } else if integer == 0 {
+        return f64::NAN;
+    }
+    if matches!(bytes.get(end), Some(b'e' | b'E')) {
+        let sign = usize::from(matches!(bytes.get(end + 1), Some(b'+' | b'-')));
+        let exponent = digits(end + 1 + sign);
+        if exponent > 0 {
+            end += 1 + sign + exponent;
+        }
+    }
+    // Rust の f64 の読み取りも十進から最も近い値に丸める（"5."・".5"・"1e5" の書き方も同じ）
+    signed(text[start..end].parse::<f64>().unwrap_or(f64::NAN))
+}
+
 /// `String(x)`（Number::toString）。最短の十進表記で、指数は 1e21 以上と 1e-7 未満だけに使う
 pub fn number_to_string(x: f64) -> String {
     if x.is_nan() {
@@ -248,6 +297,34 @@ mod tests {
         for (value, expected) in [(1e21, "1e+21"), (1.5e-7, "1.5e-7"), (123.456, "123.456"), (0.000001, "0.000001")] {
             assert_eq!(number_to_string(value), expected);
         }
+    }
+
+    #[test]
+    fn parses_and_rounds_like_javascript() {
+        // Node.js 24 の Number.parseFloat・Math.round の結果
+        let cases = [
+            ("  1.5e3x", 1500.0),
+            ("-.5", -0.5),
+            ("5.", 5.0),
+            ("1e", 1.0),
+            ("1e+", 1.0),
+            ("\u{3000}12abc", 12.0),
+            ("+Infinityx", f64::INFINITY),
+            ("0x10", 0.0),
+            ("1.2.3", 1.2),
+        ];
+        for (text, expected) in cases {
+            assert_eq!(parse_float(text), expected, "{text}");
+        }
+        for text in ["", ".", "-", "e5", ".e5", "Inf", "abc"] {
+            assert!(parse_float(text).is_nan(), "{text}");
+        }
+        assert!(parse_float("-0").is_sign_negative());
+        for (value, expected) in [(2.5, 3.0), (-2.5, -2.0), (0.49999999999999994, 0.0), (1.5, 2.0), (-1.5, -1.0)] {
+            assert_eq!(round(value), expected, "{value}");
+        }
+        assert!(round(-0.3).is_sign_negative());
+        assert!(round(f64::NAN).is_nan());
     }
 
     #[test]

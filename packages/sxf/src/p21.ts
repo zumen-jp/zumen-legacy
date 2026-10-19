@@ -24,6 +24,8 @@ const MARKER_CODES = new Map<string, number>([
   ...Object.entries(MARKER_NAMES).map(([code, name]) => [name.toLowerCase(), Number(code)] as [string, number]),
   ["x", 7],
 ]);
+/** 子図の定義の入れ子の上限（描くのは 32 段まで）。深すぎる定義は読まずに件数を知らせる */
+const MAX_DEFINITION_DEPTH = 64;
 const SUBFIGURE_PREFIXES: [string, number][] = [
   ["$$SXF_FM_", 1],
   ["$$SXF_FG_", 2],
@@ -603,6 +605,7 @@ class Converter {
   }
 
   private readonly definitions = new Map<number, string>();
+  private depth = 0;
 
   /** DRAUGHTING_SUBFIGURE_REPRESENTATION を複合図形定義にして、名前を返す */
   private definition(id: number): string | null {
@@ -610,12 +613,18 @@ class Converter {
     if (known !== undefined) return known;
     const args = this.model.args(this.model.get(id), "DRAUGHTING_SUBFIGURE_REPRESENTATION");
     if (!args) return null;
+    if (this.depth >= MAX_DEFINITION_DEPTH) {
+      this.notices.add("warning", "sfig-depth", "入れ子が深すぎる子図の定義を省きました");
+      return null;
+    }
     const fullName = this.model.str(args[0]);
     const prefix = SUBFIGURE_PREFIXES.find(([candidate]) => fullName.startsWith(candidate));
     const name = prefix ? fullName.slice(prefix[0].length) : fullName;
     this.definitions.set(id, name);
     const members: SxfFeature[] = [];
+    this.depth++;
     for (const item of this.model.refs(args[1])) members.push(...this.item(item));
+    this.depth--;
     this.model.doc.subFigures.set(name, {
       feature: { id, kind: "sfig_org", name, flag: prefix?.[1] ?? 3 },
       members,
@@ -716,13 +725,15 @@ class Converter {
     const curveStyle = model.curveStyle(style);
     const styled: Styled = { id: entity.id, layer: this.layer(dimensionCurve.id), ...curveStyle };
     const curve = model.curve(item, styled);
+    // 寸法補助線は名前（$$SXF_prj_1・$$SXF_prj_2）の順。利用者のロケールで結果が変わらないよう、符号単位で比べる
+    const projectionName = (item: P21Entity | undefined) => model.str(model.args(item, "REPRESENTATION_ITEM")?.[0]);
     const projections = contents
       .filter((item) => model.has(item, "PROJECTION_CURVE"))
-      .sort((a, b) =>
-        model
-          .str(model.args(a, "REPRESENTATION_ITEM")?.[0])
-          .localeCompare(model.str(model.args(b, "REPRESENTATION_ITEM")?.[0])),
-      );
+      .sort((a, b) => {
+        const nameA = projectionName(a);
+        const nameB = projectionName(b);
+        return nameA < nameB ? -1 : nameA > nameB ? 1 : 0;
+      });
     const extension = (occurrence: P21Entity | undefined): ExtensionLine | null => {
       if (!occurrence) return null;
       const trimmed = model.args(model.get(model.styled(occurrence).item), "TRIMMED_CURVE");

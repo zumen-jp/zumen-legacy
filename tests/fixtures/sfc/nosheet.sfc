@@ -1,0 +1,15 @@
+ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('SCADEC level2 feature_mode'),'2;1');
+FILE_NAME('nosheet.sfc','2026-10-18T00:00:00',('author'),('org'),'zumen','test','');
+FILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));
+ENDSEC;
+DATA;
+/*SXF3
+#10 = line_feature('1','1','1','1','0.000000','0.000000','10.000000','0.000000')
+SXF3*/
+/*SXF3
+#20 = circle_feature('1','2','1','1','5.000000','5.000000','3.000000')
+SXF3*/
+ENDSEC;
+END-ISO-10303-21;

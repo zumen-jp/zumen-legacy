@@ -1,0 +1,75 @@
+ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('SCADEC level2 feature_mode'),'2;1');
+FILE_NAME('test.sfc','2026-10-18T00:00:00',('author'),('org'),'SCADEC_API_Ver3.10$$3.1','test','');
+FILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));
+ENDSEC;
+DATA;
+/*SXF
+#10 = user_defined_colour_feature('10','20','30')
+SXF*/
+/*SXF
+#20 = user_defined_font_feature(\'$$SXF_custom\','2','(2.000000,1.000000)')
+SXF*/
+/*SXF
+#30 = width_feature('0.250000')
+SXF*/
+/*SXF
+#40 = width_feature('0.400000')
+SXF*/
+/*SXF
+#50 = text_font_feature(\'Century\')
+SXF*/
+/*SXF
+#60 = polyline_feature('0','0','0','0','5','(0.000000,10.000000,10.000000,0.000000,0.000000)','(0.000000,0.000000,10.000000,10.000000,0.000000)')
+SXF*/
+/*SXF
+#70 = composite_curve_org_feature('17','17','11','1')
+SXF*/
+/*SXF
+#80 = line_feature('1','8','1','3','0.000000','0.000000','1000.000000','0.000000')
+SXF*/
+/*SXF
+#90 = text_string_feature('1','8','1',\'ï\é¶É\î\\\x\','0.000000','100.000000','50.000000','300.000000','0.000000','0.00000000000000','0.00000000000000','1','1')
+SXF*/
+/*SXF
+#100 = sfig_org_feature(\'ïΩñ ê}\','1')
+SXF*/
+/*SXF
+#200 = line_feature('1','8','1','1','0.000000','0.000000','10.000000','0.000000')
+SXF*/
+/*SXF
+#210 = sfig_org_feature(\'G\','3')
+SXF*/
+/*SXF
+#220 = line_feature('1','8','1','1','0.000000','0.000000','10.000000','0.000000')
+SXF*/
+/*SXF
+#230 = sfig_org_feature(\'S\','2')
+SXF*/
+/*SXF
+#110 = fill_area_style_colour_feature('2','17','1','0','()')
+SXF*/
+/*SXF
+#120 = sfig_locate_feature('1',\'ïΩñ ê}\','100.000000','50.000000','0.00000000000000','0.05000000000000','0.05000000000000')
+SXF*/
+/*SXF
+#240 = sfig_locate_feature('0',\'G\','500.000000','500.000000','30.00000000000000','2.00000000000000','2.00000000000000')
+SXF*/
+/*SXF
+#250 = sfig_locate_feature('0',\'S\','300.000000','300.000000','0.00000000000000','1.00000000000000','1.00000000000000')
+SXF*/
+/*SXF
+#130 = drawing_sheet_feature(\'ìπòH\','1','1','0','0')
+SXF*/
+/*SXF
+#140 = layer_feature(\'ïîï™\','1')
+SXF*/
+/*SXF
+#150 = layer_feature(\'ê}\','0')
+SXF*/
+/*SXF
+#160 = line_feature('2','1','1','1','0.000000','0.000000','1.000000','1.000000')
+SXF*/
+ENDSEC;
+END-ISO-10303-21;

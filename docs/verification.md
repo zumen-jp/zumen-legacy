@@ -82,6 +82,34 @@ Checked on 2026-10-18 on macOS (Apple M2 Pro), Node.js 24.21.0 and Chromium, aga
   blocks (the ACadSharp samples only have straight leaders with closed filled arrows and text), tolerance content, text columns,
   non-rectangular text frames, dimension breaks, MLINE fill breaks, and MLEDIT cuts in elements that start after the miter point.
 
+## SXF in Rust
+
+Checked on 2026-10-19 on macOS (Apple Silicon) with Rust 1.99.0, Node.js 24.21.0 and wasm-pack 0.15.0.
+
+- Six synthetic SXF drawings in `tests/fixtures/sfc` and `tests/fixtures/p21` give the same scenes in Rust
+  (`crates/zumen/tests/golden.rs`) and in the WebAssembly build (`pnpm run wasm`) as in TypeScript. Besides the two
+  drawings of the unit tests, they use all 34 features with predefined and user-defined colors, line types and widths,
+  the four kinds of composite figures nested and placed with unequal scales, cycles, duplicate and missing definitions,
+  every arrow and marker code, vertical, slanted and spaced text, composite curves of every curve type, the five
+  dimension types, labels and balloons, every hatch kind, title blocks, features after the sheet and unreadable,
+  invalid and unknown features. The P21 drawing also has trimmed lines, circles, ellipses and clothoids by parameter and
+  by point, Bézier curves, all text anchors, STEP escapes, an 8-bit Shift_JIS layer name and 70 nested sub-figures.
+- The public sample `D0LS004Z` from the [ezsxf](https://github.com/monozukuri-ai/ezsxf) repository gives the same scene
+  in Rust as in TypeScript as SFC (255 KB) and as P21 (1.4 MB), 1,201 entities each (`pnpm run parity`).
+- `pnpm run fuzz` read 24,000 damaged copies of the SXF fixtures (8 seeds of 3,000) and 9,000 of the JWW fixtures with
+  TypeScript and WebAssembly: the scenes or the error messages were the same for every input. Before that, it found
+  two differences in the port (header strings that are not used were not decoded, so an invalid `\X4\` code point did
+  not fail as in TypeScript; layer codes above 32 bits) and a clothoid that hung both readers.
+- The changes to `@zumenjs/sxf` and `@zumenjs/core` leave the TypeScript scenes of all 54 local samples (SXF, JWW and
+  DXF) unchanged, compared with the build of the previous `main`.
+- Time (median of seven runs in Node.js, after a warm-up): `D0LS004Z.SFC` 11 ms in TypeScript and 11 ms in WebAssembly
+  including the JSON; `D0LS004Z.P21` 67 ms and 23 ms. The native `zumen scene` command takes 10 ms and 20 ms including
+  the process start and the JSON output.
+- WebAssembly with the SXF and JWW readers: 742,516 bytes (gzip −9: 382,785, brotli −11: 295,198), 222,817 bytes
+  (brotli 66,163) more than with JWW only.
+- `zumen render` draws `D0LS004Z.SFC` (A1) at 60 dpi in 0.06 s with the notes, dimension values, hatching, tables and
+  the yellow border of the original. Not compared pixel by pixel with the viewer yet.
+
 ## Rust readers, rendering and bindings
 
 Checked on 2026-10-18 on macOS (Apple Silicon) with Rust 1.99.0, Node.js 24.21.0, Python 3.15.0, wasm-pack 0.15.0

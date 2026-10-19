@@ -49,6 +49,8 @@ import {
 
 const DEFAULT_COLOR = "#ffffff";
 const MAX_DEPTH = 32;
+/** Scene のレイヤの id の上限（Rust の読み取りと同じ 32 ビットの符号なし整数） */
+const MAX_LAYER_CODE = 0xffffffff;
 const MAX_HATCH_LINES = 20_000;
 
 function hex(r: number, g: number, b: number): string {
@@ -294,7 +296,8 @@ class SceneBuilder {
     for (const primitive of primitives) extendPrimitiveBox(bbox, primitive);
     if (isEmptyBox(bbox)) return;
     const layers = [...ctx.layers];
-    if (layer > 0) layers.push(layer);
+    const own = this.layerCode(layer);
+    if (own > 0) layers.push(own);
     for (const code of layers) this.layerCodes.add(code);
     const head: Property[] = [
       { label: "種類", value: FEATURE_LABELS[feature.kind] },
@@ -321,6 +324,13 @@ class SceneBuilder {
       properties: [...head, ...properties],
       ...(ctx.placement ? { placement: ctx.placement } : {}),
     });
+  }
+
+  /** Scene のレイヤの id にできないほど大きいレイヤコードは、レイヤなし（0）として扱う */
+  private layerCode(code: number): number {
+    if (code <= MAX_LAYER_CODE) return code;
+    this.notices.add("warning", "layer-range", "範囲外のレイヤコードを、レイヤなしとして扱いました");
+    return 0;
   }
 
   private styleProperties(color: number, lineType: number, lineWidth: number): Property[] {
@@ -577,7 +587,8 @@ class SceneBuilder {
     // 作図グループは配置位置 (0, 0)・回転 0・尺度 1 とみなす（フィーチャ仕様編 3-5 補足）
     const local = flag === 3 ? IDENTITY : placement(x, y, feature.angle, feature.ratioX, feature.ratioY);
     const m = multiply(ctx.m, local);
-    const layers = feature.layer > 0 ? [...ctx.layers, feature.layer] : ctx.layers;
+    const own = this.layerCode(feature.layer);
+    const layers = own > 0 ? [...ctx.layers, own] : ctx.layers;
     for (const code of layers) this.layerCodes.add(code);
     let nextPlacement = ctx.placement;
     if (flag !== 3) {

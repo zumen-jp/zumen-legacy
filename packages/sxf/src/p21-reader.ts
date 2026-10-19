@@ -27,6 +27,21 @@ export interface P21File {
 
 const sjis = new TextDecoder("shift_jis");
 
+/** Shift_JIS の 2 バイト文字の先頭バイト */
+function isLeadByte(code: number): boolean {
+  return (code >= 0x81 && code <= 0x9f) || (code >= 0xe0 && code <= 0xfc);
+}
+
+/**
+ * バイトをそのまま U+0000〜U+00FF の文字にする（ISO 8859-1）。TextDecoder の "latin1" は windows-1252 で、
+ * 0x80〜0x9F を別の文字（0x82 なら U+201A）にするため、Shift_JIS のバイトに戻せなくなる。
+ */
+export function latin1(bytes: Uint8Array): string {
+  let out = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) out += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return out;
+}
+
 /** STEP の文字列のエスケープ（'' と \X2\…\X0\ など）を戻す。規格外の 8 ビットは Shift_JIS として読む */
 export function decodeStepString(raw: string): string {
   if (!/['\\\x80-\xff]/.test(raw)) return raw;
@@ -77,10 +92,12 @@ export function decodeStepString(raw: string): string {
         continue;
       }
     }
-    // 規格では 8 ビットの文字は使えないが、Shift_JIS のまま書く出力ソフトもある
+    // 規格では 8 ビットの文字は使えないが、Shift_JIS のまま書く出力ソフトもある。
+    // 2 バイト文字の 2 バイト目は 0x40〜0x7E（\ を含む）のこともあるので、先頭バイトの次の 1 バイトも含めて復号する
     if (char.charCodeAt(0) >= 0x80) {
       let j = i;
-      while (j < raw.length && raw.charCodeAt(j) >= 0x80) j++;
+      while (j < raw.length && raw.charCodeAt(j) >= 0x80)
+        j += isLeadByte(raw.charCodeAt(j)) && j + 1 < raw.length ? 2 : 1;
       out += sjis.decode(Uint8Array.from(raw.slice(i, j), (c) => c.charCodeAt(0) & 0xff));
       i = j;
       continue;
@@ -92,6 +109,9 @@ export function decodeStepString(raw: string): string {
 }
 
 class StepSyntaxError extends Error {}
+
+/** 引数の集合・型付きの値の入れ子の上限。深すぎるインスタンスは読めないものとして省く */
+const MAX_NESTING = 64;
 
 const SPACE = 0x20;
 const TAB = 0x09;
@@ -112,7 +132,7 @@ function isNumberChar(code: number): boolean {
   return isDigit(code) || code === 0x2d || code === 0x2b || code === 0x2e || code === 0x45 || code === 0x65;
 }
 
-/** 1 文字ずつ読む字句解析。text は latin1 で復号した（1 バイト = 1 文字の）文字列 */
+/** 1 文字ずつ読む字句解析。text は latin1 で 1 バイトを 1 文字にした文字列 */
 class Lexer {
   pos: number;
   constructor(
@@ -159,14 +179,15 @@ class Lexer {
   }
 
   /** "(" の直後から ")" までの引数 */
-  list(): P21Value[] {
+  list(depth = 0): P21Value[] {
+    if (depth > MAX_NESTING) throw new StepSyntaxError("引数の入れ子が深すぎます");
     const values: P21Value[] = [];
     if (this.peek() === ")") {
       this.pos++;
       return values;
     }
     for (;;) {
-      values.push(this.value());
+      values.push(this.value(depth));
       const next = this.peek();
       this.pos++;
       if (next === ",") continue;
@@ -175,7 +196,7 @@ class Lexer {
     }
   }
 
-  value(): P21Value {
+  value(depth: number): P21Value {
     const char = this.peek();
     const text = this.text;
     switch (char) {
@@ -202,7 +223,7 @@ class Lexer {
       }
       case "(":
         this.pos++;
-        return this.list();
+        return this.list(depth + 1);
       case '"': {
         const close = text.indexOf('"', this.pos + 1);
         const value = text.slice(this.pos + 1, close);
@@ -214,7 +235,7 @@ class Lexer {
     if ((code >= 0x41 && code <= 0x5a) || (code >= 0x61 && code <= 0x7a)) {
       const typed = this.keyword();
       this.expect("(");
-      const inner = this.list();
+      const inner = this.list(depth + 1);
       return { typed, value: inner.length === 1 ? (inner[0] as P21Value) : inner };
     }
     const start = this.pos;
@@ -260,7 +281,7 @@ function headerStrings(text: string): P21File["header"] {
 }
 
 export function readP21(bytes: Uint8Array): P21File {
-  const text = new TextDecoder("latin1").decode(bytes);
+  const text = latin1(bytes);
   const entities = new Map<number, P21Entity>();
   let skipped = 0;
   const dataStart = text.indexOf("DATA;");
