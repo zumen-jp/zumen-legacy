@@ -23,3 +23,12 @@
   `pnpm run golden` and fix the Rust side until `cargo test -p zumen` passes. Never change a golden file by hand.
 - Rust runtime dependencies follow the same rules as npm ones (no GPL or AGPL, works in WebAssembly) and are recorded
   with the reason in `docs/architecture.md`.
+- Work on a branch cut from the latest `origin/main` and open a pull request for every change; do not push to `main`.
+  Run `pnpm run check` before pushing, then squash-merge once CI passes, unless the user asked to stop at review.
+  Delete the branch after merging. Commit messages and pull request titles follow Conventional Commits.
+- Record design decisions (a choice between alternatives and its reasons) in `docs/decisions/`, in English,
+  as its README describes.
+- Development ports come from `config/local-ports.json` (the playground uses 24100). Repositories of the zumenjs
+  organization use 24100–24199, so they can run next to other projects on the same machine.
+- Keep drawings for manual checks in a folder outside the repository and pass it as `ZUMEN_SAMPLES`. Keep
+  machine-specific files such as `.claude/launch.json` out of Git by listing them in `.git/info/exclude`.

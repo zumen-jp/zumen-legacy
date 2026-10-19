@@ -161,8 +161,8 @@ TS の読み取りを変えたら `pnpm run golden` で `tests/fixtures` の正�
 開発中は、パッケージ同士が `package.json` の exports の `@zumenjs/source` 条件で `src` を読むため、ビルドしなくても変更がすぐ反映される。
 Node.js は `.node-version`、pnpm は `package.json` の `packageManager` に固定する。
 
-試用画面は `pnpm dev` で開く（ポートは [config/local-ports.json](config/local-ports.json) の `playground`、既定 24055）。
-Git に入れない図面は、置いたフォルダーを `ZUMEN_SAMPLES` に指定し、`http://127.0.0.1:24055/?sample=<ファイル名>` で開く。
+試用画面は `pnpm dev` で開く（ポートは [config/local-ports.json](config/local-ports.json) の `playground`、既定 24100）。
+Git に入れない図面は、置いたフォルダーを `ZUMEN_SAMPLES` に指定し、`http://127.0.0.1:24100/?sample=<ファイル名>` で開く。
 ファイルの選択・ドロップでも開ける。
 
 ## ライセンス
