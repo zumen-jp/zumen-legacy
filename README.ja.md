@@ -143,21 +143,29 @@ scene = zumen.read("plan.jww")  # 形式は中身で判定する
 png = scene.render_png(dpi=150)  # サムネイルや、画像を読む AI への添付
 part = scene.render_png(dpi=300, region=(100, 50, 200, 120))  # 用紙の mm で範囲を指定して拡大
 json_text = scene.to_json()  # @zumenjs/core の sceneFromJson で Scene に戻せる
+
+texts = scene.texts()  # 文字列・位置・高さ・向き・レイヤ（用紙の mm）
+door = scene.entity("#120")  # 1 つの図形の種類・レイヤ・外接矩形・文字・属性
+table = scene.to_arrow()  # すべての図形を pyarrow.Table に（pip install "zumen[arrow]"）
+image = scene.render(size=(2000, 2000))  # PNG と、画像の px と用紙の mm の変換
+for entity in image.entities_at(640, 480):  # その画素に描いた図形（外接矩形の小さい順）
+    print(entity["id"], entity["box"], entity["text"])
 ```
 
 ```bash
-cargo run --release -p zumen-cli -- render plan.jww -o plan.png --dpi 150
+cargo run --release -p zumen-cli -- render plan.jww -o plan.png --dpi 150 --map plan.json
+cargo run --release -p zumen-cli -- texts plan.jww --region 100,50,200,120  # 1 行に 1 つの JSON
 ```
 
 | クレート | 中身 |
 | --- | --- |
-| `zumen-core` | 表示用モデル（`@zumenjs/core` と同じ JSON）、幾何、文字の配置 |
+| `zumen-core` | 表示用モデル（`@zumenjs/core` と同じ JSON）、幾何、文字の配置、図面の文字と図形の取り出し |
 | `zumen-sxf` | `parse_sfc`・`parse_p21`（SXF のフィーチャのモデル）、`sxf_to_scene`、読み取りの `SXF` |
 | `zumen-jww` | `read_jww`（JWW のままのモデル）、`jww_to_scene`、読み取りの `JWW` |
 | `zumen-dxf` | `parse_dxf`（DWG と共有する AutoCAD の図形モデル）、`dxf_to_scene`、読み取りの `DXF` |
 | `zumen` | すべての読み取りをまとめた `read`・`detect` |
-| `zumen-render` | ブラウザの描画と同じ規則で PNG に描く。日本語の文字は同梱の BIZ UDゴシックで描く |
-| `zumen-cli` | `zumen` コマンド（`detect`、`scene` で JSON、`render` で PNG） |
+| `zumen-render` | ブラウザの描画と同じ規則で PNG に描き、描いた図形の画像の上の位置を返す。日本語の文字は同梱の BIZ UDゴシックで描く |
+| `zumen-cli` | `zumen` コマンド（`detect`、`scene` で JSON、`texts`・`entities` で 1 行 1 つの JSON、`render` で PNG） |
 
 Python では、読み取りと描画の間 GIL を外す。
 

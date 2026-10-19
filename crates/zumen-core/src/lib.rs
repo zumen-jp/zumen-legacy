@@ -5,6 +5,7 @@
 //! implementations can be compared on the same drawings (`tests/fixtures`).
 #![forbid(unsafe_code)]
 
+pub mod extract;
 pub mod geometry;
 pub mod js;
 mod measure;

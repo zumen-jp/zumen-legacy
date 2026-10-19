@@ -151,21 +151,29 @@ scene = zumen.read("plan.jww")  # the format is detected from the contents
 png = scene.render_png(dpi=150)  # thumbnails, or images for vision models
 part = scene.render_png(dpi=300, region=(100, 50, 200, 120))  # a part, in paper millimeters
 json_text = scene.to_json()  # sceneFromJson() in @zumenjs/core turns it back into a Scene
+
+texts = scene.texts()  # text, position, height, angle and layers, in paper millimeters
+door = scene.entity("#120")  # the type, layers, box, text and properties of one entity
+table = scene.to_arrow()  # every entity as a pyarrow.Table (pip install "zumen[arrow]")
+image = scene.render(size=(2000, 2000))  # a PNG with the conversion between pixels and paper millimeters
+for entity in image.entities_at(640, 480):  # the entities drawn under a pixel, smallest first
+    print(entity["id"], entity["box"], entity["text"])
 ```
 
 ```bash
-cargo run --release -p zumen-cli -- render plan.jww -o plan.png --dpi 150
+cargo run --release -p zumen-cli -- render plan.jww -o plan.png --dpi 150 --map plan.json
+cargo run --release -p zumen-cli -- texts plan.jww --region 100,50,200,120  # one JSON object per line
 ```
 
 | Crate | Contents |
 | --- | --- |
-| [`zumen-core`](crates/zumen-core) | The scene model (the same JSON as `@zumenjs/core`), geometry and text layout |
+| [`zumen-core`](crates/zumen-core) | The scene model (the same JSON as `@zumenjs/core`), geometry, text layout, and the texts and entities of a scene |
 | [`zumen-sxf`](crates/zumen-sxf) | `parse_sfc` and `parse_p21` (the SXF feature model), `sxf_to_scene`, the `SXF` reader |
 | [`zumen-jww`](crates/zumen-jww) | `read_jww` (the JWW document model), `jww_to_scene`, the `JWW` reader |
 | [`zumen-dxf`](crates/zumen-dxf) | `parse_dxf` (the AutoCAD drawing model, shared with DWG), `dxf_to_scene`, the `DXF` reader |
 | [`zumen`](crates/zumen) | `read` and `detect` over every reader |
-| [`zumen-render`](crates/zumen-render) | PNG rendering with the rules of the browser renderer; BIZ UDGothic is bundled for Japanese text |
-| [`zumen-cli`](crates/zumen-cli) | The `zumen` command: `detect`, `scene` (JSON) and `render` (PNG) |
+| [`zumen-render`](crates/zumen-render) | PNG rendering with the rules of the browser renderer, and the pixel box of every entity drawn; BIZ UDGothic is bundled for Japanese text |
+| [`zumen-cli`](crates/zumen-cli) | The `zumen` command: `detect`, `scene` (JSON), `texts` and `entities` (JSON lines) and `render` (PNG) |
 
 Reading and rendering release the GIL in Python.
 

@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "zumen"
-description = "Read 2D drawings of Japanese construction (SXF, JWW and DXF now; DWG next) and render them to PNG"
+description = "Read 2D drawings of Japanese construction (SXF, JWW and DXF now; DWG next), render them to PNG and extract their texts and entities"
 readme = "README.md"
 requires-python = ">=3.10"
 keywords = ["cad", "drawing", "jww", "sxf", "dxf", "dwg", "aec"]
@@ -18,11 +18,15 @@ classifiers = [
 ]
 dynamic = ["version"]
 
+[project.optional-dependencies]
+# Scene.to_arrow の表（Apache-2.0）
+arrow = ["pyarrow>=14"]
+
 [project.urls]
 Repository = "https://github.com/zumenjs/zumen"
 
 [dependency-groups]
-dev = ["maturin==1.15.0", "pytest==9.1.1", "ruff==0.17.1"]
+dev = ["maturin==1.15.0", "pyarrow==25.0.1", "pytest==9.1.1", "ruff==0.17.1"]
 
 [tool.maturin]
 python-source = "python"
