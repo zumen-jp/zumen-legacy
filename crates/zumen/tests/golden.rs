@@ -1,6 +1,7 @@
 //! tests/fixtures の図面を読み、TypeScript の読み取りが書いた正解（*.scene.json）と比べる。
 //! 既定の表示は <名前>.scene.json、ほかの表示（DXF のレイアウトなど）は <名前>@<表示>.scene.json。
 //! 正解は `pnpm run golden` で作り直す。数は 1e-9 の相対誤差まで同じとみなす（三角関数の実装の差）。
+//! DWG は TypeScript では読まないので、tests/fixtures/dwg の正解は @zumenjs/dwg（この読み取りの WebAssembly）が書く。
 
 use serde_json::Value;
 use std::fs;

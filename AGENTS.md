@@ -1,6 +1,7 @@
 # Rules for coding agents
 
-- The entry point for verification is `pnpm run check` (Biome, the type checker, unit tests, `pnpm audit`,
+- The entry point for verification is `pnpm run check` (Biome, the WebAssembly reader (`pnpm run wasm`, which needs
+  wasm-bindgen-cli of the `Cargo.lock` version), the type checker, unit tests, `pnpm audit`,
   the builds of every package and the playground, then `check:rust` and `check:python`). Check visible changes in the `pnpm dev` playground
   with real drawings.
 - Follow the public specification of each format and cite the section in a comment.
@@ -13,7 +14,8 @@
 - Dependency directions: `@zumenjs/react` → `@zumenjs/core`, and each format package → `@zumenjs/core` only.
   Keep format knowledge out of `@zumenjs/core`, and keep format packages from importing each other.
   DWG has no TypeScript reader: `zumen-dwg` reads it in Rust into the AutoCAD drawing model of `zumen-dxf` and draws it
-  with `dxf_to_scene`, the one crate that depends on another format crate.
+  with `dxf_to_scene`, the one crate that depends on another format crate. `@zumenjs/dwg` wraps its WebAssembly build
+  (`packages/dwg/wasm`, built by `scripts/wasm.mjs`, not in Git) and depends only on `@zumenjs/core`.
 - Parsing (`parse*`, `read*` and everything below them) must not depend on the DOM, React or the renderer, and uses
   only the types and `NoticeList` from `@zumenjs/core`. The `*ToScene` conversions use the geometry and text helpers.
 - Interaction (zoom, selection, measurement) belongs in `DrawingViewer`. `@zumenjs/react` only shows the state and

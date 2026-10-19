@@ -7,7 +7,7 @@
 2026-10 の調査では、SXF をブラウザで読める JS ライブラリはなく、JWW もブラウザ向けの npm と React の部品がなかった。
 AutoCAD などの **DXF**（Shift_JIS の日本語、バイナリを含む）も TypeScript で読む。
 **DWG**（AutoCAD 2000〜2018）は、GPL の部品を使わない自前の読み取りで、Rust から同じ AutoCAD の図形モデルに読む
-（いまは `zumen` コマンド・Python・WebAssembly から使える）。
+（ブラウザでは、その WebAssembly の build を包む `@zumenjs/dwg` で読む）。
 構造設計データの国内標準 **ST-Bridge**（`.stb`）も 2.0 系・2.1 系を読み、部材を 3D で表示する。
 ブラウザで ST-Bridge を読める JS ライブラリも見つからなかった。
 読み取りを Rust に移し、Python（サーバーやデータ処理）と WebAssembly（ブラウザ）からも同じ結果で使えるようにしている。
@@ -25,11 +25,13 @@ npm には未公開（0.x の公開準備中）。
 | `@zumenjs/sxf` | `packages/sxf` | `parseSfc`・`parseP21`（フィーチャのモデル）、`sxfToScene`、読み取りの `sxf` |
 | `@zumenjs/jww` | `packages/jww` | `readJww`（JWW のままのモデル）、`jwwToScene`、読み取りの `jww` |
 | `@zumenjs/dxf` | `packages/dxf` | `parseDxf`（DWG と共有する AutoCAD の図形モデル）、`dxfToScene`、読み取りの `dxf` |
+| `@zumenjs/dwg` | `packages/dwg` | 読み取りの `dwg`（Rust の DWG の読み取りを WebAssembly にしたもの。`initDwg` で読み込む）、`isDwg` |
 | `@zumenjs/react` | `packages/react` | 完成品の画面 `CadViewer`、フック `useDrawingViewer`・`useCadFile` |
 | `@zumenjs/stb` | `packages/stb` | ST-Bridge の読み取り `readStb`・`isStb`（3D の構造モデル）、three.js の表示 `StructureView`（`/three`）、React の `StbViewer`・`useStbFile`（`/react`） |
 
-依存の向きは `@zumenjs/react` → `@zumenjs/core`、`@zumenjs/sxf`・`@zumenjs/jww`・`@zumenjs/dxf` → `@zumenjs/core` だけ
-（DWG は Rust だけで読み、`zumen-dwg` が `zumen-dxf` のモデルと変換を使う）。
+依存の向きは `@zumenjs/react` → `@zumenjs/core`、`@zumenjs/sxf`・`@zumenjs/jww`・`@zumenjs/dxf`・`@zumenjs/dwg` →
+`@zumenjs/core` だけ（DWG は Rust だけで読み、`zumen-dwg` が `zumen-dxf` のモデルと変換を使う。`@zumenjs/dwg` はその
+WebAssembly の build を包む）。
 `@zumenjs/stb` は 3D の別の系統で、ほかのパッケージに依存しない。
 `@zumenjs/core` は形式を知らず、使う形式の読み取りを `readDrawing` に渡す。形式は拡張子ではなく中身で判定する。
 
@@ -40,8 +42,8 @@ npm には未公開（0.x の公開準備中）。
 - 図形を選んで属性を確認する。種類、レイヤ、色・線種・線幅、座標、寸法値、部分図の縮尺など。
 - DXF の R12〜2018（テキスト・バイナリ）。線分・円弧・ふくらみと幅のあるポリライン・スプライン・文字・書式つきの複数行文字・
   属性と配列のあるブロック・寸法・ハッチング・引出線・ソリッド・ワイプアウトを、レイヤ・線種・線の太さ・ACI とトゥルーカラー・透過度・文字スタイルとともに描く。
-- DWG の AutoCAD 2000〜2018。Rust で読み、DXF と同じく描く（[DWG の扱い（英語）](docs/formats/dwg.md)）。
-- DXF のモデル空間とレイアウト（紙空間）の切り替え。ビューポートの中はその縮尺で描き、計測すると実寸を返す。
+- DWG の AutoCAD 2000〜2018。Rust で読み（ブラウザでは WebAssembly）、DXF と同じく描く（[DWG の扱い（英語）](docs/formats/dwg.md)）。
+- DXF・DWG のモデル空間とレイアウト（紙空間）の切り替え。ビューポートの中はその縮尺で描き、計測すると実寸を返す。
 - 2 点間の距離の計測。端点・頂点、なければ線上の点に吸着し、部分図・部品（JWW はレイヤグループ、DXF は単位とビューポート）の縮尺から**実寸**も出す。
 - 黒背景と白背景の切り替え。初期値は図面の想定（SXF は黒、JWW はヘッダの背景色）。
   背景と見分けにくい色（白背景の白、黒背景の黒）は反対の色で描く。
@@ -73,6 +75,21 @@ export function DrawingView({ file }: { file: File | null }) {
   if (loading) return <p>読み込み中…</p>;
   if (error) return <p role="alert">{error.message}</p>;
   return scene ? <CadViewer scene={scene} onViewChange={setView} style={{ height: 640 }} /> : null;
+}
+```
+
+DWG は、`@zumenjs/dwg` の `dwg` を読み取りに加え、DWG を読む前に `initDwg()` を待つ。これが WebAssembly の読み取り
+（brotli で 494 KB）を読み込む。`isDwg` はそれなしで DWG を見分けるので、試用画面のように、初めて DWG を開いたときに
+読み込める。
+
+```ts
+import { readDrawing } from "@zumenjs/core";
+import { dwg, initDwg, isDwg } from "@zumenjs/dwg";
+
+async function read(file: File) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (isDwg(bytes)) await initDwg(); // 最初の DWG で読み取りを読み込む。2 度目からはすぐに終わる
+  return readDrawing(bytes, [sxf, jww, dxf, dwg]);
 }
 ```
 
@@ -136,7 +153,8 @@ export function StructureView({ file }: { file: File | null }) {
 読み取りを Rust（`crates/`）に移し、Python の結合部（`bindings/python`）と WebAssembly（`bindings/wasm`）を作っている。
 Rust の読み取りは TypeScript と同じ `Scene` を返す。`tests/fixtures` の図面で両方の結果を比べ、手元の図面は
 `pnpm run parity` で比べる。JWW・SXF・DXF は移植済み。DWG は Rust だけで読み、AutoCAD が同じ図面を書き出した
-DXF と比べて確かめる。ブラウザのパッケージは、形式ごとに結果が一致したものから WebAssembly の読み取りに切り替える。
+DXF と比べて確かめ、ブラウザでは `@zumenjs/dwg` で読む。ほかのブラウザのパッケージは、形式ごとに結果が一致したものから
+WebAssembly の読み取りに切り替える。
 
 ```python
 import zumen
@@ -197,8 +215,11 @@ pnpm install --frozen-lockfile
 pnpm run check
 ```
 
-`check` は Biome、型検査、単体テスト、依存監査、各パッケージ（core、sxf・jww・dxf、react、stb の順）と試用画面のビルドに加え、
+`check` は Biome、WebAssembly の読み取りのビルドと正解との比較（`pnpm run wasm`）、型検査、単体テスト、依存監査、
+各パッケージ（core、sxf・jww・dxf・dwg、react、stb の順）と試用画面のビルドに加え、
 Rust（rustfmt・Clippy・テスト・wasm32 のビルド）と Python の結合部（Ruff・maturin・pytest）を検査する。
+WebAssembly の読み取りは `scripts/wasm.mjs` が cargo と wasm-bindgen-cli（`Cargo.lock` の wasm-bindgen と同じ版）で
+`packages/dwg/wasm` に作る。`pnpm dev` と `check` は最初にこれを走らせる。
 Rust は `rust-toolchain.toml`、Python は uv と `bindings/python/.python-version` に固定する。
 TS の読み取りを変えたら `pnpm run golden` で `tests/fixtures` の正解を作り直し、Rust の読み取りも同じ結果に直す。
 開発中は、パッケージ同士が `package.json` の exports の `@zumenjs/source` 条件で `src` を読むため、ビルドしなくても変更がすぐ反映される。
@@ -207,6 +228,7 @@ Node.js は `.node-version`、pnpm は `package.json` の `packageManager` に�
 試用画面は `pnpm dev` で開く（ポートは [config/local-ports.json](config/local-ports.json) の `playground`、既定 24100）。
 Git に入れない図面は、置いたフォルダーを `ZUMEN_SAMPLES` に指定し、`http://127.0.0.1:24100/?sample=<ファイル名>` で開く。
 ファイルの選択・ドロップでも開ける。ST-Bridge は中身で見分けて 3D の表示に切り替える（three.js はそのときだけ読み込む）。
+DWG も中身で見分け、初めて開いたときに WebAssembly の読み取りを読み込む。
 
 ## ライセンス
 

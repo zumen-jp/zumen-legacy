@@ -9,6 +9,12 @@ All packages share one version during 0.x.
   below, from a label and value in one text (`縮尺 1/100`), from the sheet name and from the metadata (the title
   block attributes of SXF). `zumen_core::title`, `Scene.title_block` in Python, `zumen title`, and `open_drawing` in the
   MCP server.
+- `@zumenjs/dwg`: read DWG in browsers and Node.js with the WebAssembly build of `zumen-dwg`. `initDwg` loads it, `dwg`
+  is the reader for `readDrawing` (model space and layouts through `view`), and `isDwg` tells DWG apart without it. The
+  playground opens DWG and loads the reader (1.6 MB, 494 KB with brotli) when the first DWG is opened.
+- `pnpm run wasm` builds the WebAssembly reader into `packages/dwg/wasm` with cargo and wasm-bindgen-cli (the version of
+  wasm-bindgen in `Cargo.lock`) instead of wasm-pack, without wasm-opt, and `pnpm run check` and `pnpm dev` run it.
+  `tests/fixtures/dwg` holds two DWG drawings written by the Rust tests and their scenes.
 - Rust: `zumen-dwg` reads DWG from AutoCAD 2000 to 2018 (AC1015 to AC1032) with its own decoder, which follows the Open
   Design Specification for .dwg files 5.4.1, into the AutoCAD drawing model of `zumen-dxf`, and draws it with
   `dxf_to_scene`: header variables, layers, line types, text and dimension styles, blocks, layouts, draw order,

@@ -10,6 +10,13 @@ bytes ─▶ format reader ─▶ native model ─▶ toScene ─▶ Scene ─�
           @zumenjs/dxf)      DxfDocument)
 ```
 
+DWG is read by the Rust reader built to WebAssembly, which returns the scene as JSON
+(see [DWG in the browser](#dwg-in-the-browser)):
+
+```text
+bytes ─▶ dwg (@zumenjs/dwg) ─▶ WebAssembly: zumen-dwg ─▶ DxfDocument ─▶ dxf_to_scene ─▶ JSON ─▶ sceneFromJson ─▶ Scene
+```
+
 Structural models (ST-Bridge) are not drawings. They take a separate 3D path inside `@zumenjs/stb`:
 
 ```text
@@ -25,14 +32,16 @@ bytes ─▶ readStb ─▶ StructureModel ─▶ StructureView (three.js) ─�
 | `@zumenjs/sxf` | SFC and P21 parsing into the SXF feature model (`parseSfc`, `parseP21` → `SxfDrawing`), conversion to a scene (`sxfToScene`), and the `sxf` reader. |
 | `@zumenjs/jww` | JWW parsing into the JWW document model (`readJww` → `JwwDocument`), conversion to a scene (`jwwToScene`), and the `jww` reader. |
 | `@zumenjs/dxf` | DXF parsing (ASCII and binary) into the AutoCAD drawing model (`parseDxf` → `DxfDocument`), conversion of model space or a layout to a scene (`dxfToScene`), and the `dxf` reader. Their Rust port (`zumen-dxf`) also draws DWG. |
+| `@zumenjs/dwg` | The `dwg` reader, which reads DWG with the WebAssembly build of the Rust reader (`initDwg` loads it), and `isDwg`. It has no DWG reader of its own. |
 | `@zumenjs/react` | `useDrawingViewer` (the engine in React), `CadViewer` (a complete viewer), and `useCadFile`. |
 | `@zumenjs/stb` | ST-Bridge parsing into a 3D structural model (`isStb`, `readStb` → `StructureModel`) and member filters (`isMemberVisible`, `membersOnAxis`). `@zumenjs/stb/three` draws the model with three.js (`StructureView`, tessellation and picking), and `@zumenjs/stb/react` adds `StbViewer` and `useStbFile`. |
 
 1. Format packages depend only on `@zumenjs/core`, never on each other.
    For example, `@zumenjs/jww` keeps its own copy of the SXF-compatible colors and line types.
-   DWG has no TypeScript package: DXF and DWG are two encodings of the same AutoCAD drawing database, and DWG is read
+   DWG has no TypeScript reader: DXF and DWG are two encodings of the same AutoCAD drawing database, and DWG is read
    only in Rust, by `zumen-dwg` into the `DxfDocument` of `zumen-dxf` (see [decision 0003](decisions/0003-dwg-in-rust.md)
-   and [How DWG is handled](formats/dwg.md)). A future `@zumenjs/dwg` wraps the WebAssembly build.
+   and [How DWG is handled](formats/dwg.md)). `@zumenjs/dwg` wraps the WebAssembly build and also depends only on
+   `@zumenjs/core`.
 2. `@zumenjs/core` has no knowledge of any format. Formats are passed to `readDrawing` as `DrawingReader`s.
 3. Parsing (`parse*`, `read*` and everything below them) does not use the DOM, React or the renderer.
    It uses only the types and `NoticeList` from `@zumenjs/core`. The `*ToScene` conversions use the geometry
@@ -113,11 +122,55 @@ bytes ─▶ zumen-sxf, zumen-jww, zumen-dxf, zumen-dwg ─▶ Scene (zumen-core
 | `zumen-render` | Draws a scene to PNG with the rules of `render.ts` (color inversion, line weights with a 1 px minimum, dash rules, even-odd fills, clipping, per-character text, small text as a line), and reports which entities it drew and where (`render_image`, `drawn_entities`, `View::pixel_box`). |
 | `zumen-cli` | The `zumen` command (`detect`, `scene`, `texts`, `entities`, `title`, `render`). |
 | `bindings/python` | PyO3 bindings, built with maturin as an abi3 wheel for Python 3.10 and later. The GIL is released while reading and rendering. `Scene.to_arrow` needs pyarrow (Apache-2.0, `zumen[arrow]`), and the MCP server `zumen.mcp` needs the MCP SDK (MIT, `zumen[mcp]`); both are optional dependencies. |
-| `bindings/wasm` | wasm-bindgen bindings that return scene JSON (`readSceneJson`). |
+| `bindings/wasm` | wasm-bindgen bindings that detect the format (`detect`) and return scene JSON (`readSceneJson`). `scripts/wasm.mjs` builds them into `packages/dwg/wasm` for `@zumenjs/dwg`. |
 
 The dependency rules follow the TypeScript packages: format crates depend only on `zumen-core` and never on each other
 (the exception is `zumen-dwg`, which reads into the AutoCAD model of `zumen-dxf` and draws with `dxf_to_scene`), and
 parsing does not depend on rendering.
+
+### DWG in the browser
+
+`@zumenjs/dwg` is a `DrawingReader` around the WebAssembly build of `bindings/wasm`, as
+[decision 0003](decisions/0003-dwg-in-rust.md) planned. The only format knowledge it holds is the version string that
+tells DWG apart. Measurements are from [Verification records](verification.md#dwg-in-the-browser).
+
+- **Loading is asynchronous, reading is synchronous.** `DrawingReader.read` returns a scene, so the module is loaded
+  first: `initDwg()` returns one promise shared by every call, a failed load is retried by the next call, and
+  `dwg.read` throws until the promise has resolved. Browsers have to fetch the file anyway, and
+  `WebAssembly.instantiateStreaming` compiles it while it downloads. `initSync` needs the bytes at hand and compiles
+  on the calling thread, so it is not used.
+- **DWG is detected without WebAssembly.** `dwg.detect` (`isDwg`) checks the first six bytes (`AC10` and two digits)
+  in TypeScript, the rule of `zumen_dwg::is_dwg`; a test compares the two on every fixture. Before the module is
+  loaded, `readDrawing` still gives the usual error for files of other formats, and an application can load the module
+  only when a DWG is opened. The playground does so, and other files never fetch it.
+- **Where the `.wasm` is.** The package ships `wasm/zumen_wasm.js`, its types and `wasm/zumen_wasm_bg.wasm`. Without
+  an argument, `initDwg` uses `new URL("../wasm/zumen_wasm_bg.wasm", import.meta.url)`, which bundlers such as Vite and
+  webpack 5 follow: they copy the file and rewrite the URL (checked with Vite in development, also for an installed
+  package after pre-bundling, and in a build). In Node.js, whose `fetch` does not read `file:` URLs, the file is read
+  with `process.getBuiltinModule("node:fs/promises")`, which keeps `node:` imports out of browser bundles. Anywhere
+  else, the application serves the file (exported as `@zumenjs/dwg/zumen_wasm_bg.wasm`) and passes a URL, a
+  `Response`, the bytes or a `WebAssembly.Module`.
+- **The scene comes back as JSON.** `readSceneJson` returns the JSON that the Rust readers already share with
+  `sceneToJson` (checked by the golden files), and `sceneFromJson` turns the point lists back into `Float64Array`.
+  Building JavaScript objects from Rust instead (`serde-wasm-bindgen`) would add code to the module and cross into
+  JavaScript for every value; `sceneFromJson` takes about a quarter of the time of a read (24 of 90 ms for 9,260
+  entities).
+- **Views pass through.** `options.view` goes to `readSceneJson`, and the scene carries `views` and `view` from
+  `dxf_to_scene`, so layouts work as in `@zumenjs/dxf`. The module keeps no document between calls, so each change of
+  view decodes the file again; decoding is the smaller part of a read (natively 5.6 ms of about 35 ms for those 9,260
+  entities).
+- **One module for every format.** The module is the whole `bindings/wasm` build, with the SXF, JWW and DXF readers.
+  A build with the DWG reader only would be 24% smaller with brotli (367,123 bytes instead of 482,539, both after
+  `wasm-opt`), but when the other browser packages switch to WebAssembly, one module for all formats is downloaded
+  once, while a module per format would repeat `zumen-core`, `serde_json` and the encoding tables in each.
+- **No `wasm-opt`.** `scripts/wasm.mjs` runs cargo (release, LTO) and `wasm-bindgen` only. `wasm-opt -O` (Binaryen)
+  makes the file 12% smaller (1,366,317 bytes instead of 1,560,473) but only 2.3% smaller with brotli (482,539 instead
+  of 493,835), and it reads no faster, so the build does not need Binaryen. `wasm-bindgen-cli` must be the version of
+  the `wasm-bindgen` crate in `Cargo.lock`; the script checks it and prints the command that installs it.
+- **Tests.** The DWG drawings in `tests/fixtures/dwg` are written by the Rust tests (`crates/zumen-dwg/tests`, with
+  `UPDATE_GOLDEN=1`), their scenes by `@zumenjs/dwg` through WebAssembly (`pnpm run golden`), and
+  `crates/zumen/tests/golden.rs` checks that the native reader returns the same scenes. `pnpm run check` builds the
+  module and compares it with every fixture (`pnpm run wasm`).
 
 ### Texts, entities and images for servers
 
@@ -171,13 +224,15 @@ tools only read, take local paths limited by `--root`, and bound file sizes, ima
   return (`*.scene.json`). `pnpm run golden` rewrites them. The TypeScript tests check that they are current, and
   `crates/zumen/tests/golden.rs` checks that Rust returns the same scenes. Both compare numbers to a relative 1e-9:
   besides Rust's `libm`, Node.js itself gives `Math.sin` and `Math.cos` results that differ in the last bits between x64
-  and arm64, so a scene written on one computer does not match another one character for character.
+  and arm64, so a scene written on one computer does not match another one character for character. The DWG drawings
+  there come from the Rust tests instead (see [DWG in the browser](#dwg-in-the-browser)).
 - `pnpm run parity` compares the TypeScript and Rust readers on drawings that are not in Git (`ZUMEN_SAMPLES`), in every
   view (DXF layouts), and `pnpm run wasm` builds the WebAssembly package and checks it against the fixtures.
 - `pnpm run fuzz` reads randomly damaged copies of the fixtures (inserted escapes, quotes and brackets, DXF tags and
   MTEXT format codes, removed and repeated ranges, changed numbers) with the built TypeScript packages and the WebAssembly
   build, and reports any input where the scenes or the error messages differ. Bytes that ICU and WHATWG decode
   differently are replaced first, and lone surrogates in the TypeScript scene are replaced with U+FFFD before comparing.
+  It skips the DWG fixtures, which have no TypeScript reader.
 - DWG has no TypeScript reader to compare with. `pnpm run parity` compares the Rust scene of `<name>.dwg` with the
   TypeScript scene of `<name>.dxf` or `<name>_ascii.dxf`, without the format, version and metadata, and reports
   differences without failing, because AutoCAD rounds numbers and gives some entities new handles in DXF.
@@ -208,9 +263,14 @@ a Japanese gothic close to the MS Gothic that SXF and Jw_cad drawings assume. Ch
 
 - Each package's `exports` has an `@zumenjs/source` condition that points at `src`. The type checker
   (`customConditions` in `tsconfig.json`), Vitest and the Vite playground resolve it, so changes apply without a build.
-  `publishConfig.exports` leaves it out of the published packages, which contain only `dist`.
-- `pnpm run build` compiles the packages in dependency order (core, then sxf, jww and dxf, then react, then stb, which
-  depends on none of them) into each `dist`.
-- `pnpm run check` runs Biome, the type checker, the unit tests, `pnpm audit` and all builds, then the Rust checks
-  (`check:rust`: rustfmt, Clippy, tests and the wasm32 build) and the Python checks (`check:python`: Ruff, maturin, pytest).
+  `publishConfig.exports` leaves it out of the published packages, which contain only `dist` (and `wasm` in
+  `@zumenjs/dwg`).
+- `scripts/wasm.mjs` builds the WebAssembly reader into `packages/dwg/wasm`, which is not in Git, with cargo and
+  `wasm-bindgen-cli`. `pnpm dev` and `pnpm run check` run it first; `pnpm test`, the type checker and the builds need
+  its output. When the Rust code has not changed, it takes well under a second.
+- `pnpm run build` compiles the packages in dependency order (core, then sxf, jww, dxf and dwg, then react, then stb,
+  which depends on none of them) into each `dist`.
+- `pnpm run check` runs Biome, builds the WebAssembly reader and compares it with the fixtures (`pnpm run wasm`), then
+  runs the type checker, the unit tests, `pnpm audit` and all builds, then the Rust checks (`check:rust`: rustfmt,
+  Clippy, tests and the wasm32 build) and the Python checks (`check:python`: Ruff, maturin, pytest).
 - The Rust toolchain is pinned in `rust-toolchain.toml`, Python in `bindings/python/.python-version` (installed by uv).
