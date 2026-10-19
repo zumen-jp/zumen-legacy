@@ -147,6 +147,9 @@ read, and the DWG reader read the values after it out of step. Both are now read
     DXF (24,822.95 and 679.282 mm in model space, `zumen texts`), so model space has 208 entities, as in 2000 to 2013
     (207 before). Those versions hold it as single-line text, which AutoCAD placed 4.0 mm to the left and 0.7 mm
     lower. The ATTDEF is in a block and not constant, so it is not drawn.
+  - In the playground, `sample_AC1032_ascii.dxf` (TypeScript) and `sample_AC1032.dwg` (WebAssembly) draw the
+    attribute in model space between `hello` and `bla bla`, and selecting it shows an ATTRIB with the tag
+    `MULTI_LINE_ATT` and the height 1.7207.
   - The other versions compare as before.
 - The other 16 local DWG files (two more of 2018, without MTEXT) and the other 24 local DXF files give the same scenes
   as before in their default views. `pnpm run parity` gives the same scenes in TypeScript and Rust for the 37 local
