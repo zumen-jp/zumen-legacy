@@ -101,7 +101,7 @@ pub struct DxfSpline {
 /// TEXT・ATTRIB・ATTDEF に共通する 1 行の文字
 #[derive(Debug, Clone, PartialEq)]
 pub struct DxfTextBase {
-    /// 文字列。%%c などの制御コードを含んだまま
+    /// 文字列。%%c などの制御コードと、テキストの DXF のキャレット表記（^ は「^ 」）を含んだまま
     pub text: String,
     /// 第 1 整列点（OCS）
     pub insert: Vec3,
@@ -118,7 +118,7 @@ pub struct DxfTextBase {
     pub halign: f64,
     /// 0 ベースライン、1 下、2 中、3 上
     pub valign: f64,
-    /// 2 は左右反転、4 は上下反転
+    /// 2 は左右反転、4 は上下反転（71。ATTRIB・ATTDEF は AcDbText の 71）
     pub text_generation_flag: f64,
 }
 
@@ -126,7 +126,7 @@ pub struct DxfTextBase {
 pub struct DxfMText {
     /// 書式コードを除いた文字列（\P は改行）
     pub text: String,
-    /// 書式コードを含む元の文字列
+    /// 書式コードを含む元の文字列。改行の文字はテキストの DXF と同じく ^J
     pub raw_text: String,
     /// WCS
     pub insert: Vec3,
@@ -675,11 +675,11 @@ pub struct DxfTextStyle {
 pub struct DxfDimStyle {
     pub handle: String,
     pub name: String,
-    /// 全体の尺度（DIMSCALE）
+    /// 全体の尺度（DIMSCALE）。DXF にないときは 1
     pub dimscale: f64,
-    /// 矢印の大きさ（DIMASZ）
+    /// 矢印の大きさ（DIMASZ）。DXF にないときは AutoCAD の既定の 0.18
     pub dimasz: f64,
-    /// 寸法値の高さ（DIMTXT）
+    /// 寸法値の高さ（DIMTXT）。DXF にないときは AutoCAD の既定の 0.18
     pub dimtxt: f64,
 }
 

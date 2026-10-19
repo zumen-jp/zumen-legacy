@@ -414,8 +414,27 @@ impl BinaryTags<'_> {
             self.bytes[start..].iter().position(|byte| *byte == 0).map(|offset| start + offset).ok_or(EndOfData)?;
         self.pos = end + 1;
         let slice = &self.bytes[start..end];
-        Ok(if slice.is_ascii() { latin1(slice) } else { decode(slice, self.label) })
+        let text = if slice.is_ascii() { latin1(slice) } else { decode(slice, self.label) };
+        let caret = slice.iter().any(|byte| *byte < 0x20 || *byte == b'^');
+        Ok(if caret { caret_notation(&text) } else { text })
     }
+}
+
+/// テキストの DXF の文字列の書き方（DXF Reference「About ASCII Control Characters in DXF Files」）。制御文字は ^ と
+/// 0x40 を足した文字（改行は ^J）、^ は「^ 」と書く。バイナリの DXF は文字のまま書くので、テキストの DXF と同じ値にする
+fn caret_notation(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 4);
+    for c in text.chars() {
+        if c < ' ' {
+            out.push('^');
+            out.push(char::from(c as u8 + 0x40));
+        } else if c == '^' {
+            out.push_str("^ ");
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }
 
 /// ezdxf の binary_tags_loader と同じく、先頭から変数の名前を探し、続く文字列を読む
