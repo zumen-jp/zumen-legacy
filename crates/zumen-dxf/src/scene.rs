@@ -948,15 +948,15 @@ impl<'a> Builder<'a> {
                     None,
                 );
             }
-            DxfEntityData::Text(text) => self.text(base, text, None, 0.0, ctx),
-            DxfEntityData::Attrib { text, tag, attribute_flags } => {
-                self.text(base, text, Some(tag), *attribute_flags, ctx)
+            DxfEntityData::Text(text) => self.text(base, text, None, 0.0, None, ctx),
+            DxfEntityData::Attrib { text, tag, attribute_flags, mtext } => {
+                self.text(base, text, Some(tag), *attribute_flags, mtext.as_deref(), ctx)
             }
-            DxfEntityData::Attdef { text, tag, attribute_flags, .. } => {
-                self.text(base, text, Some(tag), *attribute_flags, ctx)
+            DxfEntityData::Attdef { text, tag, attribute_flags, mtext, .. } => {
+                self.text(base, text, Some(tag), *attribute_flags, mtext.as_deref(), ctx)
             }
             DxfEntityData::MText(mtext) => {
-                self.mtext(base, mtext, ctx);
+                self.mtext(base, mtext, None, ctx);
             }
             DxfEntityData::Insert(_) | DxfEntityData::Table(_) => self.insert(entity, ctx, None),
             DxfEntityData::Dimension(dimension) => self.dimension(base, dimension, ctx),
@@ -1375,13 +1375,25 @@ impl<'a> Builder<'a> {
     }
 
     /// TEXT・ATTRIB・ATTDEF（DXF Reference「TEXT」の 72・73 の表）
-    fn text(&mut self, base: &DxfEntityBase, entity: &DxfTextBase, tag: Option<&str>, attribute_flags: f64, ctx: &Ctx) {
+    fn text(
+        &mut self,
+        base: &DxfEntityBase,
+        entity: &DxfTextBase,
+        tag: Option<&str>,
+        attribute_flags: f64,
+        mtext: Option<&DxfMText>,
+        ctx: &Ctx,
+    ) {
         let kind = base.kind.as_str();
         let flags = js::to_int32(attribute_flags);
         if kind == "ATTRIB" && flags & 1 != 0 {
             return;
         }
         if kind == "ATTDEF" && flags & 1 != 0 && ctx.depth == 0 {
+            return;
+        }
+        if let Some(content) = mtext.filter(|_| kind != "TEXT") {
+            self.multiline_attribute(base, content, tag.unwrap_or(""), ctx);
             return;
         }
         let content = if kind == "ATTDEF" && ctx.depth == 0 { tag.unwrap_or("") } else { entity.text.as_str() };
@@ -1464,9 +1476,27 @@ impl<'a> Builder<'a> {
         self.add(base, ctx, primitives, properties, None);
     }
 
+    /// 複数行の属性（AutoCAD 2018 以降）は、埋め込みの MTEXT を属性の色・レイヤ・押し出し方向で描く。
+    /// ブロックの外の属性定義は、1 行の属性定義と同じくタグを描く（書式コードとしては読まない）
+    fn multiline_attribute(&mut self, base: &DxfEntityBase, content: &DxfMText, tag: &str, ctx: &Ctx) {
+        if base.kind == "ATTDEF" && ctx.depth == 0 {
+            let mut raw = String::with_capacity(tag.len());
+            for c in tag.chars() {
+                if matches!(c, '\\' | '{' | '}') {
+                    raw.push('\\');
+                }
+                raw.push(c);
+            }
+            let shown = DxfMText { text: tag.to_string(), raw_text: raw, ..content.clone() };
+            self.mtext(base, &shown, Some(tag), ctx);
+        } else {
+            self.mtext(base, content, Some(tag), ctx);
+        }
+    }
+
     /// MTEXT（DXF Reference「MTEXT」）。折り返しの幅があれば、語・全角の文字の境目で折り返す。
-    /// 描いた文字の範囲を、文字の座標系（配置点が原点、文字の進む向きが X）で返す
-    fn mtext(&mut self, base: &DxfEntityBase, entity: &DxfMText, ctx: &Ctx) -> Option<MTextLayout> {
+    /// 描いた文字の範囲を、文字の座標系（配置点が原点、文字の進む向きが X）で返す。tag は複数行の属性のタグ
+    fn mtext(&mut self, base: &DxfEntityBase, entity: &DxfMText, tag: Option<&str>, ctx: &Ctx) -> Option<MTextLayout> {
         struct Line {
             runs: Vec<TextRun>,
             width: f64,
@@ -1659,11 +1689,12 @@ impl<'a> Builder<'a> {
             }
         }
         self.count_shx(shx);
-        let mut properties = vec![
-            Property::new("文字列", entity.text.clone()),
-            Property::new("高さ", fmt(base_height * mean_scale(&ctx.local))),
-            Property::new("文字スタイル", style_label(style, &entity.style)),
-        ];
+        let mut properties = vec![Property::new("文字列", entity.text.clone())];
+        if let Some(tag) = tag {
+            properties.push(Property::new("タグ", tag));
+        }
+        properties.push(Property::new("高さ", fmt(base_height * mean_scale(&ctx.local))));
+        properties.push(Property::new("文字スタイル", style_label(style, &entity.style)));
         if wrap != 0.0 {
             properties.push(Property::new("折り返しの幅", fmt(wrap * mean_scale(&ctx.local))));
         }
@@ -1731,7 +1762,7 @@ impl<'a> Builder<'a> {
                 let child = self.child(base, ctx, &local, path, name);
                 for member in members.iter() {
                     // 属性定義は、定数（2）のものだけを描く。値は ATTRIB が持つ
-                    if let DxfEntityData::Attdef { text, tag, attribute_flags, .. } = &member.data
+                    if let DxfEntityData::Attdef { text, tag, attribute_flags, mtext, .. } = &member.data
                         && member.base.kind == "ATTDEF"
                         && js::to_int32(*attribute_flags) & 2 == 0
                     {
@@ -1742,6 +1773,14 @@ impl<'a> Builder<'a> {
                                     text: DxfTextBase { text: value.clone(), ..text.clone() },
                                     tag: tag.clone(),
                                     attribute_flags: *attribute_flags,
+                                    // 複数行の属性定義は、値を埋め込みの MTEXT の文字にする
+                                    mtext: mtext.as_ref().map(|mtext| {
+                                        Box::new(DxfMText {
+                                            text: mtext_plain_text(value),
+                                            raw_text: value.clone(),
+                                            ..(**mtext).clone()
+                                        })
+                                    }),
                                 },
                             };
                             self.emit(&attribute, &child);
@@ -1996,7 +2035,7 @@ impl<'a> Builder<'a> {
                 "段組みのあるマルチ引出線の文字は、1 段で並べました",
             );
         }
-        self.mtext(&content_base, &content, child)
+        self.mtext(&content_base, &content, None, child)
     }
 
     /// ブロックの内容。属性（block_attribs）の値は、ブロックの中の ATTDEF の位置に描く。描いたブロックの名前を返す
