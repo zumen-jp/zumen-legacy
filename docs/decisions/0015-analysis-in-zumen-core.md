@@ -88,7 +88,8 @@ The browser gets them through `bindings/wasm` when an application needs them; th
   joined, because their scales differ. A region inside a placement also has its outline, holes, area and perimeter in
   the placement's real-world millimeters; the others have them on the sheet only.
 - A region gives its area without its holes and the area inside its outline, its perimeter, its box, the entities
-  that bound it, and the texts and attributes whose box center lies inside it (room names, written areas). Regions come
+  that bound it, and the texts and attributes in the same placement whose box center lies inside it (room names,
+  written areas). This keeps labels in a viewport from being assigned to an overlapping paper-space frame. Regions come
   in reading order (top to bottom, then left to right) for each placement.
 - `zumen.tools.find_regions` gives real-world areas in square meters (`real_area_m2`) and lengths in millimeters, keeps
   only the lines on layers that match `layer`, the regions with a text (`named`) or of a smallest real-world area

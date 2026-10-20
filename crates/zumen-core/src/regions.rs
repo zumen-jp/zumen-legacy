@@ -161,14 +161,15 @@ pub fn closed_regions(scene: &Scene, options: &RegionOptions) -> Vec<ClosedRegio
         }
     }
 
-    // 文字は、その中心を含む領域に添える。領域は重ならないので、含むものは 1 つまで
+    // 文字は、同じ配置でその中心を含む領域に添える。異なる配置の面（用紙の枠と部分図など）は重なることがある
     let grid = BoxGrid::new(regions.iter().enumerate().map(|(index, region)| (index, region.bbox)).collect());
     for (entity, text) in &texts {
         let x = (text.bbox.min_x + text.bbox.max_x) / 2.0;
         let y = (text.bbox.min_y + text.bbox.max_y) / 2.0;
         let found = grid.at(x, y).filter(|&index| {
             let region = &regions[index];
-            inside_rings(x, y, std::slice::from_ref(&region.paper.outline))
+            region.placement.as_deref().map(placement_key) == entity.placement.as_deref().map(placement_key)
+                && inside_rings(x, y, std::slice::from_ref(&region.paper.outline))
                 && !region.paper.holes.iter().any(|hole| inside_rings(x, y, std::slice::from_ref(hole)))
         });
         if let Some(index) = found.min() {
@@ -299,7 +300,9 @@ impl PointIndex {
         let mut best: Option<(f64, usize)> = None;
         for dx in -1..=1 {
             for dy in -1..=1 {
-                if let Some(ids) = self.cells.get(&(cx + dx, cy + dy)) {
+                // 極小の許容差や大きな座標は格子番号を i64 の端に丸める。隣のない側を調べない
+                let (Some(nx), Some(ny)) = (cx.checked_add(dx), cy.checked_add(dy)) else { continue };
+                if let Some(ids) = self.cells.get(&(nx, ny)) {
                     for &id in ids {
                         let (px, py) = self.points[id];
                         let d = (px - x) * (px - x) + (py - y) * (py - y);
@@ -693,10 +696,15 @@ fn project(s: &Segment, x: f64, y: f64) -> f64 {
 /// 輪の符号付き面積（反時計回りが正）
 fn signed_area(ring: &[f64]) -> f64 {
     let n = ring.len() / 2;
+    if n < 3 {
+        return 0.0;
+    }
+    // 原点から遠い小さな領域でも、大きな座標の積どうしを引いて桁を失わないよう、最初の点を原点にする
+    let (x, y) = (ring[0], ring[1]);
     let mut sum = 0.0;
     for i in 0..n {
         let j = (i + 1) % n;
-        sum += ring[i * 2] * ring[j * 2 + 1] - ring[j * 2] * ring[i * 2 + 1];
+        sum += (ring[i * 2] - x) * (ring[j * 2 + 1] - y) - (ring[j * 2] - x) * (ring[i * 2 + 1] - y);
     }
     sum / 2.0
 }
@@ -833,6 +841,46 @@ mod tests {
 
     fn close(a: f64, b: f64) -> bool {
         (a - b).abs() < 1e-6
+    }
+
+    #[test]
+    fn translated_rooms_keep_their_area() {
+        for origin in [0.0, 1e9, -1e9] {
+            let points: Vec<f64> =
+                [0.0, 0.0, 10.0, 0.0, 10.0, 10.0, 0.0, 10.0].into_iter().map(|v| v + origin).collect();
+            let regions = closed_regions(&scene(vec![line("room", 0, &points, true)]), &RegionOptions::default());
+            assert_eq!(regions.len(), 1, "origin {origin}");
+            assert!(close(regions[0].paper.area, 100.0), "origin {origin}: {}", regions[0].paper.area);
+        }
+    }
+
+    #[test]
+    fn tiny_tolerances_do_not_overflow_the_point_grid() {
+        let room = line("room", 0, &[-10.0, -10.0, 10.0, -10.0, 10.0, 10.0, -10.0, 10.0], true);
+        let options = RegionOptions { tolerance: 1e-20, ..RegionOptions::default() };
+        let regions = closed_regions(&scene(vec![room]), &options);
+        assert_eq!(regions.len(), 1);
+        assert!(close(regions[0].paper.area, 400.0));
+    }
+
+    #[test]
+    fn room_labels_stay_in_their_placement_when_regions_overlap() {
+        let placed = Arc::new(Placement {
+            name: "plan".into(),
+            scale_x: 0.01,
+            scale_y: 0.01,
+            inverse: invert(&placement(0.0, 0.0, 0.0, 0.01, 0.01)),
+        });
+        let frame = line("frame", 0, &[0.0, 0.0, 100.0, 0.0, 100.0, 100.0, 0.0, 100.0], true);
+        let mut room = frame.clone();
+        room.id = "room".into();
+        room.placement = Some(placed.clone());
+        let mut text = label("name", "Room", 20.0, 20.0);
+        text.placement = Some(placed);
+        let regions = closed_regions(&scene(vec![frame, room, text]), &RegionOptions::default());
+        let room = regions.iter().find(|r| r.real.is_some()).unwrap();
+        assert_eq!(room.texts.iter().map(|t| t.entity.as_str()).collect::<Vec<_>>(), ["name"]);
+        assert!(regions.iter().find(|r| r.real.is_none()).unwrap().texts.is_empty());
     }
 
     #[test]
