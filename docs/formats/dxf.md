@@ -252,6 +252,10 @@ scene in every view, with the same entity ids.
   and point at one `Standard` MLEADERSTYLE with ezdxf's defaults; their text style, line type, arrow blocks and attribute
   definitions point at the records written. **Wipeouts** are written without an image definition, as AutoCAD writes
   them. **Gradients** keep their name, colors, angle, shift and tint (450 to 470, in AutoCAD's order).
+- **Multi-line attributes** (ATTRIB and ATTDEF with `mtext`) are written as AutoCAD 2018 writes them: the attribute
+  type (71: 2 for an attribute, 4 for a definition) at the end of `AcDbAttribute` or `AcDbAttributeDefinition`, then
+  `101`/`Embedded Object` and the values of the MTEXT, with its own extrusion. The attribute's own text (1 in
+  `AcDbText`) is written as the model holds it.
 - Only the values that the drawing has are written where the reader tells a missing value apart (the alignment point
   of TEXT, the background scale of MTEXT, the definition points and angle of dimensions). Values that the model does
   not keep are written as AutoCAD writes them for a new drawing (dictionaries, plot settings, viewport UCS,
@@ -268,7 +272,7 @@ What cannot be written as it was is reported in `notices`:
 | `table` | ACAD_TABLE is written as the INSERT of its block (`*T…`) |
 | `complex-linetype` | A line type with texts or shapes keeps its dashes only, as it is drawn |
 | `dimension-block` | A dimension without its block (AutoCAD's dimensional constraints) is left out, as it is not drawn |
-| `attrib-alone` | An ATTRIB outside a block reference is written as TEXT |
+| `attrib-alone` | An ATTRIB outside a block reference is written as TEXT, or as MTEXT when it has multiple lines |
 | `missing-block` | A block reference without a definition gets an empty block |
 | `mleader-block` | A multileader whose content block is missing is written without its content |
 
