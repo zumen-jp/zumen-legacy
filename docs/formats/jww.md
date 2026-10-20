@@ -313,6 +313,7 @@ written the nearest way it can and reported:
 | --- | --- |
 | `jwc-paper` | JWC sheets are A0–A4; another sheet became A0 |
 | `jwc-block` | JWC has no blocks; placements were exploded with their scale and rotation (arcs of a placement scaled differently in x and y became lines) |
+| `jwc-arc` | Arcs under nonuniform scaling or shear became 64 line segments; equal column lengths alone do not make the composed placement a similarity transform |
 | `jwc-dimension` | JWC has no dimensions; they became lines, points and their text |
 | `jwc-solid` | JWC has no solids; they became their outlines |
 | `jwc-color` | JWC pen colors are 1–9; SXF and other colors became the pen color with the nearest screen color |
