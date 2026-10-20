@@ -2271,3 +2271,354 @@ impl<'a> Writer<'a> {
 fn js_int(value: f64) -> i64 {
     i64::from(zumen_core::js::to_int32(value))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parse_dxf;
+    use std::path::Path;
+
+    /// (グループコード, 値) の並びを ASCII の DXF にする
+    fn dxf(tags: &[(i32, &str)]) -> Vec<u8> {
+        tags.iter().map(|(code, value)| format!("{code}\n{value}\n")).collect::<String>().into_bytes()
+    }
+
+    /// 1 つの節（TABLES・ENTITIES など）だけの図面
+    fn section(name: &str, tags: &[(i32, &str)]) -> Vec<u8> {
+        let mut all = vec![(0, "SECTION"), (2, name)];
+        all.extend_from_slice(tags);
+        all.extend([(0, "ENDSEC"), (0, "EOF")]);
+        dxf(&all)
+    }
+
+    /// 書いた DXF のタグ（グループコードと値）
+    fn tags(written: &DxfWritten) -> Vec<(i32, String)> {
+        let text = String::from_utf8(written.bytes.clone()).unwrap();
+        let lines: Vec<&str> = text.split("\r\n").collect();
+        lines.chunks_exact(2).map(|pair| (pair[0].trim().parse().unwrap(), pair[1].to_string())).collect()
+    }
+
+    fn codes(written: &DxfWritten) -> Vec<&str> {
+        written.notices.iter().map(|notice| notice.code.as_str()).collect()
+    }
+
+    #[test]
+    fn writes_numbers_that_read_back_exactly() {
+        assert_eq!(real(1.0), "1.0");
+        assert_eq!(real(-0.5), "-0.5");
+        assert_eq!(real(1e20), "1e20");
+        assert_eq!(real(2.5e-12), "2.5e-12");
+        assert_eq!(real(f64::NAN), "0.0");
+        for value in [0.1 + 0.2, 1.0 / 3.0, 283.481_000_000_417_4, 1e-9, 123_456_789.012_345] {
+            assert_eq!(real(value).parse::<f64>().unwrap(), value);
+        }
+    }
+
+    #[test]
+    fn keeps_handles_and_renumbers_the_unusable_ones() {
+        // 同じハンドルの線が 2 本、ハンドルのない線、16 進でないハンドルの線
+        let line = |handle: &'static str, x: &'static str| {
+            let mut tags = vec![(0, "LINE")];
+            if !handle.is_empty() {
+                tags.push((5, handle));
+            }
+            tags.extend([(8, "0"), (10, "0"), (20, "0"), (11, x), (21, "0")]);
+            tags
+        };
+        let body: Vec<(i32, &str)> =
+            [line("A0", "1"), line("A0", "2"), line("", "3"), line("ZZ", "4")].into_iter().flatten().collect();
+        let written = write_dxf(&parse_dxf(&section("ENTITIES", &body)));
+        let again = parse_dxf(&written.bytes);
+        let handles: Vec<&str> = again.entities.iter().map(|entity| entity.base.handle.as_str()).collect();
+        assert_eq!(handles.len(), 4);
+        assert_eq!(handles[0], "A0");
+        assert_eq!(handles.iter().collect::<HashSet<_>>().len(), 4, "{handles:?}");
+    }
+
+    /// 書いた DXF の構造: ハンドルは重ならず $HANDSEED より小さく、参照（330・340〜349・350〜369・390 など）は
+    /// 0 か書いたものを指す
+    fn check_structure(name: &str, written: &DxfWritten) {
+        let tags = tags(written);
+        // 見出しの $HANDSEED の値も 5 で書く
+        let at = tags.iter().position(|(code, value)| *code == 9 && value == "$HANDSEED").unwrap() + 1;
+        let seed = u64::from_str_radix(&tags[at].1, 16).unwrap();
+        let mut handles = HashSet::new();
+        for (index, (code, value)) in tags.iter().enumerate() {
+            if (*code == 5 || *code == 105) && index != at {
+                assert!(handles.insert(u64::from_str_radix(value, 16).unwrap()), "{name}: handle {value} twice");
+            }
+        }
+        assert!(handles.iter().all(|handle| *handle < seed), "{name}: $HANDSEED {seed:X}");
+        for (code, value) in &tags {
+            if matches!(code, 330..=369 | 390 | 1005) && value != "0" {
+                let target = u64::from_str_radix(value, 16).unwrap();
+                assert!(handles.contains(&target), "{name}: {code} points at {value}, which is not written");
+            }
+        }
+    }
+
+    #[test]
+    fn writes_unique_handles_and_references_that_resolve() {
+        let folder = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/dxf");
+        let mut checked = 0;
+        for entry in std::fs::read_dir(folder).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().is_some_and(|extension| extension == "dxf") {
+                let name = path.file_name().unwrap().to_string_lossy().to_string();
+                check_structure(&name, &write_dxf(&parse_dxf(&std::fs::read(&path).unwrap())));
+                checked += 1;
+            }
+        }
+        assert!(checked >= 10);
+    }
+
+    #[test]
+    fn adds_missing_definitions_in_the_order_the_scene_numbers_them() {
+        // 表のない図面: レイヤ B・A、文字スタイル GOTHIC、定義のないブロック NOWHERE
+        let written = write_dxf(&parse_dxf(&section(
+            "ENTITIES",
+            &[
+                (0, "LINE"),
+                (8, "B"),
+                (10, "0"),
+                (20, "0"),
+                (11, "1"),
+                (21, "1"),
+                (0, "TEXT"),
+                (8, "A"),
+                (7, "GOTHIC"),
+                (10, "0"),
+                (20, "0"),
+                (40, "2.5"),
+                (1, "X"),
+                (0, "INSERT"),
+                (8, "B"),
+                (2, "NOWHERE"),
+                (10, "0"),
+                (20, "0"),
+            ],
+        )));
+        let again = parse_dxf(&written.bytes);
+        let layers: Vec<&str> = again.layers.iter().map(|layer| layer.name.as_str()).collect();
+        assert_eq!(layers, ["B", "A", "0"]);
+        assert!(again.styles.iter().any(|style| style.name == "GOTHIC"));
+        assert!(again.blocks.iter().any(|block| block.name == "NOWHERE"));
+        assert_eq!(codes(&written), ["missing-block"]);
+    }
+
+    #[test]
+    fn writes_line_breaks_in_caret_notation() {
+        // バイナリの DXF・DWG から読んだ文字列は改行を持つことがある。ASCII の DXF の 1 行に書けないので ^J・^M にする
+        let mut doc = parse_dxf(&section(
+            "ENTITIES",
+            &[(0, "TEXT"), (5, "20"), (8, "0"), (10, "0"), (20, "0"), (40, "1"), (1, "x")],
+        ));
+        if let DxfEntityData::Text(text) = &mut doc.entities[0].data {
+            text.text = "a\nb\rc".into();
+        }
+        let written = write_dxf(&doc);
+        assert!(tags(&written).contains(&(1, "a^Jb^Mc".to_string())));
+    }
+
+    #[test]
+    fn writes_the_dashes_of_linetypes_with_texts_or_shapes() {
+        let written = write_dxf(&parse_dxf(&section(
+            "TABLES",
+            &[
+                (0, "TABLE"),
+                (2, "LTYPE"),
+                (70, "1"),
+                (0, "LTYPE"),
+                (5, "14"),
+                (100, "AcDbSymbolTableRecord"),
+                (100, "AcDbLinetypeTableRecord"),
+                (2, "BORDER_TEXT"),
+                (70, "0"),
+                (3, "border with text"),
+                (72, "65"),
+                (73, "2"),
+                (40, "1.0"),
+                (49, "0.75"),
+                (74, "0"),
+                (49, "-0.25"),
+                (74, "2"),
+                (75, "0"),
+                (340, "0"),
+                (46, "1.0"),
+                (50, "0.0"),
+                (44, "0.0"),
+                (45, "0.0"),
+                (9, "X"),
+                (0, "ENDTAB"),
+            ],
+        )));
+        let again = parse_dxf(&written.bytes);
+        let linetype = again.linetypes.iter().find(|linetype| linetype.name == "BORDER_TEXT").unwrap();
+        assert_eq!((linetype.dashes.as_slice(), linetype.complex), ([0.75, -0.25].as_slice(), false));
+        assert_eq!(codes(&written), ["complex-linetype"]);
+    }
+
+    #[test]
+    fn writes_gradients_and_wipeouts_as_they_are() {
+        let body = [
+            (0, "HATCH"),
+            (5, "30"),
+            (8, "0"),
+            (100, "AcDbEntity"),
+            (100, "AcDbHatch"),
+            (10, "0"),
+            (20, "0"),
+            (30, "0"),
+            (210, "0"),
+            (220, "0"),
+            (230, "1"),
+            (2, "SOLID"),
+            (70, "1"),
+            (71, "0"),
+            (91, "1"),
+            (92, "2"),
+            (72, "0"),
+            (73, "1"),
+            (93, "3"),
+            (10, "0"),
+            (20, "0"),
+            (10, "10"),
+            (20, "0"),
+            (10, "10"),
+            (20, "10"),
+            (97, "0"),
+            (75, "0"),
+            (76, "1"),
+            (98, "0"),
+            (450, "1"),
+            (451, "0"),
+            (460, "0.5"),
+            (461, "0.25"),
+            (452, "1"),
+            (462, "0.75"),
+            (453, "2"),
+            (463, "0"),
+            (421, "255"),
+            (463, "1"),
+            (421, "16776960"),
+            (470, "CYLINDER"),
+            (0, "WIPEOUT"),
+            (5, "31"),
+            (8, "0"),
+            (100, "AcDbEntity"),
+            (100, "AcDbWipeout"),
+            (90, "0"),
+            (10, "1"),
+            (20, "2"),
+            (30, "0"),
+            (11, "10"),
+            (21, "0"),
+            (31, "0"),
+            (12, "0"),
+            (22, "5"),
+            (32, "0"),
+            (13, "1"),
+            (23, "1"),
+            (70, "7"),
+            (280, "1"),
+            (71, "2"),
+            (91, "4"),
+            (14, "-0.5"),
+            (24, "-0.5"),
+            (14, "0.5"),
+            (24, "-0.5"),
+            (14, "0.5"),
+            (24, "0.5"),
+            (14, "-0.5"),
+            (24, "-0.5"),
+        ];
+        let doc = parse_dxf(&section("ENTITIES", &body));
+        let written = write_dxf(&doc);
+        let again = parse_dxf(&written.bytes);
+        assert_eq!(again.entities.len(), 2);
+        for (before, after) in doc.entities.iter().zip(&again.entities) {
+            assert_eq!(before.data, after.data, "{}", before.base.kind);
+        }
+        assert!(
+            matches!(&again.entities[0].data, DxfEntityData::Hatch(hatch) if hatch.gradient.as_deref() == Some("CYLINDER"))
+        );
+        assert_eq!(codes(&written), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn writes_multileaders_with_a_standard_style() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/dxf/mleader.dxf");
+        let doc = parse_dxf(&std::fs::read(path).unwrap());
+        let written = write_dxf(&doc);
+        let again = parse_dxf(&written.bytes);
+        let mleader = |doc: &DxfDocument| {
+            doc.entities
+                .iter()
+                .find_map(|entity| match &entity.data {
+                    DxfEntityData::MLeader(mleader) => Some(mleader.as_ref().clone()),
+                    _ => None,
+                })
+                .unwrap()
+        };
+        let (before, after) = (mleader(&doc), mleader(&again));
+        // スタイル・文字スタイル・線種は、書いた MLEADERSTYLE・STYLE・LTYPE を指す
+        assert_eq!(before.context.leaders, after.context.leaders);
+        assert_eq!(
+            before.context.mtext.as_ref().map(|mtext| &mtext.default_content),
+            after.context.mtext.as_ref().map(|mtext| &mtext.default_content)
+        );
+        let tags = tags(&written);
+        let style = tags.iter().position(|(code, value)| *code == 0 && value == "MLEADERSTYLE").unwrap();
+        assert_eq!(tags[style + 1].1, after.style_handle);
+    }
+
+    #[test]
+    fn reports_entities_written_differently_or_left_out() {
+        let written = write_dxf(&parse_dxf(&section(
+            "ENTITIES",
+            &[
+                // ブロック参照に属さない属性は文字にする
+                (0, "ATTRIB"),
+                (5, "40"),
+                (8, "0"),
+                (100, "AcDbEntity"),
+                (100, "AcDbText"),
+                (10, "0"),
+                (20, "0"),
+                (40, "1"),
+                (1, "ALONE"),
+                (100, "AcDbAttribute"),
+                (2, "TAG"),
+                (70, "0"),
+                // 表示のブロックがない寸法と、画像は書かない
+                (0, "DIMENSION"),
+                (5, "41"),
+                (8, "0"),
+                (100, "AcDbEntity"),
+                (100, "AcDbDimension"),
+                (10, "0"),
+                (20, "0"),
+                (11, "5"),
+                (21, "1"),
+                (70, "0"),
+                (0, "IMAGE"),
+                (5, "42"),
+                (8, "0"),
+                (100, "AcDbEntity"),
+                (100, "AcDbRasterImage"),
+                (10, "0"),
+                (20, "0"),
+                (11, "1"),
+                (21, "0"),
+                (12, "0"),
+                (22, "1"),
+                (13, "10"),
+                (23, "10"),
+            ],
+        )));
+        let again = parse_dxf(&written.bytes);
+        let kinds: Vec<&str> = again.entities.iter().map(|entity| entity.base.kind.as_str()).collect();
+        assert_eq!(kinds, ["TEXT"]);
+        assert_eq!(codes(&written), ["attrib-alone", "dimension-block", "image"]);
+    }
+}
