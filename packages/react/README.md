@@ -8,12 +8,11 @@ create the engine, read its state and events, and read files.
 "use client";
 
 import type { Scene } from "@zumenjs/core";
-import { jww } from "@zumenjs/jww";
 import { useDrawing, useDrawingViewer, useViewerEvent, useViewerState } from "@zumenjs/react";
-import { sxf } from "@zumenjs/sxf";
+import { reader } from "@zumenjs/reader";
 import { useState } from "react";
 
-const READERS = [sxf, jww];
+const READERS = [reader];
 
 export function DrawingView({ file }: { file: File | null }) {
   const { scene, error } = useDrawing(file, READERS);
@@ -44,8 +43,9 @@ function Drawing({ scene }: { scene: Scene }) {
 - `useViewerEvent(viewer, type, listener)` subscribes to `move`, `moveend` or `cursor`, which change at the pace of
   the pointer and are not kept in the state.
 - `useDrawing(file, readers, { view })` reads a `File` or `Blob`. When the reader that recognizes the file has `load`
-  (the DWG reader of `@zumenjs/dwg` loads its WebAssembly module), it waits for it, so other files never load it.
-  `view` picks a DXF or DWG layout without reading the file again.
+  (the reader of `@zumenjs/reader` loads its WebAssembly module), it waits for it, so the module is fetched when the
+  first drawing is opened. `view` picks a DXF or DWG layout without reading the file again. To read in a Web Worker,
+  use `ReaderWorker` of `@zumenjs/reader` in an effect of your own and pass the scene to `useDrawingViewer`.
 
 The playground's [2D sample](https://github.com/zumenjs/zumen/blob/main/playground/drawing-sample.tsx) is a complete
 viewer built with these hooks: toolbar, layer list, properties and status bar, with its own CSS and Japanese text.
