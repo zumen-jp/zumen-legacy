@@ -17,7 +17,18 @@ from __future__ import annotations
 
 import os
 
-from ._zumen import Comparison, Converted, LimitError, ReadError, RenderError, Rendering, Scene, __version__, compare, detect
+from ._zumen import (
+    Comparison,
+    Converted,
+    LimitError,
+    ReadError,
+    RenderError,
+    Rendering,
+    Scene,
+    __version__,
+    compare,
+    detect,
+)
 from ._zumen import convert as _convert
 from ._zumen import read as _read
 
