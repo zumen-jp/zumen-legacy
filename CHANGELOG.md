@@ -12,6 +12,14 @@ All packages share one version during 0.x.
   `AbortSignal` fires, and transfers the scene's point lists to the page. The playground reads with it. The TypeScript
   readers `@zumenjs/sxf`, `@zumenjs/jww` and `@zumenjs/dxf` stay as the reference of the tests and will not be
   published.
+- Rust, Python and MCP: the shapes that an entity draws, for AI clients and data pipelines to compute with
+  ([decision 0009](docs/decisions/0009-geometry-for-ai-clients.md)). `zumen_core::extract::entity_shapes` gives
+  polylines (curves as drawn), segments, fills, hatched areas, points and text parts in paper millimeters, and
+  `real_shapes` the same through the entity's placement, in the coordinates of the drawing itself (real-world
+  millimeters). `Scene.entity(id, geometry=True)` and `Scene.entities(..., geometry=True)` in Python, and
+  `zumen entities --geometry`. In the MCP server, `get_entity` returns the geometry, `find_entities` returns it with
+  `geometry` (pages bounded by `max_points`, with `next_offset`), and `open_drawing` lists the placements drawn at a
+  scale with their box and the conversion from paper to real-world millimeters.
 - Stable keys in the scene model, the same in TypeScript, Rust and every format: `SceneEntity.kind` (`line`, `arc`,
   `text`, `dimension`, … listed in `ENTITY_KINDS`) next to the Japanese `type`, and `Property.key` (`layer`, `color`,
   `start`, `radius`, `dimensionType`, …) next to the Japanese `label`, with the unformatted value in `Property.raw`
