@@ -40,7 +40,8 @@ the conversion between pixels and paper millimeters, and the pixel box of every 
 compare matches entities by shape and text (not by id) and writes the removed, added and changed
 entities and the regions that changed as JSON; -o draws them over the unchanged ones (red before,
 blue after, gray unchanged).
-convert writes a DXF or DWG drawing as DXF (AutoCAD 2013, UTF-8) and reports what it could not write.";
+convert writes a drawing as DXF (AutoCAD 2013, UTF-8) and reports what it could not write. SXF and JWW are
+mapped into the AutoCAD model: model space at real size, the sheet as a layout with a viewport for each scale.";
 
 struct Args {
     command: String,

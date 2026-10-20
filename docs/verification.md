@@ -398,6 +398,46 @@ Checked on 2026-10-20 on macOS 27 (Apple Silicon) with Rust 1.99.0, Python 3.14.
 - Not checked: opening the written files in AutoCAD or other CAD programs, and multileaders with block content in
   AutoCAD (ezdxf reads them).
 
+## SXF and JWW to DXF
+
+Checked on 2026-10-20 on macOS 27 (Apple Silicon) with Rust 1.99.0, Node.js 24.21.0, Python 3.14.8 and ezdxf 1.4.5.
+
+- The 8 SXF and JWW drawings in `tests/fixtures` (153 entities, including every SXF feature, broken references and
+  cycles of composite figures, geodetic and non-uniform sub-figures) are mapped into the AutoCAD model, written as DXF,
+  read again and drawn in the layout that the DXF opens in (`crates/zumen/tests/convert_sxf_jww.rs`). Each entity of the
+  original scene is matched with the entities written from it (through the source of each written entity) and has the
+  same box (within 0.05 mm plus 1/10,000 of its size, the difference in curve flattening), the same drawn primitives in
+  the same order (strokes by color, line weight, dashes and distance; fills by color and outline; hatch lines by color,
+  dashes, direction, spacing and position; texts by string, color, font and text box, and each character's position
+  within a quarter of its size or half the character spacing), its layers, and, through a viewport, the scale of its
+  sub-figure or layer group. The exceptions are invisible: the selectable outline of `Area_control` and empty text.
+- Synthetic drawings in the same test pin the rules: a 1/100 sub-figure rotated by 30° in real-size model space behind a
+  viewport, with the sheet frame in paper space and vertical text in `@ＭＳ 明朝` at 270°; geodetic coordinates swapped;
+  overlapping sub-figures moved apart; a profile with different scales as a paper space INSERT; colors, line types,
+  line weights, `%%` and `^`, and a linear dimension with its definition points and block; a JWW drawing with 1/100,
+  1/50 and 1/1 layer groups (two viewports, the frame in paper space, the 1/50 group moved), blocks, solids, circle
+  solids, points and dimensions; and a one-scale JWW drawing kept in model space.
+- The same check on the local samples, which are not in Git: the SFC and P21 versions of `D0LS004Z` (1,201 entities each,
+  two sub-figures at 1/10 and 1/20 that overlap at real size, so one is moved) and nine JWW drawings (site plans, shadow
+  diagrams, house and apartment plans; 8,683 entities) draw the same entities
+  (`ZUMEN_SAMPLES=… cargo test -p zumen --release --test convert_sxf_jww -- --ignored`). Rendered to PNG, the layouts of
+  `D0LS004Z.SFC` and the apartment plan show the same drawing as the originals.
+- ezdxf reads every converted fixture and sample strictly (`ezdxf.readfile`) and its audit finds nothing. For the SXF
+  fixture `sample.sfc`, ezdxf's `Viewport.get_transformation_matrix` maps the real-size line of the 1/20 sub-figure to
+  the paper millimeters where the SXF scene draws it (the Python tests).
+- The 19 DXF files written from the fixtures and samples read the same in TypeScript and Rust, in the layout and in
+  model space (`ZUMEN_SAMPLES=<folder of the converted files> pnpm run parity`). In the playground, the converted
+  `D0LS004Z.SFC` opens in its layout `図面-1` with viewports at 1:10 and 1:20 and the hidden layer `VIEWPORTS`, and its
+  model space shows the two sub-figures at real size side by side.
+- `@zumenjs/dxf` and `zumen-dxf` draw `@` fonts vertically with the same scenes (`vertical-text` fixture, TypeScript
+  test of the column, and the playground). None of the local DXF samples uses an `@` font, so their scenes do not
+  change: `pnpm run parity` over the local samples gives the same 111 scenes as before.
+- Time with the release build of the `zumen` command, including reading and writing (median of seven runs):
+  `D0LS004Z.SFC` (255 KB) 17 ms, `D0LS004Z.P21` (1.4 MB) 31 ms, both written as 0.58 MB of DXF; `Test6.jww` (128 KB,
+  1,962 entities) 18 ms.
+- Not checked: opening the written files in AutoCAD, Jw_cad or other CAD programs (in particular how they place the
+  column of `@` font text, which zumen infers), and P2Z and SFZ, which are read by another pull request.
+
 ## Rust readers, rendering and bindings
 
 Checked on 2026-10-18 on macOS (Apple Silicon) with Rust 1.99.0, Node.js 24.21.0, Python 3.15.0, wasm-pack 0.15.0

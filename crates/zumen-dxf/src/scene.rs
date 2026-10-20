@@ -142,7 +142,7 @@ const DEFAULT_LINEWEIGHT: f64 = 0.25;
 const EM_LATIN: f64 = 1.0 / 0.72;
 const EM_CJK: f64 = 1.0 / 0.88;
 /// em の下端からベースラインまで（em に対する比）
-const DESCENT: f64 = 0.12;
+pub const DESCENT: f64 = 0.12;
 /// MTEXT の既定の行の間隔（文字の高さの 5/3、DXF Reference「MTEXT」の 44）
 const LINE_SPACING: f64 = 5.0 / 3.0;
 /// 引出線を矢印の先から始める矢印（ほかの矢印は、矢印の大きさだけ離れた矢印の根元から線を始める）。
@@ -300,7 +300,8 @@ fn units(text: &str) -> f64 {
     text.chars().fold(0.0, |total, c| total + if is_half_width(c) { 0.5 } else { 1.0 })
 }
 
-fn em_for(text: &str) -> f64 {
+/// 文字の高さ（TEXT の 40）に対する字形の em の大きさ。全角の文字を含めば漢字の高さを、なければ大文字の高さを合わせる
+pub fn em_for(text: &str) -> f64 {
     if text.chars().any(|c| !is_half_width(c) && !js::is_whitespace(c)) { EM_CJK } else { EM_LATIN }
 }
 
@@ -1218,8 +1219,13 @@ impl<'a> Builder<'a> {
         self.styles.get(&name.to_uppercase()).or_else(|| self.styles.get("STANDARD")).copied()
     }
 
-    /// フォントの CSS の名前。SHX は同梱しないので代わりのフォントで描き、数を知らせる
-    fn font_family(&mut self, style: Option<&DxfTextStyle>, override_font: Option<&RunFont>) -> (&'static str, bool) {
+    /// フォントの CSS の名前と、SHX か、縦書きか。SHX は同梱しないので代わりのフォントで描き、数を知らせる。
+    /// 縦書きは Windows の縦書きのフォント（名前の先頭が @ の TrueType）
+    fn font_family(
+        &mut self,
+        style: Option<&DxfTextStyle>,
+        override_font: Option<&RunFont>,
+    ) -> (&'static str, bool, bool) {
         let file = match override_font {
             Some(font) => font.name.clone(),
             None => style.map(|style| style.font.clone()).unwrap_or_default(),
@@ -1243,7 +1249,7 @@ impl<'a> Builder<'a> {
                 self.shx_fonts.push(font);
             }
         }
-        (font_family_for(name), !truetype)
+        (font_family_for(name), !truetype, truetype && name.starts_with('@'))
     }
 
     /// 1 行の run を、ベースラインの左端を原点とする文字の座標系に並べて描く。
@@ -1264,7 +1270,7 @@ impl<'a> Builder<'a> {
                 Some(RunColor::Aci(index)) => aci_color(*index),
                 Some(RunColor::Rgb(color)) => color.clone(),
             };
-            let (family, uses_shx) = self.font_family(style, run.font.as_ref());
+            let (family, uses_shx, vertical) = self.font_family(style, run.font.as_ref());
             if uses_shx {
                 shx = true;
             }
@@ -1278,7 +1284,30 @@ impl<'a> Builder<'a> {
             }
             let em = em_for(&text) * run.height;
             let width = units(&text) * em * run.width_factor;
-            if !js::trim(&text).is_empty() {
+            if !js::trim(&text).is_empty() && vertical {
+                // 縦書きのフォントは、字形をベースラインに対して 90° 左に回して並べる（ベースラインを 270° に向けると字が
+                // 立つ）。文字範囲は、ベースラインの向きに長さ width、横に em（em の下端から DESCENT 上がベースライン）
+                let primitive = layout_text(
+                    TextLayoutInput {
+                        text: &text,
+                        x: 0.0,
+                        y: 0.0,
+                        height: width,
+                        width: em,
+                        spacing: 0.0,
+                        angle: 0.0,
+                        slant: run.oblique,
+                        anchor: 1.0,
+                        vertical: true,
+                        color: color.clone(),
+                        font_family: family.to_string(),
+                    },
+                    &multiply(transform, &multiply(&translate(x, 0.0), &[0.0, 1.0, -1.0, 0.0, width, -DESCENT * em])),
+                );
+                if let Some(primitive) = primitive {
+                    out.push(Primitive::Text(primitive));
+                }
+            } else if !js::trim(&text).is_empty() {
                 let primitive = layout_text(
                     TextLayoutInput {
                         text: &text,

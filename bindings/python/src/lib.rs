@@ -889,7 +889,8 @@ fn compare(
     Ok(Comparison { before: a, after: b, diff, overlay: OnceLock::new() })
 }
 
-/// 図面を読み、to の形式（dxf）に書き直す。書き直せる図面は DXF・DWG。format は分かっている場合の読む形式
+/// 図面を読み、to の形式（dxf）に書き直す。どの形式の図面も書き直せる（SXF・JWW は AutoCAD の図面のモデルに写す）。
+/// format は分かっている場合の読む形式
 #[pyfunction]
 #[pyo3(signature = (data, to, *, format = None))]
 fn convert(py: Python<'_>, data: &[u8], to: String, format: Option<String>) -> PyResult<Converted> {

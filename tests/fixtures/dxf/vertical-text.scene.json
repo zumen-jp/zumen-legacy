@@ -1,0 +1,368 @@
+{
+  "format": "dxf",
+  "version": "DXF AC1027",
+  "views": [
+    {
+      "id": "Model",
+      "name": "モデル"
+    }
+  ],
+  "view": "Model",
+  "sheet": null,
+  "bounds": {
+    "minX": 9.52272727272727,
+    "minY": 34.09090909090909,
+    "maxX": 61.93181818181819,
+    "maxY": 53.5
+  },
+  "layers": [
+    {
+      "id": 1,
+      "name": "0",
+      "visible": true
+    }
+  ],
+  "entities": [
+    {
+      "id": "40",
+      "type": "文字",
+      "source": "TEXT",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "text",
+          "text": "縦書きAB",
+          "color": "#ffffff",
+          "fontFamily": "\"MS Mincho\", \"Hiragino Mincho ProN\", \"Yu Mincho\", \"Noto Serif JP\", \"Noto Serif CJK JP\", serif",
+          "height": 3.9772727272727275,
+          "scaleX": 1,
+          "cells": [
+            {
+              "char": "縦",
+              "x": 1.9886363636363638,
+              "y": 13.920454545454547
+            },
+            {
+              "char": "書",
+              "x": 1.9886363636363638,
+              "y": 9.94318181818182
+            },
+            {
+              "char": "き",
+              "x": 1.9886363636363638,
+              "y": 5.965909090909092
+            },
+            {
+              "char": "A",
+              "x": 1.9886363636363638,
+              "y": 2.9829545454545467
+            },
+            {
+              "char": "B",
+              "x": 1.9886363636363638,
+              "y": 0.9943181818181828
+            }
+          ],
+          "boxWidth": 3.9772727272727275,
+          "boxHeight": 15.90909090909091,
+          "matrix": [
+            1,
+            -1.8369701987210297e-16,
+            1.8369701987210297e-16,
+            1,
+            9.52272727272727,
+            34.09090909090909
+          ]
+        }
+      ],
+      "bbox": {
+        "minX": 9.52272727272727,
+        "minY": 34.09090909090909,
+        "maxX": 13.5,
+        "maxY": 50
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "文字（TEXT）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "40"
+        },
+        {
+          "label": "レイヤ",
+          "value": "0"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "文字列",
+          "value": "縦書きAB"
+        },
+        {
+          "label": "高さ",
+          "value": "3.5"
+        },
+        {
+          "label": "文字スタイル",
+          "value": "縦書き（@ＭＳ 明朝）"
+        }
+      ],
+      "placement": {
+        "name": "モデル空間（mm）",
+        "scaleX": 1,
+        "scaleY": 1,
+        "inverse": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": "41",
+      "type": "文字",
+      "source": "TEXT",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "text",
+          "text": "幅0.8",
+          "color": "#ffffff",
+          "fontFamily": "\"MS Mincho\", \"Hiragino Mincho ProN\", \"Yu Mincho\", \"Noto Serif JP\", \"Noto Serif CJK JP\", serif",
+          "height": 3.181818181818182,
+          "scaleX": 1.25,
+          "cells": [
+            {
+              "char": "幅",
+              "x": 1.9886363636363638,
+              "y": 6.363636363636364
+            },
+            {
+              "char": "0",
+              "x": 1.9886363636363638,
+              "y": 3.977272727272728
+            },
+            {
+              "char": ".",
+              "x": 1.9886363636363638,
+              "y": 2.386363636363637
+            },
+            {
+              "char": "8",
+              "x": 1.9886363636363638,
+              "y": 0.795454545454546
+            }
+          ],
+          "boxWidth": 3.9772727272727275,
+          "boxHeight": 7.954545454545455,
+          "matrix": [
+            1,
+            -1.8369701987210297e-16,
+            0.17632698070846517,
+            1,
+            29.52272727272727,
+            42.04545454545455
+          ]
+        }
+      ],
+      "bbox": {
+        "minX": 29.52272727272727,
+        "minY": 42.04545454545455,
+        "maxX": 34.90260098290824,
+        "maxY": 50
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "文字（TEXT）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "41"
+        },
+        {
+          "label": "レイヤ",
+          "value": "0"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "文字列",
+          "value": "幅0.8"
+        },
+        {
+          "label": "高さ",
+          "value": "3.5"
+        },
+        {
+          "label": "文字スタイル",
+          "value": "縦書き（@ＭＳ 明朝）"
+        }
+      ],
+      "placement": {
+        "name": "モデル空間（mm）",
+        "scaleX": 1,
+        "scaleY": 1,
+        "inverse": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": "42",
+      "type": "文字",
+      "source": "TEXT",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "text",
+          "text": "横書き",
+          "color": "#ffffff",
+          "fontFamily": "\"MS Gothic\", \"Hiragino Kaku Gothic ProN\", \"Hiragino Sans\", \"Yu Gothic\", \"Noto Sans JP\", \"Noto Sans CJK JP\", sans-serif",
+          "height": 3.9772727272727275,
+          "scaleX": 1.0000000000000002,
+          "cells": [
+            {
+              "char": "横",
+              "x": 1.988636363636364,
+              "y": 1.9886363636363638
+            },
+            {
+              "char": "書",
+              "x": 5.965909090909092,
+              "y": 1.9886363636363638
+            },
+            {
+              "char": "き",
+              "x": 9.94318181818182,
+              "y": 1.9886363636363638
+            }
+          ],
+          "boxWidth": 11.931818181818183,
+          "boxHeight": 3.9772727272727275,
+          "matrix": [
+            1,
+            0,
+            0,
+            1,
+            50,
+            49.52272727272727
+          ]
+        }
+      ],
+      "bbox": {
+        "minX": 50,
+        "minY": 49.52272727272727,
+        "maxX": 61.93181818181819,
+        "maxY": 53.5
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "文字（TEXT）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "42"
+        },
+        {
+          "label": "レイヤ",
+          "value": "0"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "文字列",
+          "value": "横書き"
+        },
+        {
+          "label": "高さ",
+          "value": "3.5"
+        },
+        {
+          "label": "文字スタイル",
+          "value": "横書き（ＭＳ ゴシック）"
+        }
+      ],
+      "placement": {
+        "name": "モデル空間（mm）",
+        "scaleX": 1,
+        "scaleY": 1,
+        "inverse": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ]
+      }
+    }
+  ],
+  "notices": [],
+  "metadata": [
+    {
+      "label": "形式",
+      "value": "DXF AutoCAD 2013（AC1027、テキスト）"
+    },
+    {
+      "label": "文字コード",
+      "value": "UTF-8（AutoCAD 2007 以降の DXF）"
+    },
+    {
+      "label": "単位",
+      "value": "mm"
+    },
+    {
+      "label": "表示",
+      "value": "モデル空間"
+    }
+  ],
+  "background": "dark"
+}

@@ -45,11 +45,13 @@ for entity in image.entities_at(640, 480):  # boxes that contain the pixel, smal
 
 A `Rendering` shows itself as an image in Jupyter.
 
-DXF and DWG drawings can be written as DXF (AutoCAD 2013, UTF-8), with their handles, layers, styles, blocks and
-layouts. Read again, the DXF draws the same scene:
+Drawings of every format can be written as DXF (AutoCAD 2013, UTF-8). DXF and DWG keep their handles, layers, styles,
+blocks and layouts, and read again, the DXF draws the same scene. SXF and JWW are mapped into the AutoCAD drawing model:
+model space at real size, and the sheet as a layout whose viewports show each SXF sub-figure and each JWW layer group
+scale where the drawing had it, with frames and title blocks in paper space. The layout draws the same as the original:
 
 ```python
-converted = zumen.convert("plan.dwg", "dxf")  # or bytes; converted.data holds the DXF
+converted = zumen.convert("plan.jww", "dxf")  # or bytes; converted.data holds the DXF
 converted.save("plan.dxf")
 for notice in converted.notices:  # what could not be written as it was, such as images, by kind and count
     print(notice["code"], notice["message"], notice["count"])

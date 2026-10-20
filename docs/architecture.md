@@ -155,11 +155,12 @@ bytes ─▶ zumen-sxf, zumen-jww, zumen-dxf, zumen-dwg ─▶ Scene (zumen-core
 | Crate | Responsibility |
 | --- | --- |
 | `zumen-core` | The `Scene` types (serde, the same JSON as `sceneToJson`), `NoticeList`, `DrawingReader` and `read_drawing`, geometry (`geometry`), text layout (`text`), measurement, texts and entities for servers (`extract`), the fields of the title block (`title`), the comparison of two revisions (`compare`), read limits (`limits`), and JavaScript-compatible number handling (`js`). |
-| `zumen-sxf` | SFC and P21 parsing into the SXF feature model (`parse_sfc`, `parse_p21` → `SxfDrawing`), conversion to a scene (`sxf_to_scene`), and the `SXF` reader. |
-| `zumen-jww` | JWW parsing into the JWW document model (`read_jww`), conversion to a scene (`jww_to_scene`), and the `JWW` reader. |
+| `zumen-sxf` | SFC and P21 parsing into the SXF feature model (`parse_sfc`, `parse_p21` → `SxfDrawing`), conversion to a scene (`sxf_to_scene`), and the `SXF` reader. The code tables and the rules that turn codes into colors, line types, widths and text (`SxfDocument::color` …) are public, for the conversion. |
+| `zumen-jww` | JWW parsing into the JWW document model (`read_jww`), conversion to a scene (`jww_to_scene`), and the `JWW` reader. The rules for pen colors, line types, widths, layer names and text (`JwwDocument::pen_color` …) are public, for the conversion. |
 | `zumen-dxf` | DXF parsing (ASCII and binary) into the AutoCAD drawing model (`parse_dxf` → `DxfDocument`), conversion of model space or a layout to a scene (`dxf_to_scene`), the `DXF` reader, and writing the model as DXF (`write_dxf`). |
 | `zumen-dwg` | DWG decoding (AutoCAD 2000 to 2018) into the AutoCAD drawing model of `zumen-dxf` (`read_dwg` → `DxfDocument`), drawn with `dxf_to_scene`, and the `DWG` reader. |
-| `zumen` | `read` and `detect` over every reader, with limits for untrusted drawings (`ReadDrawingOptions::limits`), and `convert` (DXF and DWG to DXF). The entry point for applications. |
+| `zumen-convert` | Maps SXF and JWW into the AutoCAD drawing model (`sxf_to_dxf`, `jww_to_dxf` → `Mapped`: the `DxfDocument`, the notices, and the source of each entity), so that they can be written as DXF ([decision 0007](decisions/0007-mapping-crate-between-formats.md)). |
+| `zumen` | `read` and `detect` over every reader, with limits for untrusted drawings (`ReadDrawingOptions::limits`), and `convert` (every format to DXF through the AutoCAD model; `mapping` re-exports `zumen-convert`). The entry point for applications. |
 | `zumen-render` | Draws a scene to PNG with the rules of `render.ts` in `@zumenjs/viewer` (color inversion, line weights with a 1 px minimum, dash rules, even-odd fills, clipping, per-character text, small text as a line), and reports which entities it drew and where (`render_image`, `drawn_entities`, `View::pixel_box`). It also writes SVG (`render_svg`) and one-page PDF (`render_pdf`) with the same colors, fills, clipping and text placement. |
 | `zumen-cli` | The `zumen` command (`detect`, `scene`, `texts`, `entities`, `title`, `render`, `compare`, `convert`). |
 | `bindings/python` | PyO3 bindings, built with maturin as an abi3 wheel for Python 3.10 and later. The GIL is released while reading, rendering and converting. `Scene.to_arrow` needs pyarrow (Apache-2.0, `zumen[arrow]`), and the MCP server `zumen.mcp` needs the MCP SDK (MIT, `zumen[mcp]`); both are optional dependencies. |
@@ -167,7 +168,8 @@ bytes ─▶ zumen-sxf, zumen-jww, zumen-dxf, zumen-dwg ─▶ Scene (zumen-core
 
 The dependency rules follow the TypeScript packages: format crates depend only on `zumen-core` and never on each other
 (the exception is `zumen-dwg`, which reads into the AutoCAD model of `zumen-dxf` and draws with `dxf_to_scene`), and
-parsing does not depend on rendering.
+parsing does not depend on rendering. `zumen-convert` is not a format crate: it is the one place that knows two formats
+at once, and depends on `zumen-dxf`, `zumen-sxf` and `zumen-jww` ([decision 0007](decisions/0007-mapping-crate-between-formats.md)).
 
 ### DWG in the browser
 
@@ -265,15 +267,23 @@ are unpacked up to `max_bytes`, or 2 GiB without it, so that a small archive can
 ### Writing and converting
 
 Drawings are written through the AutoCAD drawing model ([decision 0006](decisions/0006-write-through-the-autocad-model.md)).
-`zumen::convert` reads a DXF or DWG drawing into a `DxfDocument`, and `zumen_dxf::write_dxf` writes it as DXF of
-AutoCAD 2013 in UTF-8. SXF and JWW are not mapped into the model yet; writers of SFC, P21 and JWW will start from the
-same model.
+`zumen::convert` reads a DXF or DWG drawing into a `DxfDocument`, or maps an SXF or JWW drawing into one with
+`zumen-convert`, and `zumen_dxf::write_dxf` writes it as DXF of AutoCAD 2013 in UTF-8. Writers of SFC, P21 and JWW
+will start from the same model.
 
 ```text
-DXF, DWG ─▶ DxfDocument (zumen-dxf) ─▶ write_dxf ─▶ DXF (AutoCAD 2013, UTF-8) ─┐
-                    ▲                                                          │ read again: the same scene
-                    └──────────────────────────────────────────────────────────┘
+DXF, DWG ──────────────────────────▶ DxfDocument (zumen-dxf) ─▶ write_dxf ─▶ DXF (AutoCAD 2013, UTF-8)
+SXF, JWW ─▶ sxf_to_dxf, jww_to_dxf ─▶      ▲                                     │ read again: the same scene
+            (zumen-convert)                └─────────────────────────────────────┘
 ```
+
+SXF and JWW are sheets in paper millimeters with scales for parts of the sheet. The mapping puts every scale at real
+size in model space and shows it through a viewport of the sheet's layout, and keeps what is drawn on the sheet itself
+in paper space ([decision 0008](decisions/0008-sheets-and-scales-in-the-autocad-model.md)). It follows the scene of the
+source value for value (the code tables and rules the scenes use are public for this), so the layout of the written
+DXF draws the source's scene entity by entity (`crates/zumen/tests/convert_sxf_jww.rs`, which matches the entities
+through the source of each written entity and compares boxes and drawn primitives within the difference in curve
+flattening).
 
 The writer is tested by reading what it writes: in every view, the scene of the written DXF has the same entities
 (types, layers, boxes and drawn primitives) as the scene of the drawing it came from, and the handles of the written

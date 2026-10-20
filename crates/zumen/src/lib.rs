@@ -2,7 +2,7 @@
 //!
 //! 形式は拡張子ではなく中身で判定する。読める形式は SXF（SFC・P21、圧縮した P2Z・SFZ）・JWW・DXF・DWG。
 //! 受け取った図面を信用できないときは、`ReadDrawingOptions::limits` でバイト数・図形の数・時間の上限を指定する。
-//! DXF・DWG は AutoCAD 2013 の DXF に書き直せる（`convert`）。
+//! どの図面も AutoCAD の図面のモデルを経て、AutoCAD 2013 の DXF に書き直せる（`convert`）。
 //!
 //! ```no_run
 //! let bytes = std::fs::read("plan.jww").unwrap();
@@ -15,6 +15,7 @@
 //! ```
 #![forbid(unsafe_code)]
 
+pub use zumen_convert as mapping;
 pub use zumen_core::*;
 pub use zumen_dwg as dwg;
 pub use zumen_dxf as dxf;
@@ -52,7 +53,8 @@ pub struct Converted {
 pub const WRITABLE_FORMATS: [&str; 1] = ["dxf"];
 
 /// 図面を読み、別の形式に書き直す。`to` は書く形式（今は dxf だけ。ASCII、AutoCAD 2013 形式、UTF-8）。
-/// 書き直せる図面は DXF・DWG（AutoCAD の図面のモデルを経る。SXF・JWW はまだそのモデルにできない）
+/// どの図面も AutoCAD の図面のモデル（`dxf::DxfDocument`）を経る。DXF・DWG はそのまま読み、SXF・JWW は
+/// モデルに写す（`mapping`。モデル空間は実寸、縮尺ごとに用紙のレイアウトのビューポート）
 pub fn convert(bytes: &[u8], to: &str, options: &ReadDrawingOptions) -> Result<Converted, ReadError> {
     if !WRITABLE_FORMATS.contains(&to) {
         return Err(ReadError::new(format!("{} には書き出せません（書き出せるのは DXF）", to.to_uppercase())));
@@ -65,13 +67,23 @@ pub fn convert(bytes: &[u8], to: &str, options: &ReadDrawingOptions) -> Result<C
         Some(format) => format,
         None => detect(bytes).ok_or_else(|| ReadError::new("対応していない形式のファイルです"))?,
     };
-    let (doc, exceeded) = zumen_core::limits::with_limits(limits, || match format {
-        "dxf" => Ok(dxf::parse_dxf(bytes)),
-        "dwg" => dwg::read_dwg(bytes).map_err(ReadError::new),
-        other => Err(ReadError::new(format!(
-            "{} の図面はまだ書き直せません（書き直せるのは DXF・DWG）",
-            other.to_uppercase()
-        ))),
+    let mut notices = NoticeList::new();
+    let (doc, exceeded) = zumen_core::limits::with_limits(limits, || -> Result<_, ReadError> {
+        Ok(match format {
+            "dxf" => dxf::parse_dxf(bytes),
+            "dwg" => dwg::read_dwg(bytes).map_err(ReadError::new)?,
+            "jww" => {
+                let mapped = mapping::jww_to_dxf(&jww::read_jww(bytes)?);
+                notices = NoticeList::from_notices(&mapped.notices);
+                mapped.document
+            }
+            format if sxf::SXF.formats().contains(&format) => {
+                let mapped = mapping::sxf_to_dxf(&sxf::parse_sxf(bytes, format)?);
+                notices = NoticeList::from_notices(&mapped.notices);
+                mapped.document
+            }
+            other => return Err(ReadError::new(format!("{} の図面は書き直せません", other.to_uppercase()))),
+        })
     });
     // 上限（バイト数・時間）を超えたら、途中まで読んだ図面は書かない
     if let Some(limit) = exceeded {
@@ -79,7 +91,10 @@ pub fn convert(bytes: &[u8], to: &str, options: &ReadDrawingOptions) -> Result<C
     }
     let doc = doc?;
     let written = dxf::write_dxf(&doc);
-    Ok(Converted { bytes: written.bytes, notices: written.notices })
+    for notice in &written.notices {
+        notices.add_count(notice.level, &notice.code, notice.message.clone(), notice.count);
+    }
+    Ok(Converted { bytes: written.bytes, notices: notices.into_vec() })
 }
 
 /// 図面のバイト列を読み、表示用の図面にする。上限（`options.limits`）を超えたら、途中でやめて上限のエラーを返す

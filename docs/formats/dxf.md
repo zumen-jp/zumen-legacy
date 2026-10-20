@@ -222,6 +222,15 @@ TrueType styles use their font name (`ＭＳ ゴシック`, `MS Mincho`…). Cha
 so text lengths differ from AutoCAD. The text height (40) is taken as the capital height for Latin text and the kanji height
 for text with full-width characters.
 
+TrueType fonts whose name starts with `@` (`@ＭＳ 明朝`, `@MS Gothic`) are the vertical forms of Windows fonts: their
+glyphs are turned 90° counter-clockwise against the baseline, so text rotated by 270° reads top to bottom with upright
+characters. This is how AutoCAD and Jw_cad write vertical Japanese text to DXF (AutoCAD's vertical style flag works for
+SHX fonts only). TEXT and MTEXT in such a font are laid out as a vertical column: along the baseline, each character
+takes its width (full width 1 em, half width 0.5 em, times the width factor), and across it the column is 1 em wide,
+from 0.12 em below the baseline, as for horizontal text (*inferred*: the position of the column against the baseline is
+not documented; it is the convention that the SXF and JWW conversion writes, and close to how Windows places the
+glyphs). The fixture `tests/fixtures/dxf/vertical-text.dxf` pins it.
+
 ## Writing (`write_dxf`)
 
 `zumen-dxf` writes a `DxfDocument` back as DXF, in Rust only: ASCII DXF of AutoCAD 2013 (AC1027) in UTF-8 with CRLF
@@ -229,6 +238,23 @@ line ends, with the group codes of the DXF Reference and, where it leaves the or
 ezdxf 1.4.5. `zumen::convert` reads DXF and DWG drawings into the model and writes them
 ([decision 0006](../decisions/0006-write-through-the-autocad-model.md)). A written drawing, read again, draws the same
 scene in every view, with the same entity ids.
+
+SXF and JWW drawings are mapped into the model by `zumen-convert` first ([decision 0007](../decisions/0007-mapping-crate-between-formats.md)):
+model space at real size, the sheet as a layout with a viewport for each scale, and what is drawn on the sheet itself in
+paper space ([decision 0008](../decisions/0008-sheets-and-scales-in-the-autocad-model.md)). The rules are in
+[How SXF is handled](sxf.md#dxf-への変換zumen-convert) and [How JWW is handled](jww.md#dxf-への変換zumen-convert). The
+mapping writes what zumen's reader draws the same way as the source scene, and what AutoCAD users expect:
+
+- `$TILEMODE` 0, so the drawing opens in the layout of the sheet; `$INSUNITS` 4 (millimeters), `$MEASUREMENT` 1 and
+  `$PSLTSCALE` 1, so line type dashes keep their paper length in every viewport.
+- The overall paper space viewport (ID 1) of the layout, then a viewport for each scale, locked (90 has 16384), on the
+  layer `VIEWPORTS` that is off and not plotted (ezdxf's name). The viewport rectangle is the extents of what the source
+  draws there with a margin of 1 mm (or 0.5% of the size), so nothing is clipped.
+- TEXT is left-aligned on the baseline, with the height, width factor and oblique angle that draw the source's text box:
+  the box height is the em of the glyphs (the text height is 0.88 or 0.72 of it), and the insertion point is 0.12 em
+  above the bottom of the box. Vertical text uses the `@` form of the font and a rotation of 270°.
+- Dimensions are DIMENSION entities whose anonymous block (`*D1`, `*D2` …) holds the drawn lines, arrows and text;
+  the definition points come from the source's dimension line and extension lines.
 
 - **Sections**: HEADER (`$ACADVER`, `$HANDSEED`, units, scales, extents, limits and the current layer and styles),
   CLASSES, TABLES (VPORT, LTYPE, LAYER, STYLE, VIEW, UCS, APPID, DIMSTYLE, BLOCK_RECORD), BLOCKS, ENTITIES and OBJECTS

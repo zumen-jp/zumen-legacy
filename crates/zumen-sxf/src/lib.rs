@@ -10,8 +10,9 @@ mod p21_reader;
 mod scene;
 mod sfc;
 mod sfc_reader;
+mod style;
 mod symbols;
-mod tables;
+pub mod tables;
 mod zip;
 
 pub use document::{CompositeCurve, SubFigure, SubFigures, SxfDocument, SxfDrawing};
@@ -24,6 +25,8 @@ pub use header::SxfHeader;
 pub use p21::parse_p21;
 pub use scene::{SxfSceneOptions, sxf_to_scene, sxf_to_scene_with};
 pub use sfc::parse_sfc;
+pub use style::DEFAULT_WIDTH;
+pub use symbols::{arrow_primitives, marker_primitives};
 
 use zumen_core::{DrawingReader, Property, ReadError, ReadOptions, Scene};
 
@@ -70,6 +73,28 @@ fn is_feature_mode(head: &[u8]) -> bool {
     })
 }
 
+/// 形式（sfc・p21、圧縮した sfz・p2z）ごとに SXF の図面を読む。表示用の図面にする前の、SXF のフィーチャの図面を返す
+pub fn parse_sxf(bytes: &[u8], format: &str) -> Result<SxfDrawing, ReadError> {
+    match format {
+        "sfc" => parse_sfc(bytes),
+        "p21" => parse_p21(bytes),
+        "sfz" | "p2z" => {
+            let (content, inner, _) = unzip_sxf(bytes)?;
+            parse_sxf(&content, inner)
+        }
+        _ => Err(ReadError::new(format!("SXF の読み取りは {format} を読めません"))),
+    }
+}
+
+/// 圧縮した SXF（P2Z・SFZ）の中の SXF を展開する。展開したバイト列、その形式（sfc・p21）、書庫の中の名前を返す
+fn unzip_sxf(bytes: &[u8]) -> Result<(Vec<u8>, &'static str, String), ReadError> {
+    let member =
+        zip::find_sxf(bytes).ok_or_else(|| ReadError::new("圧縮ファイルの中に SXF（.p21・.sfc）がありません"))?;
+    let content = zip::extract(bytes, &member)?;
+    let inner = detect_sxf(&content).filter(|inner| matches!(*inner, "sfc" | "p21")).unwrap_or(member.format);
+    Ok((content, inner, member.name))
+}
+
 /// read_drawing に渡す SXF（SFC・P21）の読み取り
 pub struct Sxf;
 
@@ -86,25 +111,14 @@ impl DrawingReader for Sxf {
     }
 
     fn read(&self, bytes: &[u8], format: &str, _options: &ReadOptions) -> Result<Scene, ReadError> {
-        let drawing = match format {
-            "sfc" => parse_sfc(bytes)?,
-            "p21" => parse_p21(bytes)?,
-            "sfz" | "p2z" => {
-                let member = zip::find_sxf(bytes)
-                    .ok_or_else(|| ReadError::new("圧縮ファイルの中に SXF（.p21・.sfc）がありません"))?;
-                let content = zip::extract(bytes, &member)?;
-                let inner =
-                    detect_sxf(&content).filter(|inner| matches!(*inner, "sfc" | "p21")).unwrap_or(member.format);
-                let mut scene = self.read(&content, inner, _options)?;
-                // 形式の次に、展開した書庫と中のファイルの名前を示す
-                let at = usize::from(!scene.metadata.is_empty());
-                scene
-                    .metadata
-                    .insert(at, Property::new("圧縮", format!("{}（{}）", format.to_uppercase(), member.name)));
-                return Ok(scene);
-            }
-            _ => return Err(ReadError::new(format!("SXF の読み取りは {format} を読めません"))),
-        };
-        Ok(sxf_to_scene(&drawing))
+        if matches!(format, "sfz" | "p2z") {
+            let (content, inner, name) = unzip_sxf(bytes)?;
+            let mut scene = self.read(&content, inner, _options)?;
+            // 形式の次に、展開した書庫と中のファイルの名前を示す
+            let at = usize::from(!scene.metadata.is_empty());
+            scene.metadata.insert(at, Property::new("圧縮", format!("{}（{}）", format.to_uppercase(), name)));
+            return Ok(scene);
+        }
+        Ok(sxf_to_scene(&parse_sxf(bytes, format)?))
     }
 }

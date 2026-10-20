@@ -1,7 +1,7 @@
 //! JWW の図面を表示用モデルにする（`@zumenjs/jww` の scene.ts と同じ規則・同じ順）
 
-use crate::reader::{JwwBase, JwwBlockDefinition, JwwDocument, JwwEntity, JwwText, colorref};
-use crate::sxf_tables::{SXF_COLORS, SXF_LINE_PITCHES};
+use crate::reader::{JwwBase, JwwBlockDefinition, JwwDocument, JwwEntity, JwwText};
+use crate::style::{is_embedded_image, is_setting, paper_size, text_layout_input};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::f64::consts::PI;
 use std::sync::Arc;
@@ -9,46 +9,11 @@ use zumen_core::geometry::{
     apply, arc_segments, ellipse_arc_points, empty_box, extend_box, extend_box_with_points, is_empty_box, mean_scale,
     multiply, sweep_radians, transform_points, union_box,
 };
-use zumen_core::text::{TextLayoutInput, font_family_for, layout_text};
+use zumen_core::text::layout_text;
 use zumen_core::{
     BBox, Background, DotPrimitive, FillPrimitive, Matrix, NoticeLevel, NoticeList, Placement, Primitive, Property,
     Scene, SceneEntity, SceneLayer, Sheet, StrokePrimitive, TextPrimitive, js,
 };
-
-/// 用紙サイズの番号と寸法（横長、mm）
-fn paper_size(number: u32) -> Option<(&'static str, f64, f64)> {
-    Some(match number {
-        0 => ("A0", 1189.0, 841.0),
-        1 => ("A1", 841.0, 594.0),
-        2 => ("A2", 594.0, 420.0),
-        3 => ("A3", 420.0, 297.0),
-        4 => ("A4", 297.0, 210.0),
-        8 => ("2A", 1682.0, 1189.0),
-        9 => ("3A", 2378.0, 1682.0),
-        10 => ("4A", 3364.0, 2378.0),
-        11 => ("5A", 4756.0, 3364.0),
-        _ => return None,
-    })
-}
-
-/// ヘッダの色が読めないときの、白背景の画面色（線色 1〜9）
-const DEFAULT_PEN_COLORS: [&str; 10] =
-    ["#ffffff", "#00c0c0", "#000000", "#00c000", "#c0c000", "#c000c0", "#0000ff", "#008080", "#ff0080", "#c0c0c0"];
-
-/// ヘッダの線種が読めないときの破線（線種 2〜9、mm）
-fn default_line_type(style: u8) -> &'static [f64] {
-    match style {
-        2 => &[1.0, 1.0],
-        3 => &[2.0, 1.0],
-        4 => &[4.0, 1.0],
-        5 => &[6.0, 1.0, 1.0, 1.0],
-        6 => &[10.0, 1.0, 1.0, 1.0],
-        7 => &[6.0, 1.0, 1.0, 1.0, 1.0, 1.0],
-        8 => &[10.0, 1.0, 1.0, 1.0, 1.0, 1.0],
-        9 => &[0.5, 0.5],
-        _ => &[],
-    }
-}
 
 const MAX_DEPTH: usize = 16;
 const TOLERANCE: f64 = 0.02;
@@ -58,30 +23,11 @@ fn number(value: f64) -> String {
 }
 
 fn group_name(doc: &JwwDocument, group: usize) -> String {
-    match doc.groups.get(group).map(|info| js::trim(&info.name)) {
-        Some(name) if !name.is_empty() => name.to_string(),
-        _ => format!("グループ {group:X}"),
-    }
+    doc.group_name(group)
 }
 
-/// Jw_cad は既定のレイヤ名を「0-A」のように番号のまま保存するため、番号と同じ名前は重ねて示さない
 fn layer_name(doc: &JwwDocument, group: usize, layer: usize) -> String {
-    let code = format!("{group:X}-{layer:X}");
-    let name = doc.groups.get(group).and_then(|info| info.layers.get(layer)).map(|info| js::trim(&info.name));
-    match name {
-        Some(name) if !name.is_empty() && name.to_uppercase() != code => format!("{code} {name}"),
-        _ => code,
-    }
-}
-
-/// Jw_cad 8 以降が (0, -1000) に文字として保存する「名前 = 値」の設定（/^[A-Za-z][A-Za-z0-9_]* = /）
-fn is_setting(content: &str) -> bool {
-    let bytes = content.as_bytes();
-    if !bytes.first().is_some_and(u8::is_ascii_alphabetic) {
-        return false;
-    }
-    let end = bytes.iter().position(|b| !(b.is_ascii_alphanumeric() || *b == b'_')).unwrap_or(bytes.len());
-    bytes[end..].starts_with(b" = ")
+    doc.layer_name(group, layer)
 }
 
 struct Context {
@@ -122,65 +68,18 @@ impl<'a> Builder<'a> {
     }
 
     fn color(&mut self, base: &JwwBase, custom: Option<u32>) -> String {
-        let n = usize::from(base.pen_color);
-        if n == 10
-            && let Some(custom) = custom
-        {
-            return colorref(custom);
-        }
-        if (1..=9).contains(&n) {
-            return match &self.doc.pen_colors {
-                Some(colors) => colors[n].clone(),
-                None => DEFAULT_PEN_COLORS[n].to_string(),
-            };
-        }
-        if (100..=356).contains(&n) {
-            if let Some(extended) = self.doc.extended_colors.as_ref().and_then(|colors| colors.get(n - 100))
-                && !extended.is_empty()
-            {
-                return extended.clone();
-            }
-            if let Some([r, g, b]) = SXF_COLORS.get(n.wrapping_sub(101)) {
-                return format!("#{r:02x}{g:02x}{b:02x}");
-            }
-        }
-        self.notices.add(NoticeLevel::Warning, "unknown-color", "定義のない線色を黒で表示しました");
-        "#000000".to_string()
+        self.doc.pen_color(base, custom).unwrap_or_else(|| {
+            self.notices.add(NoticeLevel::Warning, "unknown-color", "定義のない線色を黒で表示しました");
+            "#000000".to_string()
+        })
     }
 
     fn dashes(&self, style: u8) -> Vec<f64> {
-        if style <= 1 || (11..=15).contains(&style) {
-            return Vec::new();
-        }
-        if let Some(segments) = self.doc.line_types.get(&u32::from(style))
-            && segments.len() >= 2
-            && segments.iter().all(|value| *value > 0.0)
-        {
-            return if segments.len() % 2 == 0 { segments.clone() } else { [&segments[..], &segments[..]].concat() };
-        }
-        if (31..=46).contains(&style) {
-            return SXF_LINE_PITCHES.get(usize::from(style - 31)).map(|pitches| pitches.to_vec()).unwrap_or_default();
-        }
-        default_line_type(style).to_vec()
+        self.doc.line_dashes(style)
     }
 
     fn width(&self, base: &JwwBase) -> f64 {
-        let pen_width = f64::from(base.pen_width);
-        if base.pen_width > 0 && self.doc.width_unit.hundredth {
-            return pen_width / 100.0;
-        }
-        if base.pen_width > 0
-            && let Some(dpi) = self.doc.width_unit.dpi
-        {
-            return (pen_width * 25.4) / dpi;
-        }
-        let n = usize::from(base.pen_color);
-        let width = if (1..=9).contains(&n) {
-            self.doc.pen_widths.as_ref().and_then(|widths| widths.get(n).copied().flatten())
-        } else {
-            None
-        };
-        width.unwrap_or(0.18)
+        self.doc.line_width(base)
     }
 
     /// レイヤグループの縮尺。用紙の座標から実寸の座標へ戻す変換を持つ
@@ -189,10 +88,7 @@ impl<'a> Builder<'a> {
         if let Some(placement) = self.placements.get(&index) {
             return placement.clone();
         }
-        let scale = match self.doc.groups.get(usize::from(index)) {
-            Some(info) if info.scale > 0.0 => info.scale,
-            _ => 1.0,
-        };
+        let scale = self.doc.group_scale(index);
         let placement = Arc::new(Placement {
             name: format!("{}（1/{}）", group_name(self.doc, usize::from(index)), number(scale)),
             scale_x: 1.0 / scale,
@@ -332,7 +228,7 @@ impl<'a> Builder<'a> {
             }
             JwwEntity::Text(e) => {
                 // Jw_cad 8 以降は、印刷・表示の設定を (0, -1000) の「名前 = 値」の文字として保存する。図形ではないので描かない
-                if ctx.depth == 0 && e.x1 == 0.0 && e.y1 == -1000.0 && is_setting(&e.content) {
+                if ctx.depth == 0 && is_setting(e) {
                     self.settings.push(e.content.clone());
                     return;
                 }
@@ -457,7 +353,7 @@ impl<'a> Builder<'a> {
         if text.content.is_empty() {
             return None;
         }
-        if text.content.starts_with("^@") {
+        if is_embedded_image(text) {
             self.notices.add(
                 NoticeLevel::Info,
                 "embedded-image",
@@ -466,23 +362,7 @@ impl<'a> Builder<'a> {
             return None;
         }
         let color = self.color(&text.base, None);
-        layout_text(
-            TextLayoutInput {
-                text: &text.content,
-                x: text.x1,
-                y: text.y1,
-                height: if text.size_y > 0.0 { text.size_y } else { 2.5 },
-                width: js::hypot2(text.x2 - text.x1, text.y2 - text.y1),
-                spacing: text.spacing,
-                angle: text.angle,
-                slant: 0.0,
-                anchor: 1.0,
-                vertical: text.font.starts_with('@'),
-                color,
-                font_family: font_family_for(text.font.strip_prefix('@').unwrap_or(&text.font)).to_string(),
-            },
-            &ctx.m,
-        )
+        layout_text(text_layout_input(text, color), &ctx.m)
     }
 }
 

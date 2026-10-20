@@ -243,6 +243,7 @@ def test_reads_compressed_sxf_and_stops_unpacking_at_the_limit(tmp_path):
     scene = zumen.read(archive)
     assert json.loads(scene.to_json())["entities"] == json.loads(zumen.read(p21).to_json())["entities"]
     assert ("圧縮", "P2Z（DRAWING/SAMPLE.P21）") in scene.metadata
+    assert zumen.convert(archive).data == zumen.convert(p21).data
 
     bomb = tmp_path / "bomb.sfz"
     with zipfile.ZipFile(bomb, "w", compression=zipfile.ZIP_DEFLATED) as zipped:
@@ -268,14 +269,59 @@ def test_converts_dxf_and_dwg_drawings_to_dxf(tmp_path):
     image = next(notice for notice in notices if notice["code"] == "image")
     assert (image["level"], image["count"]) == ("warning", 1)
     with pytest.raises(zumen.ReadError):
-        zumen.convert(FIXTURES / "jww" / "minimal-v700.jww")
-    with pytest.raises(zumen.ReadError):
         zumen.convert(FIXTURES / "dxf" / "r12.dxf", "sfc")
 
 
+def test_converts_sxf_and_jww_drawings_to_dxf_through_the_autocad_model():
+    for source in [
+        FIXTURES / "sfc" / "sample.sfc",
+        FIXTURES / "p21" / "sample.p21",
+        FIXTURES / "jww" / "minimal-v700.jww",
+    ]:
+        converted = zumen.convert(source)
+        assert (converted.format, zumen.detect(converted.data)) == ("dxf", "dxf")
+        # DXF opens in the layout of the sheet, with the same texts as the drawing it came from
+        again = zumen.read(converted.data)
+        assert again.view is not None and again.view != "Model"
+        assert sorted(text["text"] for text in again.texts()) == sorted(
+            text["text"] for text in zumen.read(source).texts()
+        )
+    notices = {notice["code"] for notice in zumen.convert(FIXTURES / "sfc" / "features.sfc").notices}
+    assert {"symbol", "leader", "sfig-insert"} <= notices
+
+
+def test_converted_viewports_show_model_space_where_the_sheet_had_it(tmp_path):
+    """ezdxf maps the real-size model space through the written viewports to the place on the sheet that SXF gave."""
+    ezdxf = pytest.importorskip("ezdxf")
+    from ezdxf.math import Vec3
+
+    source = FIXTURES / "sfc" / "sample.sfc"
+    path = tmp_path / "sample.dxf"
+    zumen.convert(source).save(path)
+    doc = ezdxf.readfile(path)
+    # The line of the 1/20 sub-figure is in model space at its real size (0 to 1,000 mm) ...
+    line = next(
+        entity
+        for entity in doc.modelspace().query("LINE")
+        if Vec3(entity.dxf.start).isclose((0, 0, 0)) and Vec3(entity.dxf.end).isclose((1000, 0, 0))
+    )
+    # ... and a viewport of the sheet's layout shows it where the SXF scene draws it (paper millimeters)
+    scene = json.loads(zumen.read(source).to_json())
+    expected = next(entity for entity in scene["entities"] if entity["id"] == "#120>#80")["primitives"][0]["points"]
+    places = []
+    for viewport in doc.paperspace().viewports():
+        if viewport.dxf.id == 1:
+            continue
+        matrix = viewport.get_transformation_matrix()
+        start, end = matrix.transform(line.dxf.start), matrix.transform(line.dxf.end)
+        places.append([start.x, start.y, end.x, end.y])
+    assert any(all(math.isclose(a, b, abs_tol=1e-9) for a, b in zip(place, expected)) for place in places), places
+
+
 def test_converted_dxf_reads_in_ezdxf_and_passes_its_audit(tmp_path):
-    """ezdxf, another implementation, reads every converted fixture strictly, and its audit finds only the malformed
-    input that some fixtures pin on purpose (most fixtures are too small for ezdxf to read before conversion)."""
+    """ezdxf, another implementation, reads every converted fixture strictly (DXF, DWG, SXF and JWW), and its audit
+    finds only the malformed input that some DXF fixtures pin on purpose (most fixtures are too small for ezdxf to read
+    before conversion)."""
     ezdxf = pytest.importorskip("ezdxf")
     from ezdxf.audit import AuditError
 
@@ -288,7 +334,13 @@ def test_converted_dxf_reads_in_ezdxf_and_passes_its_audit(tmp_path):
         },
         "limits.dxf": {AuditError.INVALID_BLOCK_REFERENCE_CYCLE},
     }
-    sources = sorted((FIXTURES / "dxf").glob("*.dxf")) + sorted((FIXTURES / "dwg").glob("*.dwg"))
+    sources = [
+        *sorted((FIXTURES / "dxf").glob("*.dxf")),
+        *sorted((FIXTURES / "dwg").glob("*.dwg")),
+        *sorted((FIXTURES / "sfc").glob("*.sfc")),
+        *sorted((FIXTURES / "p21").glob("*.p21")),
+        *sorted((FIXTURES / "jww").glob("*.jww")),
+    ]
     for source in sources:
         path = tmp_path / f"{source.name}.dxf"
         zumen.convert(source).save(path)

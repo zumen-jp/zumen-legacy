@@ -129,6 +129,17 @@ pub fn sfig_kind(flag: f64) -> Option<&'static str> {
     })
 }
 
+/// P21 の接頭語（$$SXF_FM_ など）と属性付加機構の記述を除いた複合図形名
+pub fn display_name(name: &str) -> &str {
+    let stripped = name
+        .strip_prefix("$$SXF_")
+        .and_then(|rest| ["FM_", "FG_", "G_", "P_"].iter().find_map(|prefix| rest.strip_prefix(prefix)));
+    match stripped {
+        Some(rest) if !rest.is_empty() => rest,
+        _ => name,
+    }
+}
+
 pub fn arrow_name(code: f64) -> Option<&'static str> {
     ARROW_NAMES.get(index(code)?.checked_sub(1)?).copied()
 }

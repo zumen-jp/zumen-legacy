@@ -35,3 +35,5 @@ Choices made before this folder existed are described in [the architecture notes
 - [0004: Serve drawings to AI applications through an MCP server in the Python package](0004-mcp-server-in-the-python-package.md) (2026-10-20, Accepted)
 - [0005: Make the browser packages an engine to embed, with reading in Rust and the UI as a sample](0005-browser-packages-for-embedding.md) (2026-10-20, Proposed)
 - [0006: Write drawings through the AutoCAD drawing model, starting with AutoCAD 2013 DXF](0006-write-through-the-autocad-model.md) (2026-10-20, Accepted)
+- [0007: Map SXF and JWW into the AutoCAD drawing model in a crate of its own, zumen-convert](0007-mapping-crate-between-formats.md) (2026-10-20, Accepted)
+- [0008: Real-size model space, and the sheet as a layout with a viewport for each scale](0008-sheets-and-scales-in-the-autocad-model.md) (2026-10-20, Accepted)

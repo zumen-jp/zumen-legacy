@@ -30,6 +30,7 @@ import {
   MLEADER,
   MLINE,
   R12_SHIFT_JIS,
+  VERTICAL_TEXT,
   WESTERN,
 } from "./fixtures.js";
 
@@ -321,5 +322,30 @@ describe("DXF の複数行の属性", () => {
     const [first] = texts(leader);
     const [inBlock] = texts(scene.entities.find((entity) => entity.id === "50>51"));
     expect((first?.matrix[5] ?? 0) + 40).toBeCloseTo(inBlock?.matrix[5] ?? 0);
+  });
+});
+
+// AutoCAD・Jw_cad の DXF の縦書き（図面は fixtures.ts の VERTICAL_TEXT）
+describe("DXF の縦書き", () => {
+  it("名前の先頭が @ の TrueType フォントの文字は、字を立てて、ベースラインの向き（270° なら下）へ並べる", () => {
+    const [vertical, narrow, horizontal] = readDrawing(VERTICAL_TEXT, [dxf]).entities.map((entity) => texts(entity)[0]);
+    const round = (value: number) => Math.round(value * 1e6) / 1e6 + 0;
+    const at = (text: TextPrimitive | undefined, x: number, y: number): [number, number] => {
+      const m = text?.matrix ?? [1, 0, 0, 1, 0, 0];
+      return [round(m[0] * x + m[2] * y + m[4]), round(m[1] * x + m[3] * y + m[5])];
+    };
+    // 字の座標系は回さない（字が立つ）。文字範囲は挿入点 (10, 50) から下へ、横は em の下端から 0.12 em 右がベースライン
+    const em = 3.5 / 0.88;
+    expect(vertical?.matrix.slice(0, 4).map(round)).toEqual([1, 0, 0, 1]);
+    expect(at(vertical, 0, 0)).toEqual([round(10 - 0.12 * em), round(50 - 4 * em)]);
+    expect(at(vertical, vertical?.boxWidth ?? 0, vertical?.boxHeight ?? 0)).toEqual([round(10 + 0.88 * em), round(50)]);
+    const cells = (vertical?.cells ?? []).map((cell) => at(vertical, cell.x, cell.y));
+    expect(cells.map(([x]) => x)).toEqual(cells.map(() => round(10 + 0.38 * em)));
+    expect(cells.map(([, y]) => y)).toEqual([...cells.map(([, y]) => y)].sort((a, b) => b - a));
+    // 幅の係数はベースラインの向き（縦）に効き、斜体の角度は縦書きの字にも効く
+    expect(round((narrow?.boxHeight ?? 0) * (narrow?.matrix[3] ?? 0))).toBe(round(2.5 * em * 0.8));
+    expect(round(narrow?.matrix[2] ?? 0)).toBe(round(Math.tan((10 * Math.PI) / 180)));
+    // 同じ図面の、@ のないフォントの文字は横に並べる
+    expect(at(horizontal, 0, 0)).toEqual([10 + 40, round(50 - 0.12 * em)]);
   });
 });
