@@ -32,7 +32,7 @@ jobs:
       - run: rustup toolchain install
       # Swatinem/rust-cache v2.9.2 (it also keeps the binaries in ~/.cargo/bin)
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
-      # wasm-bindgen-cli writes the JavaScript of the WebAssembly reader (scripts/wasm.mjs, packages/dwg/wasm) and must
+      # wasm-bindgen-cli writes the JavaScript of the WebAssembly reader (scripts/wasm.mjs, packages/reader/wasm) and must
       # be the version of the wasm-bindgen crate in Cargo.lock
       - run: >-
           cargo install wasm-bindgen-cli --locked --version

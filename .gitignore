@@ -9,10 +9,10 @@ __screenshots__/
 # OS files
 .DS_Store
 
-# Rust, Python and WebAssembly build output (scripts/wasm.mjs writes packages/dwg/wasm; wasm-pack wrote bindings/wasm/pkg)
+# Rust, Python and WebAssembly build output (scripts/wasm.mjs writes packages/reader/wasm; wasm-pack wrote bindings/wasm/pkg)
 target/
 .venv/
 __pycache__/
 *.so
-packages/dwg/wasm/
+packages/reader/wasm/
 bindings/wasm/pkg/

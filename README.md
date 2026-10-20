@@ -13,9 +13,11 @@ and gives you a framework-agnostic drawing engine to embed in your own interface
 - Japanese public works deliver drawings in **SXF** (SFC and P21), and many design offices use Jw_cad's **JWW**.
   In our survey (October 2026) we found no JavaScript library that reads SXF in the browser,
   and no browser package or React component for JWW.
-- **DXF** from AutoCAD and other CAD software is read in TypeScript, including Japanese drawings in Shift_JIS and binary DXF.
+- **DXF** from AutoCAD and other CAD software is read, including Japanese drawings in Shift_JIS and binary DXF.
   **DWG** (AutoCAD 2000 to 2018) is read into the same AutoCAD drawing model by our own decoder in Rust, without GPL
-  components, and in the browser through its WebAssembly build (`@zumenjs/dwg`).
+  components.
+- Every format is read by the same Rust code on servers, in Python and in the browser, where `@zumenjs/reader` runs its
+  WebAssembly build on the page or in a Web Worker.
 
 ## Features
 
@@ -24,8 +26,8 @@ and gives you a framework-agnostic drawing engine to embed in your own interface
   DXF R12 to 2018 in ASCII and binary (lines, arcs, polylines with bulges and widths, splines, text and formatted MTEXT,
   blocks with attributes and arrays, dimensions, hatches, leaders, solids, wipeouts), with layers, line types,
   line weights, ACI and true colors, transparency and text styles;
-  DWG AutoCAD 2000 to 2018 in Rust, in the browser through WebAssembly, drawn like DXF
-  (see [How DWG is handled](docs/formats/dwg.md)).
+  DWG AutoCAD 2000 to 2018, drawn like DXF (see [How DWG is handled](docs/formats/dwg.md)).
+- Drawings you receive: limits on bytes, entities and time, and reading in a Web Worker that can be stopped.
 - DXF and DWG model space and layouts: viewports draw model space at their scale, and measurements inside them return
   real-world units.
 - Fit, zoom (wheel, pinch, buttons, keyboard) and pan (drag, arrow keys).
@@ -39,7 +41,7 @@ and gives you a framework-agnostic drawing engine to embed in your own interface
   from the scale of SXF sub-figures, JWW layer groups, DXF units and DXF layout viewports.
 - Dark and light backgrounds; true line weights or hairlines.
 - Drawing metadata (title block, authoring software, sheet) and a list of everything that was skipped or substituted.
-- No runtime dependencies; `@zumenjs/dwg` ships its WebAssembly reader. Parsing also runs in Node.js.
+- No runtime dependencies; `@zumenjs/reader` ships its WebAssembly readers. Reading also runs in Node.js.
 
 ## Packages
 
@@ -47,15 +49,14 @@ and gives you a framework-agnostic drawing engine to embed in your own interface
 | --- | --- |
 | [`@zumenjs/core`](packages/core) | Format-neutral scene model, `readDrawing` and the `DrawingReader` interface, geometry, text layout and measurement (no DOM) |
 | [`@zumenjs/viewer`](packages/viewer) | The 2D engine to embed: Canvas renderer, hit testing and snapping, and `DrawingViewer` (view, state, input handlers, tools, style) |
-| [`@zumenjs/sxf`](packages/sxf) | `parseSfc` and `parseP21` (the SXF feature model), `sxfToScene`, the `sxf` reader |
-| [`@zumenjs/jww`](packages/jww) | `readJww` (the JWW document model), `jwwToScene`, the `jww` reader |
-| [`@zumenjs/dxf`](packages/dxf) | `parseDxf` (the AutoCAD drawing model, shared with DWG), `dxfToScene`, the `dxf` reader |
-| [`@zumenjs/dwg`](packages/dwg) | The `dwg` reader, with the Rust DWG reader built to WebAssembly (`initDwg` or `dwg.load` loads it) |
+| [`@zumenjs/reader`](packages/reader) | Every format (SXF, JWW, DXF, DWG) with the Rust readers built to WebAssembly: the `reader` for `readDrawing` and `useDrawing`, read limits, and `ReaderWorker` for reading in a Web Worker |
 | [`@zumenjs/react`](packages/react) | Hooks: `useDrawingViewer`, `useViewerState`, `useViewerEvent` and `useDrawing` |
 
 Format packages and `@zumenjs/viewer` depend only on `@zumenjs/core`, `@zumenjs/react` on `@zumenjs/viewer` and
 `@zumenjs/core`, and `@zumenjs/core` knows nothing about formats and does not use the DOM.
 Formats are detected from the file contents, not from the file name. See [docs/architecture.md](docs/architecture.md).
+The TypeScript readers in `packages/sxf`, `packages/jww` and `packages/dxf` are kept in the repository as the reference
+that writes the expected scenes of the tests, and are not published.
 
 ## Quick start
 
@@ -66,16 +67,13 @@ your interface, and `useViewerState` reads the part of its state a component nee
 "use client";
 
 import type { Scene } from "@zumenjs/core";
-import { dwg } from "@zumenjs/dwg";
-import { dxf } from "@zumenjs/dxf";
-import { jww } from "@zumenjs/jww";
 import { useDrawing, useDrawingViewer, useViewerState } from "@zumenjs/react";
-import { sxf } from "@zumenjs/sxf";
+import { reader } from "@zumenjs/reader";
 
-const READERS = [sxf, jww, dxf, dwg];
+const READERS = [reader];
 
 export function DrawingView({ file }: { file: File | null }) {
-  // The DWG reader loads its WebAssembly module (494 KB with brotli) when the first DWG is opened.
+  // The reader loads its WebAssembly module (507 KB with brotli) when the first drawing is opened.
   // Pass { view } to pick a DXF or DWG layout.
   const { scene, error, loading } = useDrawing(file, READERS);
   if (loading) return <p>Loading…</p>;
@@ -103,20 +101,17 @@ function Drawing({ scene, label }: { scene: Scene; label: string }) {
 The playground's [2D sample](playground/drawing-sample.tsx) builds a complete viewer this way: toolbar, layer list,
 properties, notices and status bar.
 
-Without React: give `DrawingViewer` an element and a scene. Wait for `load` of a reader that has one (DWG) before
-reading with it.
+Without React: load the reader once, then give `DrawingViewer` an element and a scene. To read drawings you receive
+in a Web Worker, with limits on bytes, entities and time, see [packages/reader](packages/reader/README.md).
 
 ```ts
 import { readDrawing } from "@zumenjs/core";
-import { dwg, initDwg, isDwg } from "@zumenjs/dwg";
-import { dxf } from "@zumenjs/dxf";
-import { jww } from "@zumenjs/jww";
-import { sxf } from "@zumenjs/sxf";
+import { initReader, reader } from "@zumenjs/reader";
 import { DrawingViewer } from "@zumenjs/viewer";
 
 const bytes = new Uint8Array(await file.arrayBuffer());
-if (isDwg(bytes)) await initDwg(); // the first DWG loads the reader; later calls return at once
-const scene = readDrawing(bytes, [sxf, jww, dxf, dwg]);
+await initReader(); // the first call loads the WebAssembly module; later calls return at once
+const scene = readDrawing(bytes, [reader]);
 const viewer = new DrawingViewer(element, scene, { label: file.name });
 
 viewer.fitBounds(scene.entities[0].bbox, { padding: 40 }); // go to an entity
@@ -188,12 +183,11 @@ const radius = circles[0]?.properties.find((property) => property.key === "radiu
 
 ## Rust and Python
 
-The readers are being ported to Rust (`crates/`), with Python bindings (`bindings/python`) and a WebAssembly build
-(`bindings/wasm`), so servers and data pipelines can read the same drawings. The Rust readers return the same `Scene`
-as the TypeScript ones: both are compared on the drawings in `tests/fixtures`, and on local samples with
-`pnpm run parity`. JWW, SXF and DXF are ported. DWG is read in Rust only and checked against the DXF that AutoCAD
-writes for the same drawing; `@zumenjs/dwg` brings it to the browser. The other browser packages will switch to the
-WebAssembly readers format by format, once each one matches.
+The readers are written in Rust (`crates/`), with Python bindings (`bindings/python`) and a WebAssembly build
+(`bindings/wasm`, which `@zumenjs/reader` brings to the browser), so servers, data pipelines and browsers read the same
+drawings into the same `Scene`. JWW, SXF and DXF were first written in TypeScript and ported; the two are compared on
+the drawings in `tests/fixtures`, and on local samples with `pnpm run parity`. DWG is read in Rust only and checked
+against the DXF that AutoCAD writes for the same drawing.
 
 ```python
 import zumen
@@ -264,13 +258,13 @@ Reading, rendering and converting release the GIL in Python.
 
 ## Privacy
 
-Drawings are read from memory in the browser. The libraries make no network requests, except that `@zumenjs/dwg`
+Drawings are read from memory in the browser. The libraries make no network requests, except that `@zumenjs/reader`
 fetches its own WebAssembly file from where the application serves it, so confidential drawings can be viewed without
 sending them anywhere.
 
 ## Supported environments
 
-- Browsers with Canvas 2D, and WebAssembly for DWG. Verified in Chromium; Firefox and Safari are expected to work but
+- Browsers with Canvas 2D and WebAssembly. Verified in Chromium; Firefox and Safari are expected to work but
   are not tested yet.
 - React 19.3 for the hooks of `@zumenjs/react`.
 - Node.js 24 for parsing and for development.

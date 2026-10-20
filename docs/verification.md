@@ -337,6 +337,47 @@ Chromium 152. Times are medians of seven runs after a warm-up.
 - Not checked: Firefox and Safari, webpack and other bundlers, Web Workers, slow networks and devices, and pages with a
   Content Security Policy.
 
+## The readers in the browser
+
+Checked on 2026-10-20 on macOS (Apple M2 Pro) with Rust 1.99.0, Node.js 24.21.0, wasm-bindgen 0.2.129, Vite 8.3.4 and
+Chromium, for `@zumenjs/reader`. Times are the best of five runs in Node.js, each on a fresh copy of the bytes (the
+TypeScript DXF reader keeps the parsed document of a byte array it has seen).
+
+- Every fixture (33 drawings in `tests/fixtures`, SFC, P21, JWW, DXF and DWG) reads through WebAssembly into the scene
+  of its golden file (`packages/reader/tests/reader.test.ts`). `detectDrawing` returns what the WebAssembly `detect`
+  returns for every fixture and for edge cases: DWG version strings, DXF comments and BOM, the SXF `feature_mode`
+  description, P2Z and SFZ archives with upper-case, UTF-8 and Shift_JIS names, an archive comment, an archive without
+  SXF and a truncated one.
+- Local samples, WebAssembly against the TypeScript readers (all scenes the same by `compareScenes`):
+
+  | Drawing | Size | Entities | WebAssembly | TypeScript |
+  | --- | --- | --- | --- | --- |
+  | Yokosuka survey plan (DXF R2018) | 2,681 KB | 9,260 | 111 ms | 78 ms |
+  | AC1021 ASCII DXF sample | 2,571 KB | 208 | 13 ms | 18 ms |
+  | D0LS004Z (P21) | 1,387 KB | 1,201 | 31 ms | 62 ms |
+  | D0LS004Z (SFC) | 249 KB | 1,201 | 17 ms | 11 ms |
+  | Test6 (JWW) | 125 KB | 1,962 | 17 ms | 8 ms |
+  | Ａマンション平面例 (JWW) | 110 KB | 1,754 | 14 ms | 6 ms |
+  | Yokosuka survey plan (DWG) | 383 KB | 9,260 | 93 ms | — |
+  | farmhouse (DWG) | 1,884 KB | 25,873 | 414 ms | — |
+
+  `sceneFromJson` takes about a third of a read: 31 of 110 ms for the Yokosuka plan (8.7 MB of JSON), 6 of 17 ms for
+  Test6 and 137 of 403 ms for `farmhouse.dwg` (39.8 MB).
+- Limits: `maxBytes` and `maxEntities` throw a `LimitError` with `limit` set to `bytes` or `entities` and the message
+  of the Rust reader; within the limits the scene is the same as without them.
+- `ReaderWorker` in Chromium (`packages/reader/tests/worker.browser.test.ts`): the scene comes back with
+  `Float64Array` point lists; a read of a DXF of 50,000 lines (about 250 ms) with `timeout: 20` is rejected with a
+  `LimitError` (`time`) and the next read runs in a new worker; aborting a waiting read removes it and aborting the
+  running one terminates the worker; a module that fails to load rejects the read and the next read creates a new
+  worker.
+- A separate Vite 8.3.4 build of a page whose worker file only imports `@zumenjs/reader/worker` (the built packages,
+  not the sources): the build emits the worker chunk (8 KB) and the `.wasm`, and the page read `r2018.dwg` in the
+  worker.
+- Size: the module is 1,607,157 bytes (gzip −9: 655,787, brotli −11: 507,428).
+- The playground (`pnpm dev`) opened SFC, JWW and DWG samples through `@zumenjs/reader` with no console errors.
+- Not checked: Firefox and Safari, webpack and Turbopack builds of the worker, and reading drawings larger than
+  `farmhouse.dwg` in a worker.
+
 ## The 2D engine to embed
 
 Checked on 2026-10-20 on macOS (Apple M2 Pro), Node.js 24.21.0 and Chromium 156 (Playwright 1.64.0, headless), for
