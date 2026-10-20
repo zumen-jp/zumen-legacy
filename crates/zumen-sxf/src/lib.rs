@@ -1,4 +1,5 @@
 //! 国交省の電子納品の SXF（SFC・P21、Ver.2.0〜3.1）を読み、zumen の表示用モデル（`Scene`）にする。
+//! SXF の図面を SFC（Ver.3.1）に書く（`write_sfc`）。
 //! `@zumenjs/sxf` の Rust 版で、同じ図面から同じ `Scene` を返す。圧縮した SXF（P2Z・SFZ、ZIP の書庫）も展開して読む。
 #![forbid(unsafe_code)]
 
@@ -13,6 +14,7 @@ mod sfc_reader;
 mod style;
 mod symbols;
 pub mod tables;
+mod write;
 mod zip;
 
 pub use document::{CompositeCurve, SubFigure, SubFigures, SxfDocument, SxfDrawing};
@@ -27,6 +29,7 @@ pub use scene::{SxfSceneOptions, sxf_to_scene, sxf_to_scene_with};
 pub use sfc::parse_sfc;
 pub use style::DEFAULT_WIDTH;
 pub use symbols::{arrow_primitives, marker_primitives};
+pub use write::{SfcWritten, write_sfc, written_ids};
 
 use zumen_core::{DrawingReader, Property, ReadError, ReadOptions, Scene};
 

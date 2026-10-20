@@ -232,6 +232,7 @@ for entity in image.entities_at(640, 480):  # the entities drawn under a pixel, 
     print(entity["id"], entity["box"], entity["text"])
 
 zumen.convert("plan.jww", "dxf").save("plan.dxf")  # any format as DXF of AutoCAD 2013, with notices of what changed
+zumen.convert("plan.dwg", "sfc").save("plan.sfc")  # or as SXF (SFC of SXF Ver.3.1)
 ```
 
 AI applications can read drawings through the MCP server of the Python package (`pip install "zumen[mcp]"`, then
@@ -246,6 +247,7 @@ cargo run --release -p zumen-cli -- texts plan.jww --region 100,50,200,120  # on
 cargo run --release -p zumen-cli -- title plan.jww  # the fields of the title block
 cargo run --release -p zumen-cli -- convert plan.dwg -o plan.dxf
 cargo run --release -p zumen-cli -- convert plan.sfc -o plan.dxf
+cargo run --release -p zumen-cli -- convert plan.dxf -o plan.sfc
 ```
 
 `convert` writes every format as DXF of AutoCAD 2013 through the AutoCAD drawing model. DXF and DWG keep their
@@ -254,18 +256,23 @@ sub-figure and each JWW layer group scale is shown through a viewport of the she
 drawn on the sheet itself (frames and title blocks) is in paper space. Layers, colors, line types, line weights, fonts,
 vertical text, blocks, dimensions and hatches become their AutoCAD counterparts, and the layout draws the same as the
 original drawing ([decision 0008](docs/decisions/0008-sheets-and-scales-in-the-autocad-model.md)).
+`convert` also writes every format as SXF (SFC of SXF Ver.3.1) from the same model: the layout that the drawing opens in
+is the sheet, each viewport a sub-figure at real size placed at its scale, and each block a drawing part. What SXF has
+no feature for (multiline texts, leaders, dimensions, solids) is written as the lines, fills and texts that zumen draws
+for it, so the SFC draws the same as the drawing it came from
+([decision 0010](docs/decisions/0010-write-sxf-from-the-autocad-model.md)).
 
 | Crate | Contents |
 | --- | --- |
 | [`zumen-core`](crates/zumen-core) | The scene model (the same JSON as `@zumenjs/core`), geometry, text layout, the texts and entities of a scene, the fields of its title block, and the comparison of two revisions |
-| [`zumen-sxf`](crates/zumen-sxf) | `parse_sfc` and `parse_p21` (the SXF feature model), `sxf_to_scene`, the `SXF` reader |
+| [`zumen-sxf`](crates/zumen-sxf) | `parse_sfc` and `parse_p21` (the SXF feature model), `sxf_to_scene`, the `SXF` reader, and `write_sfc` (the feature model as SFC) |
 | [`zumen-jww`](crates/zumen-jww) | `read_jww` (the JWW document model), `jww_to_scene`, the `JWW` reader |
 | [`zumen-dxf`](crates/zumen-dxf) | `parse_dxf` (the AutoCAD drawing model, shared with DWG), `dxf_to_scene`, the `DXF` reader, and `write_dxf` (the model as DXF of AutoCAD 2013) |
 | [`zumen-dwg`](crates/zumen-dwg) | `read_dwg` (DWG 2000 to 2018 into the AutoCAD drawing model of `zumen-dxf`), the `DWG` reader |
-| [`zumen-convert`](crates/zumen-convert) | `sxf_to_dxf` and `jww_to_dxf` (SXF and JWW into the AutoCAD drawing model, to be written as DXF) |
-| [`zumen`](crates/zumen) | `read` and `detect` over every reader, with limits on bytes, entities and time for untrusted drawings, and `convert` (every format to DXF) |
+| [`zumen-convert`](crates/zumen-convert) | `sxf_to_dxf` and `jww_to_dxf` (SXF and JWW into the AutoCAD drawing model, to be written as DXF), and `dxf_to_sxf` (the model as an SXF drawing, to be written as SFC) |
+| [`zumen`](crates/zumen) | `read` and `detect` over every reader, with limits on bytes, entities and time for untrusted drawings, and `convert` (every format to DXF and SFC) |
 | [`zumen-render`](crates/zumen-render) | PNG, SVG and PDF rendering with the rules of the browser renderer, and the pixel box of every entity drawn; BIZ UDGothic is bundled for Japanese text |
-| [`zumen-cli`](crates/zumen-cli) | The `zumen` command: `detect`, `scene` (JSON), `texts` and `entities` (JSON lines), `title`, `render` (PNG), `compare` and `convert` (DXF) |
+| [`zumen-cli`](crates/zumen-cli) | The `zumen` command: `detect`, `scene` (JSON), `texts` and `entities` (JSON lines), `title`, `render` (PNG), `compare` and `convert` (DXF, SFC) |
 
 Reading, rendering and converting release the GIL in Python.
 

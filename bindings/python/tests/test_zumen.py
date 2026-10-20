@@ -340,7 +340,28 @@ def test_converts_dxf_and_dwg_drawings_to_dxf(tmp_path):
     image = next(notice for notice in notices if notice["code"] == "image")
     assert (image["level"], image["count"]) == ("warning", 1)
     with pytest.raises(zumen.ReadError):
-        zumen.convert(FIXTURES / "dxf" / "r12.dxf", "sfc")
+        zumen.convert(FIXTURES / "dxf" / "r12.dxf", "p21")
+
+
+def test_converts_every_format_to_sfc(tmp_path):
+    for source in [
+        FIXTURES / "dwg" / "r2018.dwg",
+        FIXTURES / "dxf" / "layout.dxf",
+        FIXTURES / "sfc" / "sample.sfc",
+        FIXTURES / "jww" / "minimal-v700.jww",
+    ]:
+        converted = zumen.convert(source, "sfc")
+        assert (converted.format, zumen.detect(converted.data)) == ("sfc", "sfc")
+        path = tmp_path / f"{source.stem}.sfc"
+        converted.save(path)
+
+        # The SFC draws the texts of the drawing it came from (a multiline text as one SXF text per line)
+        def characters(scene):
+            return sorted("".join(text["text"] for text in scene.texts()).replace("\n", ""))
+
+        assert characters(zumen.read(path)) == characters(zumen.read(source))
+    codes = {notice["code"] for notice in zumen.convert(FIXTURES / "dxf" / "features.dxf", "sfc").notices}
+    assert {"dimension", "drawn-shapes"} <= codes
 
 
 def test_converts_sxf_and_jww_drawings_to_dxf_through_the_autocad_model():
