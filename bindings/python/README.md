@@ -169,6 +169,24 @@ It reads attribute tags (`DWGNO`, `REV`, `TITLE`), labels such as 図面番号 o
 or below, labels with their value in the same text (`縮尺 1/100`), the sheet name and the metadata (the title block
 attributes of SXF). The values are guesses from the drawing's texts; check them before relying on them.
 
+## Rooms and areas
+
+`regions` finds the regions that drawn lines close, such as rooms, with their areas:
+
+```python
+for room in scene.regions(layers=[layer["id"] for layer in scene.layers if "壁" in layer["name"]]):
+    real = room["real"]  # None outside a placement drawn at a scale
+    print([text["text"] for text in room["texts"]], real and real["area"] / 1e6, "m²")
+```
+
+Lines, polylines, arcs, circles, splines and solids are split where they cross or meet, ends closer than `tolerance`
+(0.01 paper millimeters) are joined, and every face they close is a region: its `outline` (counterclockwise) and
+`holes`, `area` (without the holes), `outline_area` and `perimeter` on the sheet, the same in real-world millimeters
+in `real`, the `boundary` entities and the `texts` inside. Lines that end nowhere close nothing, and closed shapes
+that touch no other line (columns, furniture) are holes. `layers` keeps the lines on some layers (walls), `kinds`
+changes the kinds used, and `min_area` leaves out smaller regions. A room whose walls have an opening drawn as a gap
+joins the next one ([decision 0015](https://github.com/zumenjs/zumen/blob/main/docs/decisions/0015-analysis-in-zumen-core.md)).
+
 ## MCP server
 
 `zumen-mcp` lets AI applications that speak the Model Context Protocol open, render, search, measure and compare drawings
@@ -188,10 +206,11 @@ claude mcp add zumen -- zumen-mcp --root ~/drawings  # Claude Code; other client
 | `find_entities` | Entities in a region, by kind, type or layer, with counts by type and kind; with `geometry`, their shapes as `get_entity` gives them |
 | `get_entity` | One entity with its properties (key, label and value), its values by key, the scale of its placement and its geometry: the shapes drawn, in paper millimeters and, inside a placement, in real-world millimeters |
 | `measure_distance` | The distance between two points on the sheet and in real-world millimeters |
+| `find_regions` | The regions that the drawn lines close, such as rooms: areas in square meters, perimeters, outlines and holes, the entities that bound them and the texts inside, filtered by layer, text and area |
 | `compare_drawings` | What changed between two revisions: an image of the changes, the regions that changed and the changed entities with their texts |
 
-Geometry is the agent's to interpret: the server gives the shapes as drawn and their coordinates, and leaves deciding
-what is a wall or a room to the client. `real` is left out where it equals the coordinates on the sheet (DXF model
+Geometry is the agent's to interpret: the server gives the shapes as drawn and their coordinates, and the regions
+that lines close with the entities that bound them, and leaves deciding what is a wall or a room to the client. `real` is left out where it equals the coordinates on the sheet (DXF model
 space), and one call returns at most `max_points` points (1,000 by default, at most 10,000; a point with `real` counts
 twice), so that a page of entities stays well below what clients accept from a tool. A page of `find_entities` with
 `geometry` ends before an entity whose shapes would pass the budget; `next_offset` goes on from there.
@@ -218,6 +237,7 @@ page = tools.find_texts(scene, query="平面図", limit=50)  # texts with their 
 walls = tools.find_entities(scene, kind="polyline", layer="壁", geometry=True)  # with their shapes
 entity = tools.get_entity(scene, page["texts"][0]["id"])  # properties, values, placement and shapes
 tools.measure(scene, [10, 20], [110, 20])  # on the sheet, and in real-world millimeters through the scale
+rooms = tools.find_regions(scene, layer="壁", named=True)  # rooms with their areas in square meters
 ```
 
 | Function | Result | What it returns |
@@ -228,6 +248,7 @@ tools.measure(scene, [10, 20], [110, 20])  # on the sheet, and in real-world mil
 | `find_entities` | `EntityPage` | Entities in a region by kind, Japanese type or layer, with counts, and their shapes when asked |
 | `get_entity` | `EntityDetail` | One entity: properties (key, label, value), values by key, placement with its scale and `to_real`, and its shapes |
 | `measure` | `MeasurementInfo` | A distance on the sheet and in real-world millimeters |
+| `find_regions` | `RegionPage` | Closed regions (rooms) with their real-world areas in square meters, outlines, boundary entities and texts inside |
 | `compare_revisions` | `bytes`, `ComparisonInfo` | An image of the changes between two revisions, the regions that changed and the changed entities |
 
 - **Coordinates.** Paper millimeters with the Y axis up, rounded to 0.001: boxes `[min_x, min_y, max_x, max_y]`,
