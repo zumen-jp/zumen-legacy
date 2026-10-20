@@ -31,7 +31,7 @@ const LAYER_KEYS: [&str; 9] =
 const LAYER_IGNORED: [&str; 5] = ["color", "lineType", "lineWidth", "frozen", "plot"];
 
 /// 新しい文字のフォント（Jw_cad の既定）
-const DEFAULT_FONT: &str = "ＭＳ ゴシック";
+pub(crate) const DEFAULT_FONT: &str = "ＭＳ ゴシック";
 
 /// 新しい図形の線色（線色 2）
 const DEFAULT_PEN_COLOR: u16 = 2;

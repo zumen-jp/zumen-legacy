@@ -168,7 +168,7 @@ pub(crate) fn encode_cstring(text: &str, unicode: bool) -> (Vec<u8>, usize) {
 }
 
 /// Shift_JIS にする。表せない文字は ? にし、その数も返す
-fn encode_shift_jis(text: &str) -> (Vec<u8>, usize) {
+pub(crate) fn encode_shift_jis(text: &str) -> (Vec<u8>, usize) {
     let mut encoder = SHIFT_JIS.new_encoder();
     let mut out = Vec::with_capacity(text.len() * 2);
     let mut buffer = [0u8; 1024];
