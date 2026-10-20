@@ -1,4 +1,5 @@
-//! AutoCAD の DWG（R13〜2018）を読み、DXF と同じ AutoCAD の図面のモデル（`zumen_dxf::DxfDocument`）にする。
+//! AutoCAD の DWG（AutoCAD 1.0〜2018。R13 より前は r12）を読み、DXF と同じ AutoCAD の図面のモデル
+//! （`zumen_dxf::DxfDocument`）にする。
 //! 表示用の図面（`Scene`）は `zumen_dxf::dxf_to_scene` で作る（docs/decisions/0003-dwg-in-rust.md）。
 //! 読んだ DWG を同じ版で書き直せる（`rewrite_dwg`。オブジェクトはビット列のまま写す）。
 //! 読み方・書き方は Open Design Alliance の Open Design Specification for .dwg files 5.4.1 に従い、節の番号を注記に書く。

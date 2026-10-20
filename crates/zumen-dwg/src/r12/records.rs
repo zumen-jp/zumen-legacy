@@ -709,7 +709,7 @@ fn common(c: &mut Cursor<'_>, kind: i8, mode: u8, version: Old) -> Read<(Common,
 }
 
 /// 拡張データ（R11）: 大きさ（RS）と値の並び。値はコード − 1000（RC）と値（1000 は長さの RC と文字、1001 は APPID の
-/// 番号の RS で、次の 1001 までがそのアプリケーションの値、1002 は RC、1003 は層の番号の RS、1004 は長さの RC とバイト、
+/// 番号の RS で、次の 1001 までがそのアプリケーションの値、1002 は RC、1003 は層の表の番号の RS、1004 は長さの RC とバイト、
 /// 1005 は 8 バイト、1010〜1013 は 3RD、1040〜1042 は RD、1070 は RS、1071 は RL）。読めない値からは読まない
 fn eed(c: &mut Cursor<'_>) -> Read<EedApps> {
     let size = usize::from(c.u16()?);
@@ -733,10 +733,8 @@ fn eed_values(data: &mut Cursor<'_>, apps: &mut EedApps) -> Read<()> {
                 continue;
             }
             2 => EedValue::Control(data.u8()? != 0),
-            3 => {
-                data.i16()?;
-                EedValue::Other
-            }
+            // 1003 は R13 からのハンドルではなく、層の表の番号
+            3 => EedValue::Number(f64::from(data.i16()?)),
             4 => {
                 let length = usize::from(data.u8()?);
                 data.skip(length)?;

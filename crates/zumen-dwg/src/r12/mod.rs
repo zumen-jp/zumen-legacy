@@ -924,9 +924,11 @@ impl Builder<'_> {
                     view_twist_angle: 0.0,
                     status_flags: 0.0,
                     frozen_layer_handles: Vec::new(),
+                    frozen_layer_names: Vec::new(),
                     clipping_boundary_handle: None,
                 };
-                // 表示の値は拡張データ ACAD の MVIEW（R13・R14 と同じ）
+                // 表示の値は拡張データ ACAD の MVIEW（R13・R14 と同じ）。凍結したレイヤ（1003）は層の表の番号で、DXF の
+                // R12 の読み取りと同じく名前（大文字）で持つ
                 let eed = Eed {
                     apps: common
                         .eed
@@ -935,6 +937,7 @@ impl Builder<'_> {
                         .collect(),
                 };
                 mview(&eed, &mut viewport);
+                viewport.frozen_layer_names = frozen_layers(&common.eed, names);
                 ("VIEWPORT", DxfEntityData::Viewport(viewport)).with(None)
             }
             _ => return None,
@@ -981,6 +984,26 @@ impl Builder<'_> {
             text_generation_flag: f64::from(fields.generation),
         }
     }
+}
+
+/// R11・R12 のビューポートの拡張データの MVIEW の後の、凍結したレイヤ（1003、層の表の番号）の名前
+fn frozen_layers(eed: &records::EedApps, names: &Names) -> Vec<String> {
+    use crate::objects::EedValue;
+    for (_, values) in eed {
+        let mview = values.iter().position(|(code, value)| {
+            *code == 1000 && matches!(value, EedValue::Text(text) if text.trim().eq_ignore_ascii_case("MVIEW"))
+        });
+        if let Some(start) = mview {
+            return values[start + 1..]
+                .iter()
+                .filter_map(|(code, value)| match (code, value) {
+                    (1003, EedValue::Number(index)) => Some(names.layer(*index as i16).to_uppercase()),
+                    _ => None,
+                })
+                .collect();
+        }
+    }
+    Vec::new()
 }
 
 /// 図形の種類と値に押し出しを添える
