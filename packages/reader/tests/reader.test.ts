@@ -150,10 +150,10 @@ describe("@zumenjs/reader", () => {
     expect(primitive?.kind === "stroke" && primitive.points).toBeInstanceOf(Float64Array);
   });
 
-  // Rust の読み取りのエラーは、そのメッセージの Error になる（R13・R14 や壊れた図面を開いた利用者に見せる）
+  // Rust の読み取りのエラーは、そのメッセージの Error になる（未対応の版や壊れた図面を開いた利用者に見せる）
   it("読めない図面は Rust の読み取りのメッセージのエラーになる", () => {
-    const r14 = Uint8Array.from({ length: 0x100 }, (_, index) => latin1("AC1014")[index] ?? 0);
-    expect(() => readDrawing(r14, [reader])).toThrow("対応していない DWG の版です（AC1014、AutoCAD R13・R14）");
+    const unsupported = Uint8Array.from({ length: 0x100 }, (_, index) => latin1("AC1099")[index] ?? 0);
+    expect(() => readDrawing(unsupported, [reader])).toThrow("対応していない DWG の版です（AC1099）");
     expect(() => readScene(read("dwg/r2018.dwg").subarray(0, 0x80))).toThrow(Error);
     expect(() => readScene(read("dxf/r12.dxf"), { format: "stl" })).toThrow(/STL/);
   });

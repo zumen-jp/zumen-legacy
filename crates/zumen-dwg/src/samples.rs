@@ -4,6 +4,7 @@
 //! - CRC と検査の値: 図面に記録された値（ファイルの頭、ページ、ヘッダ変数・クラスの節、オブジェクト、
 //!   オブジェクトの表、R2000 の 2 つ目のファイルの頭）を、書き出しと同じ関数で計算して同じになる
 //! - 書き直し: rewrite_dwg した図面の節の中身が、元の図面と同じになる
+//! - 読み取り: どの版の図面も、読めないオブジェクト・ページなしに読める
 
 use crate::crc::{CRC8_SEED, crc8, crc32, page_checksum};
 use crate::file::{self, R2004Container, Version, magic_sequence};
@@ -294,7 +295,8 @@ pub(crate) fn check_r2007_container(name: &str, bytes: &[u8]) -> usize {
 fn the_crcs_and_checksums_of_real_drawings_are_reproduced() {
     for (name, bytes) in samples() {
         match Version::from_magic(&bytes[..6]) {
-            Some(Version::R2000) => check_r2000(&name, &bytes),
+            // R13・R14 は R2000 と同じ入れ物と検査の値
+            Some(Version::R13 | Version::R14 | Version::R2000) => check_r2000(&name, &bytes),
             Some(version @ (Version::R2004 | Version::R2010 | Version::R2013 | Version::R2018)) => {
                 check_r2004(&name, &bytes, version)
             }
@@ -303,6 +305,22 @@ fn the_crcs_and_checksums_of_real_drawings_are_reproduced() {
             }
             _ => {}
         }
+    }
+}
+
+/// 実物の図面は、R13・R14 も含め、読めないオブジェクトやページなしに読める
+#[test]
+fn real_drawings_read_without_broken_objects() {
+    for (name, bytes) in samples() {
+        let doc = crate::read_dwg(&bytes).unwrap_or_else(|error| panic!("{name}: {error}"));
+        let broken: Vec<&str> = doc
+            .notices
+            .iter()
+            .filter(|notice| notice.code.starts_with("dwg-broken"))
+            .map(|notice| notice.message.as_str())
+            .collect();
+        assert!(broken.is_empty(), "{name}: {broken:?}");
+        assert!(!doc.entities.is_empty(), "{name}");
     }
 }
 

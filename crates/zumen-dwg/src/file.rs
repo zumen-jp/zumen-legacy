@@ -87,9 +87,6 @@ pub(crate) fn open<'a>(bytes: &'a [u8], notices: &mut NoticeList) -> Result<DwgF
     let magic = &bytes[0..6];
     let name = String::from_utf8_lossy(magic).into_owned();
     let version = Version::from_magic(magic).ok_or_else(|| format!("対応していない DWG の版です（{name}）"))?;
-    if version < Version::R2000 {
-        return Err(format!("対応していない DWG の版です（{name}、AutoCAD R13・R14）。R2000 以降の DWG を読めます"));
-    }
     if bytes.len() < 0x100 {
         return Err("DWG のファイルの頭が途中で切れています".into());
     }
