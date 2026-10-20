@@ -343,9 +343,9 @@ fn rewrite_all(drawing: &SxfDrawing, reason: &str) -> SxfWritten {
     written
 }
 
-/// DATA 節で使われている最大のインスタンス番号（読めないインスタンスの中も含む）
-fn max_reference(data: &[u8]) -> u64 {
-    let mut max = 0u64;
+/// DATA 節で使われているインスタンス番号（読めないインスタンスの中も含む）。
+fn used_references(data: &[u8]) -> HashSet<u64> {
+    let mut used = HashSet::new();
     let mut index = 0;
     while index < data.len() {
         if data[index] != b'#' {
@@ -353,14 +353,16 @@ fn max_reference(data: &[u8]) -> u64 {
             continue;
         }
         let digits = data[index + 1..].iter().take_while(|byte| byte.is_ascii_digit()).count();
-        if (1..19).contains(&digits) {
+        if (1..=20).contains(&digits) {
             let number =
                 std::str::from_utf8(&data[index + 1..index + 1 + digits]).ok().and_then(|text| text.parse().ok());
-            max = max.max(number.unwrap_or(0));
+            if let Some(number) = number {
+                used.insert(number);
+            }
         }
         index += digits + 1;
     }
-    max
+    used
 }
 
 /// 元の P21（bytes）を書き換えて、図面を書く
@@ -384,7 +386,11 @@ pub(crate) fn write_p21_edit(drawing: &SxfDrawing, bytes: &[u8]) -> SxfWritten {
     };
     let doc = &drawing.document;
     let data = bytes.windows(5).position(|window| window == b"DATA;").unwrap_or(0);
-    let first = (max_reference(&bytes[data..file.data_end.min(bytes.len())]) / 10 + 1) * 10;
+    let used = used_references(&bytes[data..file.data_end.min(bytes.len())]);
+    let max = used.iter().copied().max().unwrap_or(0);
+    let first = if max < crate::write::MAX_INSTANCE_ID { (max / 10 + 1) * 10 } else { 10 };
+    let mut graph = Graph::new(doc, first, 10);
+    graph.used = used;
     let mut referrers: HashMap<u64, Vec<u64>> = HashMap::new();
     for entity in file.entities.values() {
         for target in strong_references(&entity.parts) {
@@ -397,7 +403,7 @@ pub(crate) fn write_p21_edit(drawing: &SxfDrawing, bytes: &[u8]) -> SxfWritten {
         original: &original.document,
         roots: &roots,
         referrers,
-        graph: Graph::new(doc, first, 10),
+        graph,
         rewritten: HashMap::new(),
         dead: HashSet::new(),
         removed: HashSet::new(),
@@ -1007,7 +1013,7 @@ fn finish(mut editor: Editor<'_, '_>, sheet: u64, bytes: &[u8]) -> SxfWritten {
     }
     let mut new = new;
     if !hidden && !editor.hide.is_empty() {
-        let instance = editor.graph.next;
+        let instance = editor.graph.reserve();
         new.push((instance, Body::Simple(part("INVISIBILITY", vec![V::refs(&editor.hide)]))));
         live.insert(instance);
     }

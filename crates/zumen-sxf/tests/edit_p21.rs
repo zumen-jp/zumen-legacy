@@ -223,3 +223,14 @@ fn an_emptied_layer_leaves_invisibility_even_when_listed_before_it() {
     let again = parse_p21(&written.bytes).unwrap();
     assert_eq!(again.document.sheet_members.len(), drawing.document.sheet_members.len());
 }
+
+#[test]
+fn large_unread_instance_ids_do_not_collapse_new_references() {
+    let bytes = read_fixture("p21", "sample");
+    let text = String::from_utf8(bytes).unwrap().replace("DATA;", "DATA;\n#999999999999999999=UNKNOWN();");
+    let mut drawing = parse_p21(text.as_bytes()).unwrap();
+    drawing.document.sheet_members.push(line(0.0, 1.0, 10.0));
+    let written = write_p21(&drawing);
+    assert_reads_back(&drawing, &written);
+    assert!(String::from_utf8_lossy(&written.bytes).contains("#999999999999999999=UNKNOWN();"));
+}

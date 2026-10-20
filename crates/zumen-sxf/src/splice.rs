@@ -15,6 +15,10 @@ pub(crate) struct Splices {
 }
 
 impl Splices {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+
     pub(crate) fn replace(&mut self, start: usize, end: usize, text: Vec<u8>) {
         let order = self.items.len();
         self.items.push((Splice { start, end, text }, order));
