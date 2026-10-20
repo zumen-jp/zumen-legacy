@@ -2,7 +2,7 @@
 //!
 //! 形式は拡張子ではなく中身で判定する。読める形式は SXF（SFC・P21、圧縮した P2Z・SFZ）・JWW・DXF・DWG。
 //! 受け取った図面を信用できないときは、`ReadDrawingOptions::limits` でバイト数・図形の数・時間の上限を指定する。
-//! どの図面も AutoCAD の図面のモデルを経て、AutoCAD 2013 の DXF に書き直せる（`convert`）。
+//! どの図面も AutoCAD の図面のモデルを経て、AutoCAD 2013 の DXF と SXF（SFC）に書き直せる（`convert`）。
 //!
 //! ```no_run
 //! let bytes = std::fs::read("plan.jww").unwrap();
@@ -49,15 +49,16 @@ pub struct Converted {
     pub notices: Vec<Notice>,
 }
 
-/// 書き出せる形式
-pub const WRITABLE_FORMATS: [&str; 1] = ["dxf"];
+/// 書き出せる形式（dxf は AutoCAD 2013 の DXF、sfc は SXF Ver.3.1 の SFC）
+pub const WRITABLE_FORMATS: [&str; 2] = ["dxf", "sfc"];
 
-/// 図面を読み、別の形式に書き直す。`to` は書く形式（今は dxf だけ。ASCII、AutoCAD 2013 形式、UTF-8）。
-/// どの図面も AutoCAD の図面のモデル（`dxf::DxfDocument`）を経る。DXF・DWG はそのまま読み、SXF・JWW は
-/// モデルに写す（`mapping`。モデル空間は実寸、縮尺ごとに用紙のレイアウトのビューポート）
+/// 図面を読み、別の形式に書き直す。`to` は書く形式で、dxf（ASCII、AutoCAD 2013 形式、UTF-8）か sfc（SXF Ver.3.1、
+/// CP932）。どの図面も AutoCAD の図面のモデル（`dxf::DxfDocument`）を経る。DXF・DWG はそのまま読み、SXF・JWW は
+/// モデルに写す（`mapping`。モデル空間は実寸、縮尺ごとに用紙のレイアウトのビューポート）。SFC は、モデルを SXF の
+/// 図面に写して書く（`mapping::dxf_to_sxf`。ビューポートは部分図、ブロックは作図部品）
 pub fn convert(bytes: &[u8], to: &str, options: &ReadDrawingOptions) -> Result<Converted, ReadError> {
     if !WRITABLE_FORMATS.contains(&to) {
-        return Err(ReadError::new(format!("{} には書き出せません（書き出せるのは DXF）", to.to_uppercase())));
+        return Err(ReadError::new(format!("{} には書き出せません（書き出せるのは DXF・SFC）", to.to_uppercase())));
     }
     let limits = &options.limits;
     if limits.max_bytes.is_some_and(|max| bytes.len() as u64 > max) {
@@ -90,11 +91,24 @@ pub fn convert(bytes: &[u8], to: &str, options: &ReadDrawingOptions) -> Result<C
         return Err(limit_error(limit, limits));
     }
     let doc = doc?;
-    let written = dxf::write_dxf(&doc);
-    for notice in &written.notices {
+    let (bytes, written) = if to == "sfc" {
+        let (mapped, exceeded) = zumen_core::limits::with_limits(limits, || mapping::dxf_to_sxf(&doc));
+        if let Some(limit) = exceeded {
+            return Err(limit_error(limit, limits));
+        }
+        for notice in &mapped.notices {
+            notices.add_count(notice.level, &notice.code, notice.message.clone(), notice.count);
+        }
+        let written = sxf::write_sfc(&mapped.drawing);
+        (written.bytes, written.notices)
+    } else {
+        let written = dxf::write_dxf(&doc);
+        (written.bytes, written.notices)
+    };
+    for notice in &written {
         notices.add_count(notice.level, &notice.code, notice.message.clone(), notice.count);
     }
-    Ok(Converted { bytes: written.bytes, notices: notices.into_vec() })
+    Ok(Converted { bytes, notices: notices.into_vec() })
 }
 
 /// 図面のバイト列を読み、表示用の図面にする。上限（`options.limits`）を超えたら、途中でやめて上限のエラーを返す

@@ -224,6 +224,7 @@ for entity in image.entities_at(640, 480):  # その画素に描いた図形（�
     print(entity["id"], entity["box"], entity["text"])
 
 zumen.convert("plan.jww", "dxf").save("plan.dxf")  # どの形式も AutoCAD 2013 の DXF に。変えた内容は notices で分かる
+zumen.convert("plan.dwg", "sfc").save("plan.sfc")  # SXF（SXF Ver.3.1 の SFC）にも
 ```
 
 AI のアプリは、Python のパッケージの MCP サーバー（`pip install "zumen[mcp]"` の後に `zumen-mcp --root <フォルダ>`）で
@@ -239,6 +240,7 @@ cargo run --release -p zumen-cli -- texts plan.jww --region 100,50,200,120  # 1 
 cargo run --release -p zumen-cli -- title plan.jww  # 表題欄の項目
 cargo run --release -p zumen-cli -- convert plan.dwg -o plan.dxf
 cargo run --release -p zumen-cli -- convert plan.sfc -o plan.dxf
+cargo run --release -p zumen-cli -- convert plan.dxf -o plan.sfc
 ```
 
 `convert` は、どの形式の図面も AutoCAD の図面のモデルを経て AutoCAD 2013 の DXF に書く。DXF・DWG はハンドル・表・
@@ -246,18 +248,21 @@ cargo run --release -p zumen-cli -- convert plan.sfc -o plan.dxf
 用紙のレイアウトのビューポートがその縮尺で見せ、用紙にじかに描いたもの（図枠・表題欄）は紙空間に置く。レイヤ・色・線種・
 線の太さ・フォント・縦書き・ブロック・寸法・ハッチングを AutoCAD の図形にし、レイアウトは元の図面と同じに描ける
 （[決定 0008（英語）](docs/decisions/0008-sheets-and-scales-in-the-autocad-model.md)）。
+同じモデルから SXF（SXF Ver.3.1 の SFC）にも書く。図面を開くレイアウトが用紙、ビューポートはそれぞれ実寸の部分図をその縮尺で
+配置したもの、ブロックは作図部品になる。SXF にない図形（複数行文字・引出線・寸法・塗り）は zumen が描く線・塗り・文字にするので、
+SFC は元の図面と同じに描ける（[決定 0010（英語）](docs/decisions/0010-write-sxf-from-the-autocad-model.md)）。
 
 | クレート | 中身 |
 | --- | --- |
 | `zumen-core` | 表示用モデル（`@zumenjs/core` と同じ JSON）、幾何、文字の配置、図面の文字と図形と表題欄の項目の取り出し、2 つの版の比較 |
-| `zumen-sxf` | `parse_sfc`・`parse_p21`（SXF のフィーチャのモデル）、`sxf_to_scene`、読み取りの `SXF` |
+| `zumen-sxf` | `parse_sfc`・`parse_p21`（SXF のフィーチャのモデル）、`sxf_to_scene`、読み取りの `SXF`、`write_sfc`（フィーチャのモデルを SFC に書く） |
 | `zumen-jww` | `read_jww`（JWW のままのモデル）、`jww_to_scene`、読み取りの `JWW` |
 | `zumen-dxf` | `parse_dxf`（DWG と共有する AutoCAD の図形モデル）、`dxf_to_scene`、読み取りの `DXF`、`write_dxf`（モデルを AutoCAD 2013 の DXF に書く） |
 | `zumen-dwg` | `read_dwg`（DWG 2000〜2018 を `zumen-dxf` の AutoCAD の図形モデルにする）、読み取りの `DWG` |
-| `zumen-convert` | `sxf_to_dxf`・`jww_to_dxf`（SXF・JWW を AutoCAD の図形モデルに写し、DXF に書けるようにする） |
-| `zumen` | すべての読み取りをまとめた `read`・`detect` と、`convert`（どの形式も DXF に書き直す）。受け取った図面のためのバイト数・図形の数・時間の上限 |
+| `zumen-convert` | `sxf_to_dxf`・`jww_to_dxf`（SXF・JWW を AutoCAD の図形モデルに写し、DXF に書けるようにする）、`dxf_to_sxf`（モデルを SXF の図面に写し、SFC に書けるようにする） |
+| `zumen` | すべての読み取りをまとめた `read`・`detect` と、`convert`（どの形式も DXF・SFC に書き直す）。受け取った図面のためのバイト数・図形の数・時間の上限 |
 | `zumen-render` | ブラウザの描画と同じ規則で PNG・SVG・PDF に描き、描いた図形の画像の上の位置を返す。日本語の文字は同梱の BIZ UDゴシックで描く |
-| `zumen-cli` | `zumen` コマンド（`detect`、`scene` で JSON、`texts`・`entities` で 1 行 1 つの JSON、`title` で表題欄、`render` で PNG、`compare` で版の比較、`convert` で DXF） |
+| `zumen-cli` | `zumen` コマンド（`detect`、`scene` で JSON、`texts`・`entities` で 1 行 1 つの JSON、`title` で表題欄、`render` で PNG、`compare` で版の比較、`convert` で DXF・SFC） |
 
 Python では、読み取り・描画・書き出しの間 GIL を外す。
 
