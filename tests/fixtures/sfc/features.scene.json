@@ -1,6 +1,7 @@
 {
   "format": "sfc",
   "version": "SXF 3.1",
+  "unit": "millimeter",
   "sheet": {
     "name": "平面図",
     "size": "A3 縦",

@@ -122,6 +122,36 @@ export const ENTITY_KINDS = [
 
 export type EntityKind = (typeof ENTITY_KINDS)[number];
 
+/**
+ * 長さの単位の、形式によらない英語のキー。図面の座標（属性の raw の点・長さ）の単位を Scene.unit で示す。
+ * DXF・DWG の $INSUNITS の単位をすべて持つ（docs/architecture.md の「Stable keys」）
+ */
+export const LENGTH_UNITS = [
+  "millimeter",
+  "centimeter",
+  "decimeter",
+  "meter",
+  "decameter",
+  "hectometer",
+  "kilometer",
+  "gigameter",
+  "micrometer",
+  "nanometer",
+  "angstrom",
+  "inch",
+  "foot",
+  "yard",
+  "mile",
+  "microinch",
+  "mil",
+  "us-survey-foot",
+  "astronomical-unit",
+  "light-year",
+  "parsec",
+] as const;
+
+export type LengthUnit = (typeof LENGTH_UNITS)[number];
+
 /** 整形する前の属性の値。座標は [x, y]、範囲は [始め, 終わり] のような数の並び */
 export type PropertyRaw = number | string | boolean | readonly number[];
 
@@ -202,6 +232,12 @@ export interface Scene {
   format: DrawingFormat;
   /** 形式の版（SXF 3.1、JWW 700 など） */
   version: string;
+  /**
+   * 図面の座標（属性の raw の点・長さ）の長さの単位。SXF・JWW は millimeter、DXF・DWG は $INSUNITS
+   * （指定がなければ、notices の unit-assumed とともに見なした単位）。DXF・DWG のレイアウトでは、紙空間の図形
+   * （配置のない図形）の座標はレイアウトの用紙の単位になる。読み取りを経ずに作った図面では省く
+   */
+  unit?: LengthUnit;
   /** 選べる表示。1 つしかない形式では省略する */
   views?: SceneView[];
   /** この図面が描いている表示の id（views の 1 つ） */

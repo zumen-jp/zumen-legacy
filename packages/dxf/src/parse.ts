@@ -115,6 +115,8 @@ class Parser {
   private readonly layoutRecords: { handle: string; block_record_handle: string; layout: DxfLayout }[] = [];
   private readonly sortTables: { owner: string; handles: Record<string, string> }[] = [];
   private hasPaperEntities = false;
+  /** タグごとの、そこまでのレコード（グループコード 0）の数。ハンドルのない図形があるときに作る */
+  private records: Uint32Array | null = null;
 
   constructor(
     tags: DxfTags,
@@ -162,6 +164,26 @@ class Parser {
 
   private code(k: number): number {
     return this.codes[k] as number;
+  }
+
+  /** k 番目のタグで始まるレコードが、ファイルの先頭から何番目のレコード（グループコード 0）か（1 から） */
+  private recordNumber(k: number): number {
+    if (!this.records) {
+      const records = new Uint32Array(this.length);
+      let count = 0;
+      for (let i = 0; i < this.length; i++) {
+        if (this.code(i) === 0) count++;
+        records[i] = count;
+      }
+      this.records = records;
+    }
+    return this.records[k] ?? 0;
+  }
+
+  /** ハンドルのない図形に、ファイルの中の位置（ordinal）を付ける */
+  private locate<T extends DxfEntityBase>(entity: T, start: number): T {
+    if (!entity.handle) entity.ordinal = this.recordNumber(start);
+    return entity;
   }
 
   private num(k: number): number {
@@ -583,7 +605,7 @@ class Parser {
       this.i = end;
       if (type === "SEQEND" || type === "VERTEX" || type === "ATTRIB") {
         // POLYLINE・INSERT に続かない頂点・属性
-        if (type === "ATTRIB") this.push(this.attribute(start, end, "ATTRIB", owner));
+        if (type === "ATTRIB") this.push(this.attribute(start, end, "ATTRIB", owner), start);
         continue;
       }
       if (!READ_TYPES.has(type)) {
@@ -591,7 +613,7 @@ class Parser {
         continue;
       }
       try {
-        this.push(this.entity(type, start, end, owner));
+        this.push(this.entity(type, start, end, owner), start);
       } catch (error) {
         this.notices.add(
           "warning",
@@ -602,8 +624,9 @@ class Parser {
     }
   }
 
-  private push(entity: DxfEntity | null): void {
+  private push(entity: DxfEntity | null, start: number): void {
     if (!entity) return;
+    this.locate(entity, start);
     if (entity.space === "paper") this.hasPaperEntities = true;
     this.doc.entities.push(entity);
   }
@@ -1157,7 +1180,8 @@ class Parser {
         const end = this.nextZero(start);
         this.i = end;
         // 属性は配置と同じ空間・ブロックに属する
-        insert.attribs.push(this.attribute(start, end, "ATTRIB", { space: insert.space, block: insert.block }));
+        const attribute = this.attribute(start, end, "ATTRIB", { space: insert.space, block: insert.block });
+        insert.attribs.push(this.locate(attribute, start));
       }
       if (this.is(this.i, 0, "SEQEND")) this.i = this.nextZero(this.i);
     }

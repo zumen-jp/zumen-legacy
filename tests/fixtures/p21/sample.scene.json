@@ -1,6 +1,7 @@
 {
   "format": "p21",
   "version": "SXF 3.1",
+  "unit": "millimeter",
   "sheet": {
     "name": "表示",
     "size": "A1 横",

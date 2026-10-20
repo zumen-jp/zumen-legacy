@@ -10,6 +10,7 @@ use crate::mtext::{
     ParagraphAlign, RunColor, RunFont, RunStack, TextRun, mtext_plain_text, parse_mtext, parse_text_codes,
 };
 use crate::parse::or;
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::f64::consts::PI;
 use std::rc::Rc;
@@ -20,8 +21,9 @@ use zumen_core::geometry::{
 };
 use zumen_core::text::{TextLayoutInput, font_family_for, is_half_width, layout_text};
 use zumen_core::{
-    BACKGROUND_COLOR, BBox, Background, ClippedPrimitive, DotPrimitive, EntityKind, FillPrimitive, Matrix, NoticeLevel,
-    NoticeList, Placement, Primitive, Property, Scene, SceneEntity, SceneLayer, SceneView, Sheet, StrokePrimitive, js,
+    BACKGROUND_COLOR, BBox, Background, ClippedPrimitive, DotPrimitive, EntityKind, FillPrimitive, LengthUnit, Matrix,
+    NoticeLevel, NoticeList, Placement, Primitive, Property, Scene, SceneEntity, SceneLayer, SceneView, Sheet,
+    StrokePrimitive, js,
 };
 
 /// $INSUNITS の単位の mm（DXF Reference「HEADER Section Group Codes」の $INSUNITS）
@@ -74,6 +76,36 @@ fn unit_name(code: f64) -> Option<&'static str> {
         21 => Some("US 測量フィート"),
         _ => None,
     }
+}
+
+/// $INSUNITS の単位の、形式によらないキー（Scene::unit）
+fn length_unit(code: f64) -> Option<LengthUnit> {
+    if code.fract() != 0.0 || !(1.0..=21.0).contains(&code) {
+        return None;
+    }
+    Some(match code as u32 {
+        1 => LengthUnit::Inch,
+        2 => LengthUnit::Foot,
+        3 => LengthUnit::Mile,
+        4 => LengthUnit::Millimeter,
+        5 => LengthUnit::Centimeter,
+        6 => LengthUnit::Meter,
+        7 => LengthUnit::Kilometer,
+        8 => LengthUnit::Microinch,
+        9 => LengthUnit::Mil,
+        10 => LengthUnit::Yard,
+        11 => LengthUnit::Angstrom,
+        12 => LengthUnit::Nanometer,
+        13 => LengthUnit::Micrometer,
+        14 => LengthUnit::Decimeter,
+        15 => LengthUnit::Decameter,
+        16 => LengthUnit::Hectometer,
+        17 => LengthUnit::Gigameter,
+        18 => LengthUnit::AstronomicalUnit,
+        19 => LengthUnit::LightYear,
+        20 => LengthUnit::Parsec,
+        _ => LengthUnit::UsSurveyFoot,
+    })
 }
 
 fn release(version: &str) -> Option<&'static str> {
@@ -384,8 +416,16 @@ fn tolerance(m: &Matrix, radius: f64) -> f64 {
     js::max(TOLERANCE, radius * s * 1e-4) / s
 }
 
-fn handle_or_unknown(entity: &DxfEntityBase) -> &str {
-    if entity.handle.is_empty() { "?" } else { &entity.handle }
+/// id のうち図形の部分。ハンドル、ハンドルのない図形（R12 の図面など）はファイルの中の位置（#3）、
+/// どちらもなければ ?（docs/architecture.md の「Entity ids」）
+fn handle_or_unknown(entity: &DxfEntityBase) -> Cow<'_, str> {
+    if !entity.handle.is_empty() {
+        Cow::Borrowed(&entity.handle)
+    } else if entity.ordinal > 0 {
+        Cow::Owned(format!("#{}", entity.ordinal))
+    } else {
+        Cow::Borrowed("?")
+    }
 }
 
 fn flat<const N: usize>(points: &[[f64; N]]) -> Vec<f64> {
@@ -3112,6 +3152,7 @@ fn part_of(entity: &DxfEntityBase, color: PartColor, linetype: &str) -> DxfEntit
     DxfEntityBase {
         kind: entity.kind.clone(),
         handle: entity.handle.clone(),
+        ordinal: entity.ordinal,
         owner: None,
         space: entity.space,
         block: None,
@@ -3158,11 +3199,12 @@ fn reverse_pairs(points: &[f64]) -> Vec<f64> {
     out
 }
 
-fn unit_info(doc: &DxfDocument, notices: &mut NoticeList) -> (f64, String) {
+/// 長さの単位の mm、表示する名前、形式によらないキー（Scene::unit）
+fn unit_info(doc: &DxfDocument, notices: &mut NoticeList) -> (f64, String, LengthUnit) {
     let code = doc.header.insunits;
-    if let Some(unit) = unit_to_mm(code) {
+    if let (Some(unit), Some(length_unit)) = (unit_to_mm(code), length_unit(code)) {
         let name = unit_name(code).map_or_else(|| format!("$INSUNITS {}", js::number_to_string(code)), str::to_string);
-        return (unit, name);
+        return (unit, name, length_unit);
     }
     if code == 0.0 && doc.header.measurement == Some(0.0) {
         notices.add(
@@ -3170,10 +3212,10 @@ fn unit_info(doc: &DxfDocument, notices: &mut NoticeList) -> (f64, String) {
             "unit-assumed",
             "長さの単位の指定がなく、ヤード・ポンド法の図面なのでインチとみなしました",
         );
-        return (25.4, "インチ（指定なし）".into());
+        return (25.4, "インチ（指定なし）".into(), LengthUnit::Inch);
     }
     notices.add(NoticeLevel::Info, "unit-assumed", "長さの単位の指定がないため、mm とみなしました");
-    (1.0, "mm（指定なし）".into())
+    (1.0, "mm（指定なし）".into(), LengthUnit::Millimeter)
 }
 
 /// 図形の代表の点（原点を寄せる位置を決める）
@@ -3388,7 +3430,7 @@ pub fn drawing_unit(doc: &DxfDocument) -> f64 {
 /// layout は "Model"（モデル空間）かレイアウトの名前。None なら図面を保存したときの空間
 pub fn dxf_to_scene(doc: &DxfDocument, layout: Option<&str>) -> Scene {
     let mut builder = Builder::new(doc);
-    let (unit, unit_name) = unit_info(doc, &mut builder.notices);
+    let (unit, unit_name, length_unit) = unit_info(doc, &mut builder.notices);
     let mut view = layout.map_or_else(|| default_view(doc, &builder), str::to_string);
     let layout = if view == "Model" {
         None
@@ -3556,6 +3598,7 @@ pub fn dxf_to_scene(doc: &DxfDocument, layout: Option<&str>) -> Scene {
     Scene {
         format: doc.format.into(),
         version: format!("{} {}", format_name(doc), doc.version),
+        unit: Some(length_unit),
         views: Some(views(doc)),
         view: Some(view),
         sheet,
@@ -3637,7 +3680,10 @@ fn draw_viewport(
         dash_factor: if doc.header.psltscale == 1.0 { 1.0 / s } else { 1.0 },
         clip: Some(clip),
         frozen: Some(Rc::new(frozen)),
-        path: format!("{}:", if base.handle.is_empty() { "VP" } else { &base.handle }),
+        path: format!(
+            "{}:",
+            if base.handle.is_empty() && base.ordinal == 0 { "VP".into() } else { handle_or_unknown(base) }
+        ),
         ..root.clone()
     };
     let model_entities = builder.model.clone();

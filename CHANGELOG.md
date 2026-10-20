@@ -10,6 +10,21 @@ All packages share one version during 0.x.
   against each installed wheel on Python 3.10 and 3.14, and a pushed tag `v*` attaches them to a GitHub Release
   ([docs/releasing.md](docs/releasing.md)). Nothing goes to PyPI until the license is decided. The wheels now hold the
   license text of the bundled BIZ UDGothic (SIL OFL 1.1) in `dist-info/licenses`, which they lacked.
+- The length unit of a drawing: `Scene.unit`, one of `LENGTH_UNITS` (`LengthUnit` in Rust), is the unit of the
+  drawing's own coordinates (the `raw` points and lengths of properties): `millimeter` in SXF and JWW, and in DXF and
+  DWG the unit of `$INSUNITS` (`inch`, `meter`, …), or the one assumed with the `unit-assumed` notice. `Scene.unit` in
+  Python, and `unit` in `zumen.tools.summary`.
+- Entity ids are a contract: the same bytes give the same ids in every version
+  ([Entity ids](docs/architecture.md#entity-ids)), and `crates/zumen/tests/ids.rs` checks them on every fixture. DXF
+  entities without a handle (files written without handles, such as many R12 files) all had the id `?`; they are now
+  `#n`, the number of their record in the file, unique like a handle.
+- Python: `zumen.tools`, the functions behind the MCP tools for applications that give an AI agent tools of their
+  own (`summary`, `render`, `find_texts`, `find_entities`, `get_entity`, `measure`, `compare_revisions`, `Drawings`).
+  Their results are JSON with keys described by `TypedDict` classes that are part of the API, bounded by `limit`,
+  `max_points`, `max_text_length` (strings from the drawing, with `truncated`) and the image size, and they take
+  regions in paper millimeters or as fractions of the frame (`frame_region`, the scene's bounds with the origin at the
+  top left). `zumen.mcp` wraps them, and its tools gain `frame_region`
+  ([decision 0011](docs/decisions/0011-tool-functions-for-agents.md)).
 - Rust, Python and the command line: write every format as SXF (SFC of SXF Ver.3.1) through the AutoCAD drawing model
   ([decision 0010](docs/decisions/0010-write-sxf-from-the-autocad-model.md)). `zumen::convert(bytes, "sfc", …)`,
   `zumen.convert(source, "sfc")` and `zumen convert plan.dwg -o plan.sfc`. The layout that the drawing opens in is the

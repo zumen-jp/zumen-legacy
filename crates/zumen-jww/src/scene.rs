@@ -11,8 +11,8 @@ use zumen_core::geometry::{
 };
 use zumen_core::text::layout_text;
 use zumen_core::{
-    BBox, Background, DotPrimitive, EntityKind, FillPrimitive, Matrix, NoticeLevel, NoticeList, Placement, Primitive,
-    Property, Scene, SceneEntity, SceneLayer, Sheet, StrokePrimitive, TextPrimitive, js,
+    BBox, Background, DotPrimitive, EntityKind, FillPrimitive, LengthUnit, Matrix, NoticeLevel, NoticeList, Placement,
+    Primitive, Property, Scene, SceneEntity, SceneLayer, Sheet, StrokePrimitive, TextPrimitive, js,
 };
 
 const MAX_DEPTH: usize = 16;
@@ -501,6 +501,7 @@ pub fn jww_to_scene(doc: &JwwDocument) -> Scene {
     Scene {
         format: "jww".to_string(),
         version: format!("JWW {}", doc.version),
+        unit: Some(LengthUnit::Millimeter),
         views: None,
         view: None,
         sheet,
