@@ -553,7 +553,7 @@ pub fn write_sfc(drawing: &SxfDrawing) -> SfcWritten {
             vec![Text(line_type.name.clone()), Num(line_type.pitch.len() as f64), List(line_type.pitch.clone())],
         );
     }
-    // 附属書 SFC 編 1-3-17（線幅）: 既定義コードも width_feature で宣言する。
+    // 附属書 SFC 編 1-2-8（線幅）・1-3-9（幾何要素との関係）: 既定義コードも要素より前に宣言する。
     // Jw_cad 10.3.6 は宣言のない線幅の線・ハッチング境界を読み落とす（docs/formats/sxf.md）。
     for (index, width) in PREDEFINED_WIDTHS.iter().enumerate() {
         if widths.contains(&((index + 1) as f64).to_bits()) {
