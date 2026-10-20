@@ -1,5 +1,6 @@
 //! SXF と JWW の図面を、AutoCAD の図面のモデル（zumen-dxf の `DxfDocument`）に写す。写したモデルは
-//! `zumen_dxf::write_dxf` で DXF に書ける（決定 0006・0007・0008）。
+//! `zumen_dxf::write_dxf` で DXF に書ける（決定 0006・0007・0008）。逆に、モデルを SXF の図面に写し（`dxf_to_sxf`）、
+//! `zumen_sxf::write_sfc` で SFC に書く。
 //!
 //! - モデル空間は実寸（mm）。SXF の部分図と JWW のレイヤグループの縮尺ごとに、用紙のレイアウトにビューポートを
 //!   置き、元の用紙と同じ位置・縮尺で見せる。用紙にじかに描いた図形は紙空間に置く。
@@ -9,9 +10,11 @@
 
 mod builder;
 mod jww;
+mod shapes;
 mod sheet;
 mod sxf;
 mod text;
+mod to_sxf;
 
 use std::collections::HashMap;
 use zumen_core::Notice;
@@ -19,6 +22,7 @@ use zumen_dxf::DxfDocument;
 
 pub use jww::jww_to_dxf;
 pub use sxf::sxf_to_dxf;
+pub use to_sxf::{MappedSxf, dxf_to_sxf};
 
 /// 写した図面のモデルと、写せなかった・形を変えて写した内容
 #[derive(Debug, Clone, PartialEq)]

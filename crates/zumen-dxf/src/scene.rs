@@ -3257,6 +3257,28 @@ fn views(doc: &DxfDocument) -> Vec<SceneView> {
     views
 }
 
+/// 図形を描く順（SORTENTSTABLE）に、空間ごとに並べたもの。表示（dxf_to_scene）と同じ順で、ほかの形式に写すときに使う
+pub struct DrawOrder<'a> {
+    /// モデル空間の図形
+    pub model: Vec<&'a DxfEntity>,
+    /// ブロック・紙空間のブロック（名前は大文字）の図形
+    pub blocks: HashMap<String, Vec<&'a DxfEntity>>,
+}
+
+/// 図形を、表示と同じく空間ごとに描く順に並べる
+pub fn draw_order(doc: &DxfDocument) -> DrawOrder<'_> {
+    let builder = Builder::new(doc);
+    DrawOrder {
+        model: builder.model.to_vec(),
+        blocks: builder.blocks.iter().map(|(name, contents)| (name.clone(), contents.entities.to_vec())).collect(),
+    }
+}
+
+/// 図面の単位の mm（表示と同じく、$INSUNITS がなければヤード・ポンド法の図面はインチ、ほかは mm とみなす）
+pub fn drawing_unit(doc: &DxfDocument) -> f64 {
+    unit_info(doc, &mut NoticeList::new()).0
+}
+
 /// AutoCAD の図面（DXF・DWG から読んだモデル）を、モデル空間か 1 つのレイアウトの表示用の図面にする。
 /// layout は "Model"（モデル空間）かレイアウトの名前。None なら図面を保存したときの空間
 pub fn dxf_to_scene(doc: &DxfDocument, layout: Option<&str>) -> Scene {

@@ -42,7 +42,15 @@ pub fn source_id(id: &str, sources: &HashMap<String, String>) -> Option<String> 
             parts.push(source.clone());
         }
     }
-    (!parts.is_empty()).then(|| parts.join(">"))
+    // SXF に書いた図形の元の id の部分は、ビューポートの配置が「ハンドル:」、ブロック参照の配置が「ハンドル>」で終わる
+    let mut out = String::new();
+    for part in &parts {
+        if !out.is_empty() && !out.ends_with(':') && !out.ends_with('>') {
+            out.push('>');
+        }
+        out.push_str(part);
+    }
+    (!parts.is_empty()).then_some(out)
 }
 
 fn luminance(color: &str) -> Option<f64> {
@@ -65,7 +73,9 @@ fn drawn(color: &str, light: bool) -> String {
 }
 
 pub fn same_color(a: &str, b: &str) -> bool {
-    a == b || (drawn(a, true) == drawn(b, true) && drawn(a, false) == drawn(b, false))
+    // 背景色の塗り（白抜きの矢印）は、SXF には白の塗りで書く（SXF の用紙は白）
+    let background = |x: &str, y: &str| x == zumen::BACKGROUND_COLOR && y == "#ffffff";
+    a == b || background(a, b) || (drawn(a, true) == drawn(b, true) && drawn(a, false) == drawn(b, false))
 }
 
 fn close(a: f64, b: f64, tolerance: f64) -> bool {
