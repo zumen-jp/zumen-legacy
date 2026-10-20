@@ -8,6 +8,7 @@ use crate::features::{
 };
 use crate::p21_reader::{P21Entity, P21File, P21Value, read_p21};
 use crate::sfc::suffix_version;
+use crate::source::SxfSource;
 use crate::tables::{ARROW_NAMES, predefined_color_code, predefined_line_type_code, predefined_width_code};
 use std::collections::{HashMap, HashSet};
 use std::f64::consts::PI;
@@ -167,6 +168,26 @@ struct Converter<'a> {
     curve_occurrence_of: HashMap<u64, f64>,
     definitions: HashMap<u64, String>,
     depth: usize,
+    roots: P21Roots,
+}
+
+/// 図面の要素がどのインスタンスから来たか（読んだ P21 を書き換える編集が使う）
+#[derive(Debug, Clone, Default)]
+pub(crate) struct P21Roots {
+    /// 用紙（DRAWING_SHEET_REVISION）
+    pub sheet: Option<f64>,
+    /// 用紙の要素の並び（DRAWING_SHEET_REVISION の items）と、要素ごとに作ったフィーチャの数
+    pub sheet_items: Vec<(f64, usize)>,
+    /// 複合図形の定義（DRAUGHTING_SUBFIGURE_REPRESENTATION）ごとの、要素の並びと作ったフィーチャの数
+    pub sub_figures: HashMap<u64, Vec<(f64, usize)>>,
+    /// 複合曲線（COMPOSITE_CURVE）ごとの、構成要素になった COMPOSITE_CURVE_SEGMENT
+    pub composites: HashMap<u64, Vec<f64>>,
+    /// 色・線種・文字フォントのインスタンス（番号のビット列）→ コード
+    pub colours: HashMap<u64, f64>,
+    pub line_types: HashMap<u64, f64>,
+    pub fonts: HashMap<u64, f64>,
+    /// 複合曲線（COMPOSITE_CURVE）→ その線の見え方を持つ ANNOTATION_CURVE_OCCURRENCE
+    pub curve_occurrences: HashMap<u64, f64>,
 }
 
 impl<'a> Converter<'a> {
@@ -369,13 +390,16 @@ impl<'a> Converter<'a> {
         let visible = occurrence.is_some_and(|occurrence| !self.invisible.contains(&key(occurrence.id)));
         let mut members = Vec::new();
         let segments = references(Self::args(self.get(Some(curve_id)), "COMPOSITE_CURVE").and_then(|args| args.get(1)));
+        let mut used = Vec::new();
         for segment_id in segments {
             let segment = Self::args(self.get(Some(segment_id)), "COMPOSITE_CURVE_SEGMENT");
             let parent = reference(segment.and_then(|args| args.get(2)));
             if let Some(feature) = self.curve(parent, styled_with(parent.unwrap_or(0.0), 0.0, style)) {
                 members.push(feature);
+                used.push(segment_id);
             }
         }
+        self.roots.composites.insert(key(curve_id), used);
         self.doc.composite_curves.push(CompositeCurve {
             feature: CompositeCurveOrg {
                 id: curve_id,
@@ -763,11 +787,15 @@ impl<'a> Converter<'a> {
         };
         self.definitions.insert(key(id), name.clone());
         let mut members = Vec::new();
+        let mut items = Vec::new();
         self.depth += 1;
         for item in references(args.get(1)) {
-            members.extend(self.item(item));
+            let features = self.item(item);
+            items.push((item, features.len()));
+            members.extend(features);
         }
         self.depth -= 1;
+        self.roots.sub_figures.insert(key(id), items);
         self.doc.sub_figures.set(
             name.clone(),
             SubFigure {
@@ -1091,6 +1119,11 @@ impl<'a> Converter<'a> {
 
 /// P21 ファイルのバイト列を読み、SFC と同じフィーチャに変換して組み立てる
 pub fn parse_p21(bytes: &[u8]) -> Result<SxfDrawing, ReadError> {
+    convert_p21(bytes).map(|(drawing, _, _)| drawing)
+}
+
+/// P21 を読み、図面と、読んだインスタンスと、図面の要素がどのインスタンスから来たかを返す
+pub(crate) fn convert_p21(bytes: &[u8]) -> Result<(SxfDrawing, P21File, P21Roots), ReadError> {
     let mut notices = NoticeList::new();
     let file = read_p21(bytes)?;
     if file.skipped > 0 {
@@ -1110,19 +1143,27 @@ pub fn parse_p21(bytes: &[u8]) -> Result<SxfDrawing, ReadError> {
         curve_occurrence_of: HashMap::new(),
         definitions: HashMap::new(),
         depth: 0,
+        roots: P21Roots::default(),
     };
     converter.prepare_tables();
     let (sheet, items) = converter.sheet();
     if sheet.is_none() {
         converter.notices.add(NoticeLevel::Warning, "no-sheet", "用紙（drawing_sheet_revision）がありません");
     }
+    converter.roots.sheet = sheet.as_ref().map(|sheet| sheet.id);
     converter.doc.sheet = sheet;
     for item in items {
         let members = converter.item(item);
+        converter.roots.sheet_items.push((item, members.len()));
         converter.doc.sheet_members.extend(members);
     }
+    converter.roots.colours = std::mem::take(&mut converter.colors);
+    converter.roots.line_types = std::mem::take(&mut converter.line_types);
+    converter.roots.fonts = std::mem::take(&mut converter.fonts);
+    converter.roots.curve_occurrences = std::mem::take(&mut converter.curve_occurrence_of);
     let mut doc = converter.doc;
     let notices = converter.notices;
+    let roots = converter.roots;
     let kinds: Vec<_> = doc
         .sheet_members
         .iter()
@@ -1134,5 +1175,13 @@ pub fn parse_p21(bytes: &[u8]) -> Result<SxfDrawing, ReadError> {
     }
     let version =
         suffix_version(&file.header.preprocessor).map_or("SXF".to_string(), |version| format!("SXF {version}"));
-    Ok(SxfDrawing { format: "p21", version, header: file.header.clone(), document: doc, notices: notices.into_vec() })
+    let drawing = SxfDrawing {
+        format: "p21",
+        version,
+        header: file.header.clone(),
+        document: doc,
+        notices: notices.into_vec(),
+        source: Some(SxfSource::new(bytes)),
+    };
+    Ok((drawing, file, roots))
 }

@@ -1,5 +1,5 @@
 //! AutoCAD の図面のモデル（`DxfDocument`）を SXF の図面（`SxfDrawing`）に写す（決定 0006・0007・0008・0010、
-//! docs/formats/sxf.md「SXF への書き出し」）。SXF から DXF への写し方（sxf.rs）の逆で、表示（zumen-dxf の scene.rs）と
+//! docs/formats/sxf.md「Converting to SXF」）。SXF から DXF への写し方（sxf.rs）の逆で、表示（zumen-dxf の scene.rs）と
 //! 同じ順・同じ規則で辿り、表示と同じ所に同じ形を描く SXF にする。
 //!
 //! - 用紙: 表示する空間（`dxf_to_scene` の既定の表示）がレイアウトなら、その紙空間が SXF の用紙（大きさは A0〜A4 の縦・
@@ -24,8 +24,8 @@ use zumen_dxf::{
 };
 use zumen_sxf::tables::{PREDEFINED_COLORS, PREDEFINED_LINE_TYPES, PREDEFINED_WIDTHS};
 use zumen_sxf::{
-    Annotation, CompositeCurve, CompositeCurveOrg, DrawingSheet, HatchPattern, LayerDefinition, Region, SfcWritten,
-    SfigOrg, Styled, SubFigure, SubFigures, SxfDocument, SxfDrawing, SxfFeature, SxfHeader, TextFont, UserColour,
+    Annotation, CompositeCurve, CompositeCurveOrg, DrawingSheet, HatchPattern, LayerDefinition, Region, SfigOrg,
+    Styled, SubFigure, SubFigures, SxfDocument, SxfDrawing, SxfFeature, SxfHeader, SxfWritten, TextFont, UserColour,
     UserLineType, WidthDefinition, write_sfc, written_ids,
 };
 
@@ -49,7 +49,7 @@ pub struct MappedSxf {
 
 impl MappedSxf {
     /// SFC に書く。書いたインスタンス番号での sources も返す
-    pub fn write(&self) -> (SfcWritten, HashMap<String, String>) {
+    pub fn write(&self) -> (SxfWritten, HashMap<String, String>) {
         let written = write_sfc(&self.drawing);
         let ids = written_ids(&written);
         let sources = self
@@ -1927,6 +1927,7 @@ impl<'a> Mapper<'a> {
             header: SxfHeader::default(),
             document,
             notices: Vec::new(),
+            source: None,
         };
         MappedSxf { drawing, notices: self.notices.into_vec(), sources: self.sources }
     }
