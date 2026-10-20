@@ -1,19 +1,35 @@
 //! AutoCAD の DWG（R2000〜2018）を読み、DXF と同じ AutoCAD の図面のモデル（`zumen_dxf::DxfDocument`）にする。
 //! 表示用の図面（`Scene`）は `zumen_dxf::dxf_to_scene` で作る（docs/decisions/0003-dwg-in-rust.md）。
-//! 読み方は Open Design Alliance の Open Design Specification for .dwg files 5.4.1 に従い、節の番号を注記に書く。
+//! 読んだ DWG を同じ版で書き直せる（`rewrite_dwg`。オブジェクトはビット列のまま写す）。
+//! 読み方・書き方は Open Design Alliance の Open Design Specification for .dwg files 5.4.1 に従い、節の番号を注記に書く。
 #![forbid(unsafe_code)]
 
 mod bits;
 mod compress;
+mod crc;
 mod document;
 mod entities;
 mod file;
 mod header;
 mod mleader;
 mod objects;
+#[cfg(test)]
+mod samples;
+mod write;
 
 pub use document::read_dwg;
 pub use file::is_dwg;
+pub use write::{DwgWritten, rewrite_dwg};
+
+/// テストが規則を確かめる最小の図面を組み立てるための、書き出しの部品（tests/writer が使う）。安定した API ではない
+#[doc(hidden)]
+pub mod raw {
+    pub use crate::file::Version;
+    pub use crate::write::bits::BitWriter;
+    pub use crate::write::classes::ClassDef;
+    pub use crate::write::database::Database;
+    pub use crate::write::object::ObjectWriter;
+}
 
 use zumen_core::{DrawingReader, ReadError, ReadOptions, Scene};
 use zumen_dxf::dxf_to_scene;
