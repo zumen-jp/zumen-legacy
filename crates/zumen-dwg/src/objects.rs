@@ -268,6 +268,19 @@ pub(crate) fn read_object_map(section: &[u8]) -> HashMap<u64, usize> {
     map
 }
 
+/// オブジェクトのバイト列（MS の大きさから CRC まで、20.1）の長さ。R2010 以降は MS の後にハンドルの並びの
+/// 大きさ（MC）がある。範囲がデータの外なら None
+pub(crate) fn object_length(objects: &[u8], offset: usize, r2010: bool) -> Option<usize> {
+    let mut head = Bits::at(objects, offset);
+    let size = head.ms().ok()?;
+    if r2010 {
+        head.umc().ok()?;
+    }
+    let start = usize::try_from(head.pos() / 8).ok()?;
+    let end = start.checked_add(usize::try_from(size).ok()?)?.checked_add(2)?;
+    (end <= objects.len()).then(|| end - offset)
+}
+
 /// 拡張データの 1 つの値（28「Extended Entity Data」）
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum EedValue {

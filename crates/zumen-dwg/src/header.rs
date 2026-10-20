@@ -39,6 +39,17 @@ pub(crate) struct Header {
     pub bylayer: u64,
     pub byblock: u64,
     pub continuous: u64,
+    /// 次に振るハンドル（HANDSEED）
+    pub handseed: u64,
+    /// 今のマルチラインのスタイル（CMLSTYLE）
+    pub cmlstyle: u64,
+    pub view_control: u64,
+    pub ucs_control: u64,
+    pub vport_control: u64,
+    /// ビューポートの図形のヘッダの表（R2000 まで）
+    pub vpent_control: u64,
+    /// グループの辞書（ACAD_GROUP）
+    pub groups: u64,
 }
 
 /// ヘッダ変数の節を読む。途中で読めなくなったら Err（それまでの値は使わない）
@@ -142,11 +153,12 @@ fn read_variables(s: &mut Streams<'_>) -> Read<Header> {
     }
     s.cmc()?;
     // HANDSEED は R2007 以降も値の並びの中
-    s.data.handle()?;
+    h.handseed = s.data.handle()?.value;
     // CLAYER、TEXTSTYLE、CELTYPE、（R2007 以降）CMATERIAL、DIMSTYLE、CMLSTYLE
-    for _ in 0..if f.r2007() { 6 } else { 5 } {
+    for _ in 0..if f.r2007() { 5 } else { 4 } {
         s.handle()?;
     }
+    h.cmlstyle = s.handle()?.value;
     // PSVPSCALE
     s.data.bd()?;
     // 紙空間: INSBASE、EXTMIN、EXTMAX、LIMMIN、LIMMAX、ELEVATION、UCSORG、UCSXDIR、UCSYDIR、UCSNAME
@@ -259,18 +271,17 @@ fn read_variables(s: &mut Streams<'_>) -> Read<Header> {
     h.layer_control = s.handle()?.value;
     h.style_control = s.handle()?.value;
     h.linetype_control = s.handle()?.value;
-    // VIEW、UCS、VPORT
-    for _ in 0..3 {
-        s.handle()?;
-    }
+    h.view_control = s.handle()?.value;
+    h.ucs_control = s.handle()?.value;
+    h.vport_control = s.handle()?.value;
     h.appid_control = s.handle()?.value;
     h.dimstyle_control = s.handle()?.value;
     if !f.r2004() {
         // ビューポートの図形のヘッダの表（R13〜R2000）
-        s.handle()?;
+        h.vpent_control = s.handle()?.value;
     }
     // ACAD_GROUP
-    s.handle()?;
+    h.groups = s.handle()?.value;
     h.mlinestyle_dictionary = s.handle()?.value;
     h.named_objects = s.handle()?.value;
     // TSTACKALIGN、TSTACKSIZE、HYPERLINKBASE、STYLESHEET
