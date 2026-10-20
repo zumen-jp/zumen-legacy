@@ -1,11 +1,13 @@
 // Web Worker で図面を読む（@zumenjs/reader/worker）。ReaderWorker がこのモジュールの Worker を作り、メッセージを送る。
-// 読んだ Scene は点列の Float64Array ごと移し（transfer）、ページで JSON を解析し直さない
-import { initReader, LimitError, readScene } from "./index.js";
+// 読んだ図面は JSON の文字列のまま送り、ページが sceneFromJson で Scene にする。Scene を送ると、図形ごとの点列の
+// Float64Array を構造化複製・転送することになり、図形が多い図面ではそれが読み取りの何倍もかかる
+// （SFC の 22 万図形で、文字列は 2.9 秒、Scene の転送は 14.5 秒。docs/architecture.md）
+import { initReader, LimitError, readJson } from "./index.js";
 import type { FromWorker, ToWorker } from "./protocol.js";
 
 interface WorkerScope {
   onmessage: ((event: MessageEvent<ToWorker>) => void) | null;
-  postMessage(message: FromWorker, transfer?: Transferable[]): void;
+  postMessage(message: FromWorker): void;
 }
 
 const scope = globalThis as unknown as WorkerScope;
@@ -21,8 +23,7 @@ scope.onmessage = (event) => {
   }
   const { id, bytes, options } = message;
   try {
-    const scene = readScene(bytes, options);
-    scope.postMessage({ type: "scene", id, scene }, buffersOf(scene));
+    scope.postMessage({ type: "scene", id, json: readJson(bytes, options) });
   } catch (error) {
     const reply: FromWorker = { type: "error", id, message: messageOf(error) };
     if (error instanceof LimitError) reply.limit = error.limit;
@@ -32,19 +33,4 @@ scope.onmessage = (event) => {
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-/** Scene の中の Float64Array などのバッファ（同じものは 1 度だけ） */
-function buffersOf(scene: object): ArrayBuffer[] {
-  const buffers = new Set<ArrayBuffer>();
-  const visit = (value: unknown) => {
-    if (typeof value !== "object" || value === null) return;
-    if (ArrayBuffer.isView(value)) {
-      if (value.buffer instanceof ArrayBuffer) buffers.add(value.buffer);
-      return;
-    }
-    for (const child of Array.isArray(value) ? value : Object.values(value)) visit(child);
-  };
-  visit(scene);
-  return [...buffers];
 }
