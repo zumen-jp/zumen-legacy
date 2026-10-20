@@ -90,11 +90,19 @@ pub(crate) fn read_entity(object: &mut Object<'_>, kind: &str, names: &Names) ->
     let common = entity_common(object)?;
     let handle = object.handle;
     let s = &mut object.streams;
-    let r2000 = true;
+    // R13・R14 は厚さ（BT）と押し出し（BE）を省かずに BD・3BD で持ち、線分・3D 面・挿入の尺度も省かない
+    let r2000 = s.format.r2000();
     let mut thickness = 0.0;
     let mut extrusion = Z;
     let mut children = None;
     let body = match kind {
+        "LINE" if !r2000 => {
+            let start = s.data.bd3()?;
+            let end = s.data.bd3()?;
+            thickness = s.data.bt(r2000)?;
+            extrusion = s.data.be(r2000)?;
+            Body::Entity(DxfEntityData::Line { start, end })
+        }
         "LINE" => {
             let z_zero = s.data.bit()?;
             let x0 = s.data.rd()?;
@@ -138,6 +146,11 @@ pub(crate) fn read_entity(object: &mut Object<'_>, kind: &str, names: &Names) ->
             let start_param = s.data.bd()?;
             let end_param = s.data.bd()?;
             Body::Entity(DxfEntityData::Ellipse { center, major_axis, ratio, start_param, end_param })
+        }
+        "3DFACE" if !r2000 => {
+            let [vtx0, vtx1, vtx2, vtx3] = [s.data.bd3()?, s.data.bd3()?, s.data.bd3()?, s.data.bd3()?];
+            let invisible = f64::from(s.data.bs()?);
+            Body::Entity(DxfEntityData::Solid { vtx0, vtx1, vtx2, vtx3, invisible_edges: Some(invisible) })
         }
         "3DFACE" => {
             let no_flags = s.data.bit()?;
@@ -274,7 +287,13 @@ pub(crate) fn read_entity(object: &mut Object<'_>, kind: &str, names: &Names) ->
             extrusion = e;
             Body::Entity(DxfEntityData::Hatch(hatch))
         }
-        "VIEWPORT" => Body::Entity(DxfEntityData::Viewport(viewport(s)?)),
+        "VIEWPORT" => {
+            let mut viewport = viewport(s)?;
+            if !r2000 {
+                mview(&object.eed, &mut viewport);
+            }
+            Body::Entity(DxfEntityData::Viewport(viewport))
+        }
         "IMAGE" | "WIPEOUT" => Body::Entity(DxfEntityData::Image(image(s)?)),
         "MLINE" => {
             let (mline, e) = mline(s, names)?;
@@ -301,8 +320,10 @@ fn lwpolyline(s: &mut Streams<'_>) -> Read<(DxfLwPolyline, f64, [f64; 3])> {
     let width_count = if flags & 32 != 0 { count_of(s.data.bl()?)? } else { 0 };
     let mut points: Vec<[f64; 3]> = Vec::with_capacity(count.min(1 << 16));
     let mut last = [0.0, 0.0];
+    // R2000 以降は 2 つ目からの頂点を前の頂点との差（DD）で持つ。R13・R14 はすべて 2RD
+    let r2000 = s.format.r2000();
     for index in 0..count {
-        last = if index == 0 { s.data.rd2()? } else { s.data.dd2(last)? };
+        last = if index == 0 || !r2000 { s.data.rd2()? } else { s.data.dd2(last)? };
         points.push([last[0], last[1], elevation]);
     }
     let mut bulges = vec![0.0; points.len()];
@@ -537,6 +558,9 @@ fn cubic_basis(knots: &[f64], span: usize, u: f64) -> [f64; 3] {
 
 /// TEXT・ATTRIB・ATTDEF に共通する値（20.4.3）。R2000 以降は DataFlags のビットが立った値を省く
 fn text(s: &mut Streams<'_>, names: &Names) -> Read<(DxfTextBase, f64, [f64; 3])> {
+    if !s.format.r2000() {
+        return text_r14(s, names);
+    }
     let flags = s.data.rc()?;
     let elevation = if flags & 0x01 == 0 { s.data.rd()? } else { 0.0 };
     let [x, y] = s.data.rd2()?;
@@ -556,6 +580,39 @@ fn text(s: &mut Streams<'_>, names: &Names) -> Read<(DxfTextBase, f64, [f64; 3])
         text: decode_escapes(&value),
         insert: [x, y, elevation],
         align_point: align_point.map(|[ax, ay]| [ax, ay, elevation]),
+        height,
+        rotation,
+        oblique,
+        width: if width == 0.0 || width.is_nan() { 1.0 } else { width },
+        style: names.style(style),
+        halign,
+        valign,
+        text_generation_flag: generation,
+    };
+    Ok((text, thickness, extrusion))
+}
+
+/// R13・R14 の TEXT・ATTRIB・ATTDEF に共通する値（20.4.3）。値を省かない。位置合わせの点はいつもあり、DXF と同じく
+/// 左・ベースライン以外の位置合わせのときだけ持つ（R2000 以降の図面で AutoCAD が省くのと同じになる）
+fn text_r14(s: &mut Streams<'_>, names: &Names) -> Read<(DxfTextBase, f64, [f64; 3])> {
+    let elevation = s.data.bd()?;
+    let [x, y] = s.data.rd2()?;
+    let [ax, ay] = s.data.rd2()?;
+    let extrusion = s.data.bd3()?;
+    let thickness = s.data.bd()?;
+    let oblique = deg(s.data.bd()?);
+    let rotation = deg(s.data.bd()?);
+    let height = s.data.bd()?;
+    let width = s.data.bd()?;
+    let value = s.tv()?;
+    let generation = f64::from(s.data.bs()?);
+    let halign = f64::from(s.data.bs()?);
+    let valign = f64::from(s.data.bs()?);
+    let style = s.handle()?.value;
+    let text = DxfTextBase {
+        text: decode_escapes(&value),
+        insert: [x, y, elevation],
+        align_point: (halign != 0.0 || valign != 0.0).then_some([ax, ay, elevation]),
         height,
         rotation,
         oblique,
@@ -619,9 +676,13 @@ fn mtext_fields(s: &mut Streams<'_>, names: &Names) -> Read<(DxfMText, [f64; 3])
     s.data.bd()?;
     let raw = s.tv()?;
     let style = s.handle()?.value;
-    let line_spacing_style = f64::from(s.data.bs()?);
-    let line_spacing_factor = s.data.bd()?;
-    s.data.bit()?;
+    // 行間（R2000 から。R13・R14 は DXF の読み取りと同じ既定の値）
+    let (mut line_spacing_style, mut line_spacing_factor) = (1.0, 1.0);
+    if s.format.r2000() {
+        line_spacing_style = f64::from(s.data.bs()?);
+        line_spacing_factor = s.data.bd()?;
+        s.data.bit()?;
+    }
     let mut background_flags = 0.0;
     let mut background: Option<(f64, Color)> = None;
     if s.format.r2004() {
@@ -687,7 +748,10 @@ fn mtext_fields(s: &mut Streams<'_>, names: &Names) -> Read<(DxfMText, [f64; 3])
 /// INSERT・MINSERT（20.4.9、20.4.10）と ACAD_TABLE の頭。属性の図形を返す
 fn insert(s: &mut Streams<'_>, minsert: bool, names: &Names) -> Read<(DxfInsert, [f64; 3], Option<Children>)> {
     let point = s.data.bd3()?;
-    let (xscale, yscale, zscale) = match s.data.bb()? {
+    // 尺度。R13・R14 は BD × 3、R2000 以降はデータの印（BB）で省く
+    let scale_flags = if s.format.r2000() { s.data.bb()? } else { 4 };
+    let (xscale, yscale, zscale) = match scale_flags {
+        4 => (s.data.bd()?, s.data.bd()?, s.data.bd()?),
         0 => {
             let x = s.data.rd()?;
             (x, s.data.dd(x)?, s.data.dd(x)?)
@@ -758,9 +822,9 @@ fn polyline(s: &mut Streams<'_>, kind: &str) -> Read<(DxfPolyline, f64, [f64; 3]
             s.data.bs()?;
             let start = s.data.bd()?;
             let end = s.data.bd()?;
-            thickness = s.data.bt(true)?;
+            thickness = s.data.bt(s.format.r2000())?;
             let elevation = s.data.bd()?;
-            extrusion = s.data.be(true)?;
+            extrusion = s.data.be(s.format.r2000())?;
             // 既定の幅と標高は頂点に移す（DXF の読み取りと同じ）
             polyline.vertices.widths = vec![[start, end]];
             polyline.vertices.points = vec![[0.0, 0.0, elevation]];
@@ -819,10 +883,14 @@ fn dimension(s: &mut Streams<'_>, kind: &str, names: &Names) -> Read<(DxfDimensi
     // 挿入の尺度と回転（DXF には出ない）
     s.data.bd3()?;
     s.data.bd()?;
-    let attachment_point = f64::from(s.data.bs()?);
-    s.data.bs()?;
-    s.data.bd()?;
-    let actual_measurement = s.data.bd()?;
+    // 文字の配置・行間・実測値（R2000 から）
+    let (mut attachment_point, mut actual_measurement) = (None, None);
+    if s.format.r2000() {
+        attachment_point = Some(f64::from(s.data.bs()?));
+        s.data.bs()?;
+        s.data.bd()?;
+        actual_measurement = Some(s.data.bd()?);
+    }
     if s.format.r2007() {
         s.data.bit()?;
         s.data.bit()?;
@@ -841,8 +909,8 @@ fn dimension(s: &mut Streams<'_>, kind: &str, names: &Names) -> Read<(DxfDimensi
         // DXF は 12 が原点のとき書かない
         insert: (ix != 0.0 || iy != 0.0 || elevation != 0.0).then_some([ix, iy, elevation]),
         text: decode_escapes(&text),
-        actual_measurement: Some(actual_measurement),
-        attachment_point: Some(attachment_point),
+        actual_measurement,
+        attachment_point,
         text_rotation: (text_rotation != 0.0).then_some(text_rotation),
         horizontal_direction: (horizontal_direction != 0.0).then_some(horizontal_direction),
         angle: None,
@@ -955,16 +1023,34 @@ fn leader(s: &mut Streams<'_>, names: &Names) -> Read<(DxfLeader, [f64; 3])> {
     let extrusion = s.data.bd3()?;
     let x_direction = s.data.bd3()?;
     s.data.bd3()?;
-    s.data.bd3()?;
+    // 終わりの点からのずれ（R14 から）、作ったときの DIMGAP（R13・R14）、文字の枠の高さと幅
+    if s.format.version >= crate::file::Version::R14 {
+        s.data.bd3()?;
+    }
+    if !s.format.r2000() {
+        s.data.bd()?;
+    }
     if s.format.version <= crate::file::Version::R2007 {
         s.data.bd()?;
         s.data.bd()?;
     }
     let hook_on_x = s.data.bit()?;
     let has_arrowhead = s.data.bit()?;
-    s.data.bs()?;
-    s.data.bit()?;
-    s.data.bit()?;
+    if s.format.r2000() {
+        s.data.bs()?;
+        s.data.bit()?;
+        s.data.bit()?;
+    } else {
+        // 矢印の種類（BS）、作ったときの DIMASZ（BD）、不明（B・B・BS）、BYBLOCK の色（BS）、不明（B・B）
+        s.data.bs()?;
+        s.data.bd()?;
+        s.data.bit()?;
+        s.data.bit()?;
+        s.data.bs()?;
+        s.data.bs()?;
+        s.data.bit()?;
+        s.data.bit()?;
+    }
     let annotation = s.handle()?.value;
     let style = s.handle()?.value;
     let dimstyle = names.dimstyle(style);
@@ -1170,6 +1256,24 @@ fn viewport(s: &mut Streams<'_>) -> Read<DxfViewport> {
     let center = s.data.bd3()?;
     let width = s.data.bd()?;
     let height = s.data.bd()?;
+    if !s.format.r2000() {
+        // R13・R14 は中心と大きさだけ。表示の値は拡張データ（mview）
+        return Ok(DxfViewport {
+            center,
+            width,
+            height,
+            status: 1.0,
+            id: 0.0,
+            view_center: [0.0, 0.0],
+            view_target: [0.0; 3],
+            view_direction: [0.0, 0.0, 1.0],
+            view_height: 0.0,
+            view_twist_angle: 0.0,
+            status_flags: 0.0,
+            frozen_layer_handles: Vec::new(),
+            clipping_boundary_handle: None,
+        });
+    }
     let view_target = s.data.bd3()?;
     let view_direction = s.data.bd3()?;
     let view_twist_angle = deg(s.data.bd()?);
@@ -1218,6 +1322,40 @@ fn viewport(s: &mut Streams<'_>) -> Read<DxfViewport> {
         frozen_layer_handles,
         clipping_boundary_handle: (clip != 0).then(|| hex(clip)),
     })
+}
+
+/// R13・R14 のビューポートの表示の値。拡張データの MVIEW の後の点（1010）と実数（1040）を、入れ子の { の前まで読む
+/// （DXF の R12 のビューポートの読み取りと同じ。点は目標・向き、実数はねじれ・高さ・中心の X・Y）
+fn mview(eed: &crate::objects::Eed, viewport: &mut DxfViewport) {
+    use crate::objects::EedValue;
+    for (_, values) in &eed.apps {
+        let Some(start) = values.iter().position(|(code, value)| {
+            *code == 1000 && matches!(value, EedValue::Text(text) if text.trim().eq_ignore_ascii_case("MVIEW"))
+        }) else {
+            continue;
+        };
+        let mut points = Vec::new();
+        let mut reals = Vec::new();
+        for (code, value) in &values[start + 1..] {
+            match (code, value) {
+                (1010, EedValue::Point(point)) => points.push(*point),
+                (1040, EedValue::Number(number)) => reals.push(*number),
+                (1002, EedValue::Control(false)) if !reals.is_empty() => break,
+                _ => {}
+            }
+        }
+        if let Some(target) = points.first() {
+            viewport.view_target = *target;
+        }
+        if let Some(direction) = points.get(1) {
+            viewport.view_direction = *direction;
+        }
+        let real = |index: usize| reals.get(index).copied().unwrap_or(0.0);
+        viewport.view_twist_angle = real(0);
+        viewport.view_height = real(1);
+        viewport.view_center = [real(2), real(3)];
+        return;
+    }
 }
 
 /// IMAGE・WIPEOUT（20.4.80）

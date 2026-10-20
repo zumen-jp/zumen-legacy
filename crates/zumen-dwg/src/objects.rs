@@ -16,6 +16,9 @@ pub(crate) struct Format {
 }
 
 impl Format {
+    pub fn r2000(&self) -> bool {
+        self.version >= Version::R2000
+    }
     pub fn r2004(&self) -> bool {
         self.version >= Version::R2004
     }
@@ -89,6 +92,17 @@ impl<'a> Streams<'a> {
             Some(handles) => handles.handle(),
             None => self.data.handle(),
         }
+    }
+
+    /// ハンドルの並びを値の並びの handles_start からにする（R13・R14 は値の並びの大きさを途中で読む）
+    fn split_at(&mut self, handles_start: u64) -> Read<()> {
+        let Some(handles) = &mut self.handles else { return Err(Eof) };
+        if handles_start < self.data.pos() || handles_start > handles.end() {
+            return Err(Eof);
+        }
+        handles.set_pos(handles_start);
+        self.data.set_end(handles_start);
+        Ok(())
     }
 
     /// H を reference（そのオブジェクトのハンドル）を基準に参照先のハンドルにする
@@ -298,6 +312,9 @@ pub(crate) fn object_length(objects: &[u8], offset: usize, r2010: bool) -> Optio
 pub(crate) enum EedValue {
     Text(String),
     Number(f64),
+    Point([f64; 3]),
+    /// 1002 の { （false）と }（true）
+    Control(bool),
     Other,
 }
 
@@ -313,6 +330,20 @@ pub(crate) struct Object<'a> {
     pub kind: u16,
     pub streams: Streams<'a>,
     pub eed: Eed,
+    /// 型の位置（値の並びの大きさ RL の基準）
+    start: u64,
+}
+
+impl Object<'_> {
+    /// R13・R14 は値の並びの大きさ（RL）が拡張データの後（図形は代わりの表示の後）にある（20.1、20.4.1）。
+    /// それを読み、ハンドルの並びを分ける。R2000 以降は開いたときに分けてある
+    pub fn split_handles(&mut self) -> Read<()> {
+        if self.streams.format.r2000() {
+            return Ok(());
+        }
+        let size = u64::from(self.streams.data.rl()?);
+        self.streams.split_at(self.start.checked_add(size).ok_or(Eof)?)
+    }
 }
 
 /// オブジェクトを開き、型・ハンドル・拡張データまで読む（20.1、20.2）
@@ -329,9 +360,15 @@ pub(crate) fn open_object(objects: &[u8], offset: usize, format: Format) -> Read
     data.set_pos(start);
     data.set_end(end);
     let kind = data.ot(format.r2010())?;
-    // ハンドルの並びの始まり。R2000〜R2007 は型の前からのビット数（RL）、R2010 以降は終わりからのビット数（MC）
-    let handles_start =
-        if format.r2010() { end.checked_sub(handle_bits).ok_or(Eof)? } else { start + u64::from(data.rl()?) };
+    // ハンドルの並びの始まり。R2000〜R2007 は型の前からのビット数（RL）、R2010 以降は終わりからのビット数（MC）。
+    // R13・R14 の RL は拡張データの後にあり、読んだところで分ける（split_handles）。それまではハンドルの並びは空
+    let handles_start = if format.r2010() {
+        end.checked_sub(handle_bits).ok_or(Eof)?
+    } else if format.r2000() {
+        start + u64::from(data.rl()?)
+    } else {
+        end
+    };
     if handles_start > end || handles_start < data.pos() {
         return Err(Eof);
     }
@@ -344,7 +381,7 @@ pub(crate) fn open_object(objects: &[u8], offset: usize, format: Format) -> Read
     let mut streams = Streams::with_text(data, text, handles, format);
     let handle = streams.data.handle()?.value;
     let eed = read_eed(&mut streams)?;
-    Ok(Object { handle, kind, streams, eed })
+    Ok(Object { handle, kind, streams, eed, start })
 }
 
 /// 拡張データ（28）。BS の大きさ、APPID のハンドル、その大きさのバイトの値が、大きさ 0 まで続く
@@ -379,10 +416,7 @@ fn eed_values(bytes: &[u8], format: Format) -> Vec<(i32, EedValue)> {
                         EedValue::Text(reader.text_body(length, format.codec)?)
                     }
                 }
-                2 => {
-                    reader.rc()?;
-                    EedValue::Other
-                }
+                2 => EedValue::Control(reader.rc()? != 0),
                 3 | 5 => {
                     reader.skip(64)?;
                     EedValue::Other
@@ -392,10 +426,7 @@ fn eed_values(bytes: &[u8], format: Format) -> Vec<(i32, EedValue)> {
                     reader.skip(length * 8)?;
                     EedValue::Other
                 }
-                10..=13 => {
-                    reader.rd3()?;
-                    EedValue::Other
-                }
+                10..=13 => EedValue::Point(reader.rd3()?),
                 40..=42 => EedValue::Number(reader.rd()?),
                 70 => EedValue::Number(f64::from(reader.rs()? as i16)),
                 71 => EedValue::Number(f64::from(reader.rl()? as i32)),
@@ -416,6 +447,7 @@ pub(crate) struct NonEntity {
 }
 
 pub(crate) fn non_entity(object: &mut Object<'_>) -> Read<NonEntity> {
+    object.split_handles()?;
     let s = &mut object.streams;
     let reactors = s.data.bl()?;
     let xdic_missing = s.format.r2004() && s.data.bit()?;
@@ -473,7 +505,8 @@ pub(crate) fn entity_common(object: &mut Object<'_>) -> Read<EntityCommon> {
         let size = if s.format.r2010() { s.data.bll()? } else { u64::from(s.data.rl()?) };
         s.data.skip(size.checked_mul(8).ok_or(Eof)?)?;
     }
-    entity_mode_data(s, handle)
+    object.split_handles()?;
+    entity_mode_data(&mut object.streams, handle)
 }
 
 /// 埋め込みの図形（R2018 以降の複数行の属性の MTEXT）の共通の値。図形のモード（BB）から始まる（20.4.4）
@@ -499,6 +532,13 @@ fn entity_mode_data(s: &mut Streams<'_>, handle: u64) -> Read<EntityCommon> {
     if format.r2013() {
         s.data.bit()?;
     }
+    // R13・R14 はレイヤと線種（BYLAYER でないとき）のハンドルが前後の図形より前にある（20.4.2）
+    let mut r14 = None;
+    if !format.r2000() {
+        let layer = s.handle()?.value;
+        let bylayer = s.data.bit()?;
+        r14 = Some((layer, if bylayer { None } else { Some(s.handle()?.value) }));
+    }
     // Nolinks は R2000 まで（R2004 以降はない。ACadSharp・ezdwg と同じ）
     let mut links = None;
     if !format.r2004() && !s.data.bit()? {
@@ -507,6 +547,22 @@ fn entity_mode_data(s: &mut Streams<'_>, handle: u64) -> Read<EntityCommon> {
     let (color, transparency, book) = entity_color(s)?;
     let book_color = if book { Some(s.handle()?.value) } else { None };
     let linetype_scale = s.data.bd()?;
+    if let Some((layer, ltype)) = r14 {
+        // 線種のフラグ・印刷スタイル・線の太さは R2000 から。線の太さは BYLAYER
+        let invisible = s.data.bs()? & 1 != 0;
+        return Ok(EntityCommon {
+            color,
+            transparency,
+            linetype_scale,
+            layer,
+            ltype_flags: if ltype.is_some() { 3 } else { 0 },
+            ltype,
+            invisible,
+            lineweight: -1.0,
+            links,
+            book_color,
+        });
+    }
     let layer = s.handle()?.value;
     let ltype_flags = s.data.bb()?;
     let ltype = if ltype_flags == 3 { Some(s.handle()?.value) } else { None };

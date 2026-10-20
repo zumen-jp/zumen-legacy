@@ -1,7 +1,7 @@
 # How DWG is handled
 
-`zumen-dwg` (`crates/zumen-dwg`) reads DWG written by AutoCAD 2000 (AC1015) to AutoCAD 2018 and later (AC1032) into the
-AutoCAD drawing model of `zumen-dxf` (`DxfDocument`), and `dxf_to_scene` draws it as it draws DXF. It is written in Rust
+`zumen-dwg` (`crates/zumen-dwg`) reads DWG written by AutoCAD Release 13 (AC1012) to AutoCAD 2018 and later (AC1032)
+into the AutoCAD drawing model of `zumen-dxf` (`DxfDocument`), and `dxf_to_scene` draws it as it draws DXF. It is written in Rust
 only, with its own decoder that follows the Open Design Alliance's
 [Open Design Specification for .dwg files](https://opendesign.com/files/guestdownloads/OpenDesign_Specification_for_.dwg_files.pdf)
 5.4.1 and cites its sections in comments ([decision 0003](../decisions/0003-dwg-in-rust.md)). There is no TypeScript
@@ -24,10 +24,10 @@ its source was not read.
 
 ## Versions and containers
 
-- **Detection**: the file starts with `AC10` and two digits. AC1012 and AC1014 (R13 and R14) and unknown versions are
-  refused with a message. R13 and R14 use the R2000 container and can be added later.
-- **AC1015 (R2000)**: the section locators of the file header (3.2.1) give the header variables, the classes, the object
-  map and the template section (`$MEASUREMENT`).
+- **Detection**: the file starts with `AC10` and two digits. Unknown versions are refused with a message.
+- **AC1012, AC1014, AC1015 (R13, R14, R2000)**: the section locators of the file header (3.2.1) give the header
+  variables, the classes, the object map and the template section (`$MEASUREMENT`). R13 and R14 have the same container
+  as R2000, without AcDb:AuxHeader ([R13 and R14](#r13-and-r14)).
 - **AC1018, AC1024, AC1027, AC1032 (R2004, 2010, 2013, 2018)**: the file header at 0x80 is masked with a pseudo-random
   sequence (4.3); the page map and the section map give the pages of each section (4.4, 4.5); each data page header is
   masked with `0x4164536b` XOR the page position (4.6), and the data is LZ77-compressed (4.7).
@@ -51,6 +51,43 @@ its source was not read.
 - An object that cannot be read is left out and counted by type (`dwg-broken-object`). Entity types that are not read
   are counted by their DXF name in `skipped` and reported (`skipped-types`), as for DXF.
 
+## R13 and R14
+
+R13 and R14 store most values in full where R2000 compresses them, have values that R2000 moved to the registry, and lack
+those that R2000 added. The differences read are:
+
+- **Objects**: the size of the object data (RL) follows the extended data, and for entities the graphic (20.1, 20.4.1);
+  from R2000 on it follows the type.
+- **Entities** (20.4.1, 20.4.2): the layer and, unless the line type is BYLAYER, the line type handle come before the
+  links of the previous and next entity; there are no line type flags, plot style, material or line weight, so the line
+  weight is BYLAYER, as DXF of these versions has none. Thickness and extrusion are a BD and a 3BD (2.8, 2.10). LINE,
+  3DFACE, TEXT, ATTRIB and ATTDEF, the scale of INSERT, MINSERT and ACAD_TABLE, and the vertices of LWPOLYLINE store every
+  value. MTEXT has no line spacing (DXF's defaults are used), and dimensions have no attachment point, line spacing or
+  measurement (left out, as in DXF of these versions). LEADER has the R13–R14 values after the hook; R13 has no end point
+  projection.
+- **Header variables** (9): the values of R13 and R14 only (an unknown BS, `DIMSAV`, `BLIPMODE`, `ATTREQ`, `ATTDIA`,
+  `WIREFRAME`, `DELOBJ`, `DRAGMODE`, `OSMODE`, `COORDS`, `PICKSTYLE`, and the dimension variables as bits, bytes and
+  names), and none of R2000's (`PSVPSCALE`, the orthographic UCS, `$INSUNITS` and the following values, the layout and
+  plot dictionaries). `$INSUNITS` is 0.
+- **Tables**: a layer has four bits (frozen, off, frozen in new viewports, locked) instead of the flags; the off bit set
+  means off, as in R2000 (*inferred*). It is plotted and has the default line weight, as DXF of these versions reads.
+  DIMSTYLE has the R13–R14 values before `DIMSCALE`. BLOCK_HEADER has no loaded bit, insert count, description, preview,
+  insert handles or layout. An R14 DICTIONARY has an unknown byte where R2000 has the cloning and hard owner flags; R13
+  has neither.
+- **Viewports**: a VIEWPORT has only its center and size. Its view (target, direction, twist, height and center) is read
+  from the `MVIEW` extended data of the `ACAD` application, as the DXF reader reads an R12 viewport.
+- **Layouts**: there is no LAYOUT. When paper space has entities, the drawing gets one layout, `Layout1`, on the paper
+  space block with the paper space limits, as the DXF reader does for R12.
+- **Text alignment**: TEXT always stores the alignment point; it is kept only for an alignment other than left on the
+  baseline, as AutoCAD leaves it out of DXF and of R2000 drawings (*inferred*).
+
+Checked against real files: R14, with eight drawings. One of them AutoCAD saved both as R14 and as R2000; the two read the
+same entity by entity, table by table and in every header variable they share, except for what R14 does not store (line
+weights, plot flags, block descriptions, `$INSUNITS`, dimension measurements, MTEXT line spacing) and what AutoCAD changed
+when it saved the drawing as R14 (table names in capitals, names with characters R14 does not allow, one fraction of
+MTEXT, the last digits of some coordinates). ezdwg reads the same coordinates and strings from the eight drawings. R13
+follows the specification only: no R13 drawing was available to check.
+
 ## Text
 
 - From R2007 on, strings are UTF-16 (the scene says `UTF-16（AutoCAD 2007 以降の DWG）`). Earlier strings use the code
@@ -71,8 +108,8 @@ its source was not read.
 - Header variables used for drawing (`$INSUNITS`, `$LTSCALE`, `$PSLTSCALE`, `$TILEMODE`, `$TEXTSIZE`, `$DIMSCALE`,
   `$DIMASZ`, `$DIMTXT`, extents and limits) and `$MEASUREMENT` from the template section; the tables of layers, line
   types, text styles, dimension styles and block records with their BLOCK entities; layouts (the `ACAD_LAYOUT`
-  dictionary); multiline styles (`ACAD_MLINESTYLE`); draw order (SORTENTSTABLE); color book colors (DBCOLOR in
-  `ACAD_COLOR`).
+  dictionary, from R2000 on); multiline styles (`ACAD_MLINESTYLE`); draw order (SORTENTSTABLE); color book colors
+  (DBCOLOR in `ACAD_COLOR`).
 - Entities: LINE, POINT, CIRCLE, ARC, ELLIPSE, LWPOLYLINE, POLYLINE (2D, 3D, polyface and polygon meshes), SPLINE, TEXT,
   ATTRIB, ATTDEF, MTEXT, INSERT, MINSERT, the seven DIMENSION types, ARC_DIMENSION, LARGE_RADIAL_DIMENSION, HATCH, SOLID,
   TRACE, 3DFACE, LEADER, MULTILEADER, MLINE (with its element parameters), VIEWPORT, XLINE, RAY, IMAGE, WIPEOUT and
@@ -142,7 +179,7 @@ the dimension style values that DXF leaves out at their defaults, the attribute 
 multi-line attributes differed too (28 and 235 against 0 in the ACadSharp sample), because the DWG reader took the
 "Is NOT annotative" bit of MTEXT the wrong way round and read the values after the embedded MTEXT out of step.
 
-Not supported yet: R13 and R14, the fit points of splines without end tangents, HELIX, MPOLYGON, the content of
+Not supported yet: R12 and earlier, the fit points of splines without end tangents, HELIX, MPOLYGON, the content of
 ACAD_TABLE beyond its block, proxy graphics, and DWG files over the section limit.
 
 ## Writing
@@ -182,8 +219,8 @@ it (`tests/writer`).
   hold the page size each, the last one the rest. The meta data fields that point at pages (0x0D preview, 0x20 summary
   info, 0x24 VBA project, 0x2C app info) get the new addresses; the other fields are copied. The random seed of the file
   header is kept, so the same drawing gives the same bytes.
-- R13 and R14 are not supported. A password-protected drawing (security flag 1 at 0x18, or an R2007 section with
-  encryption 1) and a section over the section limit of reading are refused.
+- R13 and R14 are read but not written yet. A password-protected drawing (security flag 1 at 0x18, or an R2007 section
+  with encryption 1) and a section over the section limit of reading are refused.
 
 ### Checks
 
@@ -459,8 +496,9 @@ drawing with `write_dwg` (`$INSUNITS` and `$MEASUREMENT` from the units), which 
   line type. An R2000 layer that is off also gets a negative color number, as DXF writes it.
 - **Values the version cannot hold** are written as the nearest one and reported: `edit-nearest-color` (no true color
   before AutoCAD 2004) and `edit-rounded-lineweight` (the line weights of DWG).
-- **Not editable**: R13 and R14 (not read), drawings with a password, and, in R2000, an entity whose neighbour in its
-  block is of a type that the codec does not read (`unsupported-kind`, as the neighbour's links would change).
+- **Not editable**: R13 and R14 (read, not written yet), drawings with a password, and, in R2000, an entity whose
+  neighbour in its block is of a type that the codec does not read (`unsupported-kind`, as the neighbour's links would
+  change).
 
 ### Inferred rules of editing
 
