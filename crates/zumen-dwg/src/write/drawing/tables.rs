@@ -2,12 +2,14 @@
 //! 項目。値は DXF の書き出しと同じ（モデルにない値は AutoCAD の既定の値）
 
 use super::header::dim_default;
-use super::{MODEL, PAPER, VERSION, Writer, href, owned, rad, upper};
+use super::{MODEL, PAPER, Writer, href, owned, rad, upper};
+use crate::codec::CmColor;
 use crate::codec::object::ObjectCommon;
 use crate::codec::tables::{
-    Appid, BlockHeader, Control, Dash, DimStyle, DimValue, EntryName, Layer, Linetype, TextStyle, Vport,
+    Appid, BlockHeader, Control, Dash, DimStyle, DimValue, EntryName, Layer, Linetype, TextStyle, ViewportEntityHeader,
+    Vport,
 };
-use crate::codec::{CmColor, RawText};
+use crate::file::Version;
 use std::collections::HashMap;
 
 /// R2004 以降の CMC の色。ACI（0 BYBLOCK、256 BYLAYER）とトゥルーカラー（0xRRGGBB）
@@ -55,16 +57,6 @@ pub(super) fn lineweight_index(value: f64) -> u8 {
         .map_or(31, |(index, _)| index as u8)
 }
 
-/// 拡張データの文字列（R2007 以降: 1000 の印 0、RS の文字の数、UTF-16）
-pub(super) fn eed_string(out: &mut Vec<u8>, value: &str) {
-    let units: Vec<u16> = value.encode_utf16().take(i16::MAX as usize).collect();
-    out.push(0);
-    out.extend_from_slice(&(units.len() as u16).to_le_bytes());
-    for unit in units {
-        out.extend_from_slice(&unit.to_le_bytes());
-    }
-}
-
 /// 拡張データの 32 ビットの整数（1071 の印 71 と RL）
 pub(super) fn eed_long(out: &mut Vec<u8>, value: i32) {
     out.push(71);
@@ -79,6 +71,26 @@ fn entry(owner: u64) -> ObjectCommon {
 impl Writer<'_> {
     fn name(&self, value: &str) -> EntryName {
         EntryName::new(self.text(value))
+    }
+
+    /// 拡張データの文字列（28 の 1000）。R2007 以降は印 0・RS の文字の数・UTF-16、それより前は印 0・RC のバイト数・
+    /// 文字コードの番号（2 バイト、上位のバイトが先。AutoCAD の図面で確かめた。仕様は並びを書かない）・図面の文字コードの
+    /// バイト（255 バイトまで）
+    pub(super) fn eed_string(&self, out: &mut Vec<u8>, value: &str) {
+        out.push(0);
+        if self.version < Version::R2007 {
+            let crate::codec::RawText::Bytes(mut bytes) = self.text(value) else { return };
+            bytes.truncate(255);
+            out.push(bytes.len() as u8);
+            out.extend_from_slice(&self.codepage.to_be_bytes());
+            out.extend_from_slice(&bytes);
+            return;
+        }
+        let units: Vec<u16> = value.encode_utf16().take(i16::MAX as usize).collect();
+        out.extend_from_slice(&(units.len() as u16).to_le_bytes());
+        for unit in units {
+            out.extend_from_slice(&unit.to_le_bytes());
+        }
     }
 
     fn control(&mut self, kind: u16, handle: u64, entries: Vec<u64>, extra: Vec<u64>) {
@@ -104,7 +116,32 @@ impl Writer<'_> {
         self.write_block_headers(&fixed);
         self.control(60, fixed.view_control, Vec::new(), Vec::new());
         self.control(62, fixed.ucs_control, Vec::new(), Vec::new());
+        if fixed.vpent_control != 0 {
+            self.write_viewport_headers(&fixed);
+        }
         self.fixed = fixed;
+    }
+
+    /// R2000 の VIEWPORT ENTITY HEADER（20.4.70）と、その表（20.4.69）。AutoCAD と同じく紙空間（*Paper_Space）の
+    /// ビューポートごとに 1 つ置き、項目は次の項目を指す（終わりは 0）。最初の項目の名前は 1（AutoCAD と同じ）
+    fn write_viewport_headers(&mut self, fixed: &super::Fixed) {
+        let headers = self.viewport_headers.clone();
+        for (index, &(viewport, handle)) in headers.iter().enumerate() {
+            let next = headers.get(index + 1).map_or(0, |(_, next)| *next);
+            let header = ViewportEntityHeader {
+                common: entry(fixed.vpent_control),
+                name: EntryName { flag64: true, ..self.name(if index == 0 { "1" } else { "" }) },
+                on: true,
+                xref_block: href(5, 0),
+                viewport: href(4, viewport),
+                next: href(5, next),
+            };
+            let mut out = self.object(71, handle);
+            header.write(&mut out);
+            self.push(&out);
+        }
+        let entries = headers.iter().map(|(_, handle)| *handle).collect();
+        self.control(70, fixed.vpent_control, entries, Vec::new());
     }
 
     /// LTYPE（20.4.58）。ByBlock・ByLayer は表の管理のオブジェクトの終わりの 2 つのハンドルに置く（AutoCAD と同じ）
@@ -147,7 +184,8 @@ impl Writer<'_> {
                 alignment: b'A',
                 shapefiles: vec![href(5, 0); dashes.len()],
                 dashes,
-                strings: Vec::new(),
+                // 文字の要素の文字列の領域（R2004 までは文字の要素がなくても 256 バイト）
+                strings: if self.version < Version::R2007 { vec![0; 256] } else { Vec::new() },
                 xref_block: href(5, 0),
             };
             let mut out = self.object(57, handle);
@@ -177,11 +215,14 @@ impl Writer<'_> {
                 .or_else(|| self.linetype_handles.get("CONTINUOUS"))
                 .copied()
                 .unwrap_or(0);
+            if transparency_app.is_none() && plan.transparency.is_some() {
+                self.version_transparency.set(self.version_transparency.get() + 1);
+            }
             let layer = Layer {
                 common: entry(fixed.layer_control),
                 name: self.name(&plan.name),
                 values,
-                color: cmc(plan.color, plan.true_color),
+                color: self.cmc(plan.color, plan.true_color),
                 xref_block: href(5, 0),
                 plotstyle: href(5, fixed.placeholder),
                 material: Some(href(5, fixed.material_global)),
@@ -233,14 +274,14 @@ impl Writer<'_> {
                     generation: 0,
                     last_height: 2.5,
                     font: self.text("txt"),
-                    bigfont: RawText::empty(VERSION),
+                    bigfont: self.empty(),
                     xref_block: href(5, 0),
                 },
             };
             let mut out = self.object(53, handle);
             if let (Some(app), Some(family)) = (acad, source.and_then(|style| style.font_family.as_deref())) {
                 let mut data = Vec::new();
-                eed_string(&mut data, family);
+                self.eed_string(&mut data, family);
                 eed_long(&mut data, 0);
                 out.eed.push((app, data));
             }
@@ -338,14 +379,14 @@ impl Writer<'_> {
             entries.push(handle);
             let (scale, arrow, text) =
                 source.map_or((1.0, 2.5, 2.5), |style| (style.dimscale, style.dimasz, style.dimtxt));
-            let values = DimStyle::fields(VERSION)
+            let values = DimStyle::fields(self.version)
                 .map(|(key, _)| {
                     let value = match key {
                         "DIMSCALE" => DimValue::Double(scale),
                         "DIMASZ" => DimValue::Double(arrow),
                         "DIMTXT" => DimValue::Double(text),
                         "FLAG" => DimValue::Bit(false),
-                        _ => dim_default(key),
+                        _ => dim_default(key, self.version),
                     };
                     (key, value)
                 })
@@ -416,7 +457,13 @@ impl Writer<'_> {
                 null: href(5, 0),
                 block: href(3, block.begin),
                 entities: block.entities.iter().map(|entity| href(3, *entity)).collect(),
-                first_last: None,
+                // R2000 は最初と最後の図形（図形は前後のつながりでたどる。図形のないブロックは 0。外部参照は持たない）
+                first_last: (!xref && !overlaid).then(|| {
+                    (
+                        href(4, block.entities.first().copied().unwrap_or(0)),
+                        href(4, block.entities.last().copied().unwrap_or(0)),
+                    )
+                }),
                 endblk: href(3, block.end),
                 inserts: block.inserts.iter().map(|insert| href(4, *insert)).collect(),
                 layout: href(5, block.layout),

@@ -538,6 +538,7 @@ fn codec(kind: u16, class: &str) -> Option<Codec> {
         (65, _) => with!(Vport::read),
         (67, _) => with!(Appid::read),
         (69, _) => with!(DimStyle::read),
+        (71, _) => with!(ViewportEntityHeader::read),
         (42, _) => |s, _, _, o| {
             Dictionary::read(s, false)?.write(o);
             Ok(())
@@ -583,72 +584,87 @@ fn objects_of(bytes: &[u8], version: Version) -> (Vec<u8>, std::collections::Has
     }
 }
 
+/// オブジェクトを読んで書いた結果の数（種類ごとの確かめた数、読み書きできない種類の数）
+#[derive(Default)]
+pub(crate) struct ObjectCounts {
+    pub checked: std::collections::BTreeMap<String, usize>,
+    pub unknown: std::collections::BTreeMap<String, usize>,
+}
+
+/// 図面の読み書きできる種類のオブジェクトをすべて読んで書き、同じビット列にならない（読み残しのある）ものを返す
+pub(crate) fn object_failures(name: &str, bytes: &[u8], counts: &mut ObjectCounts) -> Vec<String> {
+    use crate::codec::object::{open_raw, writer};
+    let mut failures: Vec<String> = Vec::new();
+    let Some(version) = Version::from_magic(&bytes[..6]) else { return failures };
+    if matches!(version, Version::R13 | Version::R14) {
+        return failures;
+    }
+    let (objects, map) = objects_of(bytes, version);
+    let codec_text = if version >= Version::R2007 {
+        crate::bits::TextCodec::Utf16
+    } else {
+        crate::bits::TextCodec::Bytes(encoding_rs::WINDOWS_1252)
+    };
+    let classes = crate::write::classes::read_class_defs(
+        &framed_section(bytes, version, 1, "AcDb:Classes").data,
+        version,
+        codec_text,
+    );
+    let mut handles: Vec<(&u64, &usize)> = map.iter().collect();
+    handles.sort();
+    for (handle, &offset) in handles {
+        let Ok(mut raw) = open_raw(&objects, offset, version) else { continue };
+        let class = classes.iter().find(|class| class.number == raw.kind).map_or("", |class| class.dxf_name.as_str());
+        let Some(codec) = codec(raw.kind, class) else {
+            *counts
+                .unknown
+                .entry(if class.is_empty() { raw.kind.to_string() } else { class.to_string() })
+                .or_default() += 1;
+            continue;
+        };
+        let kind = raw.kind;
+        let mut out = writer(version, kind, raw.handle, &raw.eed);
+        if codec(&mut raw.input, kind, entity_name(kind, class), &mut out).is_err() {
+            failures.push(format!("{name} {handle:X} type {kind} {class}: read"));
+            continue;
+        }
+        let left = [
+            raw.input.data.remaining(),
+            raw.input.strings.as_ref().map_or(0, crate::bits::Bits::remaining),
+            raw.input.handles.as_ref().map_or(0, crate::bits::Bits::remaining),
+        ];
+        let length = object_length(&objects, offset, version >= Version::R2010).unwrap();
+        let original = &objects[offset..offset + length];
+        let (written, padding) = out.frame();
+        let meaningful = (written.len() as u64 - 2) * 8 - padding;
+        let same = written.len() == original.len() && same_bits(&written, original, meaningful).is_none();
+        if left[0] != 0 || left[1] != 0 || left[2] >= 8 || !same {
+            if failures.iter().filter(|line| line.contains(&format!("type {kind} {class}:"))).count() < 3 {
+                failures.push(format!(
+                    "{name} {handle:X} type {kind} {class}: left {left:?}, length {} vs {}, first different bit {:?}",
+                    written.len(),
+                    original.len(),
+                    same_bits(&written, original, meaningful)
+                ));
+            }
+        } else {
+            *counts.checked.entry(if class.is_empty() { kind.to_string() } else { class.to_string() }).or_default() +=
+                1;
+        }
+    }
+    failures
+}
+
 /// 読み書きできる種類のオブジェクトをすべて読んで書くと、同じビット列になる（読み残しもない）
 #[test]
 fn objects_of_real_drawings_are_written_back_unchanged() {
-    use crate::codec::object::{open_raw, writer};
-    let mut checked: std::collections::BTreeMap<String, usize> = Default::default();
+    let mut counts = ObjectCounts::default();
     let mut failures: Vec<String> = Vec::new();
-    let mut unknown: std::collections::BTreeMap<String, usize> = Default::default();
     for (name, bytes) in samples() {
-        let Some(version) = Version::from_magic(&bytes[..6]) else { continue };
-        if matches!(version, Version::R13 | Version::R14) {
-            continue;
-        }
-        let (objects, map) = objects_of(&bytes, version);
-        let codec_text = if version >= Version::R2007 {
-            crate::bits::TextCodec::Utf16
-        } else {
-            crate::bits::TextCodec::Bytes(encoding_rs::WINDOWS_1252)
-        };
-        let classes = crate::write::classes::read_class_defs(
-            &framed_section(&bytes, version, 1, "AcDb:Classes").data,
-            version,
-            codec_text,
-        );
-        let mut handles: Vec<(&u64, &usize)> = map.iter().collect();
-        handles.sort();
-        for (handle, &offset) in handles {
-            let Ok(mut raw) = open_raw(&objects, offset, version) else { continue };
-            let class =
-                classes.iter().find(|class| class.number == raw.kind).map_or("", |class| class.dxf_name.as_str());
-            let Some(codec) = codec(raw.kind, class) else {
-                *unknown.entry(if class.is_empty() { raw.kind.to_string() } else { class.to_string() }).or_default() +=
-                    1;
-                continue;
-            };
-            let kind = raw.kind;
-            let mut out = writer(version, kind, raw.handle, &raw.eed);
-            if codec(&mut raw.input, kind, entity_name(kind, class), &mut out).is_err() {
-                failures.push(format!("{name} {handle:X} type {kind} {class}: read"));
-                continue;
-            }
-            let left = [
-                raw.input.data.remaining(),
-                raw.input.strings.as_ref().map_or(0, crate::bits::Bits::remaining),
-                raw.input.handles.as_ref().map_or(0, crate::bits::Bits::remaining),
-            ];
-            let length = object_length(&objects, offset, version >= Version::R2010).unwrap();
-            let original = &objects[offset..offset + length];
-            let (written, padding) = out.frame();
-            let meaningful = (written.len() as u64 - 2) * 8 - padding;
-            let same = written.len() == original.len() && same_bits(&written, original, meaningful).is_none();
-            if left[0] != 0 || left[1] != 0 || left[2] >= 8 || !same {
-                if failures.iter().filter(|line| line.contains(&format!("type {kind} {class}:"))).count() < 3 {
-                    failures.push(format!(
-                        "{name} {handle:X} type {kind} {class}: left {left:?}, length {} vs {}, first different bit {:?}",
-                        written.len(),
-                        original.len(),
-                        same_bits(&written, original, meaningful)
-                    ));
-                }
-            } else {
-                *checked.entry(if class.is_empty() { kind.to_string() } else { class.to_string() }).or_default() += 1;
-            }
-        }
+        failures.extend(object_failures(&name, &bytes, &mut counts));
     }
-    println!("checked {checked:?}");
-    println!("not checked {unknown:?}");
+    println!("checked {:?}", counts.checked);
+    println!("not checked {:?}", counts.unknown);
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 

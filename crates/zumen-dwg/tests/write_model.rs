@@ -18,7 +18,8 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use zumen_core::Scene;
-use zumen_dxf::{DxfDocument, DxfEntity, DxfEntityData, dxf_to_scene, parse_dxf};
+use zumen_dwg::DwgVersion;
+use zumen_dxf::{DxfDocument, DxfEntity, DxfEntityData, DxfVersion, dxf_to_scene, parse_dxf};
 
 fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures")
@@ -101,15 +102,22 @@ fn caret(value: &str) -> String {
     out
 }
 
-/// DWG を読むと変わる値を、DWG の読み取りと同じ形にしたモデル
+/// DWG を読むと変わる値を、DWG の読み取りと同じ形にしたモデル（AutoCAD 2013 の DWG）
 fn expected(doc: &DxfDocument) -> DxfDocument {
+    expected_as(doc, DwgVersion::R2013)
+}
+
+/// DWG を読むと変わる値を、DWG の読み取りと同じ形にしたモデル。複数行の属性は 2018 より前の版では 1 行にする
+fn expected_as(doc: &DxfDocument, version: DwgVersion) -> DxfDocument {
     let mut doc = doc.clone();
     let normal = |text: &mut String| *text = caret(&uncaret(text));
-    fn entity(item: &mut DxfEntity, normal: &dyn Fn(&mut String)) {
+    let flatten = version < DwgVersion::R2018;
+    fn entity(item: &mut DxfEntity, normal: &dyn Fn(&mut String), flatten: bool) {
         match &mut item.data {
             DxfEntityData::Text(text) => normal(&mut text.text),
             DxfEntityData::Attrib { text, tag, mtext, .. } => {
-                if let Some(embedded) = mtext.take()
+                if flatten
+                    && let Some(embedded) = mtext.take()
                     && text.text.is_empty()
                 {
                     text.text = embedded.content.text.replace(['\n', '\r'], " ");
@@ -118,7 +126,8 @@ fn expected(doc: &DxfDocument) -> DxfDocument {
                 normal(tag);
             }
             DxfEntityData::Attdef { text, tag, prompt, mtext, .. } => {
-                if let Some(embedded) = mtext.take()
+                if flatten
+                    && let Some(embedded) = mtext.take()
                     && text.text.is_empty()
                 {
                     text.text = embedded.content.text.replace(['\n', '\r'], " ");
@@ -145,14 +154,14 @@ fn expected(doc: &DxfDocument) -> DxfDocument {
             }
             DxfEntityData::Insert(insert) => {
                 for attrib in &mut insert.attribs {
-                    entity(attrib, normal);
+                    entity(attrib, normal, flatten);
                 }
             }
             _ => {}
         }
     }
     for item in &mut doc.entities {
-        entity(item, &normal);
+        entity(item, &normal, flatten);
     }
     doc
 }
@@ -226,6 +235,119 @@ fn check(name: &str, bytes: &[u8]) -> (usize, Vec<String>) {
     (views.len(), out)
 }
 
+/// 色の生の値の BYBLOCK（0xC1000000）
+const BY_BLOCK_RAW: f64 = -1_056_964_608.0;
+
+/// 色の生の値（MULTILEADER の 91 など）のトゥルーカラー（0xC2RRGGBB）を、最も近い ACI（0xC30000NN）にする
+fn nearest_raw(raw: &mut f64) {
+    let value = *raw as i64 as u32;
+    if value >> 24 != 0xc2 {
+        return;
+    }
+    let channels = |value: u32| [(value >> 16) & 0xff, (value >> 8) & 0xff, value & 0xff].map(|c| c as i32);
+    let target = channels(value);
+    let mut best = (7u32, i32::MAX);
+    for (index, hex) in zumen_dxf::ACI.iter().enumerate().skip(1) {
+        let color = channels(u32::from_str_radix(hex.trim_start_matches('#'), 16).unwrap());
+        let distance: i32 = (0..3).map(|i| (color[i] - target[i]).pow(2)).sum();
+        if distance < best.1 {
+            best = (index as u32, distance);
+        }
+    }
+    *raw = f64::from((0xc300_0000u32 | best.0) as i32);
+}
+
+/// DWG のその版が持てない値（DXF の書き出しは落とさない値）を、DWG の書き出しと同じく落とした図面（書き出しが notices で
+/// 知らせる）。2010 より前の版のマルチ引出線は、垂直の付け方・上下の文字の付け方・引出線ごとの色を持たず、2004 より前の
+/// 版の色（CMC）は色の番号だけ
+fn reduced(doc: &DxfDocument, version: DwgVersion) -> DxfDocument {
+    let mut doc = doc.clone();
+    for entity in &mut doc.entities {
+        let DxfEntityData::MLeader(mleader) = &mut entity.data else { continue };
+        if version < DwgVersion::R2010 {
+            mleader.text_top_attachment_type = 9.0;
+            mleader.text_bottom_attachment_type = 9.0;
+            for leader in &mut mleader.context.leaders {
+                leader.attachment_direction = 0.0;
+                for line in &mut leader.lines {
+                    line.color = BY_BLOCK_RAW;
+                }
+            }
+        }
+        if version < DwgVersion::R2004 {
+            nearest_raw(&mut mleader.leader_line_color);
+            if let Some(mtext) = &mut mleader.context.mtext {
+                nearest_raw(&mut mtext.color);
+                nearest_raw(&mut mtext.bg_color);
+            }
+            if let Some(block) = &mut mleader.context.block {
+                nearest_raw(&mut block.color);
+            }
+        }
+    }
+    doc
+}
+
+/// ハンドルのない図形に、元の最大より後のハンドルを振った図面（DXF と DWG の書き出しが別々に振るハンドルで、比べる
+/// 図形がずれないように）
+fn with_handles(doc: &DxfDocument) -> DxfDocument {
+    let mut doc = doc.clone();
+    let handle = |entity: &DxfEntity| u64::from_str_radix(&entity.base.handle, 16).ok().filter(|value| *value > 0);
+    let mut used: HashSet<u64> = HashSet::new();
+    for entity in &doc.entities {
+        used.extend(handle(entity));
+        if let DxfEntityData::Insert(insert) = &entity.data {
+            used.extend(insert.attribs.iter().filter_map(handle));
+        }
+    }
+    let mut next = used.iter().max().copied().unwrap_or(0).max(0x1000) + 1;
+    let mut fill = |entity: &mut DxfEntity| {
+        let known = u64::from_str_radix(&entity.base.handle, 16).ok().filter(|value| *value > 0);
+        if known.is_none() {
+            entity.base.handle = format!("{next:X}");
+            next += 1;
+        }
+    };
+    for entity in &mut doc.entities {
+        fill(entity);
+        if let DxfEntityData::Insert(insert) = &mut entity.data {
+            insert.attribs.iter_mut().for_each(&mut fill);
+        }
+    }
+    doc
+}
+
+/// 図面をそれぞれの版の DWG に書いて読み直し、同じ版の DXF に書いて読み直した図面（`write_dxf_as` は版が持てない値を
+/// DWG の書き出しと同じ形にする）と、すべての表示で比べる
+fn check_as(name: &str, bytes: &[u8], version: DwgVersion) -> (usize, Vec<String>) {
+    let Some(doc) = model(bytes) else { return (0, Vec::new()) };
+    let doc = with_handles(&doc);
+    let written = zumen_dwg::write_dwg_as(&doc, version);
+    let again = match zumen_dwg::read_dwg(&written.bytes) {
+        Ok(again) => again,
+        Err(error) => return (0, vec![format!("{name} {}: rereading: {error}", version.name())]),
+    };
+    assert_eq!(again.version, version.code(), "{name}");
+    let dxf = DxfVersion::parse(version.name()).unwrap();
+    let reference = parse_dxf(&zumen_dxf::write_dxf_as(&reduced(&doc, version), dxf).bytes);
+    let skipped = fit_splines(&doc);
+    let reference = expected_as(&reference, version);
+    let original = dxf_to_scene(&reference, None);
+    let views: Vec<Option<String>> =
+        std::iter::once(None).chain(original.views.iter().flatten().map(|view| Some(view.id.clone()))).collect();
+    let mut out = Vec::new();
+    for view in &views {
+        let before = dxf_to_scene(&reference, view.as_deref());
+        let after = dxf_to_scene(&again, view.as_deref());
+        out.extend(
+            differences(&before, &after, &skipped)
+                .into_iter()
+                .map(|line| format!("{name} {} ({view:?}) {line}", version.name())),
+        );
+    }
+    (views.len(), out)
+}
+
 fn drawings(folder: &Path) -> Vec<PathBuf> {
     let mut files: Vec<PathBuf> = fs::read_dir(folder)
         .unwrap()
@@ -254,6 +376,45 @@ fn written_drawings_draw_the_same() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
     assert!(checked >= 20, "checked only {checked} views");
+}
+
+/// どの版に書いても、同じ版の DXF と同じに描ける（2013 は written_drawings_draw_the_same が元の図面と比べる）
+#[test]
+fn drawings_written_in_every_version_draw_like_dxf_of_that_version() {
+    let mut checked = 0;
+    let mut failures = Vec::new();
+    for format in ["dxf", "dwg"] {
+        for file in drawings(&fixtures().join(format)) {
+            let name = file.file_name().unwrap().to_string_lossy().to_string();
+            let bytes = fs::read(&file).unwrap();
+            for version in DwgVersion::ALL.into_iter().filter(|version| *version != DwgVersion::R2013) {
+                let (views, differences) = check_as(&name, &bytes, version);
+                failures.extend(differences);
+                checked += views;
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    assert!(checked >= 100, "checked only {checked} views");
+}
+
+/// Git に入れない図面で、どの版に書いても同じ版の DXF と同じに描けることを確かめる。
+/// `ZUMEN_SAMPLES=<folder> cargo test -p zumen-dwg --release --test write_model -- --ignored`
+#[test]
+#[ignore = "needs drawings in ZUMEN_SAMPLES"]
+fn samples_written_in_every_version_draw_like_dxf_of_that_version() {
+    let folder = std::env::var("ZUMEN_SAMPLES").expect("set ZUMEN_SAMPLES to a folder of drawings");
+    let mut failures = Vec::new();
+    for file in drawings(Path::new(&folder)) {
+        let name = file.file_name().unwrap().to_string_lossy().to_string();
+        let bytes = fs::read(&file).unwrap();
+        for version in DwgVersion::ALL {
+            let (views, differences) = check_as(&name, &bytes, version);
+            println!("{name} {}: {views} views, {} differences", version.name(), differences.len());
+            failures.extend(differences.into_iter().take(5));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
 }
 
 /// Git に入れない図面（ZUMEN_SAMPLES のフォルダーの DXF・DWG）で確かめる。
@@ -355,5 +516,44 @@ fn reports_what_could_not_be_written_as_it_was() {
     let codes: Vec<&str> = written.notices.iter().map(|notice| notice.code.as_str()).collect();
     for code in ["image", "helix", "mpolygon", "table", "attrib-alone", "complex-linetype", "missing-block"] {
         assert!(codes.contains(&code), "{code} not in {codes:?}");
+    }
+}
+
+/// 古い版が持てない値は、DXF の書き出し（write_dxf_as）と同じ notices で知らせる
+#[test]
+fn reports_what_older_versions_cannot_hold() {
+    let doc = parse_dxf(&fs::read(fixtures().join("dxf/features.dxf")).unwrap());
+    let codes = |version: DwgVersion| -> Vec<String> {
+        zumen_dwg::write_dwg_as(&doc, version).notices.into_iter().map(|notice| notice.code).collect()
+    };
+    let before_2004 = ["version-color", "version-transparency", "version-gradient", "version-dimension"];
+    let before_2007 = ["version-background", "version-mleader"];
+    let before_2010 = ["version-mleader-2010"];
+    for version in DwgVersion::ALL {
+        let codes = codes(version);
+        let expected = |list: &[&str], since: DwgVersion| {
+            for code in list {
+                assert_eq!(codes.iter().any(|known| known == code), version < since, "{code} in {}", version.name());
+            }
+        };
+        expected(&before_2004, DwgVersion::R2004);
+        expected(&before_2007, DwgVersion::R2007);
+        expected(&before_2010, DwgVersion::R2010);
+    }
+    // 複数行の属性は 2018 から（それより前は 1 行の属性にして知らせる）
+    let doc = parse_dxf(&fs::read(fixtures().join("dxf/attributes-multiline.dxf")).unwrap());
+    for version in DwgVersion::ALL {
+        let written = zumen_dwg::write_dwg_as(&doc, version);
+        let flattened = written.notices.iter().any(|notice| notice.code == "multiline-attrib");
+        assert_eq!(flattened, version < DwgVersion::R2018, "{}", version.name());
+        let again = zumen_dwg::read_dwg(&written.bytes).unwrap();
+        let multiline = again.entities.iter().any(|entity| match &entity.data {
+            DxfEntityData::Attdef { mtext, .. } => mtext.is_some(),
+            DxfEntityData::Insert(insert) => {
+                insert.attribs.iter().any(|attrib| matches!(&attrib.data, DxfEntityData::Attrib { mtext: Some(_), .. }))
+            }
+            _ => false,
+        });
+        assert_eq!(multiline, version >= DwgVersion::R2018, "{}", version.name());
     }
 }
