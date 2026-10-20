@@ -224,12 +224,15 @@ scene.title_block()  # drawing number, revision, title, project, scale and date 
 door = scene.entity("#120")  # the type, layers, box, text and properties of one entity
 table = scene.to_arrow()  # every entity as a pyarrow.Table (pip install "zumen[arrow]")
 image = scene.render(size=(2000, 2000))  # a PNG with the conversion between pixels and paper millimeters
+changes = zumen.compare(zumen.read("plan-rev1.jww"), scene)  # removed, added and changed entities
+changes.scene.render_png(dpi=150)  # red before, blue after, gray unchanged
 for entity in image.entities_at(640, 480):  # the entities drawn under a pixel, smallest first
     print(entity["id"], entity["box"], entity["text"])
 ```
 
 AI applications can read drawings through the MCP server of the Python package (`pip install "zumen[mcp]"`, then
-`zumen-mcp --root <dir>`): open, render a region, find texts and entities, and measure in real-world units. See
+`zumen-mcp --root <dir>`): open, render a region, find texts and entities, measure in real-world units and
+compare revisions. See
 [bindings/python](bindings/python/README.md#mcp-server).
 
 ```bash
@@ -240,14 +243,14 @@ cargo run --release -p zumen-cli -- title plan.jww  # the fields of the title bl
 
 | Crate | Contents |
 | --- | --- |
-| [`zumen-core`](crates/zumen-core) | The scene model (the same JSON as `@zumenjs/core`), geometry, text layout, the texts and entities of a scene, and the fields of its title block |
+| [`zumen-core`](crates/zumen-core) | The scene model (the same JSON as `@zumenjs/core`), geometry, text layout, the texts and entities of a scene, the fields of its title block, and the comparison of two revisions |
 | [`zumen-sxf`](crates/zumen-sxf) | `parse_sfc` and `parse_p21` (the SXF feature model), `sxf_to_scene`, the `SXF` reader |
 | [`zumen-jww`](crates/zumen-jww) | `read_jww` (the JWW document model), `jww_to_scene`, the `JWW` reader |
 | [`zumen-dxf`](crates/zumen-dxf) | `parse_dxf` (the AutoCAD drawing model, shared with DWG), `dxf_to_scene`, the `DXF` reader |
 | [`zumen-dwg`](crates/zumen-dwg) | `read_dwg` (DWG 2000 to 2018 into the AutoCAD drawing model of `zumen-dxf`), the `DWG` reader |
 | [`zumen`](crates/zumen) | `read` and `detect` over every reader |
 | [`zumen-render`](crates/zumen-render) | PNG rendering with the rules of the browser renderer, and the pixel box of every entity drawn; BIZ UDGothic is bundled for Japanese text |
-| [`zumen-cli`](crates/zumen-cli) | The `zumen` command: `detect`, `scene` (JSON), `texts` and `entities` (JSON lines), `title` and `render` (PNG) |
+| [`zumen-cli`](crates/zumen-cli) | The `zumen` command: `detect`, `scene` (JSON), `texts` and `entities` (JSON lines), `title`, `render` (PNG) and `compare` |
 
 Reading and rendering release the GIL in Python.
 
@@ -272,7 +275,7 @@ sending them anywhere.
 3. Rust readers with Python and WebAssembly bindings, and PNG rendering on servers (JWW, SXF and DXF done).
 4. DWG, read into the same AutoCAD object model (2000 to 2018 done in Rust and in the browser through WebAssembly;
    R13 and R14 are next).
-5. Writing and converting drawings, analysis (tables, rooms and areas, revision comparison), markup and PDF drawings.
+5. Writing and converting drawings, analysis (tables, rooms and areas; the comparison of revisions is done), markup and PDF drawings.
 6. Plan and elevation drawings of ST-Bridge models as scenes, to view, measure and render them like drawings.
 
 ## Documentation

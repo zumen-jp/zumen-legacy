@@ -133,6 +133,44 @@ def test_renders_with_the_pixel_box_of_each_entity():
     assert "#750" not in {entity["id"] for entity in part.entities}
 
 
+def revised_features() -> bytes:
+    """features.dxf with one text changed and one line removed, as a later revision."""
+    data = (FIXTURES / "dxf" / "features.dxf").read_bytes()
+    data = data.replace("揃え00".encode("cp932"), "揃え99".encode("cp932"))
+    start = data.index(b"\r\n0\r\nLINE\r\n5\r\n101\r\n")
+    end = data.index(b"\r\n0\r\n", start + 5)
+    return data[:start] + data[end:]
+
+
+def test_compares_two_revisions_by_shape_and_text():
+    before = zumen.read(FIXTURES / "dxf" / "features.dxf")
+    same = zumen.compare(before, zumen.read(FIXTURES / "dxf" / "features.dxf"))
+    assert (len(same), same.unchanged, same.regions) == (0, len(before.entities()), [])
+
+    after = zumen.read(revised_features())
+    comparison = zumen.compare(before, after)
+    assert [entity["id"] for entity in comparison.removed] == ["101"]
+    assert comparison.added == []
+    [pair] = comparison.changed
+    assert (pair["before"]["text"], pair["after"]["text"]) == ("揃え00", "揃え99")
+    assert comparison.unchanged == len(before.entities()) - 2
+    assert comparison.offset == (0.0, 0.0)
+    assert sum(region["removed"] + region["added"] + region["changed"] for region in comparison.regions) == 2
+    assert repr(comparison).startswith("<zumen.Comparison unchanged")
+
+    overlay = comparison.scene
+    assert overlay is comparison.scene or overlay.to_json() == comparison.scene.to_json()
+    assert (overlay.format, [layer["name"] for layer in overlay.layers]) == (
+        "diff",
+        ["変更なし", "削除・変更前", "追加・変更後"],
+    )
+    removed = overlay.entity("A:101")
+    assert removed is not None and ("比較", "削除") in removed["properties"]
+    assert overlay.render_png(dpi=20).startswith(b"\x89PNG")
+    with pytest.raises(ValueError):
+        zumen.compare(before, after, tolerance=0)
+
+
 TITLE_BLOCK_DXF = "\n".join(
     ["0", "SECTION", "2", "ENTITIES"]
     + ["0", "TEXT", "8", "0", "10", "100", "20", "10", "40", "3.5", "1", "DWG. NO."]

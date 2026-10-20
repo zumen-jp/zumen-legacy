@@ -6,6 +6,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict, PyList};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, OnceLock};
+use zumen::compare::{CompareOptions, SceneDiff, compare_scenes, diff_scene};
 use zumen::extract::{EntityFilter, EntityText, entity_text, layer_names, scene_texts, select_entities};
 use zumen::title::{TitleKey, title_fields};
 use zumen::{BBox, Background, ReadDrawingOptions, SceneEntity};
@@ -621,6 +622,131 @@ fn read(py: Python<'_>, data: &[u8], format: Option<String>, view: Option<String
     Ok(Scene::new(scene))
 }
 
+/// 2 つの版の比較（compare の結果）。図形の dict は entities と同じ形で、それぞれの版の座標を持つ
+#[pyclass(frozen, module = "zumen")]
+struct Comparison {
+    before: Arc<zumen::Scene>,
+    after: Arc<zumen::Scene>,
+    diff: SceneDiff,
+    /// 重ねた図（scene で初めて使うときに作る）
+    overlay: OnceLock<Py<Scene>>,
+}
+
+#[pymethods]
+impl Comparison {
+    /// 前の版にだけある図形
+    #[getter]
+    fn removed<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+        let list = PyList::empty(py);
+        for &i in &self.diff.removed {
+            list.append(entity_dict(py, &self.before, &self.before.entities[i])?)?;
+        }
+        Ok(list)
+    }
+
+    /// 後の版にだけある図形
+    #[getter]
+    fn added<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+        let list = PyList::empty(py);
+        for &i in &self.diff.added {
+            list.append(entity_dict(py, &self.after, &self.after.entities[i])?)?;
+        }
+        Ok(list)
+    }
+
+    /// 変わったとみなした図形の組（before、after）
+    #[getter]
+    fn changed<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+        let list = PyList::empty(py);
+        for &(a, b) in &self.diff.changed {
+            let pair = PyDict::new(py);
+            pair.set_item("before", entity_dict(py, &self.before, &self.before.entities[a])?)?;
+            pair.set_item("after", entity_dict(py, &self.after, &self.after.entities[b])?)?;
+            list.append(pair)?;
+        }
+        Ok(list)
+    }
+
+    /// 変わらなかった図形の数
+    #[getter]
+    fn unchanged(&self) -> usize {
+        self.diff.unchanged.len()
+    }
+
+    /// 後の版を前の版に合わせるために、後の版の座標から引いたずれ (dx, dy)（用紙の mm）
+    #[getter]
+    fn offset(&self) -> (f64, f64) {
+        self.diff.offset
+    }
+
+    /// 変わった場所（bbox、removed、added、changed）。前の版の用紙の mm で、変わった図形の多い順
+    #[getter]
+    fn regions<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+        let list = PyList::empty(py);
+        for region in &self.diff.regions {
+            let dict = PyDict::new(py);
+            dict.set_item("bbox", from_bbox(&region.bbox))?;
+            dict.set_item("removed", region.removed)?;
+            dict.set_item("added", region.added)?;
+            dict.set_item("changed", region.changed)?;
+            list.append(dict)?;
+        }
+        Ok(list)
+    }
+
+    /// 重ねた図。変わらない図形は灰、前の版だけの図形（削除・変更前）は赤、後の版だけの図形（追加・変更後）は青。
+    /// render・render_png で描け、to_json でブラウザの表示に渡せる
+    #[getter]
+    fn scene(&self, py: Python<'_>) -> PyResult<Py<Scene>> {
+        if let Some(scene) = self.overlay.get() {
+            return Ok(scene.clone_ref(py));
+        }
+        let (before, after) = (self.before.clone(), self.after.clone());
+        let diff = &self.diff;
+        let overlay = py.detach(|| diff_scene(&before, &after, diff));
+        let scene = Py::new(py, Scene::new(overlay))?;
+        Ok(self.overlay.get_or_init(|| scene).clone_ref(py))
+    }
+
+    /// 違いの数（削除・追加・変更）
+    fn __len__(&self) -> usize {
+        self.diff.removed.len() + self.diff.added.len() + self.diff.changed.len()
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "<zumen.Comparison unchanged {}, removed {}, added {}, changed {}>",
+            self.diff.unchanged.len(),
+            self.diff.removed.len(),
+            self.diff.added.len(),
+            self.diff.changed.len()
+        )
+    }
+}
+
+/// 2 つの版の図面を比べる。図形の id は使わず、種類・形・文字で照合する。
+/// tolerance は同じ位置とみなす差（用紙の mm）、style を真にすると色・線の太さ・線種・レイヤの違いも変更とみなす。
+/// all_layers を真にすると描かないレイヤも比べ、align を真にすると同じ文字の位置から全体のずれを見つけて合わせる
+#[pyfunction]
+#[pyo3(signature = (before, after, *, tolerance = 0.01, style = false, all_layers = false, align = true))]
+fn compare(
+    py: Python<'_>,
+    before: &Scene,
+    after: &Scene,
+    tolerance: f64,
+    style: bool,
+    all_layers: bool,
+    align: bool,
+) -> PyResult<Comparison> {
+    if !(tolerance.is_finite() && tolerance > 0.0) {
+        return Err(PyValueError::new_err("tolerance は正の数です"));
+    }
+    let options = CompareOptions { tolerance, style, all_layers, align };
+    let (a, b) = (before.inner.clone(), after.inner.clone());
+    let diff = py.detach(|| compare_scenes(&a, &b, &options));
+    Ok(Comparison { before: a, after: b, diff, overlay: OnceLock::new() })
+}
+
 #[pymodule]
 fn _zumen(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
@@ -628,6 +754,8 @@ fn _zumen(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("RenderError", m.py().get_type::<RenderError>())?;
     m.add_class::<Scene>()?;
     m.add_class::<Rendering>()?;
+    m.add_class::<Comparison>()?;
+    m.add_function(wrap_pyfunction!(compare, m)?)?;
     m.add_function(wrap_pyfunction!(detect, m)?)?;
     m.add_function(wrap_pyfunction!(read, m)?)?;
     Ok(())
