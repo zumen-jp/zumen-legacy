@@ -140,6 +140,33 @@ class TitleBlock(TypedDict):
     date: str | None
     fields: list[TitleField]
 
+class RegionShape(TypedDict):
+    """The outline (counterclockwise), holes (clockwise), area and perimeter of a closed region (type checking only)."""
+
+    area: float
+    outline_area: float
+    perimeter: float
+    outline: list[Point]
+    holes: list[list[Point]]
+
+class RegionText(TypedDict):
+    """A text inside a closed region, at the center of its box (type checking only)."""
+
+    id: str
+    text: str
+    x: float
+    y: float
+
+class Region(RegionShape):
+    """A region that drawn lines close, in paper millimeters, with ``real`` in real-world millimeters inside a
+    placement (type checking only)."""
+
+    bbox: Box
+    placement: Placement | None
+    real: RegionShape | None
+    boundary: list[str]
+    texts: list[RegionText]
+
 class DrawnEntity(TypedDict):
     """An entity drawn in a ``Rendering``, with its box in pixels (type checking only)."""
 
@@ -240,6 +267,17 @@ class Scene:
     ) -> list[Entity]: ...
     def entity(self, id: str, *, geometry: bool = False) -> Entity | None: ...
     def title_block(self) -> TitleBlock: ...
+    def regions(
+        self,
+        *,
+        region: Box | None = None,
+        hidden_layers: list[int] | None = None,
+        layers: list[int] | None = None,
+        kinds: list[str] | None = None,
+        tolerance: float = 0.01,
+        min_area: float = 0.0,
+    ) -> list[Region]:
+        """The regions that drawn lines close (rooms, when a text names them), in reading order by placement."""
     def to_arrow(self, *, region: Box | None = None, hidden_layers: list[int] | None = None) -> Any:
         """A ``pyarrow.Table`` of the entities (needs pyarrow)."""
 
