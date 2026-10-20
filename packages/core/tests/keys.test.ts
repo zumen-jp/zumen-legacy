@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { ENTITY_KINDS, type Property, type Scene } from "../src/index.js";
+import { ENTITY_KINDS, LENGTH_UNITS, type Property, type Scene } from "../src/index.js";
 
 const FIXTURES = fileURLToPath(new URL("../../../tests/fixtures", import.meta.url));
 
@@ -54,6 +54,17 @@ describe("安定したキー", () => {
     }
     // 同じ key の raw は、どの形式でも同じ形（アプリケーションが形式で分けずに読める）
     for (const [key, seen] of shapes) expect([...seen], key).toHaveLength(1);
+  });
+
+  it("図面の単位は決めた一覧の値で、どの形式の図面も持つ", () => {
+    for (const [name, scene] of scenes) expect(LENGTH_UNITS, name).toContain(scene.unit);
+  });
+
+  it("id は 1 つの図面の中で重ならない（docs/architecture.md の「Entity ids」）", () => {
+    for (const [name, scene] of scenes) {
+      const ids = scene.entities.map((entity) => entity.id);
+      expect(new Set(ids).size, name).toBe(ids.length);
+    }
   });
 
   it("どの形式の図形も、種類・識別子・レイヤを同じ key で持つ", () => {

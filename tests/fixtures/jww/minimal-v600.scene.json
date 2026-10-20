@@ -1,6 +1,7 @@
 {
   "format": "jww",
   "version": "JWW 600",
+  "unit": "millimeter",
   "sheet": {
     "name": "",
     "size": "A3",

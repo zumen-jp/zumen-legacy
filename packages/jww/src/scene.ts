@@ -576,6 +576,7 @@ export function jwwToScene(doc: JwwDocument): Scene {
   return {
     format: "jww",
     version: `JWW ${doc.version}`,
+    unit: "millimeter",
     sheet,
     bounds,
     layers,

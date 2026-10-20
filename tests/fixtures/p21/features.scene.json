@@ -1,6 +1,7 @@
 {
   "format": "p21",
   "version": "SXF 3.0",
+  "unit": "millimeter",
   "sheet": {
     "name": "平面図",
     "size": "A2 縦",

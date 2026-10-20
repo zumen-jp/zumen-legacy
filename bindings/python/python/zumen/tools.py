@@ -170,7 +170,9 @@ class TitleBlockInfo(TypedDict):
 class Summary(TypedDict):
     """What an agent needs to plan its next calls (``summary``).
 
-    ``bounds`` is the frame, ``None`` for a drawing without entities. ``types`` counts entities by their Japanese type
+    ``unit`` is the length unit of the drawing's own coordinates, those of ``values`` (``millimeter`` in SXF and JWW,
+    ``$INSUNITS`` in DXF and DWG: ``inch``, ``meter`` …), ``None`` when unknown. ``bounds`` is the frame, ``None`` for a
+    drawing without entities. ``types`` counts entities by their Japanese type
     and ``kinds`` by their stable kind (``line``, ``text``, ``dimension`` …); both include the layers that the drawing
     hides, and ``layers`` tells which are visible. ``layers`` stops at ``layer_limit`` of ``layers_total``, and
     ``placements`` at ``MAX_PLACEMENTS`` of ``placements_total``, the largest first. ``metadata_values`` maps each
@@ -178,6 +180,7 @@ class Summary(TypedDict):
 
     format: str
     version: str
+    unit: str | None
     view: str | None
     views: list[ViewInfo] | None
     sheet: SheetInfo | None
@@ -799,6 +802,7 @@ def summary(
     return {
         "format": scene.format,
         "version": scene.version,
+        "unit": scene.unit,
         "view": scene.view,
         "views": [{"id": id, "name": name} for id, name in scene.views] if scene.views else None,
         "sheet": {

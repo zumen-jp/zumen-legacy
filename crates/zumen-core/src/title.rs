@@ -436,6 +436,7 @@ mod tests {
         Scene {
             format: "test".into(),
             version: "1".into(),
+            unit: None,
             views: None,
             view: None,
             sheet: Some(Sheet { name: sheet_name.into(), size: "A1".into(), width: 841.0, height: 594.0 }),

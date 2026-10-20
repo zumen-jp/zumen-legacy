@@ -18,8 +18,9 @@ use zumen_core::geometry::{
 };
 use zumen_core::text::{TextLayoutInput, font_family_for, layout_text};
 use zumen_core::{
-    BACKGROUND_COLOR, BBox, Background, ClippedPrimitive, EntityKind, FillPrimitive, Matrix, NoticeLevel, NoticeList,
-    Placement, Primitive, Property, Scene, SceneEntity, SceneLayer, Sheet, StrokePrimitive, TextPrimitive, js,
+    BACKGROUND_COLOR, BBox, Background, ClippedPrimitive, EntityKind, FillPrimitive, LengthUnit, Matrix, NoticeLevel,
+    NoticeList, Placement, Primitive, Property, Scene, SceneEntity, SceneLayer, Sheet, StrokePrimitive, TextPrimitive,
+    js,
 };
 
 const DEFAULT_COLOR: &str = "#ffffff";
@@ -189,6 +190,7 @@ pub fn sxf_to_scene_with(drawing: &SxfDrawing, options: &SxfSceneOptions) -> Sce
     Scene {
         format: drawing.format.to_string(),
         version: drawing.version.clone(),
+        unit: Some(LengthUnit::Millimeter),
         views: None,
         view: None,
         metadata: metadata_of(doc, drawing, sheet.as_ref()),
