@@ -88,16 +88,63 @@ export interface TextPrimitive {
 
 export type Primitive = StrokePrimitive | FillPrimitive | ClippedPrimitive | DotPrimitive | TextPrimitive;
 
+/**
+ * 図形の種類の、形式によらない英語のキー。どの形式の図形がどれになるかは docs/architecture.md の
+ * 「Stable keys」の表のとおり。形式での名前は SceneEntity.source、日本語の名前は SceneEntity.type にある
+ */
+export const ENTITY_KINDS = [
+  "line",
+  "construction-line",
+  "polyline",
+  "multiline",
+  "mesh",
+  "arc",
+  "circle",
+  "ellipse",
+  "ellipse-arc",
+  "spline",
+  "clothoid",
+  "helix",
+  "point",
+  "text",
+  "attribute",
+  "attribute-definition",
+  "dimension",
+  "leader",
+  "balloon",
+  "hatch",
+  "solid",
+  "symbol",
+  "image",
+  "wipeout",
+  "viewport",
+] as const;
+
+export type EntityKind = (typeof ENTITY_KINDS)[number];
+
+/** 整形する前の属性の値。座標は [x, y]、範囲は [始め, 終わり] のような数の並び */
+export type PropertyRaw = number | string | boolean | readonly number[];
+
+/**
+ * 図形・図面の属性。label と value は人に見せる日本語と整形した文字列で、アプリケーションは key で属性を選ぶ。
+ * key の一覧と、raw の形は docs/architecture.md の「Stable keys」の表のとおり
+ */
 export interface Property {
+  /** 形式によらない英語のキー（layer、color、start など）。1 つの図形の中では重ならない */
+  key: string;
   label: string;
   value: string;
+  /** 整形する前の値（数・座標・形式の番号など）。value が文字列そのものなら省く */
+  raw?: PropertyRaw;
 }
 
 /** 選択・属性表示の単位。primitives は描く順に並ぶ */
 export interface SceneEntity {
   /** 形式内での識別子（SXF はインスタンス番号 #nn、配置の中では配置の番号を前に付ける） */
   id: string;
-  /** 日本語の種類名（線分、文字、直線寸法など） */
+  /** 形式によらない種類（line、text、dimension など）。アプリケーションはこれで図形を選ぶ */
+  kind: EntityKind;
+  /** 日本語の種類名（線分、文字、直線寸法など）。人に見せる */
   type: string;
   /** 元の形式での名前（line_feature など） */
   source: string;

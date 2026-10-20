@@ -25,6 +25,7 @@
   "entities": [
     {
       "id": "30",
+      "kind": "leader",
       "type": "引出線",
       "source": "LEADER",
       "layers": [
@@ -67,32 +68,42 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "引出線（LEADER）"
         },
         {
+          "key": "id",
           "label": "ハンドル",
           "value": "30"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "0"
+          "value": "0",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "BYLAYER"
+          "value": "BYLAYER",
+          "raw": 256
         },
         {
+          "key": "lineType",
           "label": "線種",
           "value": "BYLAYER（CONTINUOUS）"
         },
         {
+          "key": "lineWidth",
           "label": "線の太さ",
           "value": "BYLAYER"
         },
         {
+          "key": "vertexCount",
           "label": "頂点",
-          "value": "2 点"
+          "value": "2 点",
+          "raw": 2
         }
       ],
       "placement": {
@@ -111,6 +122,7 @@
     },
     {
       "id": "31",
+      "kind": "leader",
       "type": "引出線",
       "source": "LEADER",
       "layers": [
@@ -153,32 +165,42 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "引出線（LEADER）"
         },
         {
+          "key": "id",
           "label": "ハンドル",
           "value": "31"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "0"
+          "value": "0",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "BYLAYER"
+          "value": "BYLAYER",
+          "raw": 256
         },
         {
+          "key": "lineType",
           "label": "線種",
           "value": "BYLAYER（CONTINUOUS）"
         },
         {
+          "key": "lineWidth",
           "label": "線の太さ",
           "value": "BYLAYER"
         },
         {
+          "key": "vertexCount",
           "label": "頂点",
-          "value": "2 点"
+          "value": "2 点",
+          "raw": 2
         }
       ],
       "placement": {
@@ -199,20 +221,26 @@
   "notices": [],
   "metadata": [
     {
+      "key": "format",
       "label": "形式",
       "value": "DXF AutoCAD 2000（AC1015、テキスト）"
     },
     {
+      "key": "encoding",
       "label": "文字コード",
-      "value": "西欧（Windows-1252）（指定なし）"
+      "value": "西欧（Windows-1252）（指定なし）",
+      "raw": "windows-1252"
     },
     {
+      "key": "units",
       "label": "単位",
       "value": "mm"
     },
     {
+      "key": "view",
       "label": "表示",
-      "value": "モデル空間"
+      "value": "モデル空間",
+      "raw": "Model"
     }
   ],
   "background": "dark"

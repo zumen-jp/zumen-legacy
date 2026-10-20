@@ -38,6 +38,7 @@
   "entities": [
     {
       "id": "61",
+      "kind": "line",
       "type": "線分",
       "source": "LINE",
       "layers": [
@@ -66,40 +67,60 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "線分（LINE）"
         },
         {
+          "key": "id",
           "label": "ハンドル",
           "value": "61"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "0"
+          "value": "0",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "BYLAYER"
+          "value": "BYLAYER",
+          "raw": 256
         },
         {
+          "key": "lineType",
           "label": "線種",
           "value": "BYLAYER（CONTINUOUS）"
         },
         {
+          "key": "lineWidth",
           "label": "線の太さ",
           "value": "BYLAYER"
         },
         {
+          "key": "start",
           "label": "始点",
-          "value": "0, 0"
+          "value": "0, 0",
+          "raw": [
+            0,
+            0
+          ]
         },
         {
+          "key": "end",
           "label": "終点",
-          "value": "10, 10"
+          "value": "10, 10",
+          "raw": [
+            10,
+            10
+          ]
         },
         {
+          "key": "length",
           "label": "長さ",
-          "value": "14.1421"
+          "value": "14.1421",
+          "raw": 14.142135623730951
         }
       ]
     }
@@ -107,26 +128,34 @@
   "notices": [],
   "metadata": [
     {
+      "key": "format",
       "label": "形式",
       "value": "DXF AutoCAD 2004（AC1018、テキスト）"
     },
     {
+      "key": "encoding",
       "label": "文字コード",
-      "value": "西欧（Windows-1252）（指定なし）"
+      "value": "西欧（Windows-1252）（指定なし）",
+      "raw": "windows-1252"
     },
     {
+      "key": "units",
       "label": "単位",
       "value": "m"
     },
     {
+      "key": "layouts",
       "label": "レイアウト",
       "value": "Inches・Rotated"
     },
     {
+      "key": "view",
       "label": "表示",
-      "value": "レイアウト Inches"
+      "value": "レイアウト Inches",
+      "raw": "Inches"
     },
     {
+      "key": "sheet",
       "label": "用紙",
       "value": "レイアウト（139.7×114.3 mm）"
     }

@@ -13,22 +13,31 @@ class Placement(TypedDict):
     scale_y: float
     inverse: tuple[float, float, float, float, float, float]
 
+PropertyValue: TypeAlias = float | str | bool | tuple[float, ...]
+
 class Entity(TypedDict):
-    """An entity of ``Scene.entities`` and ``Scene.entity`` (type checking only)."""
+    """An entity of ``Scene.entities`` and ``Scene.entity`` (type checking only).
+
+    ``kind`` and the keys of ``values`` are the same for every format (see "Stable keys" in docs/architecture.md);
+    ``type`` and the labels of ``properties`` are Japanese, for people. ``values`` maps each property's key to its
+    unformatted value (numbers, ``(x, y)``), or to the formatted text when it has none."""
 
     id: str
+    kind: str
     type: str
     source: str
     layers: list[str]
     bbox: Box
     text: str | None
     properties: list[tuple[str, str]]
+    values: dict[str, PropertyValue]
     placement: Placement | None
 
 class Text(TypedDict):
     """A text of ``Scene.texts`` in paper millimeters (type checking only)."""
 
     id: str
+    kind: str
     type: str
     text: str
     x: float
@@ -65,6 +74,7 @@ class DrawnEntity(TypedDict):
     """An entity drawn in a ``Rendering``, with its box in pixels (type checking only)."""
 
     id: str
+    kind: str
     type: str
     box: Box
     text: str | None
@@ -97,6 +107,8 @@ class Scene:
     def notices(self) -> list[dict[str, str | int]]: ...
     @property
     def metadata(self) -> list[tuple[str, str]]: ...
+    @property
+    def metadata_values(self) -> dict[str, PropertyValue]: ...
     @property
     def views(self) -> list[tuple[str, str]] | None: ...
     @property

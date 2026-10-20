@@ -38,6 +38,7 @@
   "entities": [
     {
       "id": "40",
+      "kind": "line",
       "type": "線分",
       "source": "LINE",
       "layers": [
@@ -69,40 +70,60 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "線分（LINE）"
         },
         {
+          "key": "id",
           "label": "ハンドル",
           "value": "40"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "0"
+          "value": "0",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "BYLAYER"
+          "value": "BYLAYER",
+          "raw": 256
         },
         {
+          "key": "lineType",
           "label": "線種",
           "value": "DASHED"
         },
         {
+          "key": "lineWidth",
           "label": "線の太さ",
           "value": "BYLAYER"
         },
         {
+          "key": "start",
           "label": "始点",
-          "value": "0, 0"
+          "value": "0, 0",
+          "raw": [
+            0,
+            0
+          ]
         },
         {
+          "key": "end",
           "label": "終点",
-          "value": "30, 0"
+          "value": "30, 0",
+          "raw": [
+            30,
+            0
+          ]
         },
         {
+          "key": "length",
           "label": "長さ",
-          "value": "30"
+          "value": "30",
+          "raw": 30
         }
       ],
       "placement": {
@@ -121,6 +142,7 @@
     },
     {
       "id": "41",
+      "kind": "line",
       "type": "線分",
       "source": "LINE",
       "layers": [
@@ -149,40 +171,60 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "線分（LINE）"
         },
         {
+          "key": "id",
           "label": "ハンドル",
           "value": "41"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "HIDE"
+          "value": "HIDE",
+          "raw": 2
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "BYLAYER"
+          "value": "BYLAYER",
+          "raw": 256
         },
         {
+          "key": "lineType",
           "label": "線種",
           "value": "BYLAYER（CONTINUOUS）"
         },
         {
+          "key": "lineWidth",
           "label": "線の太さ",
           "value": "BYLAYER"
         },
         {
+          "key": "start",
           "label": "始点",
-          "value": "0, 5"
+          "value": "0, 5",
+          "raw": [
+            0,
+            5
+          ]
         },
         {
+          "key": "end",
           "label": "終点",
-          "value": "30, 5"
+          "value": "30, 5",
+          "raw": [
+            30,
+            5
+          ]
         },
         {
+          "key": "length",
           "label": "長さ",
-          "value": "30"
+          "value": "30",
+          "raw": 30
         }
       ],
       "placement": {
@@ -201,6 +243,7 @@
     },
     {
       "id": "42",
+      "kind": "text",
       "type": "文字",
       "source": "TEXT",
       "layers": [
@@ -266,38 +309,50 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "文字（TEXT）"
         },
         {
+          "key": "id",
           "label": "ハンドル",
           "value": "42"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "0"
+          "value": "0",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "BYLAYER"
+          "value": "BYLAYER",
+          "raw": 256
         },
         {
+          "key": "lineType",
           "label": "線種",
           "value": "BYLAYER（CONTINUOUS）"
         },
         {
+          "key": "lineWidth",
           "label": "線の太さ",
           "value": "BYLAYER"
         },
         {
+          "key": "text",
           "label": "文字列",
           "value": "oúY‡W"
         },
         {
+          "key": "height",
           "label": "高さ",
-          "value": "2"
+          "value": "2",
+          "raw": 2
         },
         {
+          "key": "textStyle",
           "label": "文字スタイル",
           "value": "STANDARD"
         }
@@ -318,6 +373,7 @@
     },
     {
       "id": "43",
+      "kind": "solid",
       "type": "塗り（ソリッド）",
       "source": "SOLID",
       "layers": [
@@ -349,26 +405,34 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "塗り（ソリッド）（SOLID）"
         },
         {
+          "key": "id",
           "label": "ハンドル",
           "value": "43"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "0"
+          "value": "0",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "BYLAYER"
+          "value": "BYLAYER",
+          "raw": 256
         },
         {
+          "key": "lineType",
           "label": "線種",
           "value": "BYLAYER（CONTINUOUS）"
         },
         {
+          "key": "lineWidth",
           "label": "線の太さ",
           "value": "BYLAYER"
         }
@@ -389,6 +453,7 @@
     },
     {
       "id": "44",
+      "kind": "point",
       "type": "点",
       "source": "POINT",
       "layers": [
@@ -410,32 +475,45 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "点（POINT）"
         },
         {
+          "key": "id",
           "label": "ハンドル",
           "value": "44"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "0"
+          "value": "0",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "BYLAYER"
+          "value": "BYLAYER",
+          "raw": 256
         },
         {
+          "key": "lineType",
           "label": "線種",
           "value": "BYLAYER（CONTINUOUS）"
         },
         {
+          "key": "lineWidth",
           "label": "線の太さ",
           "value": "BYLAYER"
         },
         {
+          "key": "position",
           "label": "位置",
-          "value": "5, 2"
+          "value": "5, 2",
+          "raw": [
+            5,
+            2
+          ]
         }
       ],
       "placement": {
@@ -454,6 +532,7 @@
     },
     {
       "id": "45",
+      "kind": "point",
       "type": "点",
       "source": "POINT",
       "layers": [
@@ -475,32 +554,45 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "点（POINT）"
         },
         {
+          "key": "id",
           "label": "ハンドル",
           "value": "45"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "0"
+          "value": "0",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "BYLAYER"
+          "value": "BYLAYER",
+          "raw": 256
         },
         {
+          "key": "lineType",
           "label": "線種",
           "value": "BYLAYER（CONTINUOUS）"
         },
         {
+          "key": "lineWidth",
           "label": "線の太さ",
           "value": "BYLAYER"
         },
         {
+          "key": "position",
           "label": "位置",
-          "value": "500, 500"
+          "value": "500, 500",
+          "raw": [
+            500,
+            500
+          ]
         }
       ],
       "placement": {
@@ -519,6 +611,7 @@
     },
     {
       "id": "46",
+      "kind": "hatch",
       "type": "ハッチング",
       "source": "HATCH",
       "layers": [
@@ -622,40 +715,54 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "ハッチング（HATCH）"
         },
         {
+          "key": "id",
           "label": "ハンドル",
           "value": "46"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "0"
+          "value": "0",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "BYLAYER"
+          "value": "BYLAYER",
+          "raw": 256
         },
         {
+          "key": "lineType",
           "label": "線種",
           "value": "BYLAYER（CONTINUOUS）"
         },
         {
+          "key": "lineWidth",
           "label": "線の太さ",
           "value": "BYLAYER"
         },
         {
+          "key": "pattern",
           "label": "模様",
-          "value": "LINES"
+          "value": "LINES",
+          "raw": "LINES"
         },
         {
+          "key": "patternScale",
           "label": "模様の尺度",
-          "value": "1"
+          "value": "1",
+          "raw": 1
         },
         {
+          "key": "patternAngle",
           "label": "模様の角度",
-          "value": "0°"
+          "value": "0°",
+          "raw": 0
         }
       ],
       "placement": {
@@ -674,6 +781,7 @@
     },
     {
       "id": "47",
+      "kind": "construction-line",
       "type": "構築線",
       "source": "XLINE",
       "layers": [
@@ -702,26 +810,34 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "構築線（XLINE）"
         },
         {
+          "key": "id",
           "label": "ハンドル",
           "value": "47"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "0"
+          "value": "0",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "BYLAYER"
+          "value": "BYLAYER",
+          "raw": 256
         },
         {
+          "key": "lineType",
           "label": "線種",
           "value": "BYLAYER（CONTINUOUS）"
         },
         {
+          "key": "lineWidth",
           "label": "線の太さ",
           "value": "BYLAYER"
         }
@@ -769,24 +885,31 @@
   ],
   "metadata": [
     {
+      "key": "format",
       "label": "形式",
       "value": "DXF AutoCAD 2004（AC1018、テキスト）"
     },
     {
+      "key": "encoding",
       "label": "文字コード",
-      "value": "西欧（Windows-1252）（指定なし）"
+      "value": "西欧（Windows-1252）（指定なし）",
+      "raw": "windows-1252"
     },
     {
+      "key": "units",
       "label": "単位",
       "value": "m"
     },
     {
+      "key": "layouts",
       "label": "レイアウト",
       "value": "Inches・Rotated"
     },
     {
+      "key": "view",
       "label": "表示",
-      "value": "モデル空間"
+      "value": "モデル空間",
+      "raw": "Model"
     }
   ],
   "background": "dark"

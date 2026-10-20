@@ -25,6 +25,7 @@
   "entities": [
     {
       "id": "20",
+      "kind": "leader",
       "type": "マルチ引出線",
       "source": "MULTILEADER",
       "layers": [
@@ -115,40 +116,53 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "マルチ引出線（MULTILEADER）"
         },
         {
+          "key": "id",
           "label": "ハンドル",
           "value": "20"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "0"
+          "value": "0",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "BYLAYER"
+          "value": "BYLAYER",
+          "raw": 256
         },
         {
+          "key": "lineType",
           "label": "線種",
           "value": "BYLAYER（CONTINUOUS）"
         },
         {
+          "key": "lineWidth",
           "label": "線の太さ",
           "value": "BYLAYER"
         },
         {
+          "key": "text",
           "label": "文字列",
           "value": "ABC"
         },
         {
+          "key": "height",
           "label": "高さ",
-          "value": "2.5"
+          "value": "2.5",
+          "raw": 2.5
         },
         {
+          "key": "leaderCount",
           "label": "引出線",
-          "value": "1 本"
+          "value": "1 本",
+          "raw": 1
         }
       ],
       "placement": {
@@ -176,20 +190,26 @@
   ],
   "metadata": [
     {
+      "key": "format",
       "label": "形式",
       "value": "DXF AutoCAD 2018（AC1032、テキスト）"
     },
     {
+      "key": "encoding",
       "label": "文字コード",
-      "value": "UTF-8（AutoCAD 2007 以降の DXF）"
+      "value": "UTF-8（AutoCAD 2007 以降の DXF）",
+      "raw": "utf-8"
     },
     {
+      "key": "units",
       "label": "単位",
       "value": "mm"
     },
     {
+      "key": "view",
       "label": "表示",
-      "value": "モデル空間"
+      "value": "モデル空間",
+      "raw": "Model"
     }
   ],
   "background": "dark"

@@ -11,8 +11,8 @@ use zumen_core::geometry::{
 };
 use zumen_core::text::layout_text;
 use zumen_core::{
-    BBox, Background, DotPrimitive, FillPrimitive, Matrix, NoticeLevel, NoticeList, Placement, Primitive, Property,
-    Scene, SceneEntity, SceneLayer, Sheet, StrokePrimitive, TextPrimitive, js,
+    BBox, Background, DotPrimitive, EntityKind, FillPrimitive, Matrix, NoticeLevel, NoticeList, Placement, Primitive,
+    Property, Scene, SceneEntity, SceneLayer, Sheet, StrokePrimitive, TextPrimitive, js,
 };
 
 const MAX_DEPTH: usize = 16;
@@ -110,10 +110,11 @@ impl<'a> Builder<'a> {
         })
     }
 
-    fn real(&mut self, base: &JwwBase, x: f64, y: f64, ctx: &Context) -> String {
+    /// 実寸の座標の属性
+    fn real(&mut self, key: &'static str, label: &str, base: &JwwBase, x: f64, y: f64, ctx: &Context) -> Property {
         let (px, py) = apply(&ctx.m, x, y);
         let (rx, ry) = apply(&self.placement(base.layer_group).inverse, px, py);
-        format!("{}, {}", number(rx), number(ry))
+        Property::new(key, label, format!("{}, {}", number(rx), number(ry))).raw([rx, ry])
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -122,7 +123,8 @@ impl<'a> Builder<'a> {
         ctx: &Context,
         base: &JwwBase,
         id: usize,
-        kind: &str,
+        kind: EntityKind,
+        type_name: &str,
         source: &str,
         primitives: Vec<Primitive>,
         properties: Vec<Property>,
@@ -151,19 +153,21 @@ impl<'a> Builder<'a> {
         let placement = self.placement(base.layer_group);
         let id = format!("{}#{id}", ctx.path);
         let mut all = vec![
-            Property::new("種類", kind),
-            Property::new("番号", id.clone()),
+            Property::new("type", "種類", type_name),
+            Property::new("id", "番号", id.clone()),
             Property::new(
+                "layer",
                 "レイヤ",
                 format!(
                     "{} / {}",
                     group_name(self.doc, group_index),
                     layer_name(self.doc, group_index, usize::from(base.layer & 0x0f))
                 ),
-            ),
-            Property::new("縮尺", format!("1/{}", number(scale))),
-            Property::new("線色", base.pen_color.to_string()),
-            Property::new("線種", base.pen_style.to_string()),
+            )
+            .raw(f64::from(layer)),
+            Property::new("scale", "縮尺", format!("1/{}", number(scale))).raw(scale),
+            Property::new("color", "線色", base.pen_color.to_string()).raw(f64::from(base.pen_color)),
+            Property::new("lineType", "線種", base.pen_style.to_string()).raw(f64::from(base.pen_style)),
         ];
         all.extend(properties);
         // 読み取りの上限（zumen_core::limits）。上限を超えたら図形を加えない
@@ -172,7 +176,8 @@ impl<'a> Builder<'a> {
         }
         self.entities.push(SceneEntity {
             id,
-            kind: kind.to_string(),
+            kind,
+            type_name: type_name.to_string(),
             source: source.to_string(),
             layers,
             primitives,
@@ -191,19 +196,19 @@ impl<'a> Builder<'a> {
             JwwEntity::Line(e) => {
                 let stroke = self.stroke(ctx, &e.base, &[e.x1, e.y1, e.x2, e.y2], false);
                 let properties = vec![
-                    Property::new("始点（実寸）", self.real(&e.base, e.x1, e.y1, ctx)),
-                    Property::new("終点（実寸）", self.real(&e.base, e.x2, e.y2, ctx)),
+                    self.real("start", "始点（実寸）", &e.base, e.x1, e.y1, ctx),
+                    self.real("end", "終点（実寸）", &e.base, e.x2, e.y2, ctx),
                 ];
-                self.add(ctx, &e.base, id, "線", "CDataSen", vec![stroke], properties);
+                self.add(ctx, &e.base, id, EntityKind::Line, "線", "CDataSen", vec![stroke], properties);
             }
             JwwEntity::Arc(e) => {
                 let points = self.arc_points(ctx, e.cx, e.cy, e.radius, e.flatness, e.tilt, e.start, e.sweep, e.full);
-                let kind = if e.flatness != 1.0 && (e.flatness - 1.0).abs() > 1e-9 {
-                    "楕円"
-                } else if e.full {
-                    "円"
-                } else {
-                    "円弧"
+                let ellipse = e.flatness != 1.0 && (e.flatness - 1.0).abs() > 1e-9;
+                let (kind, type_name) = match (ellipse, e.full) {
+                    (true, true) => (EntityKind::Ellipse, "楕円"),
+                    (true, false) => (EntityKind::EllipseArc, "楕円"),
+                    (false, true) => (EntityKind::Circle, "円"),
+                    (false, false) => (EntityKind::Arc, "円弧"),
                 };
                 let stroke = self.stroke(ctx, &e.base, &points, e.full);
                 let scale = match self.doc.groups.get(usize::from(e.base.layer_group & 0x0f)).map(|group| group.scale) {
@@ -211,10 +216,10 @@ impl<'a> Builder<'a> {
                     _ => 1.0,
                 };
                 let properties = vec![
-                    Property::new("中心（実寸）", self.real(&e.base, e.cx, e.cy, ctx)),
-                    Property::new("半径（実寸）", number(e.radius * scale)),
+                    self.real("center", "中心（実寸）", &e.base, e.cx, e.cy, ctx),
+                    Property::new("radius", "半径（実寸）", number(e.radius * scale)).raw(e.radius * scale),
                 ];
-                self.add(ctx, &e.base, id, kind, "CDataEnko", vec![stroke], properties);
+                self.add(ctx, &e.base, id, kind, type_name, "CDataEnko", vec![stroke], properties);
             }
             JwwEntity::Point(e) => {
                 if e.temporary {
@@ -223,8 +228,8 @@ impl<'a> Builder<'a> {
                 }
                 let (x, y) = apply(&ctx.m, e.x, e.y);
                 let dot = Primitive::Dot(DotPrimitive { x, y, color: self.color(&e.base, None) });
-                let properties = vec![Property::new("位置（実寸）", self.real(&e.base, e.x, e.y, ctx))];
-                self.add(ctx, &e.base, id, "点", "CDataTen", vec![dot], properties);
+                let properties = vec![self.real("position", "位置（実寸）", &e.base, e.x, e.y, ctx)];
+                self.add(ctx, &e.base, id, EntityKind::Point, "点", "CDataTen", vec![dot], properties);
             }
             JwwEntity::Text(e) => {
                 // Jw_cad 8 以降は、印刷・表示の設定を (0, -1000) の「名前 = 値」の文字として保存する。図形ではないので描かない
@@ -236,19 +241,22 @@ impl<'a> Builder<'a> {
                     return;
                 };
                 let properties = vec![
-                    Property::new("文字列", e.content.clone()),
-                    Property::new("フォント", e.font.clone()),
+                    Property::new("text", "文字列", e.content.clone()),
+                    Property::new("font", "フォント", e.font.clone()),
                     Property::new(
+                        "textSize",
                         "文字の大きさ",
                         format!("幅 {}・高さ {}・間隔 {}（mm）", number(e.size_x), number(e.size_y), number(e.spacing)),
-                    ),
+                    )
+                    .raw([e.size_x, e.size_y, e.spacing]),
                 ];
-                self.add(ctx, &e.base, id, "文字", "CDataMoji", vec![Primitive::Text(text)], properties);
+                let text = vec![Primitive::Text(text)];
+                self.add(ctx, &e.base, id, EntityKind::Text, "文字", "CDataMoji", text, properties);
             }
             JwwEntity::Solid(e) => {
                 let ring = transform_points(&ctx.m, &e.points);
                 let fill = Primitive::Fill(FillPrimitive { color: self.color(&e.base, e.color), rings: vec![ring] });
-                self.add(ctx, &e.base, id, "ソリッド", "CDataSolid", vec![fill], Vec::new());
+                self.add(ctx, &e.base, id, EntityKind::Solid, "ソリッド", "CDataSolid", vec![fill], Vec::new());
             }
             JwwEntity::CircleSolid(e) => {
                 let full = e.mode == 100.0 || (e.sweep.abs() - PI * 2.0).abs() < 1e-6;
@@ -269,7 +277,7 @@ impl<'a> Builder<'a> {
                 }
                 let ring = transform_points(&ctx.m, &points);
                 let fill = Primitive::Fill(FillPrimitive { color: self.color(&e.base, e.color), rings: vec![ring] });
-                self.add(ctx, &e.base, id, "円ソリッド", "CDataSolid", vec![fill], Vec::new());
+                self.add(ctx, &e.base, id, EntityKind::Solid, "円ソリッド", "CDataSolid", vec![fill], Vec::new());
             }
             JwwEntity::Block(e) => {
                 let Some(block) = self.blocks.get(&e.definition).copied() else {
@@ -314,8 +322,8 @@ impl<'a> Builder<'a> {
                 if let Some(text) = self.text(ctx, &e.text) {
                     primitives.push(Primitive::Text(text));
                 }
-                let properties = vec![Property::new("寸法値", e.text.content.clone())];
-                self.add(ctx, &e.base, id, "寸法", "CDataSunpou", primitives, properties);
+                let properties = vec![Property::new("dimensionText", "寸法値", e.text.content.clone())];
+                self.add(ctx, &e.base, id, EntityKind::Dimension, "寸法", "CDataSunpou", primitives, properties);
             }
         }
     }
@@ -454,9 +462,10 @@ pub fn jww_to_scene(doc: &JwwDocument) -> Scene {
         .collect();
     let paper = doc.pen_colors.as_ref().and_then(|colors| colors.first()).map_or("#ffffff", String::as_str);
     let background = if luminance(paper) < 0.5 { Background::Dark } else { Background::Light };
-    let mut metadata = vec![Property::new("形式", format!("JWW（版 {}）", doc.version))];
+    let mut metadata = vec![Property::new("format", "形式", format!("JWW（版 {}）", doc.version))];
     if let Some(sheet) = &sheet {
         metadata.push(Property::new(
+            "sheet",
             "用紙",
             format!("{}（{}×{}mm）", sheet.size, js::number_to_string(sheet.width), js::number_to_string(sheet.height)),
         ));
@@ -469,19 +478,25 @@ pub fn jww_to_scene(doc: &JwwDocument) -> Scene {
             scales.push(group.scale);
         }
     }
-    metadata.push(Property::new(
-        "縮尺",
-        scales.iter().map(|scale| format!("1/{}", number(*scale))).collect::<Vec<_>>().join("・"),
-    ));
+    metadata.push(
+        Property::new(
+            "scale",
+            "縮尺",
+            scales.iter().map(|scale| format!("1/{}", number(*scale))).collect::<Vec<_>>().join("・"),
+        )
+        .raw(scales),
+    );
     let memo = js::trim(&doc.memo);
     if !memo.is_empty() {
-        metadata.push(Property::new("メモ", memo));
+        metadata.push(Property::new("memo", "メモ", memo));
     }
     if !doc.blocks.is_empty() {
-        metadata.push(Property::new("ブロック", format!("{} 件", doc.blocks.len())));
+        metadata.push(
+            Property::new("blockCount", "ブロック", format!("{} 件", doc.blocks.len())).raw(doc.blocks.len() as f64),
+        );
     }
     if !builder.settings.is_empty() {
-        metadata.push(Property::new("Jw_cad の設定", builder.settings.join("、")));
+        metadata.push(Property::new("settings", "Jw_cad の設定", builder.settings.join("、")));
     }
     Scene {
         format: "jww".to_string(),

@@ -31,7 +31,7 @@ describe("SFC の読み取り", () => {
 
   it("2 バイト目が 0x5C の文字と、\\\\ で書いた \\ を取り違えずに復号する", () => {
     const text = entity(scene.entities, "#120>#90");
-    expect(text.properties).toContainEqual({ label: "文字列", value: "表示ソ能\\x" });
+    expect(text.properties).toContainEqual({ key: "text", label: "文字列", value: "表示ソ能\\x" });
   });
 
   it("部分図の縮尺を用紙の座標に解決し、計測は元の座標の長さを返す", () => {
