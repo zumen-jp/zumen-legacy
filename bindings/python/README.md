@@ -13,6 +13,8 @@ import zumen
 scene = zumen.read("plan.jww")  # the format is detected from the contents
 print(scene.version, len(scene), scene.sheet)
 png = scene.render_png(dpi=150)  # for thumbnails or as an image for vision models
+pdf = scene.render_pdf()  # one page, the sheet at its real size, with searchable text
+svg = scene.render_svg()  # millimeters, with text as <text>
 part = scene.render_png(dpi=300, region=(100, 50, 200, 120))  # paper millimeters
 json_text = scene.to_json()  # pass to sceneFromJson in @zumenjs/core
 ```
@@ -61,6 +63,22 @@ changes.scene.render_png(dpi=150)  # red before, blue after, gray unchanged
 counts changes of color, line weight, line type and layer, and a revision that moved as a whole is moved back by
 the texts both revisions share (`changes.offset`; `align=False` turns this off).
 
+## Title block
+
+`title_block` guesses the drawing number, revision, title, project, scale and date, so that drawings can be filed
+by number and revision:
+
+```python
+block = scene.title_block()
+block["number"], block["revision"], block["title"]  # None when not found
+for field in block["fields"]:  # every candidate, the most likely first for each key
+    print(field["key"], field["value"], field["source"], field["label"], field["entity"])
+```
+
+It reads attribute tags (`DWGNO`, `REV`, `TITLE`), labels such as 図面番号 or `DWG. NO.` with the text to their right
+or below, labels with their value in the same text (`縮尺 1/100`), the sheet name and the metadata (the title block
+attributes of SXF). The values are guesses from the drawing's texts; check them before relying on them.
+
 ## MCP server
 
 `zumen-mcp` lets AI applications that speak the Model Context Protocol open, render, search, measure and compare drawings
@@ -73,7 +91,7 @@ claude mcp add zumen -- zumen-mcp --root ~/drawings  # Claude Code; other client
 
 | Tool | What it returns |
 | --- | --- |
-| `open_drawing` | Format, sheet, views, layers with entity counts, entity types, notices and the title block |
+| `open_drawing` | Format, sheet, views, layers with entity counts, entity types, notices, metadata and the drawing number, revision, title, project, scale and date from the title block |
 | `render_drawing` | A PNG of the sheet or a region (1,568 pixels on the long edge by default), the scale to convert pixels to paper millimeters, and the texts drawn with their pixel boxes |
 | `find_texts` | Texts that contain a query, ignoring full-width and half-width forms, case and spaces |
 | `find_entities` | Entities in a region, by type or layer, with counts by type |

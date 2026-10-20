@@ -133,7 +133,8 @@ class Drawings:
 
 
 def summary(scene: Scene) -> dict[str, Any]:
-    """What a client needs to plan: the format, sheet, views, layers, entity types, notices and title block.
+    """What a client needs to plan: the format, sheet, views, layers, entity types, notices, metadata and the fields
+    of the title block (drawing number, revision, title, project, scale and date, guessed from the texts).
 
     The counts include the layers that the drawing hides; ``layers`` tells which ones are visible."""
     entities = scene.entities(hidden_layers=[])
@@ -164,6 +165,7 @@ def summary(scene: Scene) -> dict[str, Any]:
         ],
         "notices": scene.notices,
         "metadata": [{"label": label, "value": value} for label, value in scene.metadata],
+        "title_block": {key: value for key, value in scene.title_block().items() if key != "fields"},
     }
 
 
@@ -504,7 +506,8 @@ def create_server(drawings: Drawings | None = None) -> Any:
     @server.tool(name="open_drawing", annotations=read_only)
     def open_drawing_tool(path: DrawingPath, view: View = None) -> CallToolResult:
         """Open a drawing and summarize it: format, sheet, views, layers with entity counts, entity types,
-        notices about content that was not drawn, and the title block (metadata)."""
+        notices about content that was not drawn, the file's metadata, and the drawing number, revision, title,
+        project, scale and date read from the title block (guessed from its labels; null when not found)."""
         return result(summary(scene_of(path, view)))
 
     @server.tool(name="render_drawing", annotations=read_only)

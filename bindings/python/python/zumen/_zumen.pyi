@@ -37,6 +37,29 @@ class Text(TypedDict):
     bbox: Box
     layers: list[str]
 
+class TitleField(TypedDict):
+    """A candidate for a title block field (type checking only)."""
+
+    key: Literal["number", "revision", "title", "project", "scale", "date"]
+    value: str
+    label: str
+    source: Literal["attribute", "label", "inline", "sheet", "metadata"]
+    entity: str | None
+    label_entity: str | None
+    x: float
+    y: float
+
+class TitleBlock(TypedDict):
+    """The fields of a title block, and every candidate found (type checking only)."""
+
+    number: str | None
+    revision: str | None
+    title: str | None
+    project: str | None
+    scale: str | None
+    date: str | None
+    fields: list[TitleField]
+
 class DrawnEntity(TypedDict):
     """An entity drawn in a ``Rendering``, with its box in pixels (type checking only)."""
 
@@ -89,6 +112,24 @@ class Scene:
         hidden_layers: list[int] | None = None,
         sheet_frame: bool = True,
     ) -> bytes: ...
+    def render_svg(
+        self,
+        *,
+        region: Box | None = None,
+        theme: Literal["light", "dark"] | None = None,
+        line_weights: bool = True,
+        hidden_layers: list[int] | None = None,
+        sheet_frame: bool = True,
+    ) -> str: ...
+    def render_pdf(
+        self,
+        *,
+        region: Box | None = None,
+        theme: Literal["light", "dark"] | None = None,
+        line_weights: bool = True,
+        hidden_layers: list[int] | None = None,
+        sheet_frame: bool = True,
+    ) -> bytes: ...
     def render(
         self,
         *,
@@ -104,6 +145,7 @@ class Scene:
     def texts(self, *, region: Box | None = None, hidden_layers: list[int] | None = None) -> list[Text]: ...
     def entities(self, *, region: Box | None = None, hidden_layers: list[int] | None = None) -> list[Entity]: ...
     def entity(self, id: str) -> Entity | None: ...
+    def title_block(self) -> TitleBlock: ...
     def to_arrow(self, *, region: Box | None = None, hidden_layers: list[int] | None = None) -> Any:
         """A ``pyarrow.Table`` of the entities (needs pyarrow)."""
 

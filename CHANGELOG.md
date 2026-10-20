@@ -4,6 +4,21 @@ All packages share one version during 0.x.
 
 ## Unreleased (0.1.0)
 
+- Rust and Python: compare two revisions of a drawing. `zumen_core::compare` matches entities by shape and text, not
+  by id, so revisions saved again or in another format compare too. It reports the removed, added and changed entities
+  and the regions that changed, aligns a revision that moved as a whole by its texts, and draws the result as a scene
+  (red before, blue after, gray unchanged). `zumen.compare` and `Comparison` in Python, `zumen compare` in the command
+  line, and `compare_drawings` in the MCP server.
+- Rust and Python: the fields of the title block (drawing number, revision, title, project, scale and date), guessed
+  from attribute tags (`DWGNO`, `REV`), from labels such as 図面番号 or 図　面　名 and the text to their right or
+  below, from a label and value in one text (`縮尺 1/100`), from the sheet name and from the metadata (the title
+  block attributes of SXF). `zumen_core::title`, `Scene.title_block` in Python, `zumen title`, and `open_drawing` in the
+  MCP server.
+- Rust and Python: SVG and PDF output of a scene, the sheet (or a region) at its real size, with the colors, line
+  weights, fills, clipping and text placement of the PNG renderer. PDF embeds the glyphs of the bundled BIZ UDGothic
+  that the page uses, so its text can be searched and copied, and SVG keeps text as `<text>`.
+  `zumen_render::render_svg` and `render_pdf`, `Scene.render_svg` and `Scene.render_pdf` in Python, and
+  `zumen render -o plan.svg` or `plan.pdf`.
 - Rust and Python: limits for drawings received from others. `ReadDrawingOptions::limits` (`max_bytes`,
   `max_entities`, `max_duration`) stops reading part way and returns an error that names the limit
   (`ReadError::exceeded`; `zumen.LimitError` with `limit` in Python). The readers count the entities they add and check
@@ -13,11 +28,6 @@ All packages share one version during 0.x.
 - Rust: compressed SXF (P2Z and SFZ, a ZIP archive with one P21 or SFC file) is unpacked and read, up to `max_bytes`
   after unpacking, or 2 GiB without it, against ZIP bombs. The scene is that of the P21 or SFC, with the archive in
   its metadata.
-- Rust and Python: compare two revisions of a drawing. `zumen_core::compare` matches entities by shape and text, not
-  by id, so revisions saved again or in another format compare too. It reports the removed, added and changed entities
-  and the regions that changed, aligns a revision that moved as a whole by its texts, and draws the result as a scene
-  (red before, blue after, gray unchanged). `zumen.compare` and `Comparison` in Python, `zumen compare` in the command
-  line, and `compare_drawings` in the MCP server.
 - `@zumenjs/viewer`: the 2D engine that applications embed in their own interface
   ([decision 0005](docs/decisions/0005-browser-packages-for-embedding.md)). The Canvas renderer, hit testing and
   `DrawingViewer` move here from `@zumenjs/core`. `DrawingViewer` sets and reads the view (`jumpTo`, `fitBounds`,

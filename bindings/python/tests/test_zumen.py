@@ -133,6 +133,85 @@ def test_renders_with_the_pixel_box_of_each_entity():
     assert "#750" not in {entity["id"] for entity in part.entities}
 
 
+def revised_features() -> bytes:
+    """features.dxf with one text changed and one line removed, as a later revision."""
+    data = (FIXTURES / "dxf" / "features.dxf").read_bytes()
+    data = data.replace("揃え00".encode("cp932"), "揃え99".encode("cp932"))
+    start = data.index(b"\r\n0\r\nLINE\r\n5\r\n101\r\n")
+    end = data.index(b"\r\n0\r\n", start + 5)
+    return data[:start] + data[end:]
+
+
+def test_compares_two_revisions_by_shape_and_text():
+    before = zumen.read(FIXTURES / "dxf" / "features.dxf")
+    same = zumen.compare(before, zumen.read(FIXTURES / "dxf" / "features.dxf"))
+    assert (len(same), same.unchanged, same.regions) == (0, len(before.entities()), [])
+
+    after = zumen.read(revised_features())
+    comparison = zumen.compare(before, after)
+    assert [entity["id"] for entity in comparison.removed] == ["101"]
+    assert comparison.added == []
+    [pair] = comparison.changed
+    assert (pair["before"]["text"], pair["after"]["text"]) == ("揃え00", "揃え99")
+    assert comparison.unchanged == len(before.entities()) - 2
+    assert comparison.offset == (0.0, 0.0)
+    assert sum(region["removed"] + region["added"] + region["changed"] for region in comparison.regions) == 2
+    assert repr(comparison).startswith("<zumen.Comparison unchanged")
+
+    overlay = comparison.scene
+    assert overlay is comparison.scene or overlay.to_json() == comparison.scene.to_json()
+    assert (overlay.format, [layer["name"] for layer in overlay.layers]) == (
+        "diff",
+        ["変更なし", "削除・変更前", "追加・変更後"],
+    )
+    removed = overlay.entity("A:101")
+    assert removed is not None and ("比較", "削除") in removed["properties"]
+    assert overlay.render_png(dpi=20).startswith(b"\x89PNG")
+    with pytest.raises(ValueError):
+        zumen.compare(before, after, tolerance=0)
+
+
+TITLE_BLOCK_DXF = "\n".join(
+    ["0", "SECTION", "2", "ENTITIES"]
+    + ["0", "TEXT", "8", "0", "10", "100", "20", "10", "40", "3.5", "1", "DWG. NO."]
+    + ["0", "TEXT", "8", "0", "10", "130", "20", "10", "40", "3.5", "1", "A-101"]
+    + ["0", "TEXT", "8", "0", "10", "100", "20", "20", "40", "3.5", "1", "REV: 3"]
+    + ["0", "ENDSEC", "0", "EOF", ""]
+)
+
+
+def test_reads_the_title_block():
+    # A label with its value to the right, and a label with its value in the same text
+    block = zumen.read(TITLE_BLOCK_DXF.encode()).title_block()
+    assert (block["number"], block["revision"], block["title"]) == ("A-101", "3", None)
+    number = next(field for field in block["fields"] if field["key"] == "number")
+    assert (number["source"], number["label"], number["x"]) == ("label", "DWG. NO.", 130.0)
+    assert number["y"] == pytest.approx(10.0, abs=1.0)  # the bottom of the text box, a little below the baseline
+
+    # The title block attributes of SXF, and the sheet name
+    sxf = zumen.read(FIXTURES / "sfc" / "features.sfc").title_block()
+    assert {key: sxf[key] for key in ("number", "title", "project", "scale", "date")} == {
+        "number": "No.1",
+        "title": "平面図",
+        "project": "工事",
+        "scale": "1:500",
+        "date": "2026年10月18日",
+    }
+    assert zumen.read(FIXTURES / "jww" / "minimal-v700.jww").title_block()["scale"] == "1/100"
+
+
+def test_writes_svg_and_pdf_of_the_sheet():
+    scene = zumen.read(FIXTURES / "jww" / "minimal-v700.jww")
+    svg = scene.render_svg()
+    assert svg.startswith('<svg xmlns="http://www.w3.org/2000/svg" width="420mm" height="297mm" viewBox="0 0 420 297">')
+    assert "<text" in svg
+    assert 'viewBox="0 0 100 50"' in scene.render_svg(region=(0, 0, 100, 50))
+    pdf = scene.render_pdf(theme="light")
+    assert pdf.startswith(b"%PDF-1.7") and b"/FontFile2" in pdf and b"/ToUnicode" in pdf
+    with pytest.raises(zumen.RenderError):
+        scene.render_pdf(region=(0, 0, 0, 10))
+
+
 def test_stops_reading_at_the_limits():
     path = FIXTURES / "sfc" / "features.sfc"
     total = len(zumen.read(path))
@@ -172,41 +251,3 @@ def test_reads_compressed_sxf_and_stops_unpacking_at_the_limit(tmp_path):
     with pytest.raises(zumen.LimitError) as error:
         zumen.read(bomb, max_bytes=1 << 20)
     assert error.value.limit == "bytes"
-
-
-def revised_features() -> bytes:
-    """features.dxf with one text changed and one line removed, as a later revision."""
-    data = (FIXTURES / "dxf" / "features.dxf").read_bytes()
-    data = data.replace("揃え00".encode("cp932"), "揃え99".encode("cp932"))
-    start = data.index(b"\r\n0\r\nLINE\r\n5\r\n101\r\n")
-    end = data.index(b"\r\n0\r\n", start + 5)
-    return data[:start] + data[end:]
-
-
-def test_compares_two_revisions_by_shape_and_text():
-    before = zumen.read(FIXTURES / "dxf" / "features.dxf")
-    same = zumen.compare(before, zumen.read(FIXTURES / "dxf" / "features.dxf"))
-    assert (len(same), same.unchanged, same.regions) == (0, len(before.entities()), [])
-
-    after = zumen.read(revised_features())
-    comparison = zumen.compare(before, after)
-    assert [entity["id"] for entity in comparison.removed] == ["101"]
-    assert comparison.added == []
-    [pair] = comparison.changed
-    assert (pair["before"]["text"], pair["after"]["text"]) == ("揃え00", "揃え99")
-    assert comparison.unchanged == len(before.entities()) - 2
-    assert comparison.offset == (0.0, 0.0)
-    assert sum(region["removed"] + region["added"] + region["changed"] for region in comparison.regions) == 2
-    assert repr(comparison).startswith("<zumen.Comparison unchanged")
-
-    overlay = comparison.scene
-    assert overlay is comparison.scene or overlay.to_json() == comparison.scene.to_json()
-    assert (overlay.format, [layer["name"] for layer in overlay.layers]) == (
-        "diff",
-        ["変更なし", "削除・変更前", "追加・変更後"],
-    )
-    removed = overlay.entity("A:101")
-    assert removed is not None and ("比較", "削除") in removed["properties"]
-    assert overlay.render_png(dpi=20).startswith(b"\x89PNG")
-    with pytest.raises(ValueError):
-        zumen.compare(before, after, tolerance=0)

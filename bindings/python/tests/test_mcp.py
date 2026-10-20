@@ -19,6 +19,8 @@ def test_summarizes_a_drawing():
     assert info["entities"] == sum(info["types"].values()) and info["types"]["文字"] >= 1
     layer = next(layer for layer in info["layers"] if layer["name"] == "寸法")
     assert layer["entities"] > 0
+    assert (info["title_block"]["number"], info["title_block"]["title"]) == ("No.1", "平面図")
+    assert "fields" not in info["title_block"]
 
 
 def test_finds_texts_ignoring_width_case_and_spaces():

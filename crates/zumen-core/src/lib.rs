@@ -15,6 +15,7 @@ mod notices;
 mod read;
 mod sort;
 pub mod text;
+pub mod title;
 mod types;
 
 pub use limits::{Limit, ReadLimits};
