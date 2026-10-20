@@ -139,7 +139,7 @@ describe("@zumenjs/reader", () => {
     const scene = readScene(zip([{ name: "図面.P21", bytes, utf8: true }]));
     const plain = readScene(bytes);
     expect(scene.format).toBe("p21");
-    expect(scene.metadata).toContainEqual({ label: "圧縮", value: "P2Z（図面.P21）" });
+    expect(scene.metadata).toContainEqual({ key: "archive", label: "圧縮", value: "P2Z（図面.P21）" });
     expect(scene.entities).toEqual(plain.entities);
   });
 
