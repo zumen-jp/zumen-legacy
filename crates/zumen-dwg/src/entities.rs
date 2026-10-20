@@ -422,7 +422,12 @@ fn spline(s: &mut Streams<'_>) -> Read<DxfSpline> {
 /// 当てはめ点 Q0〜Qn を通り、両端の微分が d0・dn の 3 次の B スプライン（The NURBS Book 9.2.2・9.2.3 の端の微分を
 /// 与えた大域補間）。媒介変数は弦の長さ（knot_parameter 0）、その平方根（1）、等間隔（2）で 0〜1 に取り、内側の節点は
 /// 媒介変数そのもの。DWG の接線は 0〜1 の媒介変数での微分として使う（2 点の見本で AutoCAD の DXF の制御点と同じになる。推定）
-fn interpolate(fit: &[[f64; 3]], d0: [f64; 3], dn: [f64; 3], knot_parameter: i32) -> Option<(Vec<f64>, Vec<[f64; 3]>)> {
+pub(crate) fn interpolate(
+    fit: &[[f64; 3]],
+    d0: [f64; 3],
+    dn: [f64; 3],
+    knot_parameter: i32,
+) -> Option<(Vec<f64>, Vec<[f64; 3]>)> {
     let n = fit.len().checked_sub(1).filter(|n| *n >= 1)?;
     let mut lengths = Vec::with_capacity(n);
     for k in 1..=n {

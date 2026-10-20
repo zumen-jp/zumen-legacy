@@ -5,6 +5,7 @@
 #![forbid(unsafe_code)]
 
 mod bits;
+mod codec;
 mod compress;
 mod crc;
 mod document;
@@ -19,7 +20,7 @@ mod write;
 
 pub use document::read_dwg;
 pub use file::is_dwg;
-pub use write::{DwgWritten, rewrite_dwg};
+pub use write::{DwgWritten, rewrite_dwg, write_dwg};
 
 /// テストが規則を確かめる最小の図面を組み立てるための、書き出しの部品（tests/writer が使う）。安定した API ではない
 #[doc(hidden)]
