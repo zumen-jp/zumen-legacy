@@ -1,7 +1,8 @@
 //! Jw_cad の JWW ファイルを読み、zumen の表示用モデル（`Scene`）にする。`@zumenjs/jww` の Rust 版。
 //! JWW を書く（`JwwFile` は読んだファイルを元と同じバイト列に書き戻し、`write_jww` は新しい図面を書く）。
 //! JWW をその場で編集する（`edit_jww`。docs/decisions/0012）。Jw_cad for DOS の JWC も読み書きする（`JwcFile`、
-//! `read_jwc`、`write_jwc`、読み取りは `JWC`。TypeScript の読み取りはない）。
+//! `read_jwc`、`write_jwc`、読み取りは `JWC`。TypeScript の読み取りはない）。図形ファイル JWS も同じく読み書きする
+//! （`JwsFile`、`read_jws`、`write_jws`、読み取りは `JWS`）。
 #![forbid(unsafe_code)]
 
 mod archive;
@@ -10,6 +11,7 @@ mod edit;
 mod file;
 mod header;
 mod jwc;
+mod jws;
 mod reader;
 mod scene;
 mod style;
@@ -27,6 +29,7 @@ pub use jwc::{
     JWC_SIGNATURE, JwcArc, JwcAttributes, JwcFile, JwcGroup, JwcLayer, JwcLine, JwcPoint, JwcString, JwcTemporaryPoint,
     JwcText, JwcTextStyle, is_jwc, read_jwc, write_jwc,
 };
+pub use jws::{JWS_SIGNATURE, JwsDocument, JwsFile, JwsHeader, is_jws, jws_to_scene, read_jws, write_jws};
 pub use reader::{
     JwwArc, JwwBase, JwwBlock, JwwBlockDefinition, JwwCircleSolid, JwwDimension, JwwDocument, JwwEntity, JwwLayer,
     JwwLayerGroup, JwwLine, JwwPoint, JwwSolid, JwwText, WidthUnit, is_jww, read_jww,
@@ -80,6 +83,29 @@ impl DrawingReader for Jwc {
             return Err(ReadError::new(format!("JWC の読み取りは {format} を読めません")));
         }
         Ok(jwc_to_scene(&read_jwc(bytes)?))
+    }
+}
+
+/// read_drawing に渡す JWS（Jw_cad の図形ファイル）の読み取り。Rust だけで、TypeScript の読み取りはない
+pub struct Jws;
+
+/// JWS の読み取り。識別子 `JwsData.` で判定し、JWW と同じ図形を用紙なしで描く
+pub const JWS: Jws = Jws;
+
+impl DrawingReader for Jws {
+    fn formats(&self) -> &'static [&'static str] {
+        &["jws"]
+    }
+
+    fn detect(&self, bytes: &[u8]) -> Option<&'static str> {
+        is_jws(bytes).then_some("jws")
+    }
+
+    fn read(&self, bytes: &[u8], format: &str, _options: &ReadOptions) -> Result<Scene, ReadError> {
+        if format != "jws" {
+            return Err(ReadError::new(format!("JWS の読み取りは {format} を読めません")));
+        }
+        Ok(jws_to_scene(&read_jws(bytes)?))
     }
 }
 

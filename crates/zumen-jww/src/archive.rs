@@ -27,11 +27,13 @@ const BIG_CLASS_TAG: u32 = 0x8000_0000;
 pub(crate) struct Reader<'a> {
     bytes: &'a [u8],
     pos: usize,
+    /// 最初に読んだ CString が UTF-16LE だったか（読んでいなければ None）
+    pub(crate) unicode: Option<bool>,
 }
 
 impl<'a> Reader<'a> {
     pub(crate) fn new(bytes: &'a [u8], start: usize) -> Self {
-        Self { bytes, pos: start }
+        Self { bytes, pos: start, unicode: None }
     }
 
     pub(crate) fn pos(&self) -> usize {
@@ -103,6 +105,7 @@ impl<'a> Reader<'a> {
                 length = self.u32()?;
             }
         }
+        self.unicode.get_or_insert(unicode);
         let size = if unicode { u64::from(length) * 2 } else { u64::from(length) };
         let slice = self.take(usize::try_from(size).map_err(|_| ReadError::new(END_OF_DATA))?)?;
         Ok((decode(slice, unicode), start..self.pos))
