@@ -76,6 +76,39 @@ bytes ─▶ readStb ─▶ StructureModel ─▶ StructureView (three.js) ─�
   `readDrawing(bytes, readers, { view })` passes the choice to the reader (`DrawingReader.read(bytes, format, { view })`).
   Formats with a single view leave both out.
 - Entities and properties carry text for people next to stable keys for applications, as described below.
+- `Scene.unit` is the length unit of the drawing's own coordinates, those of the `raw` points and lengths of the
+  properties: `millimeter` in SXF and JWW, and in DXF and DWG the unit of `$INSUNITS`, or the one assumed with the
+  `unit-assumed` notice when the file gives none. It is one of `LENGTH_UNITS` (`LengthUnit` in Rust), every unit that
+  `$INSUNITS` can name (`millimeter`, `meter`, `inch`, `foot`, `us-survey-foot` …). In a DXF or DWG layout, the
+  entities drawn on the sheet itself (paper space, without a placement) have coordinates in the paper units of the
+  layout. Placements turn paper coordinates into real-world millimeters whatever the unit.
+- Entity ids come from the file and are kept for the same bytes, as described in [Entity ids](#entity-ids).
+
+### Entity ids
+
+`SceneEntity.id` names an entity by what the file gives it, so that an application can keep an id (in a citation, a
+link or a database) and find the entity again by reading the same file:
+
+- **SXF**: the instance number of the feature (`#120`). Inside a sub-figure or part, the instance numbers of the
+  placements it sits in come first, each followed by `>` (`#810>#260>#220`).
+- **JWW**: the position of the record in the file's list of entities, from 1 (`#5`). Inside a block, the position of
+  the block reference comes first (`#12>#3`, the third entity of the block).
+- **DXF and DWG**: the handle (`1F`, in upper case). Inside a block reference, the handles of the references come first,
+  each followed by `>` (`2A>1F`), with the row and column of a multiple insert (`2A[0,1]>1F`); the attributes of a
+  reference follow its handle in the same way. Inside a viewport of a layout, the viewport's handle and a colon come
+  first (`4C:2A>1F`). The parts of a dimension or a multileader are merged into it and have its id. An entity without a
+  handle (DXF files written without handles, such as many R12 files) is `#n`, where n counts the records of the file
+  (group code 0: sections, table entries, blocks, entities, vertices) up to the entity's own, from 1. Every record is
+  counted, also those of entity types that zumen does not read, so the number does not change when a later version
+  reads more types, and it is unique in the file like a handle.
+
+The same bytes give the same ids in every version of zumen and in every language (TypeScript, Rust, Python,
+WebAssembly), for each view. `crates/zumen/tests/ids.rs` checks the ids of every fixture and view against a record,
+`crates/zumen/tests/ids.json`, that `pnpm run golden` does not rewrite; a change of the readers that gives the same
+bytes other ids is a breaking change and needs a decision. Ids are unique within a scene when the file's handles or
+instance numbers are (`packages/core/tests/keys.test.ts` checks every golden file), and `Scene.entity(id)` in Python
+returns the first entity with an id. An id does not survive saving the drawing again in another program, which may
+renumber handles and records; `zumen_core::compare` matches revisions by shape and text for that reason.
 
 ### Stable keys
 
