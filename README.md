@@ -181,6 +181,12 @@ const sheet = dxfToScene(doc, { layout: "Layout1" }); // or the default view (mo
 
 A `Scene` uses paper millimeters with the Y axis up. Placements of sub-figures and blocks are resolved,
 and each entity keeps its properties and, inside a scaled placement, the transform back to real-world coordinates.
+Pick entities and attributes by keys that are the same in every format, and show the Japanese text to people:
+
+```ts
+const circles = scene.entities.filter((entity) => entity.kind === "circle"); // entity.type is 円
+const radius = circles[0]?.properties.find((property) => property.key === "radius")?.raw; // label 半径, value "25"
+```
 
 Structural models (ST-Bridge): `useStbFile` reads the file and `StbViewer` shows it in 3D. `readStb` alone works in Node.js.
 

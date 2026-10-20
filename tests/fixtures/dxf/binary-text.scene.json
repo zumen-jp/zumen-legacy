@@ -25,6 +25,7 @@
   "entities": [
     {
       "id": "20",
+      "kind": "text",
       "type": "複数行文字",
       "source": "MTEXT",
       "layers": [
@@ -200,38 +201,50 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "複数行文字（MTEXT）"
         },
         {
+          "key": "id",
           "label": "ハンドル",
           "value": "20"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "0"
+          "value": "0",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "BYLAYER"
+          "value": "BYLAYER",
+          "raw": 256
         },
         {
+          "key": "lineType",
           "label": "線種",
           "value": "BYLAYER（CONTINUOUS）"
         },
         {
+          "key": "lineWidth",
           "label": "線の太さ",
           "value": "BYLAYER"
         },
         {
+          "key": "text",
           "label": "文字列",
           "value": "First line\nSecond    line"
         },
         {
+          "key": "height",
           "label": "高さ",
-          "value": "2.5"
+          "value": "2.5",
+          "raw": 2.5
         },
         {
+          "key": "textStyle",
           "label": "文字スタイル",
           "value": "STANDARD"
         }
@@ -252,6 +265,7 @@
     },
     {
       "id": "21",
+      "kind": "text",
       "type": "複数行文字",
       "source": "MTEXT",
       "layers": [
@@ -302,38 +316,50 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "複数行文字（MTEXT）"
         },
         {
+          "key": "id",
           "label": "ハンドル",
           "value": "21"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "0"
+          "value": "0",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "BYLAYER"
+          "value": "BYLAYER",
+          "raw": 256
         },
         {
+          "key": "lineType",
           "label": "線種",
           "value": "BYLAYER（CONTINUOUS）"
         },
         {
+          "key": "lineWidth",
           "label": "線の太さ",
           "value": "BYLAYER"
         },
         {
+          "key": "text",
           "label": "文字列",
           "value": "x^2"
         },
         {
+          "key": "height",
           "label": "高さ",
-          "value": "2.5"
+          "value": "2.5",
+          "raw": 2.5
         },
         {
+          "key": "textStyle",
           "label": "文字スタイル",
           "value": "STANDARD"
         }
@@ -354,6 +380,7 @@
     },
     {
       "id": "22",
+      "kind": "text",
       "type": "文字",
       "source": "TEXT",
       "layers": [
@@ -404,38 +431,50 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "文字（TEXT）"
         },
         {
+          "key": "id",
           "label": "ハンドル",
           "value": "22"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "0"
+          "value": "0",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "BYLAYER"
+          "value": "BYLAYER",
+          "raw": 256
         },
         {
+          "key": "lineType",
           "label": "線種",
           "value": "BYLAYER（CONTINUOUS）"
         },
         {
+          "key": "lineWidth",
           "label": "線の太さ",
           "value": "BYLAYER"
         },
         {
+          "key": "text",
           "label": "文字列",
           "value": "m^2"
         },
         {
+          "key": "height",
           "label": "高さ",
-          "value": "2.5"
+          "value": "2.5",
+          "raw": 2.5
         },
         {
+          "key": "textStyle",
           "label": "文字スタイル",
           "value": "STANDARD"
         }
@@ -465,20 +504,26 @@
   ],
   "metadata": [
     {
+      "key": "format",
       "label": "形式",
       "value": "DXF AutoCAD 2004（AC1018、バイナリ）"
     },
     {
+      "key": "encoding",
       "label": "文字コード",
-      "value": "西欧（Windows-1252）（$DWGCODEPAGE ANSI_1252）"
+      "value": "西欧（Windows-1252）（$DWGCODEPAGE ANSI_1252）",
+      "raw": "windows-1252"
     },
     {
+      "key": "units",
       "label": "単位",
       "value": "mm"
     },
     {
+      "key": "view",
       "label": "表示",
-      "value": "モデル空間"
+      "value": "モデル空間",
+      "raw": "Model"
     }
   ],
   "background": "dark"

@@ -46,7 +46,7 @@ describe("P21 の読み取り", () => {
 
   it("文字の配置点をベースラインから SXF の配置基点（右上）へ戻す", () => {
     const text = entity(scene.entities, "#77>#69");
-    expect(text.properties).toContainEqual({ label: "文字列", value: "表示" });
+    expect(text.properties).toContainEqual({ key: "text", label: "文字列", value: "表示" });
     expect(text.bbox.minX).toBeCloseTo(90, 6);
     expect(text.bbox.maxX).toBeCloseTo(105, 6);
     expect(text.bbox.minY).toBeCloseTo(57.5, 6);
@@ -57,6 +57,7 @@ describe("P21 の読み取り", () => {
     const dimension = entity(scene.entities, "#98");
     expect(dimension.layers).toEqual([2]);
     expect(dimension.properties).toContainEqual({
+      key: "arrows",
       label: "矢印",
       value: "filled arrow（外向き）・filled arrow（内向き）",
     });

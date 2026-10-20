@@ -25,6 +25,7 @@
   "entities": [
     {
       "id": "20",
+      "kind": "attribute-definition",
       "type": "属性定義",
       "source": "ATTDEF",
       "layers": [
@@ -85,42 +86,55 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "属性定義（ATTDEF）"
         },
         {
+          "key": "id",
           "label": "ハンドル",
           "value": "20"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "0"
+          "value": "0",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "BYLAYER"
+          "value": "BYLAYER",
+          "raw": 256
         },
         {
+          "key": "lineType",
           "label": "線種",
           "value": "BYLAYER（CONTINUOUS）"
         },
         {
+          "key": "lineWidth",
           "label": "線の太さ",
           "value": "BYLAYER"
         },
         {
+          "key": "text",
           "label": "文字列",
           "value": "MULTI"
         },
         {
+          "key": "tag",
           "label": "タグ",
           "value": "MULTI"
         },
         {
+          "key": "height",
           "label": "高さ",
-          "value": "2.5"
+          "value": "2.5",
+          "raw": 2.5
         },
         {
+          "key": "textStyle",
           "label": "文字スタイル",
           "value": "STANDARD"
         }
@@ -141,6 +155,7 @@
     },
     {
       "id": "21",
+      "kind": "attribute",
       "type": "属性",
       "source": "ATTRIB",
       "layers": [
@@ -191,42 +206,55 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "属性（ATTRIB）"
         },
         {
+          "key": "id",
           "label": "ハンドル",
           "value": "21"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "0"
+          "value": "0",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "BYLAYER"
+          "value": "BYLAYER",
+          "raw": 256
         },
         {
+          "key": "lineType",
           "label": "線種",
           "value": "BYLAYER（CONTINUOUS）"
         },
         {
+          "key": "lineWidth",
           "label": "線の太さ",
           "value": "BYLAYER"
         },
         {
+          "key": "text",
           "label": "文字列",
           "value": "ABC"
         },
         {
+          "key": "tag",
           "label": "タグ",
           "value": "SINGLE"
         },
         {
+          "key": "height",
           "label": "高さ",
-          "value": "2.5"
+          "value": "2.5",
+          "raw": 2.5
         },
         {
+          "key": "textStyle",
           "label": "文字スタイル",
           "value": "STANDARD"
         }
@@ -256,20 +284,26 @@
   ],
   "metadata": [
     {
+      "key": "format",
       "label": "形式",
       "value": "DXF AutoCAD 2018（AC1032、テキスト）"
     },
     {
+      "key": "encoding",
       "label": "文字コード",
-      "value": "UTF-8（AutoCAD 2007 以降の DXF）"
+      "value": "UTF-8（AutoCAD 2007 以降の DXF）",
+      "raw": "utf-8"
     },
     {
+      "key": "units",
       "label": "単位",
       "value": "mm"
     },
     {
+      "key": "view",
       "label": "表示",
-      "value": "モデル空間"
+      "value": "モデル空間",
+      "raw": "Model"
     }
   ],
   "background": "dark"

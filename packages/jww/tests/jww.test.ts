@@ -48,6 +48,6 @@ describe("JWW の読み取り", () => {
 
   it.each([600, 700])("版 %i の文字列（CP932・UTF-16）を復号する", (version) => {
     const text = entity(readDrawing(build(version), [jww]).entities, "#3");
-    expect(text.properties).toContainEqual({ label: "文字列", value: "表示ソ能" });
+    expect(text.properties).toContainEqual({ key: "text", label: "文字列", value: "表示ソ能" });
   });
 });

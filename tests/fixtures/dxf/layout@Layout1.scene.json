@@ -34,6 +34,7 @@
   "entities": [
     {
       "id": "42:40",
+      "kind": "line",
       "type": "線分",
       "source": "LINE",
       "layers": [
@@ -62,40 +63,60 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "線分（LINE）"
         },
         {
+          "key": "id",
           "label": "ハンドル",
           "value": "42:40"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "0"
+          "value": "0",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "BYLAYER"
+          "value": "BYLAYER",
+          "raw": 256
         },
         {
+          "key": "lineType",
           "label": "線種",
           "value": "BYLAYER（CONTINUOUS）"
         },
         {
+          "key": "lineWidth",
           "label": "線の太さ",
           "value": "BYLAYER"
         },
         {
+          "key": "start",
           "label": "始点",
-          "value": "0, 0"
+          "value": "0, 0",
+          "raw": [
+            0,
+            0
+          ]
         },
         {
+          "key": "end",
           "label": "終点",
-          "value": "1,000, 0"
+          "value": "1,000, 0",
+          "raw": [
+            1000,
+            0
+          ]
         },
         {
+          "key": "length",
           "label": "長さ",
-          "value": "1,000"
+          "value": "1,000",
+          "raw": 1000
         }
       ],
       "placement": {
@@ -114,6 +135,7 @@
     },
     {
       "id": "42",
+      "kind": "viewport",
       "type": "ビューポート",
       "source": "VIEWPORT",
       "layers": [
@@ -146,40 +168,57 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "ビューポート（VIEWPORT）"
         },
         {
+          "key": "id",
           "label": "ハンドル",
           "value": "42"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "0"
+          "value": "0",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "BYLAYER"
+          "value": "BYLAYER",
+          "raw": 256
         },
         {
+          "key": "lineType",
           "label": "線種",
           "value": "BYLAYER（CONTINUOUS）"
         },
         {
+          "key": "lineWidth",
           "label": "線の太さ",
           "value": "BYLAYER"
         },
         {
+          "key": "scale",
           "label": "縮尺",
-          "value": "1:100"
+          "value": "1:100",
+          "raw": 100
         },
         {
+          "key": "viewCenter",
           "label": "表示の中心（モデル）",
-          "value": "500, 0"
+          "value": "500, 0",
+          "raw": [
+            500,
+            0
+          ]
         },
         {
+          "key": "viewHeight",
           "label": "表示の高さ（モデル）",
-          "value": "5,000"
+          "value": "5,000",
+          "raw": 5000
         }
       ]
     }
@@ -187,30 +226,39 @@
   "notices": [],
   "metadata": [
     {
+      "key": "format",
       "label": "形式",
       "value": "DXF AutoCAD 2000（AC1015、テキスト）"
     },
     {
+      "key": "encoding",
       "label": "文字コード",
-      "value": "西欧（Windows-1252）（指定なし）"
+      "value": "西欧（Windows-1252）（指定なし）",
+      "raw": "windows-1252"
     },
     {
+      "key": "units",
       "label": "単位",
       "value": "mm"
     },
     {
+      "key": "layouts",
       "label": "レイアウト",
       "value": "Layout1"
     },
     {
+      "key": "view",
       "label": "表示",
-      "value": "レイアウト Layout1"
+      "value": "レイアウト Layout1",
+      "raw": "Layout1"
     },
     {
+      "key": "sheet",
       "label": "用紙",
       "value": "A4（297×210 mm）"
     },
     {
+      "key": "viewportScales",
       "label": "ビューポートの縮尺",
       "value": "1:100"
     }

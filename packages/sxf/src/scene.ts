@@ -1,6 +1,7 @@
 import {
   BACKGROUND_COLOR,
   type Box,
+  type EntityKind,
   NoticeList,
   type Placement,
   type Primitive,
@@ -35,7 +36,14 @@ import {
 } from "@zumenjs/core/geometry";
 import { fontFamilyFor, layoutText } from "@zumenjs/core/text";
 import type { SxfDocument, SxfDrawing } from "./document.js";
-import { type Annotation, type Arrow, type ExtensionLine, FEATURE_LABELS, type SxfFeature } from "./features.js";
+import {
+  type Annotation,
+  type Arrow,
+  type ExtensionLine,
+  FEATURE_LABELS,
+  type FeatureKind,
+  type SxfFeature,
+} from "./features.js";
 import { arrowPrimitives, markerPrimitives } from "./symbols.js";
 import {
   ARROW_NAMES,
@@ -70,6 +78,51 @@ function format(value: number, digits = 3): string {
   }
   return formatter.format(value);
 }
+
+/** 座標の属性。value は整形した「x, y」、raw は [x, y] */
+function point(key: string, label: string, x: number, y: number): Property {
+  return { key, label, value: `${format(x)}, ${format(y)}`, raw: [x, y] };
+}
+
+/** 数の属性 */
+function number(key: string, label: string, value: number): Property {
+  return { key, label, value: format(value), raw: value };
+}
+
+/** SXF のフィーチャの、形式によらない種類（docs/architecture.md の「Stable keys」） */
+const ENTITY_KINDS: Partial<Record<FeatureKind, EntityKind>> = {
+  point_marker: "point",
+  line: "line",
+  polyline: "polyline",
+  circle: "circle",
+  arc: "arc",
+  ellipse: "ellipse",
+  ellipse_arc: "ellipse-arc",
+  text_string: "text",
+  spline: "spline",
+  clothoid: "clothoid",
+  externally_defined_symbol: "symbol",
+  linear_dim: "dimension",
+  curve_dim: "dimension",
+  angular_dim: "dimension",
+  radius_dim: "dimension",
+  diameter_dim: "dimension",
+  label: "leader",
+  balloon: "balloon",
+  externally_defined_hatch: "hatch",
+  fill_area_style_colour: "hatch",
+  fill_area_style_hatching: "hatch",
+  fill_area_style_tiles: "hatch",
+};
+
+/** 寸法の種類の、形式によらないキー（DXF・DWG の寸法と同じ値） */
+const DIMENSION_TYPES = {
+  linear_dim: "linear",
+  curve_dim: "arc-length",
+  angular_dim: "angular",
+  radius_dim: "radius",
+  diameter_dim: "diameter",
+} as const;
 
 /** 色・線種・線幅・フォントのコードを値にする（附属書 SFC 編 1-3-8〜1-3-18） */
 class Styles {
@@ -206,20 +259,31 @@ function sheetOf(doc: SxfDocument): Sheet | null {
 }
 
 function metadataOf(doc: SxfDocument, meta: SxfMeta, sheet: Sheet | null): Property[] {
-  const items: Property[] = [{ label: "形式", value: `${meta.format.toUpperCase()}（${meta.version}）` }];
+  const items: Property[] = [
+    { key: "format", label: "形式", value: `${meta.format.toUpperCase()}（${meta.version}）` },
+  ];
   if (sheet) {
     const name = sheet.name.trim() ? `${sheet.name}・` : "";
-    items.push({ label: "用紙", value: `${name}${sheet.size}（${sheet.width}×${sheet.height}mm）` });
+    items.push({ key: "sheet", label: "用紙", value: `${name}${sheet.size}（${sheet.width}×${sheet.height}mm）` });
   }
-  for (const { label, value } of doc.title?.values ?? []) {
-    if (value && value !== " ") items.push({ label, value });
+  for (const { key, label, value } of doc.title?.values ?? []) {
+    if (value && value !== " ") items.push({ key, label, value });
   }
-  if (meta.header.originatingSystem) items.push({ label: "作成ソフト", value: meta.header.originatingSystem });
-  if (meta.header.preprocessor) items.push({ label: "出力ライブラリ", value: meta.header.preprocessor });
+  if (meta.header.originatingSystem) {
+    items.push({ key: "software", label: "作成ソフト", value: meta.header.originatingSystem });
+  }
+  if (meta.header.preprocessor) {
+    items.push({ key: "library", label: "出力ライブラリ", value: meta.header.preprocessor });
+  }
   const figures = [...doc.subFigures.values()];
   const partial = figures.filter((figure) => figure.feature.flag === 1 || figure.feature.flag === 2).length;
   if (figures.length > 0) {
-    items.push({ label: "複合図形", value: `${figures.length} 件（部分図 ${partial} 件）` });
+    items.push({
+      key: "figureCount",
+      label: "複合図形",
+      value: `${figures.length} 件（部分図 ${partial} 件）`,
+      raw: [figures.length, partial],
+    });
   }
   return items;
 }
@@ -300,12 +364,13 @@ class SceneBuilder {
     if (own > 0) layers.push(own);
     for (const code of layers) this.layerCodes.add(code);
     const head: Property[] = [
-      { label: "種類", value: FEATURE_LABELS[feature.kind] },
-      { label: "番号", value: `${ctx.path}#${feature.id}` },
-      { label: "レイヤ", value: this.styles.layerName(layer) },
+      { key: "type", label: "種類", value: FEATURE_LABELS[feature.kind] },
+      { key: "id", label: "番号", value: `${ctx.path}#${feature.id}` },
+      { key: "layer", label: "レイヤ", value: this.styles.layerName(layer), raw: own },
     ];
     if (ctx.placement) {
       head.push({
+        key: "placement",
         label: "配置",
         value: `${ctx.placement.name}（縮尺 ${scaleLabel(ctx.placement.scaleX)}${
           Math.abs(ctx.placement.scaleX - ctx.placement.scaleY) > 1e-12
@@ -316,6 +381,7 @@ class SceneBuilder {
     }
     this.entities.push({
       id: `${ctx.path}#${feature.id}`,
+      kind: ENTITY_KINDS[feature.kind] as EntityKind,
       type: FEATURE_LABELS[feature.kind],
       source: `${feature.kind}_feature`,
       layers,
@@ -333,11 +399,16 @@ class SceneBuilder {
     return 0;
   }
 
+  private colorProperty(color: number): Property {
+    return { key: "color", label: "色", value: this.styles.colorLabel(color), raw: color };
+  }
+
   private styleProperties(color: number, lineType: number, lineWidth: number): Property[] {
+    const width = this.styles.width(lineWidth);
     return [
-      { label: "色", value: this.styles.colorLabel(color) },
-      { label: "線種", value: this.styles.lineTypeLabel(lineType) },
-      { label: "線幅", value: `${format(this.styles.width(lineWidth))}mm（${lineWidth}）` },
+      this.colorProperty(color),
+      { key: "lineType", label: "線種", value: this.styles.lineTypeLabel(lineType), raw: lineType },
+      { key: "lineWidth", label: "線幅", value: `${format(width)}mm（${lineWidth}）`, raw: width },
     ];
   }
 
@@ -353,9 +424,9 @@ class SceneBuilder {
           [this.stroke(ctx, points, false, feature.color, feature.lineType, feature.lineWidth)],
           [
             ...this.styleProperties(feature.color, feature.lineType, feature.lineWidth),
-            { label: "始点", value: `${format(feature.x1)}, ${format(feature.y1)}` },
-            { label: "終点", value: `${format(feature.x2)}, ${format(feature.y2)}` },
-            { label: "長さ", value: format(Math.hypot(feature.x2 - feature.x1, feature.y2 - feature.y1)) },
+            point("start", "始点", feature.x1, feature.y1),
+            point("end", "終点", feature.x2, feature.y2),
+            number("length", "長さ", Math.hypot(feature.x2 - feature.x1, feature.y2 - feature.y1)),
           ],
         );
         return;
@@ -369,7 +440,7 @@ class SceneBuilder {
           [this.stroke(ctx, points, false, feature.color, feature.lineType, feature.lineWidth)],
           [
             ...this.styleProperties(feature.color, feature.lineType, feature.lineWidth),
-            { label: "頂点数", value: String(points.length / 2) },
+            { key: "vertexCount", label: "頂点数", value: String(points.length / 2), raw: points.length / 2 },
           ],
         );
         return;
@@ -392,15 +463,22 @@ class SceneBuilder {
         if (full) points = points.slice(0, -2);
         const properties: Property[] = [
           ...this.styleProperties(feature.color, feature.lineType, feature.lineWidth),
-          { label: "中心", value: `${format(feature.cx)}, ${format(feature.cy)}` },
+          point("center", "中心", feature.cx, feature.cy),
           feature.kind === "circle" || feature.kind === "arc"
-            ? { label: "半径", value: format(feature.r) }
-            : { label: "半径（X・Y）", value: `${format(feature.rx)}・${format(feature.ry)}` },
+            ? number("radius", "半径", feature.r)
+            : {
+                key: "radii",
+                label: "半径（X・Y）",
+                value: `${format(feature.rx)}・${format(feature.ry)}`,
+                raw: [feature.rx, feature.ry],
+              },
         ];
         if (!full) {
           properties.push({
+            key: "angle",
             label: "角度",
             value: `${format(start)}° → ${format(end)}°（${ccw ? "反時計回り" : "時計回り"}）`,
+            raw: ccw ? [start, end] : [end, start],
           });
         }
         this.add(
@@ -425,7 +503,12 @@ class SceneBuilder {
           [this.stroke(ctx, points, false, feature.color, feature.lineType, feature.lineWidth)],
           [
             ...this.styleProperties(feature.color, feature.lineType, feature.lineWidth),
-            { label: "制御点数", value: String(control.length / 2) },
+            {
+              key: "controlPointCount",
+              label: "制御点数",
+              value: String(control.length / 2),
+              raw: control.length / 2,
+            },
           ],
         );
         return;
@@ -451,8 +534,13 @@ class SceneBuilder {
           [this.stroke(ctx, points, false, feature.color, feature.lineType, feature.lineWidth)],
           [
             ...this.styleProperties(feature.color, feature.lineType, feature.lineWidth),
-            { label: "パラメータ A", value: format(feature.parameter) },
-            { label: "曲線長", value: `${format(feature.startLength)} → ${format(feature.endLength)}` },
+            number("parameter", "パラメータ A", feature.parameter),
+            {
+              key: "curveLength",
+              label: "曲線長",
+              value: `${format(feature.startLength)} → ${format(feature.endLength)}`,
+              raw: [feature.startLength, feature.endLength],
+            },
           ],
         );
         return;
@@ -469,9 +557,14 @@ class SceneBuilder {
           0,
         );
         this.add(feature, ctx, feature.layer, primitives, [
-          { label: "色", value: this.styles.colorLabel(feature.color) },
-          { label: "マーカ", value: MARKER_NAMES[feature.code] ?? String(feature.code) },
-          { label: "位置", value: `${format(feature.x)}, ${format(feature.y)}` },
+          this.colorProperty(feature.color),
+          {
+            key: "marker",
+            label: "マーカ",
+            value: MARKER_NAMES[feature.code] ?? String(feature.code),
+            raw: feature.code,
+          },
+          point("position", "位置", feature.x, feature.y),
         ]);
         return;
       }
@@ -484,12 +577,17 @@ class SceneBuilder {
           feature.layer,
           [text],
           [
-            { label: "文字列", value: feature.text },
-            { label: "色", value: this.styles.colorLabel(feature.color) },
-            { label: "フォント", value: this.styles.font(feature.font) ?? `未定義（${feature.font}）` },
-            { label: "文字範囲", value: `高さ ${format(feature.height)}・幅 ${format(feature.width)}` },
-            { label: "位置", value: `${format(feature.x)}, ${format(feature.y)}` },
-            { label: "回転角", value: `${format(feature.angle)}°` },
+            { key: "text", label: "文字列", value: feature.text },
+            this.colorProperty(feature.color),
+            { key: "font", label: "フォント", value: this.styles.font(feature.font) ?? `未定義（${feature.font}）` },
+            {
+              key: "textBox",
+              label: "文字範囲",
+              value: `高さ ${format(feature.height)}・幅 ${format(feature.width)}`,
+              raw: [feature.height, feature.width],
+            },
+            point("position", "位置", feature.x, feature.y),
+            { key: "rotation", label: "回転角", value: `${format(feature.angle)}°`, raw: feature.angle },
           ],
         );
         return;
@@ -519,8 +617,8 @@ class SceneBuilder {
         );
         this.notices.add("info", "symbol", "既定義シンボルは形の代わりに名前を表示しました");
         this.add(feature, ctx, feature.layer, label ? [label] : [], [
-          { label: "シンボル名", value: feature.name },
-          { label: "位置", value: `${format(feature.x)}, ${format(feature.y)}` },
+          { key: "name", label: "シンボル名", value: feature.name },
+          point("position", "位置", feature.x, feature.y),
         ]);
         return;
       }
@@ -695,8 +793,10 @@ class SceneBuilder {
       primitives.push(...this.arcArrow(ctx, feature.arrow1, center, true, color));
       primitives.push(...this.arcArrow(ctx, feature.arrow2, center, false, color));
       properties.push({
+        key: "dimensionArc",
         label: "中心・半径",
         value: `${format(feature.cx)}, ${format(feature.cy)}・${format(feature.radius)}`,
+        raw: [feature.cx, feature.cy, feature.radius],
       });
     } else {
       const [x1, y1, x2, y2] = feature.line;
@@ -717,13 +817,24 @@ class SceneBuilder {
           ...this.arrowAt(ctx, feature.arrow2, a, b, color),
         );
       }
-      properties.push({ label: "寸法線", value: `${format(x1)}, ${format(y1)} → ${format(x2)}, ${format(y2)}` });
+      properties.push({
+        key: "dimensionLine",
+        label: "寸法線",
+        value: `${format(x1)}, ${format(y1)} → ${format(x2)}, ${format(y2)}`,
+        raw: [x1, y1, x2, y2],
+      });
     }
     if (feature.text) {
       const text = this.text(ctx, feature.text, feature.color);
       if (text) primitives.push(text);
-      properties.unshift({ label: "寸法値", value: feature.text.text });
+      properties.unshift({ key: "dimensionText", label: "寸法値", value: feature.text.text });
     }
+    properties.unshift({
+      key: "dimensionType",
+      label: "寸法の種類",
+      value: FEATURE_LABELS[feature.kind],
+      raw: DIMENSION_TYPES[feature.kind],
+    });
     const arrows = [
       "arrow" in feature ? feature.arrow : null,
       "arrow1" in feature ? feature.arrow1 : null,
@@ -731,6 +842,7 @@ class SceneBuilder {
     ].filter((item): item is Arrow => item !== null);
     if (arrows.length > 0) {
       properties.push({
+        key: "arrows",
         label: "矢印",
         value: arrows
           .map((item) => `${ARROW_NAMES[item.code] ?? item.code}（${item.direction === 2 ? "内" : "外"}向き）`)
@@ -784,7 +896,7 @@ class SceneBuilder {
     if (feature.text) {
       const text = this.text(ctx, feature.text, feature.color);
       if (text) primitives.push(text);
-      properties.unshift({ label: "文字列", value: feature.text.text });
+      properties.unshift({ key: "text", label: "文字列", value: feature.text.text });
     }
     this.add(feature, ctx, feature.layer, primitives, properties);
   }
@@ -867,16 +979,19 @@ class SceneBuilder {
     const localRings = [outer, ...feature.inIds.map((id) => this.ring(ctx, id)).filter((ring) => ring !== null)];
     const rings = localRings.map((ring) => transformPoints(ctx.m, ring));
     const primitives: Primitive[] = [];
-    const properties: Property[] = [{ label: "中抜き", value: `${feature.inIds.length} 件` }];
+    const properties: Property[] = [
+      { key: "holeCount", label: "中抜き", value: `${feature.inIds.length} 件`, raw: feature.inIds.length },
+    ];
     if (feature.kind === "fill_area_style_colour") {
       primitives.push({ kind: "fill", color: this.styles.color(feature.color), rings });
-      properties.unshift({ label: "色", value: this.styles.colorLabel(feature.color) });
+      properties.unshift(this.colorProperty(feature.color));
     } else if (feature.kind === "fill_area_style_hatching") {
       const strokes = feature.patterns
         .map((pattern) => this.hatchLines(ctx, pattern, rings))
         .filter((stroke): stroke is StrokePrimitive => stroke !== null);
       primitives.push({ kind: "clipped", rings, strokes });
       properties.unshift({
+        key: "hatchLines",
         label: "ハッチング線",
         value: feature.patterns
           .map(
@@ -887,13 +1002,13 @@ class SceneBuilder {
       });
     } else if (feature.kind === "fill_area_style_tiles") {
       this.notices.add("info", "hatch-pattern", "パターンハッチングの模様は描かず、外形だけを表示しました");
-      properties.unshift({ label: "シンボル", value: feature.name });
+      properties.unshift({ key: "pattern", label: "シンボル", value: feature.name });
     } else if (feature.name.toLowerCase() === "area_control") {
       this.notices.add("info", "area-control", "既定義ハッチング（Area_control）は空白の領域のため描いていません");
-      properties.unshift({ label: "名前", value: feature.name });
+      properties.unshift({ key: "pattern", label: "名前", value: feature.name });
     } else {
       this.notices.add("info", "hatch-external", "外部定義ハッチングの模様は描かず、外形だけを表示しました");
-      properties.unshift({ label: "名前", value: feature.name });
+      properties.unshift({ key: "pattern", label: "名前", value: feature.name });
     }
     // 外形・中抜きの複合曲線のうち、表示する指定のものを線で描く
     [feature.outId, ...feature.inIds].forEach((id, index) => {

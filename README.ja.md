@@ -166,6 +166,12 @@ const scene = sxfToScene(drawing); // 必要なら表示用モデルにする
 
 `Scene` は用紙の mm・Y 軸上向きの座標で、部分図・作図部品の配置を解決済みの図形を持つ。
 要素ごとに属性の一覧と、部分図の中の要素なら元の座標への変換（実寸の計測用、`toReal`）を持つ。
+図形と属性は、どの形式でも同じ英語のキーで選び、人には日本語の名前を見せる。
+
+```ts
+const circles = scene.entities.filter((entity) => entity.kind === "circle"); // entity.type は「円」
+const radius = circles[0]?.properties.find((property) => property.key === "radius")?.raw; // label は「半径」
+```
 
 構造モデル（ST-Bridge）は、`useStbFile` で読み、`StbViewer` で 3D に表示する。`readStb` だけなら Node.js でも動く。
 

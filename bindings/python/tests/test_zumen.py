@@ -63,6 +63,7 @@ def test_extracts_texts_and_entities_in_paper_millimeters():
     texts = {text["id"]: text for text in scene.texts()}
     assert texts["#700"] == {
         "id": "#700",
+        "kind": "text",
         "type": "文字",
         "text": "平面図",
         "x": 10.0,
@@ -79,6 +80,21 @@ def test_extracts_texts_and_entities_in_paper_millimeters():
     assert entity is not None
     assert (entity["type"], entity["text"], entity["layers"], entity["placement"]) == ("文字", "平面図", ["寸法"], None)
     assert ("文字列", "平面図") in entity["properties"]
+    # Stable keys, the same for every format, with unformatted values
+    assert entity["kind"] == "text"
+    assert (entity["values"]["text"], entity["values"]["position"]) == ("平面図", (10.0, 220.0))
+    assert list(entity["values"]) == [
+        "type",
+        "id",
+        "layer",
+        "text",
+        "color",
+        "font",
+        "textBox",
+        "position",
+        "rotation",
+    ]
+    assert scene.metadata_values["format"] == scene.metadata[0][1]
     assert scene.entity("no such id") is None
     every = scene.entities(hidden_layers=[])
     assert len(every) == len(scene) and every[0] == scene.entity(every[0]["id"])
@@ -99,11 +115,12 @@ def test_lists_entities_as_an_arrow_table():
     assert table.num_rows == len(scene.entities())
     assert table.schema.field("layers").type == pa.list_(pa.string())
     assert table.schema.field("properties").type == pa.list_(
-        pa.struct([("label", pa.string()), ("value", pa.string())])
+        pa.struct([("key", pa.string()), ("label", pa.string()), ("value", pa.string())])
     )
     row = next(row for row in table.to_pylist() if row["id"] == "#700")
     assert (row["text"], row["min_x"], row["max_y"], row["placement"]) == ("平面図", 10.0, 225.0, None)
-    assert {"label": "文字列", "value": "平面図"} in row["properties"]
+    assert {"key": "text", "label": "文字列", "value": "平面図"} in row["properties"]
+    assert row["kind"] == "text"
     assert scene.to_arrow(region=(0, 215, 30, 230)).column("id").to_pylist() == ["#700"]
 
 
@@ -166,6 +183,7 @@ def test_compares_two_revisions_by_shape_and_text():
     )
     removed = overlay.entity("A:101")
     assert removed is not None and ("比較", "削除") in removed["properties"]
+    assert removed["values"]["comparison"] == "removed"
     assert overlay.render_png(dpi=20).startswith(b"\x89PNG")
     with pytest.raises(ValueError):
         zumen.compare(before, after, tolerance=0)

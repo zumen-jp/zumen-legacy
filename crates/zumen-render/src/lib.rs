@@ -682,7 +682,8 @@ mod tests {
         let [x0, y0, x1, y1] = points;
         SceneEntity {
             id: id.into(),
-            kind: "線分".into(),
+            kind: zumen_core::EntityKind::Line,
+            type_name: "線分".into(),
             source: "test".into(),
             layers,
             primitives: vec![Primitive::Stroke(StrokePrimitive {
@@ -777,7 +778,8 @@ mod vector_tests {
     fn entity(id: &str, layers: Vec<u32>, primitives: Vec<Primitive>) -> SceneEntity {
         SceneEntity {
             id: id.into(),
-            kind: "test".into(),
+            kind: zumen_core::EntityKind::Line,
+            type_name: "test".into(),
             source: "test".into(),
             layers,
             primitives,

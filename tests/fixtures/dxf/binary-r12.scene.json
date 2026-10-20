@@ -25,6 +25,7 @@
   "entities": [
     {
       "id": "?",
+      "kind": "circle",
       "type": "円",
       "source": "CIRCLE",
       "layers": [
@@ -121,36 +122,51 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "円（CIRCLE）"
         },
         {
+          "key": "id",
           "label": "ハンドル",
           "value": "?"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "表"
+          "value": "表",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "ACI 5"
+          "value": "ACI 5",
+          "raw": 5
         },
         {
+          "key": "lineType",
           "label": "線種",
           "value": "BYLAYER（CONTINUOUS）"
         },
         {
+          "key": "lineWidth",
           "label": "線の太さ",
           "value": "BYLAYER"
         },
         {
+          "key": "center",
           "label": "中心",
-          "value": "10, 20"
+          "value": "10, 20",
+          "raw": [
+            10,
+            20
+          ]
         },
         {
+          "key": "radius",
           "label": "半径",
-          "value": "5"
+          "value": "5",
+          "raw": 5
         }
       ],
       "placement": {
@@ -169,6 +185,7 @@
     },
     {
       "id": "?",
+      "kind": "text",
       "type": "文字",
       "source": "TEXT",
       "layers": [
@@ -214,38 +231,50 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "文字（TEXT）"
         },
         {
+          "key": "id",
           "label": "ハンドル",
           "value": "?"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "表"
+          "value": "表",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "BYLAYER"
+          "value": "BYLAYER",
+          "raw": 256
         },
         {
+          "key": "lineType",
           "label": "線種",
           "value": "BYLAYER（CONTINUOUS）"
         },
         {
+          "key": "lineWidth",
           "label": "線の太さ",
           "value": "BYLAYER"
         },
         {
+          "key": "text",
           "label": "文字列",
           "value": "表示"
         },
         {
+          "key": "height",
           "label": "高さ",
-          "value": "2.5"
+          "value": "2.5",
+          "raw": 2.5
         },
         {
+          "key": "textStyle",
           "label": "文字スタイル",
           "value": "STANDARD"
         }
@@ -281,20 +310,26 @@
   ],
   "metadata": [
     {
+      "key": "format",
       "label": "形式",
       "value": "DXF AutoCAD R12（AC1009、バイナリ）"
     },
     {
+      "key": "encoding",
       "label": "文字コード",
-      "value": "Shift_JIS（CP932）（$DWGCODEPAGE ANSI_932）"
+      "value": "Shift_JIS（CP932）（$DWGCODEPAGE ANSI_932）",
+      "raw": "shift_jis"
     },
     {
+      "key": "units",
       "label": "単位",
       "value": "mm"
     },
     {
+      "key": "view",
       "label": "表示",
-      "value": "モデル空間"
+      "value": "モデル空間",
+      "raw": "Model"
     }
   ],
   "background": "dark"

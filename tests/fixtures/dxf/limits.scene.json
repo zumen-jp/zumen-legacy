@@ -25,6 +25,7 @@
   "entities": [
     {
       "id": "D1",
+      "kind": "dimension",
       "type": "長さ寸法",
       "source": "DIMENSION",
       "layers": [
@@ -456,38 +457,51 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "長さ寸法（DIMENSION）"
         },
         {
+          "key": "id",
           "label": "ハンドル",
           "value": "D1"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "0"
+          "value": "0",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "BYLAYER"
+          "value": "BYLAYER",
+          "raw": 256
         },
         {
+          "key": "lineType",
           "label": "線種",
           "value": "BYLAYER（CONTINUOUS）"
         },
         {
+          "key": "lineWidth",
           "label": "線の太さ",
           "value": "BYLAYER"
         },
         {
+          "key": "dimensionType",
           "label": "寸法の種類",
-          "value": "長さ寸法"
+          "value": "長さ寸法",
+          "raw": "linear"
         },
         {
+          "key": "dimensionText",
           "label": "寸法値",
-          "value": "10"
+          "value": "10",
+          "raw": 10
         },
         {
+          "key": "dimensionStyle",
           "label": "寸法スタイル",
           "value": "STANDARD"
         }
@@ -508,6 +522,7 @@
     },
     {
       "id": "P1",
+      "kind": "mesh",
       "type": "ポリゴンメッシュ",
       "source": "POLYLINE",
       "layers": [
@@ -545,32 +560,45 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "ポリゴンメッシュ（POLYLINE）"
         },
         {
+          "key": "id",
           "label": "ハンドル",
           "value": "P1"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "0"
+          "value": "0",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "BYLAYER"
+          "value": "BYLAYER",
+          "raw": 256
         },
         {
+          "key": "lineType",
           "label": "線種",
           "value": "BYLAYER（CONTINUOUS）"
         },
         {
+          "key": "lineWidth",
           "label": "線の太さ",
           "value": "BYLAYER"
         },
         {
+          "key": "meshSize",
           "label": "頂点",
-          "value": "100000000 × 100000000"
+          "value": "100000000 × 100000000",
+          "raw": [
+            100000000,
+            100000000
+          ]
         }
       ],
       "placement": {
@@ -589,6 +617,7 @@
     },
     {
       "id": "H1",
+      "kind": "hatch",
       "type": "ハッチング",
       "source": "HATCH",
       "layers": [
@@ -623,40 +652,54 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "ハッチング（HATCH）"
         },
         {
+          "key": "id",
           "label": "ハンドル",
           "value": "H1"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "0"
+          "value": "0",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "BYLAYER"
+          "value": "BYLAYER",
+          "raw": 256
         },
         {
+          "key": "lineType",
           "label": "線種",
           "value": "BYLAYER（CONTINUOUS）"
         },
         {
+          "key": "lineWidth",
           "label": "線の太さ",
           "value": "BYLAYER"
         },
         {
+          "key": "pattern",
           "label": "模様",
-          "value": "FAR"
+          "value": "FAR",
+          "raw": "FAR"
         },
         {
+          "key": "patternScale",
           "label": "模様の尺度",
-          "value": "1"
+          "value": "1",
+          "raw": 1
         },
         {
+          "key": "patternAngle",
           "label": "模様の角度",
-          "value": "0°"
+          "value": "0°",
+          "raw": 0
         }
       ],
       "placement": {
@@ -702,24 +745,32 @@
   ],
   "metadata": [
     {
+      "key": "format",
       "label": "形式",
       "value": "DXF AutoCAD R12（AC1009、テキスト）"
     },
     {
+      "key": "encoding",
       "label": "文字コード",
-      "value": "西欧（Windows-1252）（指定なし）"
+      "value": "西欧（Windows-1252）（指定なし）",
+      "raw": "windows-1252"
     },
     {
+      "key": "units",
       "label": "単位",
       "value": "mm（指定なし）"
     },
     {
+      "key": "blockCount",
       "label": "ブロック",
-      "value": "1 件"
+      "value": "1 件",
+      "raw": 1
     },
     {
+      "key": "view",
       "label": "表示",
-      "value": "モデル空間"
+      "value": "モデル空間",
+      "raw": "Model"
     }
   ],
   "background": "dark"
