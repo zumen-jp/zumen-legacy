@@ -864,6 +864,13 @@ impl<'a> Mapper<'a> {
         if !(viewport.view_height > 0.0 && viewport.height > 0.0) {
             return;
         }
+        if viewport.clipping_boundary_handle.as_deref().is_some_and(|handle| !handle.is_empty() && handle != "0") {
+            self.notices.add(
+                NoticeLevel::Info,
+                "viewport-boundary",
+                "矩形でないビューポートの切り抜き境界は、外接する矩形として扱いました",
+            );
+        }
         let s = viewport.height / viewport.view_height;
         let (cx, cy) = (viewport.center[0], viewport.center[1]);
         self.viewport_frame(base, viewport, sheet, items);
@@ -890,6 +897,7 @@ impl<'a> Mapper<'a> {
             .iter()
             .filter_map(|handle| self.doc.layers.iter().find(|layer| layer.handle == *handle))
             .map(|layer| layer.name.to_uppercase())
+            .chain(viewport.frozen_layer_names.iter().map(|name| name.to_uppercase()))
             .collect();
         // モデル空間の表示の外接矩形（表示の座標 = 実寸 mm − 原点の寄せ）を、図形ごとに
         let mut boxes: HashMap<&str, zumen_core::BBox> = HashMap::new();
@@ -1261,6 +1269,7 @@ impl<'a> Mapper<'a> {
         }
         let base = &entity.base;
         if base.invisible {
+            self.notices.add(NoticeLevel::Info, "invisible", "非表示の図形は JWW に書いていません");
             return;
         }
         let source = ctx.source(base);
@@ -1673,10 +1682,17 @@ impl<'a> Mapper<'a> {
         let block = self.doc.blocks.iter().find(|block| block.name.eq_ignore_ascii_case(name));
         let base_point = block.map_or([0.0; 3], |block| block.base_point);
         let ocs = ocs_matrix(base.extrusion.as_ref(), point[2]);
-        let columns = insert.map_or(1.0, |insert| insert.column_count);
-        let rows = insert.map_or(1.0, |insert| insert.row_count);
+        let columns = insert.map_or(1.0, |insert| insert.column_count.max(1.0));
+        let rows = insert.map_or(1.0, |insert| insert.row_count.max(1.0));
         let many = columns * rows > 1.0;
         let limit = |count: f64| if columns * rows > 10_000.0 { 1.0 } else { count };
+        if columns * rows > 10_000.0 {
+            self.notices.add(
+                NoticeLevel::Warning,
+                "block-array",
+                "配列のブロック参照が 10,000 個を超えるため、先頭の配置だけを書きました",
+            );
+        }
         if many {
             self.notices.add(NoticeLevel::Info, "minsert", "配列のブロック参照（MINSERT）は、配置を並べて書きました");
         }

@@ -159,3 +159,7 @@ Notices when writing:
 | `solid-style` | The line type of a solid was changed to match its kind (circle solids from 101) |
 
 Written drawings have not yet been opened in Jw_cad; that check is pending.
+
+The AutoCAD-to-JWW mapper reports each omitted invisible entity as `invisible`, each array reduced to its first
+placement at the 10,000-placement bound as `block-array`, and each nonrectangular viewport treated as its bounding
+rectangle as `viewport-boundary`. Frozen layers named by R12 viewports are resolved alongside frozen layer handles.

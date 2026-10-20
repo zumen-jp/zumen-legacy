@@ -632,6 +632,34 @@ fn puts_layers_named_from_jww_back_and_merges_layers_beyond_256() {
 }
 
 #[test]
+fn reports_omitted_array_instances_and_invisible_entities() {
+    let block = tags(&[(0, "BLOCK"), (2, "MARK"), (70, "0"), (10, "0"), (20, "0")])
+        + &tags(&[(0, "LINE"), (5, "B1"), (10, "0"), (20, "0"), (11, "1"), (21, "0")])
+        + &tags(&[(0, "ENDBLK")]);
+    let entities = tags(&[(0, "INSERT"), (5, "A1"), (2, "MARK"), (70, "101"), (71, "100")])
+        + &tags(&[(0, "LINE"), (5, "A2"), (60, "1"), (10, "0"), (20, "0"), (11, "1"), (21, "0")]);
+    let mapped = dxf_to_jww(&dxf("", &block, &entities));
+    assert_eq!(mapped.document.entities.len(), 1);
+    for code in ["block-array", "invisible"] {
+        assert!(mapped.notices.iter().any(|notice| notice.code == code && notice.count == 1), "{code}");
+    }
+}
+
+#[test]
+fn reports_approximating_a_nonrectangular_viewport() {
+    let mut doc = parse_dxf(&fs::read(fixtures().join("dxf/viewports.dxf")).unwrap());
+    for entity in &mut doc.entities {
+        if let DxfEntityData::Viewport(viewport) = &mut entity.data
+            && viewport.id != 1.0
+        {
+            viewport.clipping_boundary_handle = Some("123".into());
+        }
+    }
+    let mapped = dxf_to_jww(&doc);
+    assert!(mapped.notices.iter().any(|notice| notice.code == "viewport-boundary"));
+}
+
+#[test]
 fn writes_viewports_as_layer_groups_of_their_scale_on_the_sheet() {
     let doc = parse_dxf(&fs::read(fixtures().join("dxf/viewports.dxf")).unwrap());
     let (mapped, again, scene) = to_jww(&doc);
