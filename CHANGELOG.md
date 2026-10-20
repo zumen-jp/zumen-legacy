@@ -4,15 +4,14 @@ All packages share one version during 0.x.
 
 ## Unreleased (0.1.0)
 
-- Python: `zumen.tools`, the functions behind the MCP tools for applications that give an AI agent tools of their
-  own (`summary`, `render`, `find_texts`, `find_entities`, `get_entity`, `measure`, `compare_revisions`, `Drawings`).
-  Their results are JSON with keys described by `TypedDict` classes that are part of the API, bounded by `limit`,
-  `max_text_length`, `max_points` and the image size, and they take regions in paper millimeters or as fractions of
-  the frame (`frame_region`, the scene's bounds with the origin at the top left). `get_entity` and
-  `find_entities(geometry=True)` return the geometry of entities as drawn. `zumen.mcp` wraps them and its tools gain
-  `frame_region`, `geometry` and `max_points` ([decision 0009](docs/decisions/0009-tool-functions-for-agents.md)).
-- Python: `Scene.entity(id)` has the `primitives` an entity draws (lines as points, fills, clipped hatch lines, dots and
-  text runs, in paper millimeters), and `Scene.entities(geometry=True)` gives them for every entity.
+- Rust, Python and MCP: the shapes that an entity draws, for AI clients and data pipelines to compute with
+  ([decision 0009](docs/decisions/0009-geometry-for-ai-clients.md)). `zumen_core::extract::entity_shapes` gives
+  polylines (curves as drawn), segments, fills, hatched areas, points and text parts in paper millimeters, and
+  `real_shapes` the same through the entity's placement, in the coordinates of the drawing itself (real-world
+  millimeters). `Scene.entity(id, geometry=True)` and `Scene.entities(..., geometry=True)` in Python, and
+  `zumen entities --geometry`. In the MCP server, `get_entity` returns the geometry, `find_entities` returns it with
+  `geometry` (pages bounded by `max_points`, with `next_offset`), and `open_drawing` lists the placements drawn at a
+  scale with their box and the conversion from paper to real-world millimeters.
 - Stable keys in the scene model, the same in TypeScript, Rust and every format: `SceneEntity.kind` (`line`, `arc`,
   `text`, `dimension`, … listed in `ENTITY_KINDS`) next to the Japanese `type`, and `Property.key` (`layer`, `color`,
   `start`, `radius`, `dimensionType`, …) next to the Japanese `label`, with the unformatted value in `Property.raw`

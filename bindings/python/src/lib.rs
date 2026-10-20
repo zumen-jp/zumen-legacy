@@ -8,9 +8,11 @@ use pyo3::types::{PyBytes, PyDict, PyList};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, OnceLock};
 use zumen::compare::{CompareOptions, SceneDiff, compare_scenes, diff_scene};
-use zumen::extract::{EntityFilter, EntityText, entity_text, layer_names, scene_texts, select_entities};
+use zumen::extract::{
+    EntityFilter, EntityText, Shape, entity_shapes, entity_text, layer_names, real_shapes, scene_texts, select_entities,
+};
 use zumen::title::{TitleKey, title_fields};
-use zumen::{BBox, Background, Primitive, Property, PropertyRaw, ReadDrawingOptions, SceneEntity, StrokePrimitive};
+use zumen::{BBox, Background, Property, PropertyRaw, ReadDrawingOptions, SceneEntity};
 use zumen_render::{ImageSize, RenderOptions, View};
 
 pyo3::create_exception!(zumen, ReadError, PyValueError, "図面を読めなかった（形式が違う、壊れているなど）");
@@ -87,6 +89,69 @@ fn warn_missing_glyphs(py: Python<'_>, report: &zumen_render::RenderReport) -> P
     PyErr::warn(py, &py.get_type::<PyUserWarning>(), &std::ffi::CString::new(message)?, 1)
 }
 
+fn pairs(points: &[f64]) -> Vec<(f64, f64)> {
+    points.as_chunks::<2>().0.iter().map(|[x, y]| (*x, *y)).collect()
+}
+
+/// 形の座標を key に入れる。polyline は点の並び、segments は 2 点の組の並び、fill と hatch は輪（点の並び）の並び、
+/// point と text は 1 点
+fn set_coordinates(dict: &Bound<'_, PyDict>, key: &str, shape: &Shape) -> PyResult<()> {
+    match shape {
+        Shape::Polyline { points, .. } => dict.set_item(key, pairs(points)),
+        Shape::Segments { points } => {
+            let segments: Vec<((f64, f64), (f64, f64))> =
+                points.as_chunks::<4>().0.iter().map(|[x0, y0, x1, y1]| ((*x0, *y0), (*x1, *y1))).collect();
+            dict.set_item(key, segments)
+        }
+        Shape::Fill { rings } | Shape::Hatch { rings } => {
+            dict.set_item(key, rings.iter().map(|ring| pairs(ring)).collect::<Vec<_>>())
+        }
+        Shape::Point { x, y } | Shape::Text { x, y, .. } => dict.set_item(key, (*x, *y)),
+    }
+}
+
+/// 形の dict。shape（polyline、segments、fill、hatch、point、text）と、用紙の mm の座標（polyline は points、
+/// segments は segments、fill と hatch は rings、point と text は point）、polyline の closed、text の text・height・angle。
+/// real は同じ座標を配置の元の座標（実寸の mm）にしたもので、配置の中にない図形では None
+fn shape_dict<'py>(py: Python<'py>, shape: &Shape, real: Option<&Shape>) -> PyResult<Bound<'py, PyDict>> {
+    let dict = PyDict::new(py);
+    dict.set_item("shape", shape.name())?;
+    if let Shape::Text { text, .. } = shape {
+        dict.set_item("text", text)?;
+    }
+    let key = match shape {
+        Shape::Polyline { .. } => "points",
+        Shape::Segments { .. } => "segments",
+        Shape::Fill { .. } | Shape::Hatch { .. } => "rings",
+        Shape::Point { .. } | Shape::Text { .. } => "point",
+    };
+    set_coordinates(&dict, key, shape)?;
+    match shape {
+        Shape::Polyline { closed, .. } => dict.set_item("closed", *closed)?,
+        Shape::Text { height, angle, .. } => {
+            dict.set_item("height", *height)?;
+            dict.set_item("angle", *angle)?;
+        }
+        _ => {}
+    }
+    match real {
+        Some(real) => set_coordinates(&dict, "real", real)?,
+        None => dict.set_item("real", py.None())?,
+    }
+    Ok(dict)
+}
+
+/// 図形の形の dict の並び（`shape_dict`）
+fn geometry_list<'py>(py: Python<'py>, entity: &SceneEntity) -> PyResult<Bound<'py, PyList>> {
+    let shapes = entity_shapes(entity, None);
+    let real = real_shapes(entity);
+    let list = PyList::empty(py);
+    for (index, shape) in shapes.iter().enumerate() {
+        list.append(shape_dict(py, shape, real.as_ref().and_then(|real| real.get(index)))?)?;
+    }
+    Ok(list)
+}
+
 /// 属性の値。整形する前の値（数・座標など）があればそれ、なければ文字列の値
 fn property_value<'py>(py: Python<'py>, property: &Property) -> PyResult<Bound<'py, PyAny>> {
     Ok(match &property.raw {
@@ -107,91 +172,7 @@ fn property_values<'py>(py: Python<'py>, properties: &[Property]) -> PyResult<Bo
     Ok(dict)
 }
 
-/// x, y を交互に並べた点列を (x, y) の list にする
-fn point_list<'py>(py: Python<'py>, points: &[f64]) -> PyResult<Bound<'py, PyList>> {
-    PyList::new(py, points.as_chunks::<2>().0.iter().map(|&[x, y]| (x, y)))
-}
-
-fn ring_list<'py>(py: Python<'py>, rings: &[Vec<f64>]) -> PyResult<Bound<'py, PyList>> {
-    let list = PyList::empty(py);
-    for ring in rings {
-        list.append(point_list(py, ring)?)?;
-    }
-    Ok(list)
-}
-
-/// 線の dict（kind、points、closed、segments、color、width、dashes）
-fn stroke_dict<'py>(py: Python<'py>, stroke: &StrokePrimitive) -> PyResult<Bound<'py, PyDict>> {
-    let dict = PyDict::new(py);
-    dict.set_item("kind", "stroke")?;
-    dict.set_item("points", point_list(py, &stroke.points)?)?;
-    dict.set_item("closed", stroke.closed)?;
-    dict.set_item("segments", stroke.segments.unwrap_or(false))?;
-    dict.set_item("color", &stroke.color)?;
-    dict.set_item("width", stroke.width)?;
-    dict.set_item("dashes", &stroke.dashes)?;
-    Ok(dict)
-}
-
-/// 描く要素の dict。座標は用紙の mm で、点は (x, y)。文字の matrix は文字の座標系から用紙への変換
-fn primitive_dict<'py>(py: Python<'py>, primitive: &Primitive) -> PyResult<Bound<'py, PyDict>> {
-    let dict = match primitive {
-        Primitive::Stroke(stroke) => return stroke_dict(py, stroke),
-        Primitive::Fill(fill) => {
-            let dict = PyDict::new(py);
-            dict.set_item("kind", "fill")?;
-            dict.set_item("color", &fill.color)?;
-            dict.set_item("rings", ring_list(py, &fill.rings)?)?;
-            dict
-        }
-        Primitive::Clipped(clipped) => {
-            let dict = PyDict::new(py);
-            dict.set_item("kind", "clipped")?;
-            dict.set_item("rings", ring_list(py, &clipped.rings)?)?;
-            let strokes = PyList::empty(py);
-            for stroke in &clipped.strokes {
-                strokes.append(stroke_dict(py, stroke)?)?;
-            }
-            dict.set_item("strokes", strokes)?;
-            dict
-        }
-        Primitive::Dot(dot) => {
-            let dict = PyDict::new(py);
-            dict.set_item("kind", "dot")?;
-            dict.set_item("x", dot.x)?;
-            dict.set_item("y", dot.y)?;
-            dict.set_item("color", &dot.color)?;
-            dict
-        }
-        Primitive::Text(text) => {
-            let dict = PyDict::new(py);
-            dict.set_item("kind", "text")?;
-            dict.set_item("text", &text.text)?;
-            dict.set_item("color", &text.color)?;
-            dict.set_item("font_family", &text.font_family)?;
-            dict.set_item("height", text.height)?;
-            dict.set_item("scale_x", text.scale_x)?;
-            dict.set_item("box_width", text.box_width)?;
-            dict.set_item("box_height", text.box_height)?;
-            let [a, b, c, d, e, f] = text.matrix;
-            dict.set_item("matrix", (a, b, c, d, e, f))?;
-            let cells = PyList::empty(py);
-            for cell in &text.cells {
-                let item = PyDict::new(py);
-                item.set_item("char", &cell.character)?;
-                item.set_item("x", cell.x)?;
-                item.set_item("y", cell.y)?;
-                cells.append(item)?;
-            }
-            dict.set_item("cells", cells)?;
-            dict
-        }
-    };
-    Ok(dict)
-}
-
-/// 図形の dict（id、kind、type、source、layers、bbox、text、properties、values、placement）。
-/// geometry なら描く要素（primitives）も入れる
+/// 図形の dict（id、kind、type、source、layers、bbox、text、properties、values、placement、geometry を求めたときは geometry）
 fn entity_dict<'py>(
     py: Python<'py>,
     scene: &zumen::Scene,
@@ -224,11 +205,7 @@ fn entity_dict<'py>(
     };
     dict.set_item("placement", placement)?;
     if geometry {
-        let primitives = PyList::empty(py);
-        for primitive in &entity.primitives {
-            primitives.append(primitive_dict(py, primitive)?)?;
-        }
-        dict.set_item("primitives", primitives)?;
+        dict.set_item("geometry", geometry_list(py, entity)?)?;
     }
     Ok(dict)
 }
@@ -526,11 +503,14 @@ impl Scene {
     }
 
     /// 図形（id、kind、type、source、layers、bbox、text、properties、values、placement）を描く順に返す。
-    /// properties は図面の形式が持つ属性（項目名と値の組）、values は属性の key → 値、text は文字を持つ図形の文字
-    /// （なければ None）、placement は部分図・部品・ブロックの中の図形の配置（name、scale_x、scale_y、inverse）。
-    /// scale_x・scale_y は元の座標 1 mm が用紙で何 mm になるか、inverse は用紙の座標から元の座標（実寸の mm）への変換
-    /// (a, b, c, d, e, f)（x' = a x + c y + e、y' = b x + d y + f）。region と hidden_layers は texts と同じ。
-    /// geometry を真にすると、描く要素（primitives、用紙の mm）も入れる
+    /// properties は図面の形式が持つ属性（項目名と値の組）、values は属性の key から値（整形する前の値があればそれ、なければ文字列）への dict、text は文字を持つ図形の文字（なければ None）、
+    /// placement は部分図・部品・ブロックの中の図形の配置（name、scale_x、scale_y、inverse）。scale_x・scale_y は元の座標
+    /// 1 mm が用紙で何 mm になるか、inverse は用紙の座標から元の座標（実寸の mm）への変換 (a, b, c, d, e, f)
+    /// （x' = a x + c y + e、y' = b x + d y + f）。region と hidden_layers は texts と同じ。
+    /// geometry を True にすると、描いた形（geometry）を描く順に加える。形は shape（polyline、segments、fill、hatch、
+    /// point、text）と用紙の mm の座標（polyline は points、segments は 2 点の組の segments、fill と hatch は輪の rings、
+    /// point と text は point）を持ち、real に同じ座標を配置の元の座標（実寸の mm）で持つ（配置の中にない図形は None）。
+    /// 曲線は描いた折線で、中心や半径は properties と values にある
     #[pyo3(signature = (*, region = None, hidden_layers = None, geometry = false))]
     fn entities<'py>(
         &self,
@@ -576,8 +556,9 @@ impl Scene {
         Ok(dict)
     }
 
-    /// id の図形（entities(geometry=True) と同じ dict で、描く要素 primitives を持つ）。ない id なら None
-    fn entity<'py>(&self, py: Python<'py>, id: &str) -> PyResult<Option<Bound<'py, PyDict>>> {
+    /// id の図形（entities と同じ dict で、geometry も entities と同じ）。ない id なら None
+    #[pyo3(signature = (id, *, geometry = false))]
+    fn entity<'py>(&self, py: Python<'py>, id: &str, geometry: bool) -> PyResult<Option<Bound<'py, PyDict>>> {
         let scene = self.inner.as_ref();
         let ids = self.ids.get_or_init(|| {
             let mut ids = HashMap::with_capacity(scene.entities.len());
@@ -586,7 +567,7 @@ impl Scene {
             }
             ids
         });
-        ids.get(id).map(|&index| entity_dict(py, scene, &scene.entities[index], true)).transpose()
+        ids.get(id).map(|&index| entity_dict(py, scene, &scene.entities[index], geometry)).transpose()
     }
 
     /// 図形の表（pyarrow.Table）。列は id、kind、type、source、layers、min_x・min_y・max_x・max_y（用紙の mm）、text、

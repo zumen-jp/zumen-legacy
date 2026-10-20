@@ -1,8 +1,6 @@
 import os
 from typing import Any, Literal, TypeAlias, TypedDict
 
-from typing_extensions import NotRequired
-
 __version__: str
 
 Box: TypeAlias = tuple[float, float, float, float]
@@ -15,75 +13,53 @@ class Placement(TypedDict):
     scale_y: float
     inverse: tuple[float, float, float, float, float, float]
 
+Point: TypeAlias = tuple[float, float]
 PropertyValue: TypeAlias = float | str | bool | tuple[float, ...]
 
-class StrokePrimitive(TypedDict):
-    """A line through ``points`` in paper millimeters; ``closed`` joins the last point to the first, and with
-    ``segments`` each two points are a separate segment. ``width`` and ``dashes`` are paper millimeters."""
+class Polyline(TypedDict):
+    """A line through points; curves come as the polyline drawn (type checking only)."""
 
-    kind: Literal["stroke"]
-    points: list[tuple[float, float]]
+    shape: Literal["polyline"]
+    points: list[Point]
     closed: bool
-    segments: bool
-    color: str
-    width: float
-    dashes: list[float]
+    real: list[Point] | None
 
-class FillPrimitive(TypedDict):
-    """An area filled by the even-odd rule: an outline and its holes, in paper millimeters."""
+class Segments(TypedDict):
+    """Separate lines, two points each (type checking only)."""
 
-    kind: Literal["fill"]
-    color: str
-    rings: list[list[tuple[float, float]]]
+    shape: Literal["segments"]
+    segments: list[tuple[Point, Point]]
+    real: list[tuple[Point, Point]] | None
 
-class ClippedPrimitive(TypedDict):
-    """Lines drawn only inside ``rings`` (hatch patterns)."""
+class Area(TypedDict):
+    """A filled area, or one filled with hatch lines: outer and inner rings, even-odd (type checking only)."""
 
-    kind: Literal["clipped"]
-    rings: list[list[tuple[float, float]]]
-    strokes: list[StrokePrimitive]
+    shape: Literal["fill", "hatch"]
+    rings: list[list[Point]]
+    real: list[list[Point]] | None
 
-class DotPrimitive(TypedDict):
-    """A point marker drawn at the same size at every zoom."""
+class Dot(TypedDict):
+    """A point (type checking only)."""
 
-    kind: Literal["dot"]
-    x: float
-    y: float
-    color: str
+    shape: Literal["point"]
+    point: Point
+    real: Point | None
 
-class GlyphCell(TypedDict):
-    """The center of one character, in the text's own coordinates."""
+class TextPart(TypedDict):
+    """A part of a text: the lower left of the text, its height and angle in degrees (type checking only)."""
 
-    char: str
-    x: float
-    y: float
-
-class TextPrimitive(TypedDict):
-    """A run of text. ``matrix`` (a, b, c, d, e, f) maps the text's own coordinates (x along the line, y up, the box
-    from (0, 0) to (box_width, box_height)) to paper millimeters: x' = a x + c y + e, y' = b x + d y + f."""
-
-    kind: Literal["text"]
+    shape: Literal["text"]
     text: str
-    color: str
-    font_family: str
+    point: Point
     height: float
-    scale_x: float
-    box_width: float
-    box_height: float
-    matrix: tuple[float, float, float, float, float, float]
-    cells: list[GlyphCell]
+    angle: float
+    real: Point | None
 
-Primitive: TypeAlias = StrokePrimitive | FillPrimitive | ClippedPrimitive | DotPrimitive | TextPrimitive
+#: A shape drawn, in paper millimeters; ``real`` holds the same coordinates in real-world millimeters when the
+#: entity sits in a placement, and is None otherwise.
+Shape: TypeAlias = Polyline | Segments | Area | Dot | TextPart
 
-class Entity(TypedDict):
-    """An entity of ``Scene.entities`` and ``Scene.entity`` (type checking only).
-
-    ``kind`` and the keys of ``values`` are the same for every format (see "Stable keys" in docs/architecture.md);
-    ``type`` and the labels of ``properties`` are Japanese, for people. ``values`` maps each property's key to its
-    unformatted value (numbers, ``(x, y)``), or to the formatted text when it has none. ``primitives`` are what is
-    drawn, in drawing order and paper millimeters: always from ``Scene.entity``, and from ``Scene.entities`` with
-    ``geometry=True``."""
-
+class _Entity(TypedDict):
     id: str
     kind: str
     type: str
@@ -94,7 +70,15 @@ class Entity(TypedDict):
     properties: list[tuple[str, str]]
     values: dict[str, PropertyValue]
     placement: Placement | None
-    primitives: NotRequired[list[Primitive]]
+
+class Entity(_Entity, total=False):
+    """An entity of ``Scene.entities`` and ``Scene.entity``, with ``geometry`` when asked (type checking only).
+
+    ``kind`` and the keys of ``values`` are the same for every format (see "Stable keys" in docs/architecture.md);
+    ``type`` and the labels of ``properties`` are Japanese, for people. ``values`` maps each property's key to its
+    unformatted value (numbers, ``(x, y)``), or to the formatted text when it has none."""
+
+    geometry: list[Shape]
 
 class Text(TypedDict):
     """A text of ``Scene.texts`` in paper millimeters (type checking only)."""
@@ -222,7 +206,7 @@ class Scene:
     def entities(
         self, *, region: Box | None = None, hidden_layers: list[int] | None = None, geometry: bool = False
     ) -> list[Entity]: ...
-    def entity(self, id: str) -> Entity | None: ...
+    def entity(self, id: str, *, geometry: bool = False) -> Entity | None: ...
     def title_block(self) -> TitleBlock: ...
     def to_arrow(self, *, region: Box | None = None, hidden_layers: list[int] | None = None) -> Any:
         """A ``pyarrow.Table`` of the entities (needs pyarrow)."""

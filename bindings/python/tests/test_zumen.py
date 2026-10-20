@@ -97,18 +97,7 @@ def test_extracts_texts_and_entities_in_paper_millimeters():
     assert scene.metadata_values["format"] == scene.metadata[0][1]
     assert scene.entity("no such id") is None
     every = scene.entities(hidden_layers=[])
-    assert len(every) == len(scene) and "primitives" not in every[0]
-    # entity(id) has what is drawn, in paper millimeters, as entities(geometry=True) does
-    drawn = scene.entities(hidden_layers=[], geometry=True)
-    assert drawn[0] == scene.entity(every[0]["id"])
-    [run] = scene.entity("#700")["primitives"]
-    assert (run["kind"], run["text"], run["height"], run["matrix"]) == ("text", "平面図", 5.0, (1, 0, 0, 1, 10, 220))
-    assert [cell["char"] for cell in run["cells"]] == ["平", "面", "図"]
-    [stroke] = scene.entity("#640")["primitives"]
-    assert stroke["points"] == [(110.0, 240.0), (130.0, 250.0), (150.0, 240.0)]
-    assert (stroke["closed"], stroke["segments"], stroke["width"]) == (False, False, 0.5)
-    hatch = next(entity for entity in drawn if entity["kind"] == "hatch" and entity["primitives"][0]["kind"] == "fill")
-    assert all(len(point) == 2 for ring in hatch["primitives"][0]["rings"] for point in ring)
+    assert len(every) == len(scene) and every[0] == scene.entity(every[0]["id"])
 
     # Multiline text breaks between lines, and entities inside blocks carry the scale of their placement
     dxf = zumen.read(FIXTURES / "dxf" / "features.dxf")
@@ -117,6 +106,59 @@ def test_extracts_texts_and_entities_in_paper_millimeters():
     inside = next(entity for entity in zumen.read(FIXTURES / "dxf" / "blocks.dxf").entities() if entity["placement"])
     assert set(inside["placement"]) == {"name", "scale_x", "scale_y", "inverse"}
     assert len(inside["placement"]["inverse"]) == 6
+
+
+def close_points(actual, expected) -> bool:
+    return len(actual) == len(expected) and all(math.dist(a, b) < 1e-9 for a, b in zip(actual, expected, strict=True))
+
+
+def test_gives_the_shapes_drawn_in_paper_and_real_millimeters():
+    scene = zumen.read(FIXTURES / "sfc" / "features.sfc")
+    assert "geometry" not in scene.entity("#600")
+    [line] = scene.entity("#600", geometry=True)["geometry"]
+    assert line == {"shape": "polyline", "points": [(10.0, 250.0), (100.0, 250.0)], "closed": False, "real": None}
+    # Curves come as the polyline drawn; their center and radius stay in the properties
+    [circle] = scene.entity("#650", geometry=True)["geometry"]
+    assert circle["closed"] and len(circle["points"]) > 16
+    assert all(math.isclose(math.dist(point, (170, 245)), 5) for point in circle["points"])
+    [text] = scene.entity("#700", geometry=True)["geometry"]
+    assert text == {
+        "shape": "text",
+        "text": "平面図",
+        "point": (10.0, 220.0),
+        "height": 5.0,
+        "angle": 0.0,
+        "real": None,
+    }
+    hatch = scene.entity("#1030", geometry=True)["geometry"]
+    assert [shape["shape"] for shape in hatch] == ["hatch", "polyline"]
+    assert hatch[0]["rings"] == [[(100.0, 0.0), (140.0, 0.0), (120.0, 30.0), (100.0, 0.0)]]
+
+    # In a sub-figure at 1:20, real gives the coordinates of the sub-figure, as its properties do
+    dimension = scene.entity("#810>#290", geometry=True)
+    assert ("寸法線", "0, 200 → 1,000, 200") in dimension["properties"]
+    shapes = dimension["geometry"]
+    assert [shape["shape"] for shape in shapes] == ["polyline", "polyline", "polyline", "fill", "fill", "text"]
+    assert close_points(shapes[0]["points"], [(20, 110), (70, 110)])
+    assert close_points(shapes[0]["real"], [(0, 200), (1000, 200)])
+    assert close_points(shapes[3]["real"][0], [(0, 200), (150, 175), (150, 225)])
+    assert (shapes[5]["text"], len(shapes[5]["real"])) == ("1,000", 2)
+    assert [entity["geometry"] for entity in scene.entities(geometry=True) if entity["id"] == "#810>#290"] == [shapes]
+
+    # A JWW layer group at 1:100 gives the real-world coordinates of the drawing
+    jww = zumen.read(FIXTURES / "jww" / "minimal-v700.jww")
+    first = jww.entity("#1", geometry=True)
+    assert ("始点（実寸）", "-10,000, 0") in first["properties"]
+    assert close_points(first["geometry"][0]["real"], [(-10_000, 0), (0, 0)])
+
+    # Mesh edges are segments, solids are fills, and points are points
+    dxf = zumen.read(FIXTURES / "dxf" / "features.dxf")
+    [mesh] = dxf.entity("119", geometry=True)["geometry"]
+    assert mesh["shape"] == "segments" and mesh["segments"][0] == ((150.0, 30.0), (165.0, 30.0))
+    [solid] = dxf.entity("190", geometry=True)["geometry"]
+    assert solid["rings"] == [[(280.0, 170.0), (300.0, 170.0), (300.0, 190.0), (280.0, 190.0)]]
+    [point] = dxf.entity("107", geometry=True)["geometry"]
+    assert point == {"shape": "point", "point": (110.0, 5.0), "real": (110.0, 5.0)}
 
 
 def test_lists_entities_as_an_arrow_table():
