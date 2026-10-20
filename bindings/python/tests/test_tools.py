@@ -1,16 +1,17 @@
-"""zumen.tools: the results follow the documented schema, are JSON, and stay within their caps."""
+"""zumen.tools: the functions behind the MCP tools, their documented schema, their caps and regions of the frame."""
 
 import json
 import pathlib
 import types
 import typing
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 import zumen
 from zumen import tools
 
 FIXTURES = pathlib.Path(__file__).parents[3] / "tests" / "fixtures"
-SFC = FIXTURES / "sfc" / "features.sfc"
+SFC = str(FIXTURES / "sfc" / "features.sfc")
 
 
 def conforms(value: typing.Any, hint: typing.Any, path: str = "result") -> None:
@@ -63,50 +64,53 @@ def conforms(value: typing.Any, hint: typing.Any, path: str = "result") -> None:
 
 
 def check(result: typing.Any, hint: typing.Any) -> None:
-    """The result has the documented shape and JSON keeps it unchanged (no tuples, no NaN)."""
+    """The result has the documented shape, and JSON keeps it as it is (no tuples, no NaN)."""
     conforms(result, hint)
     assert json.loads(json.dumps(result, ensure_ascii=False, allow_nan=False)) == result
 
 
+def revised_dxf(tmp_path: pathlib.Path) -> pathlib.Path:
+    """features.dxf with one text changed."""
+    revised = tmp_path / "features-rev2.dxf"
+    data = (FIXTURES / "dxf" / "features.dxf").read_bytes().replace("揃え00".encode("cp932"), "揃え99".encode("cp932"))
+    revised.write_bytes(data)
+    return revised
+
+
 def test_every_result_follows_the_documented_schema(tmp_path):
+    for path in [
+        SFC,
+        FIXTURES / "p21" / "features.p21",
+        FIXTURES / "dxf" / "features.dxf",
+        FIXTURES / "dxf" / "blocks.dxf",
+        FIXTURES / "dwg" / "r2018.dwg",
+        FIXTURES / "jww" / "minimal-v700.jww",
+    ]:
+        scene = zumen.read(path)
+        check(tools.summary(scene), tools.Summary)
+        png, info = tools.render(scene, size=400)
+        assert png.startswith(b"\x89PNG")
+        check(info, tools.RenderInfo)
+        check(tools.find_texts(scene, all_layers=True), tools.TextPage)
+        page = tools.find_entities(scene, all_layers=True, limit=1000, geometry=True, max_points=tools.MAX_POINTS)
+        check(page, tools.EntityPage)
+        for entity in scene.entities(hidden_layers=[]):
+            check(tools.get_entity(scene, entity["id"], max_points=tools.MAX_POINTS), tools.EntityDetail)
     scene = zumen.read(SFC)
-    check(tools.summary(scene), tools.Summary)
-    png, info = tools.render(scene, size=400)
-    assert png.startswith(b"\x89PNG")
-    check(info, tools.RenderInfo)
-    check(tools.find_texts(scene), tools.TextPage)
-    check(tools.find_entities(scene, all_layers=True, geometry=True, max_points=10_000), tools.EntityPage)
-    for entity in scene.entities(hidden_layers=[]):
-        check(tools.get_entity(scene, entity["id"]), tools.EntityDetail)
     line = scene.entity("#810>#260>#220")
     x0, y0, x1, y1 = line["bbox"]
     check(tools.measure(scene, [x0, y0], [x1, y1]), tools.MeasurementInfo)
     check(tools.measure(scene, [1, 1], [2, 1]), tools.MeasurementInfo)
-
-    for path in [
-        FIXTURES / "dxf" / "features.dxf",
-        FIXTURES / "dxf" / "blocks.dxf",
-        FIXTURES / "jww" / "minimal-v700.jww",
-    ]:
-        other = zumen.read(path)
-        check(tools.summary(other), tools.Summary)
-        check(tools.find_entities(other, all_layers=True, geometry=True, limit=1000, max_points=0), tools.EntityPage)
-        for entity in other.entities(hidden_layers=[]):
-            check(tools.get_entity(other, entity["id"], max_points=200), tools.EntityDetail)
-
-    revised = tmp_path / "features-rev2.dxf"
-    data = (FIXTURES / "dxf" / "features.dxf").read_bytes().replace("揃え00".encode("cp932"), "揃え99".encode("cp932"))
-    revised.write_bytes(data)
-    _, comparison = tools.compare_revisions(zumen.read(FIXTURES / "dxf" / "features.dxf"), zumen.read(revised))
+    before, after = zumen.read(FIXTURES / "dxf" / "features.dxf"), zumen.read(revised_dxf(tmp_path))
+    _, comparison = tools.compare_revisions(before, after)
     check(comparison, tools.ComparisonInfo)
 
 
 def test_the_schema_converts_to_json_schema():
     pydantic = pytest.importorskip("pydantic")
-    scene = zumen.read(SFC)
     for hint in [tools.Summary, tools.RenderInfo, tools.TextPage, tools.EntityPage, tools.EntityDetail]:
         assert pydantic.TypeAdapter(hint).json_schema()["type"] == "object"
-    detail = tools.get_entity(scene, "#640")
+    detail = tools.get_entity(zumen.read(SFC), "#810>#290")
     assert pydantic.TypeAdapter(tools.EntityDetail).validate_python(detail) == detail
 
 
@@ -120,8 +124,36 @@ def test_summarizes_a_drawing():
     layer = next(layer for layer in info["layers"] if layer["name"] == "寸法")
     assert layer["entities"] > 0 and info["layers_total"] == len(info["layers"])
     assert (info["title_block"]["number"], info["title_block"]["title"]) == ("No.1", "平面図")
+    assert "fields" not in info["title_block"]
     assert info["metadata_values"]["format"] == info["metadata"][0]["value"]
     assert tools.summary(zumen.read(SFC), layer_limit=2)["layers"] == info["layers"][:2]
+
+
+def test_lists_the_placements_drawn_at_a_scale():
+    info = tools.summary(zumen.read(SFC))
+    assert info["placements_total"] == len(info["placements"]) > 1
+    counts = [placement["entities"] for placement in info["placements"]]
+    assert counts == sorted(counts, reverse=True)
+    part = next(placement for placement in info["placements"] if placement["scale"] == "1:20")
+    assert part["name"] == "部分図（数学座標系） 部分図"
+    assert part["to_real"] == [20.0, 0.0, 0.0, 20.0, -400.0, -2000.0]
+    x0, y0, x1, y1 = part["bbox"]
+    assert x0 < x1 and y0 < y1
+    # A drawing whose entities sit on the sheet itself has no placement
+    assert tools.summary(zumen.read(FIXTURES / "sfc" / "nosheet.sfc"))["placements"] == []
+
+
+def test_a_drawing_without_entities_has_no_frame():
+    empty = zumen.read(b"0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n")
+    info = tools.summary(empty)
+    check(info, tools.Summary)
+    assert (info["bounds"], info["entities"], tools.frame(empty)) == (None, 0, None)
+    with pytest.raises(tools.DrawingError, match="nothing"):
+        tools.render(empty)
+    with pytest.raises(tools.DrawingError, match="no frame"):
+        tools.find_texts(empty, frame_region=[0, 0, 1, 1])
+    _, image = tools.render(empty, region=[0, 0, 10, 10], size=100)
+    assert (image["width"], image["frame_region"]) == (100, None)
 
 
 def test_converts_between_paper_millimeters_and_fractions_of_the_frame():
@@ -140,19 +172,6 @@ def test_converts_between_paper_millimeters_and_fractions_of_the_frame():
         tools.find_texts(scene, region=[0, 0, 1, 1], frame_region=[0, 0, 1, 1])
 
 
-def test_a_drawing_without_entities_has_no_frame():
-    empty = zumen.read(b"0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n")
-    info = tools.summary(empty)
-    check(info, tools.Summary)
-    assert (info["bounds"], info["entities"], tools.frame(empty)) == (None, 0, None)
-    with pytest.raises(tools.DrawingError, match="nothing"):
-        tools.render(empty)
-    with pytest.raises(tools.DrawingError, match="no frame"):
-        tools.find_texts(empty, frame_region=[0, 0, 1, 1])
-    _, image = tools.render(empty, region=[0, 0, 10, 10], size=100)
-    assert (image["width"], image["frame_region"]) == (100, None)
-
-
 def test_takes_regions_as_fractions_of_the_frame():
     scene = zumen.read(SFC)
     fractions = tools.frame_region_of(scene, [0, 215, 30, 230])
@@ -162,9 +181,8 @@ def test_takes_regions_as_fractions_of_the_frame():
     assert (part["width"], part["texts_drawn"]) == (300, 1)
     assert part["frame_region"] == pytest.approx(fractions, abs=1e-3)
     _, whole = tools.render(scene, size=420)
-    assert whole["region"] == pytest.approx([0, 0, 297, 420], abs=1) and whole["frame_region"] == pytest.approx(
-        [0, 0, 1, 1], abs=1e-2
-    )
+    assert whole["region"] == pytest.approx([0, 0, 297, 420], abs=1)
+    assert whole["frame_region"] == pytest.approx([0, 0, 1, 1], abs=1e-2)
 
 
 def test_finds_texts_ignoring_width_case_and_spaces():
@@ -174,10 +192,10 @@ def test_finds_texts_ignoring_width_case_and_spaces():
         assert tools.find_texts(scene, query=query)["total"] == 1, query
     page = tools.find_texts(scene, limit=2, offset=1)
     assert page["total"] == len(scene.texts()) and len(page["texts"]) == 2
-    assert page["texts"][0]["id"] == scene.texts()[1]["id"]
+    assert page["texts"][0]["id"] == scene.texts()[1]["id"] and page["next_offset"] == 3
+    assert tools.find_texts(scene, limit=1000)["next_offset"] is None
     with pytest.raises(tools.DrawingError):
         tools.find_texts(scene, limit=0)
-    assert len(tools.find_texts(scene, limit=10_000)["texts"]) <= tools.MAX_LIMIT
 
 
 def test_cuts_long_texts_and_says_so():
@@ -188,7 +206,11 @@ def test_cuts_long_texts_and_says_so():
     entity = tools.get_entity(scene, "#700", max_text_length=2)
     assert (entity["text"], entity["values"]["text"], entity["truncated"]) == ("平…", "平…", True)
     assert {"key": "text", "label": "文字列", "value": "平…"} in entity["properties"]
+    [shape] = entity["geometry"]
+    assert (shape["text"], shape["truncated"]) == ("平…", True)
     assert "truncated" not in tools.get_entity(scene, "#700")
+    with pytest.raises(tools.DrawingError):
+        tools.find_texts(scene, max_text_length=0)
 
 
 def test_finds_entities_by_kind_type_and_layer():
@@ -197,81 +219,71 @@ def test_finds_entities_by_kind_type_and_layer():
     assert found["total"] == sum(found["types"].values()) == sum(found["kinds"].values()) > 0
     assert all("寸法" in entity["type"] for entity in found["entities"])
     assert tools.find_entities(scene, layer="寸法", region=(0, 215, 30, 230))["entities"][0]["id"] == "#700"
-    dimensions = tools.find_entities(scene, kind="dimension")
-    assert dimensions["total"] == found["total"]
-    assert {entity["kind"] for entity in dimensions["entities"]} == {"dimension"}
-    assert "geometry" not in dimensions["entities"][0]
-
-
-def test_returns_geometry_as_drawn_within_a_budget_of_points():
-    scene = zumen.read(SFC)
-    polyline = tools.get_entity(scene, "#640")
-    [stroke] = polyline["geometry"]["primitives"]
-    assert stroke == {
-        "kind": "stroke",
-        "points": [[110.0, 240.0], [130.0, 250.0], [150.0, 240.0]],
-        "closed": False,
-        "color": "#ff00ff",
-        "width": 0.5,
-        "dashes": [12.0, 1.5, 0.25, 1.5],
-    }
-    assert (polyline["geometry"]["points"], polyline["geometry"]["truncated"]) == (3, False)
-    cut = tools.get_entity(scene, "#640", max_points=2)["geometry"]
-    assert (cut["primitives"][0]["points"], cut["points"], cut["truncated"]) == (
-        [[110.0, 240.0], [130.0, 250.0]],
-        3,
-        True,
-    )
-    assert tools.get_entity(scene, "#640", max_points=0)["geometry"] == {
-        "primitives": [],
-        "points": 3,
-        "truncated": True,
-    }
-
-    # A text run: the bottom left of its box, its height, length and direction on the sheet
-    [run] = tools.get_entity(scene, "#700")["geometry"]["primitives"]
-    assert run == {
-        "kind": "text",
-        "text": "平面図",
-        "position": [10.0, 220.0],
-        "height": 5.0,
-        "width": 15.0,
-        "angle": 0.0,
-        "color": "#000000",
-    }
-    assert tools.get_entity(scene, "#710")["geometry"]["primitives"][0]["angle"] == pytest.approx(30.0)
-
-    # The points of a page are shared by its entities; the first ones get theirs
-    page = tools.find_entities(scene, all_layers=True, geometry=True, limit=1000, max_points=20)
-    used = [entity["geometry"] for entity in page["entities"]]
-    kept = sum(
-        len(primitive.get("points", [])) if primitive["kind"] == "stroke" else 1
-        for geometry in used
-        for primitive in geometry["primitives"]
-        if primitive["kind"] in ("stroke", "dot", "text")
-    )
-    assert kept <= 20 and any(geometry["truncated"] for geometry in used)
-    assert all(geometry["primitives"] == [] for geometry in used[-3:])
-    with pytest.raises(tools.DrawingError):
-        tools.get_entity(scene, "#640", max_points=-1)
-
-
-def test_shows_one_entity_with_its_placement():
-    scene = zumen.read(SFC)
     entity = tools.get_entity(scene, "#700")
     assert {"key": "text", "label": "文字列", "value": "平面図"} in entity["properties"] and entity["placement"] is None
     assert (entity["kind"], entity["values"]["position"]) == ("text", [10.0, 220.0])
-    # A line in a part drawn at 1:10, whose inverse gives real-world millimeters
-    line = tools.get_entity(scene, "#810>#260>#220")
-    placement = line["placement"]
-    assert (placement["scale"], placement["scale_x"]) == ("1:10", pytest.approx(0.1))
-    a, b, c, d, e, f = placement["inverse"]
-    [stroke] = line["geometry"]["primitives"]
-    (x0, y0), (x1, y1) = stroke["points"]
-    real = [(a * x + c * y + e, b * x + d * y + f) for x, y in [(x0, y0), (x1, y1)]]
-    assert real == [pytest.approx(line["values"]["start"], abs=0.02), pytest.approx(line["values"]["end"], abs=0.02)]
+    dimensions = tools.find_entities(scene, kind="dimension")
+    assert dimensions["total"] == found["total"]
+    assert {entity["kind"] for entity in dimensions["entities"]} == {"dimension"}
     with pytest.raises(tools.DrawingError):
         tools.get_entity(scene, "no such id")
+
+
+def test_gives_the_geometry_of_an_entity_in_paper_and_real_millimeters():
+    scene = zumen.read(SFC)
+    line = tools.get_entity(scene, "#600")
+    assert line["geometry"] == [{"shape": "polyline", "points": [[10.0, 250.0], [100.0, 250.0]], "closed": False}]
+    dimension = tools.get_entity(scene, "#810>#290")
+    assert dimension["placement"]["scale"] == "1:20" and len(dimension["placement"]["to_real"]) == 6
+    first, *_, text = dimension["geometry"]
+    assert first == {
+        "shape": "polyline",
+        "points": [[20.0, 110.0], [70.0, 110.0]],
+        "closed": False,
+        "real": [[0.0, 200.0], [1000.0, 200.0]],
+    }
+    assert text == {
+        "shape": "text",
+        "text": "1,000",
+        "point": [42.5, 110.5],
+        "height": 0.125,
+        "angle": 0.0,
+        "real": [450.0, 210.0],
+    }
+    # Shapes past max_points are left out whole; a point with real counts twice
+    short = tools.get_entity(scene, "#810>#290", max_points=8)
+    assert [shape["shape"] for shape in short["geometry"]] == ["polyline", "polyline"]
+    assert short["geometry_omitted"] == 4
+    with pytest.raises(tools.DrawingError):
+        tools.get_entity(scene, "#600", max_points=0)
+    # In DXF model space the real-world coordinates are those on the sheet, so they are not repeated
+    point = tools.get_entity(zumen.read(FIXTURES / "dxf" / "features.dxf"), "107")
+    assert point["geometry"] == [{"shape": "point", "point": [110.0, 5.0]}]
+
+
+def test_pages_through_the_geometry_of_entities_within_a_number_of_points():
+    scene = zumen.read(SFC)
+    plain = tools.find_entities(scene, limit=1000)
+    assert "geometry" not in plain["entities"][0] and plain["next_offset"] is None
+    whole = tools.find_entities(scene, geometry=True, limit=1000, max_points=tools.MAX_POINTS)
+    assert [entity["id"] for entity in whole["entities"]] == [entity["id"] for entity in plain["entities"]]
+    assert all("geometry" in entity and "placement" in entity for entity in whole["entities"])
+    dimension = next(entity for entity in whole["entities"] if entity["id"] == "#810>#290")
+    assert dimension["placement"] == {"name": "部分図（数学座標系） 部分図", "scale": "1:20"}
+    assert dimension["geometry"] == tools.get_entity(scene, "#810>#290")["geometry"]
+
+    # Small pages end before the points pass the budget, and next_offset goes on from there
+    ids: list[str] = []
+    offset: int | None = 0
+    while offset is not None:
+        page = tools.find_entities(scene, geometry=True, offset=offset, max_points=40)
+        assert page["entities"], offset
+        ids += [entity["id"] for entity in page["entities"]]
+        offset = page["next_offset"]
+    assert ids == [entity["id"] for entity in plain["entities"]]
+    # An entity larger than the budget still comes first on its page, with the shapes that fit
+    big = tools.find_entities(scene, geometry=True, region=(165, 240, 175, 250), type="円", max_points=4)
+    assert big["entities"][0]["geometry"] == [] and big["entities"][0]["geometry_omitted"] == 1
 
 
 def test_measures_real_lengths_through_the_scale_of_a_placement():
@@ -288,7 +300,7 @@ def test_measures_real_lengths_through_the_scale_of_a_placement():
     alone = tools.measure(scene, [1, 1], [2, 1])
     assert (alone["paper"], alone["real"]) == (1.0, None)
     with pytest.raises(tools.DrawingError):
-        tools.measure(scene, [0, 0], [1])
+        tools.measure(scene, [0, 0], [1], entity=None)
     with pytest.raises(tools.DrawingError):
         tools.measure(scene, [0, 0], ["1", 2])
 
@@ -313,7 +325,7 @@ def test_renders_a_region_with_its_long_edge_in_pixels():
 
 def test_reads_only_from_its_roots_and_up_to_its_size_limit(tmp_path):
     drawings = tools.Drawings([FIXTURES / "sfc"])
-    assert drawings.scene(SFC) is drawings.scene(str(SFC))  # read once while the file is unchanged
+    assert drawings.scene(SFC) is drawings.scene(SFC)  # read once while the file is unchanged
     with pytest.raises(tools.DrawingError, match="outside"):
         drawings.scene(str(FIXTURES / "jww" / "minimal-v700.jww"))
     link = tmp_path / "link.sfc"
@@ -328,11 +340,21 @@ def test_reads_only_from_its_roots_and_up_to_its_size_limit(tmp_path):
         tools.Drawings(max_entities=5).scene(SFC)
 
 
+def test_reads_and_answers_from_threads():
+    drawings = tools.Drawings([FIXTURES], cache_size=2)
+    paths = [SFC, str(FIXTURES / "dxf" / "features.dxf"), str(FIXTURES / "jww" / "minimal-v700.jww")] * 8
+
+    def call(path: str) -> int:
+        return tools.find_entities(drawings.scene(path), limit=1000, geometry=True)["total"]
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        totals = list(pool.map(call, paths))
+    assert totals == [call(path) for path in paths]
+    assert len(drawings._scenes) <= 2
+
+
 def test_compares_revisions_with_an_image_of_the_changes(tmp_path):
-    revised = tmp_path / "features-rev2.dxf"
-    data = (FIXTURES / "dxf" / "features.dxf").read_bytes().replace("揃え00".encode("cp932"), "揃え99".encode("cp932"))
-    revised.write_bytes(data)
-    before, after = zumen.read(FIXTURES / "dxf" / "features.dxf"), zumen.read(revised)
+    before, after = zumen.read(FIXTURES / "dxf" / "features.dxf"), zumen.read(revised_dxf(tmp_path))
     png, info = tools.compare_revisions(before, after, size=600)
     assert png.startswith(b"\x89PNG") and max(info["image"]["width"], info["image"]["height"]) == 600
     assert (info["removed"], info["added"], info["changed"], info["changes_total"]) == (0, 0, 1, 1)

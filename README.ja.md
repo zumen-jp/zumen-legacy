@@ -228,7 +228,9 @@ zumen.convert("plan.jww", "dxf").save("plan.dxf")  # どの形式も AutoCAD 201
 
 AI のアプリは、Python のパッケージの MCP サーバー（`pip install "zumen[mcp]"` の後に `zumen-mcp --root <フォルダ>`）で
 図面を読める。開く、範囲を描く、文字と図形を探す、図形の形を用紙の mm と実寸の mm で読む、実寸で測る、版を比べる、の道具がある。
-[bindings/python](bindings/python/README.md#mcp-server) を参照。
+[bindings/python](bindings/python/README.md#mcp-server) を参照。エージェントに自前の道具を持たせるアプリは、同じ関数を
+`zumen.tools` から呼ぶ。結果は形の決まった JSON で、大きさに上限がある
+（[Tools for AI agents](bindings/python/README.md#tools-for-ai-agents)）。
 
 ```bash
 cargo run --release -p zumen-cli -- render plan.jww -o plan.png --dpi 150 --map plan.json

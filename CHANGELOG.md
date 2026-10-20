@@ -4,6 +4,13 @@ All packages share one version during 0.x.
 
 ## Unreleased (0.1.0)
 
+- Python: `zumen.tools`, the functions behind the MCP tools for applications that give an AI agent tools of their
+  own (`summary`, `render`, `find_texts`, `find_entities`, `get_entity`, `measure`, `compare_revisions`, `Drawings`).
+  Their results are JSON with keys described by `TypedDict` classes that are part of the API, bounded by `limit`,
+  `max_points`, `max_text_length` (strings from the drawing, with `truncated`) and the image size, and they take
+  regions in paper millimeters or as fractions of the frame (`frame_region`, the scene's bounds with the origin at the
+  top left). `zumen.mcp` wraps them, and its tools gain `frame_region`
+  ([decision 0011](docs/decisions/0011-tool-functions-for-agents.md)).
 - Rust, Python and MCP: the shapes that an entity draws, for AI clients and data pipelines to compute with
   ([decision 0009](docs/decisions/0009-geometry-for-ai-clients.md)). `zumen_core::extract::entity_shapes` gives
   polylines (curves as drawn), segments, fills, hatched areas, points and text parts in paper millimeters, and

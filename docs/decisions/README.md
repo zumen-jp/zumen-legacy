@@ -38,3 +38,4 @@ Choices made before this folder existed are described in [the architecture notes
 - [0007: Map SXF and JWW into the AutoCAD drawing model in a crate of its own, zumen-convert](0007-mapping-crate-between-formats.md) (2026-10-20, Accepted)
 - [0008: Real-size model space, and the sheet as a layout with a viewport for each scale](0008-sheets-and-scales-in-the-autocad-model.md) (2026-10-20, Accepted)
 - [0009: Give AI clients the shapes drawn, in paper and real-world millimeters, and leave their meaning to them](0009-geometry-for-ai-clients.md) (2026-10-20, Accepted)
+- [0011: Give AI agents the functions behind the MCP tools as `zumen.tools`, with a documented schema](0011-tool-functions-for-agents.md) (2026-10-20, Proposed)

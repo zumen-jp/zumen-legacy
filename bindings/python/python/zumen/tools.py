@@ -3,7 +3,8 @@
 Each function takes a ``Scene`` (``zumen.read``) and returns plain data that ``json.dumps`` writes as it is: dicts,
 lists, strings, numbers, booleans and ``None``. The keys are described by the ``TypedDict`` classes of this module and
 are part of the API: a later version may add keys, but does not remove or rename them or change what they mean. The
-functions only read and report what the drawing holds; interpreting it is left to the agent.
+functions only read and report what the drawing holds; interpreting it is left to the agent. ``zumen.mcp`` serves
+the same functions as MCP tools.
 
 Coordinates
     Paper millimeters with the Y axis up, as ``Scene`` has them: boxes are ``[min_x, min_y, max_x, max_y]``, points
@@ -11,16 +12,17 @@ Coordinates
     a render without a region shows the frame. A region can also be given as fractions of the frame,
     ``frame_region=[left, top, right, bottom]`` from 0 to 1 with the origin at the top left, as regions of pages and
     images are usually given; ``paper_region`` and ``frame_region_of`` convert between the two.
-    Entities in a scaled part of the sheet (an SXF sub-figure, a JWW layer group, DXF model space or a viewport) have a
-    ``placement`` whose ``inverse`` ``[a, b, c, d, e, f]`` turns paper coordinates into real-world millimeters:
-    ``x' = a x + c y + e``, ``y' = b x + d y + f``. ``values`` hold the numbers of the file itself (see
-    "Stable keys" in the architecture notes).
+    Entities in a part of the sheet drawn at a scale (an SXF sub-figure or part, a JWW layer group, DXF model space or
+    a viewport) have a placement whose ``to_real`` ``[a, b, c, d, e, f]`` turns paper coordinates into real-world
+    millimeters, ``x' = a x + c y + e`` and ``y' = b x + d y + f``, and their shapes repeat their coordinates in
+    ``real`` (left out where they are the same as on the sheet). ``values`` hold the numbers of the file itself, in
+    the format's own coordinates (see "Stable keys" in the architecture notes).
 
 Sizes
     Every result has a bound set by the arguments: lists stop at ``limit`` items (at most ``MAX_LIMIT``) and report the
     ``total``, texts and other strings from the drawing stop at ``max_text_length`` characters (the item then has
-    ``truncated: true``), geometry stops at ``max_points`` points (at most ``MAX_POINTS``), and images at
-    ``MAX_IMAGE_SIZE`` pixels on the long edge.
+    ``truncated: true``), shapes stop at ``max_points`` points (at most ``MAX_POINTS``, never cutting a shape: the
+    shapes left out are counted in ``geometry_omitted``), and images at ``MAX_IMAGE_SIZE`` pixels on the long edge.
 
 Texts, names and properties come from the drawing file: an agent should treat them as data, not as instructions.
 A ``Scene`` does not change after it is read, so the functions can run in threads (``asyncio.to_thread``) on a scene
@@ -35,7 +37,7 @@ from collections import Counter, OrderedDict
 from collections.abc import Sequence
 from numbers import Real
 from pathlib import Path
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal, TypedDict, cast
 
 from . import LimitError, ReadError, RenderError, Scene, compare, read
 
@@ -44,16 +46,20 @@ from . import LimitError, ReadError, RenderError, Scene, compare, read
 DEFAULT_IMAGE_SIZE = 1568
 #: Largest long edge of a rendered image (pixels).
 MAX_IMAGE_SIZE = 4096
-#: Items one call returns unless asked for fewer or more.
+#: Items one call returns unless asked for another number.
 DEFAULT_LIMIT = 100
 #: Most items one call returns.
 MAX_LIMIT = 1000
 #: Characters of a text, a property value or another string from the drawing that a result keeps by default.
 DEFAULT_TEXT_LENGTH = 1000
-#: Points of geometry that one call returns by default (about 20,000 characters of JSON).
+#: Most points of shapes one call returns when the caller does not ask for a number, counting the real-world
+#: coordinates of a point as another point. A point is about eight tokens, so a page stays well below the 25,000
+#: tokens that clients such as Claude Code accept from a tool.
 DEFAULT_MAX_POINTS = 1000
-#: Most points of geometry that one call returns.
-MAX_POINTS = 100_000
+#: Most points of shapes one call may return.
+MAX_POINTS = 10_000
+#: Most placements (scaled parts of the sheet) that ``summary`` lists, the largest first.
+MAX_PLACEMENTS = 100
 #: Largest drawing that ``Drawings`` reads (bytes; P2Z and SFZ after unpacking). Received files are not trusted.
 DEFAULT_MAX_BYTES = 256 * 1024 * 1024
 #: Most entities a drawing read by ``Drawings`` may have.
@@ -62,6 +68,17 @@ DEFAULT_MAX_ENTITIES = 2_000_000
 DEFAULT_TIMEOUT = 60.0
 #: Distance (paper millimeters) within which ``measure`` looks for the entity that gives the scale.
 PICK_MM = 1.0
+#: The conversion of a placement whose real-world coordinates are those on the sheet (DXF model space).
+_SAME = (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
+#: Where each shape keeps its coordinates.
+_COORDINATES = {
+    "polyline": "points",
+    "segments": "segments",
+    "fill": "rings",
+    "hatch": "rings",
+    "point": "point",
+    "text": "point",
+}
 
 Box = tuple[float, float, float, float]
 #: An unformatted property value: a number, a string, a boolean or a list of numbers (``[x, y]``, ``[from, to]`` …).
@@ -93,13 +110,33 @@ class SheetInfo(TypedDict):
 
 
 class LayerInfo(TypedDict):
-    """A layer, with the number of entities on it (also those the drawing hides)."""
+    """A layer, with the number of entities on it (also when the drawing hides it)."""
 
     id: int
     name: str
     visible: bool
     group: str | None
     entities: int
+
+
+class PlacementInfo(TypedDict):
+    """The part of the sheet drawn at a scale that an entity sits in. ``scale_x`` and ``scale_y`` are paper
+    millimeters per real-world millimeter, ``scale`` the same as ``1:100`` when they are equal, and ``to_real``
+    ``[a, b, c, d, e, f]`` turns paper coordinates into real-world millimeters: ``x' = a x + c y + e``,
+    ``y' = b x + d y + f``."""
+
+    name: str
+    scale_x: float
+    scale_y: float
+    scale: str | None
+    to_real: list[float]
+
+
+class PlacedPartInfo(PlacementInfo):
+    """A placement of ``summary``, with the number of its entities and the box around them (paper millimeters)."""
+
+    entities: int
+    bbox: list[float]
 
 
 class NoticeInfo(TypedDict):
@@ -133,10 +170,11 @@ class TitleBlockInfo(TypedDict):
 class Summary(TypedDict):
     """What an agent needs to plan its next calls (``summary``).
 
-    ``bounds`` is the frame, ``None`` for a drawing without entities. ``kinds`` counts entities by their stable kind
-    (``line``, ``text``, ``dimension`` …) and ``types`` by their Japanese type; both include the layers that the drawing
-    hides, and ``layers`` tells which are visible. ``layers`` stops at ``layer_limit`` of ``layers_total``.
-    ``metadata_values`` maps each metadata key to its unformatted value."""
+    ``bounds`` is the frame, ``None`` for a drawing without entities. ``types`` counts entities by their Japanese type
+    and ``kinds`` by their stable kind (``line``, ``text``, ``dimension`` …); both include the layers that the drawing
+    hides, and ``layers`` tells which are visible. ``layers`` stops at ``layer_limit`` of ``layers_total``, and
+    ``placements`` at ``MAX_PLACEMENTS`` of ``placements_total``, the largest first. ``metadata_values`` maps each
+    metadata key to its unformatted value."""
 
     format: str
     version: str
@@ -146,11 +184,13 @@ class Summary(TypedDict):
     bounds: list[float] | None
     background: Literal["dark", "light"]
     entities: int
-    kinds: dict[str, int]
     types: dict[str, int]
+    kinds: dict[str, int]
     texts: int
     layers_total: int
     layers: list[LayerInfo]
+    placements: list[PlacedPartInfo]
+    placements_total: int
     notices: list[NoticeInfo]
     metadata: list[PropertyInfo]
     metadata_values: dict[str, Value]
@@ -203,86 +243,92 @@ class _TextInfo(TypedDict):
 
 
 class TextInfo(_TextInfo, total=False):
-    """A text: lines joined with a line break, ``x`` and ``y`` the bottom left of its first part, ``height`` the text
+    """A text: lines joined with a line break, ``x`` and ``y`` the lower left of its first part, ``height`` the text
     height and ``bbox`` its box in paper millimeters, ``angle`` its direction in degrees counterclockwise."""
 
     truncated: bool
 
 
 class TextPage(TypedDict):
-    """A page of texts in drawing order (``find_texts``)."""
+    """A page of texts in drawing order (``find_texts``); ``next_offset`` is the ``offset`` of the next page."""
 
     total: int
     offset: int
+    next_offset: int | None
     texts: list[TextInfo]
 
 
-class _StrokeInfo(TypedDict):
-    kind: Literal["stroke"]
+class _PolylineShape(TypedDict):
+    shape: Literal["polyline"]
     points: list[list[float]]
     closed: bool
-    color: str
-    width: float
 
 
-class StrokeInfo(_StrokeInfo, total=False):
-    """A line through ``points``; ``closed`` joins the last point to the first. With ``segments``, each two points
-    are a separate segment (hatch lines). ``width`` is the line weight and ``dashes`` the dash pattern, in paper
-    millimeters (absent for a solid line). ``color`` is ``#rrggbb`` or ``#rrggbbaa``."""
+class PolylineShape(_PolylineShape, total=False):
+    """Lines through ``points``; ``closed`` joins the last point to the first. Arcs, circles, ellipses and splines come
+    as the polyline drawn; their center and radius are in ``values``."""
 
-    segments: bool
-    dashes: list[float]
+    real: list[list[float]]
 
 
-class FillInfo(TypedDict):
-    """An area filled by the even-odd rule: an outline and the holes in it."""
+class _SegmentsShape(TypedDict):
+    shape: Literal["segments"]
+    segments: list[list[list[float]]]
 
-    kind: Literal["fill"]
+
+class SegmentsShape(_SegmentsShape, total=False):
+    """Separate segments, each a pair of points (the edges of a mesh, for example)."""
+
+    real: list[list[list[float]]]
+
+
+class _AreaShape(TypedDict):
+    shape: Literal["fill", "hatch"]
     rings: list[list[list[float]]]
-    color: str
 
 
-class ClippedInfo(TypedDict):
-    """Lines drawn only inside ``rings`` (hatch patterns)."""
+class AreaShape(_AreaShape, total=False):
+    """A filled or hatched area: an outline and its holes (even-odd rule). The lines of a hatch are its pattern and are
+    left out."""
 
-    kind: Literal["clipped"]
-    rings: list[list[list[float]]]
-    strokes: list[StrokeInfo]
+    real: list[list[list[float]]]
 
 
-class DotInfo(TypedDict):
-    """A point marker drawn at the same size at every zoom."""
-
-    kind: Literal["dot"]
+class _PointShape(TypedDict):
+    shape: Literal["point"]
     point: list[float]
-    color: str
 
 
-class TextRunInfo(TypedDict):
-    """A run of text on one line. ``position`` is the bottom left of its box, ``height`` the character height,
-    ``width`` the length of the box along the line, in paper millimeters; ``angle`` the direction of the line in
-    degrees counterclockwise."""
+class PointShape(_PointShape, total=False):
+    """A point."""
 
-    kind: Literal["text"]
+    real: list[float]
+
+
+class _TextShape(TypedDict):
+    shape: Literal["text"]
     text: str
-    position: list[float]
+    point: list[float]
     height: float
-    width: float
     angle: float
-    color: str
 
 
-Primitive = StrokeInfo | FillInfo | ClippedInfo | DotInfo | TextRunInfo
+class TextShape(_TextShape, total=False):
+    """A part of a text on one line: ``point`` its lower left, ``height`` the text height on the sheet, ``angle`` its
+    direction in degrees counterclockwise."""
 
-
-class GeometryInfo(TypedDict):
-    """The entity as drawn, in drawing order and paper millimeters. Curves are drawn as many short lines. ``points``
-    counts every point (a text run counts as one); ``truncated`` tells that ``primitives`` stop before them because
-    of ``max_points``."""
-
-    primitives: list[Primitive]
-    points: int
+    real: list[float]
     truncated: bool
+
+
+Shape = PolylineShape | SegmentsShape | AreaShape | PointShape | TextShape
+
+
+class PlacementName(TypedDict):
+    """The name and scale of an entity's placement, as ``find_entities`` gives them with ``geometry``."""
+
+    name: str
+    scale: str | None
 
 
 class _EntityInfo(TypedDict):
@@ -294,34 +340,26 @@ class _EntityInfo(TypedDict):
 
 
 class EntityInfo(_EntityInfo, total=False):
-    """An entity in a list: its text when it has one, and its geometry when asked for."""
+    """An entity in a list: its text when it has one, and with ``geometry`` its shapes and placement."""
 
     text: str
-    geometry: GeometryInfo
     truncated: bool
+    placement: PlacementName | None
+    geometry: list[Shape]
+    geometry_omitted: int
 
 
 class EntityPage(TypedDict):
-    """A page of entities in drawing order (``find_entities``), with the counts of every entity found by kind and by
-    Japanese type."""
+    """A page of entities in drawing order (``find_entities``), with the counts of every entity found by Japanese
+    type and by kind. With ``geometry`` a page can end before ``limit``; ``next_offset`` is where the next one
+    starts."""
 
     total: int
     offset: int
-    kinds: dict[str, int]
+    next_offset: int | None
     types: dict[str, int]
+    kinds: dict[str, int]
     entities: list[EntityInfo]
-
-
-class PlacementInfo(TypedDict):
-    """The scaled part of the sheet an entity sits in. ``scale_x`` and ``scale_y`` are paper millimeters per real
-    millimeter, ``scale`` the same as ``1:100`` when both are equal, and ``inverse`` turns paper coordinates into
-    real-world millimeters (``x' = a x + c y + e``, ``y' = b x + d y + f``)."""
-
-    name: str
-    scale: str | None
-    scale_x: float
-    scale_y: float
-    inverse: list[float]
 
 
 class _EntityDetail(TypedDict):
@@ -335,15 +373,16 @@ class _EntityDetail(TypedDict):
     properties: list[PropertyInfo]
     values: dict[str, Value]
     placement: PlacementInfo | None
-    geometry: GeometryInfo
+    geometry: list[Shape]
 
 
 class EntityDetail(_EntityDetail, total=False):
     """One entity (``get_entity``). ``source`` is its name in the format (``LINE``, ``line_feature``, ``CDataSen``).
     ``properties`` are what the format gives, as the viewer's property panel shows them, and ``values`` maps each of
-    their keys to the unformatted value (numbers, ``[x, y]`` in the drawing's own coordinates), or to the formatted
-    text when there is none."""
+    their keys to the unformatted value (numbers, ``[x, y]`` in the format's own coordinates), or to the formatted
+    text when there is none. ``geometry_omitted`` counts the shapes past ``max_points``."""
 
+    geometry_omitted: int
     truncated: bool
 
 
@@ -424,7 +463,7 @@ class ComparisonInfo(TypedDict):
 
 
 def _mm(value: float) -> float:
-    """Round paper millimeters to 0.001. -0.0 becomes 0.0."""
+    """Round paper millimeters to 0.001 for the client. -0.0 becomes 0.0."""
     rounded = round(value, 3)
     return rounded if rounded != 0 else 0.0
 
@@ -438,13 +477,18 @@ def _box(box: Sequence[float]) -> list[float]:
     return [_mm(value) for value in box]
 
 
+def _number(value: float) -> float:
+    """A factor of a conversion, without the noise of floating point (12 significant digits)."""
+    return float(f"{value:.12g}") or 0.0
+
+
 def _fraction(value: float) -> float:
     rounded = round(value, 6)
     return rounded if rounded != 0 else 0.0
 
 
 def _value(value: Any) -> Value:
-    """A property value as JSON: tuples become lists and numbers that are not finite become ``None``."""
+    """A property value as JSON: tuples become lists, and numbers that are not finite become ``None``."""
     if isinstance(value, tuple):
         return [item if math.isfinite(item) else None for item in value]
     if isinstance(value, float) and not math.isfinite(value):
@@ -453,10 +497,10 @@ def _value(value: Any) -> Value:
 
 
 def _clip(text: str, length: int | None) -> tuple[str, bool]:
-    """``text`` cut to ``length`` characters with an ellipsis, and whether it was cut."""
+    """``text`` cut to ``length`` characters, the last one an ellipsis, and whether it was cut."""
     if length is None or len(text) <= length:
         return text, False
-    return text[: max(length - 1, 0)] + "…", True
+    return text[: length - 1] + "…", True
 
 
 def _text_length(length: int | None) -> int | None:
@@ -471,10 +515,10 @@ def _page(limit: int, offset: int) -> tuple[int, int]:
     return min(limit, MAX_LIMIT), offset
 
 
-def _points_budget(max_points: int) -> int:
-    if max_points < 0:
-        raise DrawingError("max_points must be at least 0")
-    return min(max_points, MAX_POINTS)
+def _max_points(max_points: int) -> int:
+    if not 1 <= max_points <= MAX_POINTS:
+        raise DrawingError(f"max_points must be between 1 and {MAX_POINTS:,}")
+    return max_points
 
 
 def normalize(text: str) -> str:
@@ -483,7 +527,7 @@ def normalize(text: str) -> str:
 
 
 def _finite(values: Any, count: int) -> bool:
-    """Whether ``values`` are ``count`` finite numbers (lists, tuples, arrays)."""
+    """Whether ``values`` are ``count`` finite numbers (a list, a tuple or an array)."""
     try:
         return len(values) == count and all(isinstance(value, Real) and math.isfinite(value) for value in values)
     except TypeError:
@@ -517,24 +561,24 @@ def _frame(scene: Scene) -> list[float]:
 
 def paper_region(scene: Scene, frame_region: Sequence[float]) -> list[float]:
     """The region ``[min_x, min_y, max_x, max_y]`` in paper millimeters for fractions of the frame
-    ``[left, top, right, bottom]`` (0 to 1, origin at the top left; the order of each pair does not matter)."""
-    left, top, right, bottom = _four(frame_region, "frame_region", "[left, top, right, bottom] from 0 to 1")
+    ``[left, top, right, bottom]`` (0 to 1, origin at the top left; the order within each pair does not matter)."""
+    left, top, right, bottom = cast(Box, _four(frame_region, "frame_region", "[left, top, right, bottom] from 0 to 1"))
     x0, y0, x1, y1 = _frame(scene)
     width, height = x1 - x0, y1 - y0
     return [x0 + left * width, y1 - bottom * height, x0 + right * width, y1 - top * height]
 
 
 def frame_region_of(scene: Scene, region: Sequence[float]) -> list[float]:
-    """Fractions of the frame ``[left, top, right, bottom]`` (origin at the top left) for a region in paper
-    millimeters, rounded to 0.000001; the inverse of ``paper_region``."""
-    x0, y0, x1, y1 = _four(region, "region", "[min_x, min_y, max_x, max_y] in paper millimeters")
+    """The fractions of the frame ``[left, top, right, bottom]`` (origin at the top left) of a region in paper
+    millimeters, rounded to 0.000001: the inverse of ``paper_region``."""
+    x0, y0, x1, y1 = cast(Box, _four(region, "region", "[min_x, min_y, max_x, max_y] in paper millimeters"))
     fx0, fy0, fx1, fy1 = _frame(scene)
     width, height = fx1 - fx0, fy1 - fy0
 
-    def along(value: float, start: float, length: float) -> float:
-        return _fraction((value - start) / length) if length > 0 else 0.0
+    def along(value: float, length: float) -> float:
+        return _fraction(value / length) if length > 0 else 0.0
 
-    return [along(x0, fx0, width), along(fy1 - y1, 0, height), along(x1, fx0, width), along(fy1 - y0, 0, height)]
+    return [along(x0 - fx0, width), along(fy1 - y1, height), along(x1 - fx0, width), along(fy1 - y0, height)]
 
 
 def _region(scene: Scene, region: Sequence[float] | None, frame_region: Sequence[float] | None) -> Box | None:
@@ -550,90 +594,92 @@ def _point(point: Sequence[float]) -> list[float]:
     return [_mm(point[0]), _mm(point[1])]
 
 
-def _points(points: Sequence[Sequence[float]], budget: list[int]) -> list[list[float]]:
-    """The points that fit in the points left in ``budget``, which it lowers."""
-    taken = points[: budget[0]] if budget[0] > 0 else []
-    budget[0] -= len(taken)
-    return [_point(point) for point in taken]
+def _round_coordinates(key: str, value: Any) -> Any:
+    """Round the coordinates of a shape: a list of points, of segments (pairs of points), of rings, or one point."""
+    if key == "points":
+        return [_point(point) for point in value]
+    if key == "segments":
+        return [[_point(start), _point(end)] for start, end in value]
+    if key == "rings":
+        return [[_point(point) for point in ring] for ring in value]
+    return _point(value)
 
 
-def _rings(rings: Sequence[Sequence[Sequence[float]]], budget: list[int]) -> list[list[list[float]]]:
-    kept = []
-    for ring in rings:
-        if budget[0] <= 0:
-            break
-        kept.append(_points(ring, budget))
-    return kept
+def _shape(shape: dict[str, Any], real: bool, length: int | None) -> Shape:
+    """A shape of ``Scene.entities(geometry=True)`` rounded for the client, with ``real`` only when asked."""
+    key = _COORDINATES[shape["shape"]]
+    rounded: dict[str, Any] = {"shape": shape["shape"]}
+    cut = False
+    if shape["shape"] == "text":
+        rounded["text"], cut = _clip(shape["text"], length)
+    rounded[key] = _round_coordinates(key, shape[key])
+    if shape["shape"] == "polyline":
+        rounded["closed"] = shape["closed"]
+    if shape["shape"] == "text":
+        rounded["height"] = _mm(shape["height"])
+        rounded["angle"] = _mm(shape["angle"])
+    if real:
+        rounded["real"] = _round_coordinates(key, shape["real"])
+    if cut:
+        rounded["truncated"] = True
+    return cast(Shape, rounded)
 
 
-def _stroke(stroke: dict[str, Any], budget: list[int]) -> StrokeInfo:
-    item: StrokeInfo = {
-        "kind": "stroke",
-        "points": _points(stroke["points"], budget),
-        "closed": stroke["closed"],
-        "color": stroke["color"],
-        "width": _mm(stroke["width"]),
-    }
-    if stroke["segments"]:
-        item["segments"] = True
-    if stroke["dashes"]:
-        item["dashes"] = [_mm(value) for value in stroke["dashes"]]
-    return item
-
-
-def _count(primitive: dict[str, Any]) -> int:
-    """The points of a primitive; a dot or a text run counts as one."""
-    kind = primitive["kind"]
-    if kind == "stroke":
-        return len(primitive["points"])
-    if kind == "fill":
-        return sum(len(ring) for ring in primitive["rings"])
-    if kind == "clipped":
-        rings = sum(len(ring) for ring in primitive["rings"])
-        return rings + sum(len(stroke["points"]) for stroke in primitive["strokes"])
+def _points(shape: dict[str, Any]) -> int:
+    """How many points a shape has (a segment has two)."""
+    key = _COORDINATES[shape["shape"]]
+    if key == "points":
+        return len(shape[key])
+    if key == "segments":
+        return 2 * len(shape[key])
+    if key == "rings":
+        return sum(len(ring) for ring in shape[key])
     return 1
 
 
-def _primitive(primitive: dict[str, Any], budget: list[int]) -> Primitive:
-    kind = primitive["kind"]
-    if kind == "stroke":
-        return _stroke(primitive, budget)
-    if kind == "fill":
-        return {"kind": "fill", "rings": _rings(primitive["rings"], budget), "color": primitive["color"]}
-    if kind == "clipped":
-        rings = _rings(primitive["rings"], budget)
-        strokes: list[StrokeInfo] = []
-        for stroke in primitive["strokes"]:
-            if budget[0] <= 0:
-                break
-            strokes.append(_stroke(stroke, budget))
-        return {"kind": "clipped", "rings": rings, "strokes": strokes}
-    budget[0] -= 1
-    if kind == "dot":
-        return {"kind": "dot", "point": _point((primitive["x"], primitive["y"])), "color": primitive["color"]}
-    # The text's own coordinates (x along the line, y up, the box from the origin) to paper millimeters
-    a, b, c, d, e, f = primitive["matrix"]
+def _geometry(entity: dict[str, Any], budget: int, length: int | None) -> tuple[list[Shape], int, int]:
+    """The shapes of an entity that fit in ``budget`` points, in drawing order, with the points they use and how many
+    shapes were left out. Shapes are never cut, so one larger than the budget is left out with all after it.
+
+    ``real`` comes only when it differs from the coordinates on the sheet, and its points count too."""
+    placement = entity["placement"]
+    real = placement is not None and tuple(placement["inverse"]) != _SAME
+    shapes = entity["geometry"]
+    kept: list[Shape] = []
+    used = 0
+    for index, shape in enumerate(shapes):
+        count = _points(shape) * (2 if real else 1)
+        if used + count > budget:
+            return kept, used, len(shapes) - index
+        kept.append(_shape(shape, real, length))
+        used += count
+    return kept, used, 0
+
+
+def _scale_label(scale: float) -> str | None:
+    """1:100 for 0.01 paper millimeters per real millimeter, when the ratio is close to a whole number."""
+    if not scale > 0:
+        return None
+    if scale >= 1:
+        ratio = round(scale, 6)
+        return f"{ratio:g}:1"
+    inverse = 1 / scale
+    if abs(inverse - round(inverse)) < 1e-6 * inverse:
+        return f"1:{round(inverse)}"
+    return f"1:{inverse:.6g}"
+
+
+def _placement(placement: dict[str, Any]) -> PlacementInfo:
+    """A placement of ``Scene.entities``: its name, scale (paper millimeters per real-world millimeter, and as 1:100)
+    and ``to_real``, the conversion [a, b, c, d, e, f] from paper to real-world millimeters."""
+    scale = placement["scale_x"] if placement["scale_x"] == placement["scale_y"] else None
     return {
-        "kind": "text",
-        "text": primitive["text"],
-        "position": _point((e, f)),
-        "height": _mm(primitive["height"] * math.hypot(c, d)),
-        "width": _mm(primitive["box_width"] * math.hypot(a, b)),
-        "angle": _mm(math.degrees(math.atan2(b, a))),
-        "color": primitive["color"],
+        "name": placement["name"],
+        "scale_x": placement["scale_x"],
+        "scale_y": placement["scale_y"],
+        "scale": _scale_label(scale) if scale is not None else None,
+        "to_real": [_number(value) for value in placement["inverse"]],
     }
-
-
-def _geometry(primitives: list[dict[str, Any]], budget: list[int]) -> GeometryInfo:
-    """The primitives of an entity within the points left in ``budget``, which it lowers."""
-    points = sum(_count(primitive) for primitive in primitives)
-    before = budget[0]
-    kept: list[Primitive] = []
-    for primitive in primitives:
-        if budget[0] <= 0:
-            break
-        kept.append(_primitive(primitive, budget))
-    return {"primitives": kept, "points": points, "truncated": before - budget[0] < points}
 
 
 # --- Reading files ----------------------------------------------------------------------------------------------
@@ -643,7 +689,8 @@ class Drawings:
     """Reads drawing files from the allowed directories, within limits, and keeps the scenes read last.
 
     ``roots`` limits the directories (symbolic links are resolved first; empty for any readable file), and
-    ``max_bytes``, ``max_entities`` and ``timeout`` limit each drawing. A scene is read again when its file changes."""
+    ``max_bytes``, ``max_entities`` and ``timeout`` limit each drawing. A scene is read again when its file changes.
+    Several threads may use one ``Drawings``."""
 
     def __init__(
         self,
@@ -703,12 +750,38 @@ class Drawings:
 # --- The tools --------------------------------------------------------------------------------------------------
 
 
+def _placements(entities: list[dict[str, Any]]) -> tuple[list[PlacedPartInfo], int]:
+    """The placements of the entities (scaled parts of the sheet), the ones with the most entities first, with how
+    many there are. A placement is told apart by its name and its conversion."""
+    found: dict[tuple[Any, ...], dict[str, Any]] = {}
+    for entity in entities:
+        placement = entity["placement"]
+        if placement is None:
+            continue
+        key = (placement["name"], placement["inverse"])
+        item = found.get(key)
+        x0, y0, x1, y1 = entity["bbox"]
+        if item is None:
+            found[key] = {**_placement(placement), "entities": 1, "bbox": [x0, y0, x1, y1]}
+            continue
+        item["entities"] += 1
+        box = item["bbox"]
+        box[0], box[1], box[2], box[3] = min(box[0], x0), min(box[1], y0), max(box[2], x1), max(box[3], y1)
+    placements = sorted(found.values(), key=lambda item: -item["entities"])[:MAX_PLACEMENTS]
+    for item in placements:
+        item["bbox"] = _box(item["bbox"])
+    return cast(list[PlacedPartInfo], placements), len(found)
+
+
 def summary(
     scene: Scene, *, layer_limit: int = MAX_LIMIT, max_text_length: int | None = DEFAULT_TEXT_LENGTH
 ) -> Summary:
-    """What an agent needs to plan: the format, sheet, frame, views, layers, entity kinds and types, notices, metadata
-    and the fields of the title block (drawing number, revision, title, project, scale and date, guessed from the
-    texts). The counts include the layers that the drawing hides; ``layers`` tells which ones are visible."""
+    """What an agent needs to plan: the format, sheet, frame, views, layers, entity types and kinds, notices, metadata,
+    the fields of the title block (drawing number, revision, title, project, scale and date, guessed from the texts),
+    and the placements: the parts of the sheet drawn at a scale (sub-figures, layer groups, viewports), with the
+    conversion from paper to real-world millimeters.
+
+    The counts include the layers that the drawing hides; ``layers`` tells which ones are visible."""
     if layer_limit < 0:
         raise DrawingError("layer_limit must be at least 0")
     length = _text_length(max_text_length)
@@ -718,17 +791,10 @@ def summary(
     per_layer: Counter[str] = Counter()
     for entity in entities:
         per_layer.update(set(entity["layers"]))
-    bounds = frame(scene)
+    placements, placements_total = _placements(entities)
     layers = scene.layers
-    metadata: list[PropertyInfo] = [
-        {"key": key, "label": label, "value": _clip(value, length)[0]}
-        for key, (label, value) in zip(scene.metadata_values, scene.metadata, strict=True)
-    ]
-    values = {
-        key: _clip(value, length)[0] if isinstance(value, str) else _value(value)
-        for key, value in scene.metadata_values.items()
-    }
     sheet = scene.sheet
+    bounds = frame(scene)
     block = scene.title_block()
     return {
         "format": scene.format,
@@ -746,20 +812,22 @@ def summary(
         "bounds": _box(bounds) if bounds else None,
         "background": scene.background,
         "entities": len(entities),
-        "kinds": dict(kinds.most_common()),
         "types": dict(types.most_common()),
+        "kinds": dict(kinds.most_common()),
         "texts": len(scene.texts(hidden_layers=[])),
         "layers_total": len(layers),
         "layers": [
             {
-                "id": layer["id"],
-                "name": layer["name"],
-                "visible": layer["visible"],
-                "group": layer["group"],
+                "id": int(layer["id"]),
+                "name": str(layer["name"]),
+                "visible": bool(layer["visible"]),
+                "group": None if layer["group"] is None else str(layer["group"]),
                 "entities": per_layer[str(layer["name"])],
             }
             for layer in layers[:layer_limit]
         ],
+        "placements": placements,
+        "placements_total": placements_total,
         "notices": [
             {
                 "level": "warning" if notice["level"] == "warning" else "info",
@@ -769,8 +837,14 @@ def summary(
             }
             for notice in scene.notices
         ],
-        "metadata": metadata,
-        "metadata_values": values,
+        "metadata": [
+            {"key": key, "label": label, "value": _clip(value, length)[0]}
+            for key, (label, value) in zip(scene.metadata_values, scene.metadata, strict=True)
+        ],
+        "metadata_values": {
+            key: _clip(value, length)[0] if isinstance(value, str) else _value(value)
+            for key, value in scene.metadata_values.items()
+        },
         "title_block": {
             "number": block["number"],
             "revision": block["revision"],
@@ -793,9 +867,10 @@ def render(
     text_limit: int = 200,
     max_text_length: int | None = DEFAULT_TEXT_LENGTH,
 ) -> tuple[bytes, RenderInfo]:
-    """A PNG of the frame or a region (``region`` in paper millimeters or ``frame_region`` as fractions), ``size``
-    pixels on the long edge, and how its pixels map to the drawing: the region shown, the scale and the texts drawn
-    with their pixel boxes. ``theme`` is ``light`` or ``dark`` (the drawing's own background when omitted)."""
+    """A PNG of the frame or a region (``region`` in paper millimeters or ``frame_region`` as fractions of the frame),
+    ``size`` pixels on the long edge, and how its pixels map to the drawing: the region shown, the scale and the texts
+    drawn with their pixel boxes (at most ``text_limit``, itself at most ``MAX_LIMIT``). ``theme`` is ``light`` or
+    ``dark``, the drawing's own background when omitted."""
     if not 16 <= size <= MAX_IMAGE_SIZE:
         raise DrawingError(f"size must be between 16 and {MAX_IMAGE_SIZE} pixels")
     if theme not in (None, "light", "dark"):
@@ -817,7 +892,7 @@ def render(
     texts = [entity for entity in drawn if entity["text"] is not None]
     shown = image.region
     items: list[DrawnTextInfo] = []
-    for entity in texts[:text_limit]:
+    for entity in texts[: min(text_limit, MAX_LIMIT)]:
         text, cut = _clip(entity["text"], length)
         item: DrawnTextInfo = {
             "id": entity["id"],
@@ -880,7 +955,13 @@ def find_texts(
         if cut:
             item["truncated"] = True
         items.append(item)
-    return {"total": len(texts), "offset": offset, "texts": items}
+    following = offset + len(items)
+    return {
+        "total": len(texts),
+        "offset": offset,
+        "next_offset": following if following < len(texts) else None,
+        "texts": items,
+    }
 
 
 def find_entities(
@@ -888,8 +969,8 @@ def find_entities(
     *,
     region: Sequence[float] | None = None,
     frame_region: Sequence[float] | None = None,
-    kind: str | None = None,
     type: str | None = None,
+    kind: str | None = None,
     layer: str | None = None,
     all_layers: bool = False,
     limit: int = DEFAULT_LIMIT,
@@ -899,11 +980,14 @@ def find_entities(
     max_text_length: int | None = DEFAULT_TEXT_LENGTH,
 ) -> EntityPage:
     """Entities whose box meets the region, filtered by their stable ``kind`` (``line``, ``text``, ``dimension`` …),
-    a part of their Japanese ``type`` or of a layer name, in drawing order. With ``geometry``, each entity also has its
-    geometry, until ``max_points`` points for the whole page are used."""
+    a part of their Japanese ``type`` or of a layer name, in drawing order.
+
+    With ``geometry``, each entity also has its shapes, as ``get_entity`` gives them, and the name and scale of its
+    placement. A page then ends early when the next entity's shapes would pass ``max_points``; ``next_offset`` tells
+    where to go on."""
     limit, offset = _page(limit, offset)
+    budget = _max_points(max_points)
     length = _text_length(max_text_length)
-    budget = [_points_budget(max_points)]
     entities = scene.entities(
         region=_region(scene, region, frame_region), hidden_layers=[] if all_layers else None, geometry=geometry
     )
@@ -915,7 +999,7 @@ def find_entities(
     if layer:
         wanted = normalize(layer)
         entities = [entity for entity in entities if any(wanted in normalize(name) for name in entity["layers"])]
-    items: list[EntityInfo] = []
+    page: list[EntityInfo] = []
     for entity in entities[offset : offset + limit]:
         item: EntityInfo = {
             "id": entity["id"],
@@ -929,38 +1013,25 @@ def find_entities(
             if cut:
                 item["truncated"] = True
         if geometry:
-            item["geometry"] = _geometry(entity["primitives"], budget)
-        items.append(item)
+            shapes, used, omitted = _geometry(entity, budget, length)
+            # The first entity of a page always comes, with the shapes that fit, so that paging goes on
+            if omitted and page:
+                break
+            placement = _placement(entity["placement"]) if entity["placement"] else None
+            item["placement"] = {"name": placement["name"], "scale": placement["scale"]} if placement else None
+            item["geometry"] = shapes
+            if omitted:
+                item["geometry_omitted"] = omitted
+            budget -= used
+        page.append(item)
+    following = offset + len(page)
     return {
         "total": len(entities),
         "offset": offset,
-        "kinds": dict(Counter(entity["kind"] for entity in entities).most_common()),
+        "next_offset": following if following < len(entities) else None,
         "types": dict(Counter(entity["type"] for entity in entities).most_common()),
-        "entities": items,
-    }
-
-
-def _scale_label(scale: float) -> str | None:
-    """1:100 for 0.01 paper millimeters per real millimeter, when the ratio is close to a whole number."""
-    if not scale > 0:
-        return None
-    if scale >= 1:
-        ratio = round(scale, 6)
-        return f"{ratio:g}:1"
-    inverse = 1 / scale
-    if abs(inverse - round(inverse)) < 1e-6 * inverse:
-        return f"1:{round(inverse)}"
-    return f"1:{inverse:.6g}"
-
-
-def _placement(placement: dict[str, Any]) -> PlacementInfo:
-    scale = placement["scale_x"] if placement["scale_x"] == placement["scale_y"] else None
-    return {
-        "name": placement["name"],
-        "scale": _scale_label(scale) if scale is not None else None,
-        "scale_x": placement["scale_x"],
-        "scale_y": placement["scale_y"],
-        "inverse": list(placement["inverse"]),
+        "kinds": dict(Counter(entity["kind"] for entity in entities).most_common()),
+        "entities": page,
     }
 
 
@@ -973,12 +1044,20 @@ def get_entity(
 ) -> EntityDetail:
     """One entity with everything the drawing holds about it: kind, type, layers, box, text, the properties that the
     format gives (key, Japanese label and formatted value), the unformatted values by key, the placement with its
-    scale, and the geometry as drawn (up to ``max_points`` points)."""
-    entity = scene.entity(id)
+    scale and ``to_real``, and its geometry.
+
+    The geometry is the shapes drawn, in drawing order and paper millimeters: polylines (``points``, curves as the
+    polyline drawn), segments (pairs of points), fills and hatches (``rings``), points and text parts (``point``, the
+    lower left of the text). Inside a placement, ``real`` repeats the coordinates in real-world millimeters, unless
+    they are the same as on the sheet. Shapes past ``max_points`` (where a point with ``real`` counts twice) are left
+    out whole and counted in ``geometry_omitted``."""
+    budget = _max_points(max_points)
+    length = _text_length(max_text_length)
+    entity = scene.entity(id, geometry=True)
     if entity is None:
         raise DrawingError(f"no entity {id!r} in this drawing")
-    length = _text_length(max_text_length)
-    cut = False
+    shapes, _, omitted = _geometry(entity, budget, length)
+    cut = any(shape.get("truncated") for shape in shapes)
 
     def clip(value: str) -> str:
         nonlocal cut
@@ -987,7 +1066,7 @@ def get_entity(
         return text
 
     # values has one key per property, in the same order (the keys of an entity are distinct)
-    detail: EntityDetail = {
+    result: EntityDetail = {
         "id": entity["id"],
         "kind": entity["kind"],
         "type": entity["type"],
@@ -1003,11 +1082,13 @@ def get_entity(
             key: clip(value) if isinstance(value, str) else _value(value) for key, value in entity["values"].items()
         },
         "placement": _placement(entity["placement"]) if entity["placement"] else None,
-        "geometry": _geometry(entity["primitives"], [_points_budget(max_points)]),
+        "geometry": shapes,
     }
+    if omitted:
+        result["geometry_omitted"] = omitted
     if cut:
-        detail["truncated"] = True
-    return detail
+        result["truncated"] = True
+    return result
 
 
 def _picked(scene: Scene, x: float, y: float) -> dict[str, Any] | None:
@@ -1099,7 +1180,7 @@ def compare_revisions(
 ) -> tuple[bytes, ComparisonInfo]:
     """Compare two revisions: an image of the changes over the unchanged entities, the regions that changed and the
     changed entities. Entities are matched by shape and text, not by id. Boxes are in the earlier revision's paper
-    millimeters; the later one is moved by ``offset``. ``frame_region`` is a part of the frame of both revisions
+    millimeters; the later one is moved by ``offset``. ``frame_region`` is a part of the frame of the two revisions
     drawn together."""
     if not (math.isfinite(tolerance) and tolerance > 0):
         raise DrawingError("tolerance must be a positive number of millimeters")
@@ -1131,24 +1212,24 @@ def compare_revisions(
             change["before_text"] = clip(old["text"], change)
             change["after_text"] = clip(new["text"], change)
         changes.append(change)
-    for state, entities, shift in (
-        ("removed", comparison.removed, (0.0, 0.0)),
-        ("added", comparison.added, offset),
-    ):
-        for entity in entities:
-            change = {
-                "change": "removed" if state == "removed" else "added",
-                "kind": entity["kind"],
-                "type": entity["type"],
-                "bbox": _shifted(entity["bbox"], shift),
-                "id": entity["id"],
-            }
-            if entity["text"] is not None:
-                change["text"] = clip(entity["text"], change)
-            changes.append(change)
-    png, image = render(
-        comparison.scene, region=region, frame_region=frame_region, size=size, text_limit=0, max_text_length=length
-    )
+    for entity in comparison.removed:
+        change = {"change": "removed", "kind": entity["kind"], "type": entity["type"], "bbox": _box(entity["bbox"])}
+        change["id"] = entity["id"]
+        if entity["text"] is not None:
+            change["text"] = clip(entity["text"], change)
+        changes.append(change)
+    for entity in comparison.added:
+        change = {
+            "change": "added",
+            "kind": entity["kind"],
+            "type": entity["type"],
+            "bbox": _shifted(entity["bbox"], offset),
+        }
+        change["id"] = entity["id"]
+        if entity["text"] is not None:
+            change["text"] = clip(entity["text"], change)
+        changes.append(change)
+    png, image = render(comparison.scene, region=region, frame_region=frame_region, size=size, text_limit=0)
     info: ComparisonInfo = {
         "unchanged": comparison.unchanged,
         "removed": len(comparison.removed),
