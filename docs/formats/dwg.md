@@ -179,6 +179,9 @@ made with (coordinates, scales, rotations, texts, layers, block names).
   ACAD_TABLE (its anonymous block, as for DXF).
 - Not read, counted and reported: HELIX and MPOLYGON (drawn from DXF), REGION, 3DSOLID, BODY, MESH, SURFACE, TOLERANCE,
   SHAPE, underlays, OLE frames, lights and proxy entities.
+- `$MEASUREMENT` follows the template's description (22). From R2007 the description is UTF-16 and its length counts
+  characters: AutoCAD writes one NUL character there (the specification counts bytes, which would read 256 for a metric
+  drawing).
 
 ## The same values as the DXF of the drawing
 
@@ -248,7 +251,8 @@ its block, proxy graphics, and DWG files over the section limit.
 ## Writing
 
 `zumen-dwg` writes DWG in Rust, following the same specification, in two ways: `rewrite_dwg` copies a drawing, and
-`write_dwg` writes the AutoCAD drawing model ([New drawings](#new-drawings)).
+`write_dwg` writes the AutoCAD drawing model ([New drawings](#new-drawings)), as AutoCAD 2013 or, with `write_dwg_as`,
+as any version from AutoCAD 2000 to 2018 ([Versions of new drawings](#versions-of-new-drawings)).
 
 `rewrite_dwg(bytes)` reads a DWG of AutoCAD 2000 to 2018 (AC1015 to AC1032, R2007 included) and writes it back
 in the same version: every object is copied as its bits, without decoding and encoding it again, into a new objects
@@ -401,7 +405,8 @@ decompression undoes (5.10.1). The rewritten R2007 samples are 2 to 3% smaller t
 
 ### New drawings
 
-`write_dwg(&DxfDocument)` writes the model as AC1027 (AutoCAD 2013) and returns the bytes and notices. It makes the same
+`write_dwg(&DxfDocument)` writes the model as AC1027 (AutoCAD 2013) and returns the bytes and notices;
+`write_dwg_as(&DxfDocument, DwgVersion)` writes it in a chosen version (below). It makes the same
 choices as the DXF writer (`zumen_dxf::write_dxf`): handles of the model are kept, and a handle that is missing,
 unreadable or used twice gets a new one after the largest; layers, line types, text styles, dimension styles and blocks
 that entities use but the model does not define are added; what cannot be written as it is is reported with the same
@@ -490,7 +495,7 @@ The codes of the DXF writer, with the same messages, and two more:
 | `image` | An IMAGE (the model does not keep the image file) | Nothing |
 | `dimension-block` | A dimension without its block | Nothing |
 | `mleader-block` | A MULTILEADER whose block content is not defined | No content |
-| `multiline-attrib` | A multi-line attribute, which AutoCAD 2013 DWG cannot hold (the embedded MTEXT is R2018) | A single-line attribute with the text on one line |
+| `multiline-attrib` | A multi-line attribute, which DWG before AutoCAD 2018 cannot hold (the embedded MTEXT is R2018) | A single-line attribute with the text on one line |
 | `long-text` | A string longer than 32,767 UTF-16 units, the longest a DWG string can be | The string up to that length |
 
 What the model does not hold is not written: entity types that the readers skip (counted in `skipped`), extended data
@@ -512,6 +517,82 @@ of leaders to their annotation (a leader keeps the hook vertex that the reader a
 - ACadSharp 3.8.26 (`DwgReader`, failsafe off) reads every written drawing, with no warning but one for the
   LARGE_RADIAL_DIMENSION class that it does not know. For the samples that are DWG, it finds the same entities of each
   type as in the original, apart from the types that the model does not hold.
+- ODA File Converter and DWG TrueView: not run yet.
+
+### Versions of new drawings
+
+`write_dwg_as(&DxfDocument, DwgVersion)` writes the model as `DwgVersion::R2000` (AC1015), `R2004` (AC1018), `R2007`
+(AC1021), `R2010` (AC1024), `R2013` (AC1027, what `write_dwg` writes) or `R2018` (AC1032), so that a drawing can be
+handed to someone on an older AutoCAD. `DwgVersion::parse` reads `2000`, `R2000`, `AC1015` or `1015` (any case), as
+`zumen_dxf::DxfVersion::parse` does; `code()` and `name()` give `AC1015` and `2000`. Every version holds the same objects
+(AutoCAD also keeps materials, scales, multileader and visual styles in older formats when it saves to them); the codecs
+write the values of each version, and the model writer gives each version what it needs:
+
+| Version | Maintenance (0x0B, 0x12) | Application (0x11, AuxHeader) | Container |
+| --- | --- | --- | --- |
+| 2000 | 15 | 23 | R2000 (3): header, AuxHeader, preview, sections, second header (26); the Template only when the model has `$MEASUREMENT` |
+| 2004 | 104 | 25 | R2004 (4) |
+| 2007 | 50 | 27 | R2007 (5): the section names, hash codes, page sizes and encodings of 5.x; the random seed comes from the header and objects, so the same model gives the same bytes |
+| 2010 | 226 | 29 | R2004 (4); the header and classes sections have the RL after their size |
+| 2013 | 8 | 31 | R2004 (4); as above |
+| 2018 | 0 | 33 | R2004 (4); as above |
+
+The maintenance versions are those of AutoCAD's own files of each version (AutoCAD 2013's for 2013); the application
+version is that of the AutoCAD that first wrote the version.
+
+- **Sections**: AcDb:SummaryInfo has 8-bit strings before R2007 (13). AcDb:AppInfo has the R18 form for 2004 and the R21
+  form from 2007 (16; its form follows the application version). AcDb:ObjFreeSpace has 32-bit values up to R2007 (21.1)
+  and 64-bit values from R2010, and AcDb:AuxHeader holds the maintenance version as an RL in R2018 (129 bytes), as in
+  AutoCAD's files. An R2007 drawing without `$MEASUREMENT` has an empty Template, since that container writes zero pages
+  too.
+- **Strings** before R2007 are in the drawing's code page, chosen as the DXF writer chooses `$DWGCODEPAGE`: the model's
+  code page or encoding when it is not western, otherwise the page that can show the most characters of the drawing.
+  A character that the page cannot show is written as `\U+XXXX`, which the reader turns back. A string of extended data
+  is a byte length, the code page as two bytes with the high byte first (AutoCAD's files; the specification gives no
+  order) and the bytes. Strings are cut at 32,767 bytes.
+- **R2000**: entities are found by their links (20.4.1): each entity holds its previous and next entity (0 at the ends,
+  Nolinks when they are the handles before and after, as AutoCAD writes them), BLOCK_HEADER holds its first and last
+  entity, INSERT its first and last attribute and POLYLINE its first and last vertex. Vertices, attributes and their
+  SEQEND are placed in the file right after their owner, as in AutoCAD's files (ezdwg finds the vertices of polyface and
+  polygon meshes that way). Each VIEWPORT of `*Paper_Space` gets a VIEWPORT ENTITY HEADER (20.4.70) in its control
+  (20.4.69), named `1` for the first, pointing at the next one; viewports of other layouts point at none, as in AutoCAD's
+  files. LAYOUT has its class type, LTYPE its 256-byte strings area, and colors (CMC) are indexes.
+- **SPLINE** before R2013 has scenario 2 for fit points; those versions keep no knot parameter (the reader uses chord
+  length), so fit points are kept only for chord length, and control points are written otherwise.
+- **MLINESTYLE** of R2018 refers to the line types of its elements by handle.
+- **MULTILEADER** before R2010 holds the arrowheads of its lines in its own list (the reader takes the position as the
+  line index), so arrowheads given per line are kept.
+- **Multi-line attributes** are written as attributes with an embedded MTEXT in R2018, with the common values of the
+  attribute.
+
+What a version cannot hold is written as the DXF writer (`write_dxf_as`) writes it, with the same notices, and two more
+for DWG:
+
+| Code | Versions | What is written |
+| --- | --- | --- |
+| `version-color` | 2000 | True colors as the nearest ACI (entities, layers, and the CMC colors of other objects) |
+| `version-transparency` | 2000 | No transparency (entities and layers) |
+| `version-gradient` | 2000 | A gradient hatch as a solid fill in its first color |
+| `version-dimension` | 2000 | ARC_DIMENSION and LARGE_RADIAL_DIMENSION as INSERTs of their blocks |
+| `version-background` | 2000, 2004 | No background mask of MTEXT |
+| `version-mleader` | 2000, 2004 | MULTILEADER as it is (AutoCAD before 2008 shows it as a proxy) |
+| `version-mleader-2010` | 2000 to 2007 | A MULTILEADER without its vertical attachment, top and bottom text attachments and per-line colors (DWG only) |
+| `multiline-attrib` | 2000 to 2013 | A multi-line attribute as a single-line attribute (DWG only) |
+
+#### Verification of versions
+
+- Every DXF and DWG of `tests/fixtures`, written in each version and read again, draws in every view as the same model
+  written as DXF of that version and read again (`tests/write_model.rs`). The model is first given the values DWG of the
+  version cannot hold (the multileader values of `version-mleader-2010`, multileader colors as ACI before 2004) and a
+  handle for each entity without one, so that both writers number the entities alike. The notices of each version are
+  checked too.
+- The same holds for the 43 sample drawings with `ZUMEN_SAMPLES` in all six versions (258 drawings), and the written R2013
+  drawings are the same bytes as before `write_dwg_as` existed.
+- For the fixtures written in every version (156 drawings), the CRCs and checksums are those the checks of
+  `src/samples.rs` compute; every object read by its codec gives the same bits with nothing left over (VIEWPORT ENTITY
+  HEADER and its control included); `rewrite_dwg` keeps every section; ezdwg 0.16.3 and ACadSharp 3.8.26 read every
+  drawing, and ezdwg reads the same entities as from the R2013 drawing apart from the values a version cannot hold.
+  `edit_dwg` edits them in every version and both read the result.
 - ODA File Converter and DWG TrueView: not run yet.
 
 ## Editing (`edit_dwg`)

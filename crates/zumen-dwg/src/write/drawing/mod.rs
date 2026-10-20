@@ -1,12 +1,17 @@
-//! AutoCAD の図面のモデル（`DxfDocument`）を、AutoCAD 2013 の DWG（AC1027）に書く。DXF・DWG から読んだ図面を
-//! DWG にする変換に使う。決め方は DXF の書き出し（zumen-dxf の write.rs）と同じ:
+//! AutoCAD の図面のモデル（`DxfDocument`）を DWG に書く。版は AutoCAD 2000〜2018 から選ぶ（既定は AutoCAD 2013、
+//! AC1027）。DXF・DWG から読んだ図面を DWG にする変換に使う。決め方は DXF の書き出し（zumen-dxf の write.rs）と同じ:
 //!
 //! - ハンドルは元の図面のものを保ち、ないもの・重なるものには新しいハンドルを振る
 //! - 図形が参照するのに表にないレイヤ・線種・文字スタイル・寸法スタイル・ブロックは補う
 //! - 書けなかった・形を変えて書いた内容は、読み取りと同じ notices（種類ごとの件数）で返す
+//! - その版が持てない値は、DXF の書き出しの `write_dxf_as` と同じ形にする（2004 より前はトゥルーカラーを最も近い
+//!   色の番号に、透過度とグラデーションと円弧の長さ・大きい半径の寸法を書かない、など）
 //!
 //! DWG はすべての値を持つので、モデルにない値は AutoCAD の既定の値（acad.dwt）で書く。オブジェクトは可逆の
-//! 読み書き（codec）の構造体に組み立てて書く（実物の図面を読んで書くと同じビット列になることを確かめた並び）
+//! 読み書き（codec）の構造体に組み立てて書く（実物の図面を読んで書くと同じビット列になることを確かめた並び）。
+//! どの版にも同じオブジェクトを置く（AutoCAD もマテリアル・尺度・マルチ引出線のスタイルなどを古い版に保存する）。
+//! R2000 は図形を前後のつながりでたどり（20.4.1 の Nolinks）、紙空間のビューポートに VIEWPORT ENTITY HEADER（20.4.70）
+//! を置く
 
 mod entities;
 mod header;
@@ -15,25 +20,26 @@ mod tables;
 
 use super::DwgWritten;
 use super::classes::ClassDef;
-use super::container::{Objects, R2004, write_r2004};
 use super::object::ObjectWriter;
+use super::version::DwgVersion;
 use crate::bits::HandleRef;
-use crate::codec::RawText;
 use crate::codec::object::ObjectCommon;
+use crate::codec::{CmColor, RawText};
 use crate::file::Version;
+use encoding_rs::Encoding;
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use zumen_core::{NoticeLevel, NoticeList};
 use zumen_dxf::{DxfBlock, DxfDocument, DxfEntity, DxfEntityData, DxfLayout, DxfMLineStyle, DxfSpace, Vec3};
 
-/// 書く版
-const VERSION: Version = Version::R2013;
-/// 保守版（ファイルの頭の 0x0B と 0x12、AcDb:AuxHeader）。AutoCAD 2013 が書く値
-const MAINTENANCE: u8 = 8;
-
 /// モデルを AutoCAD 2013 の DWG にする
 pub fn write_dwg(doc: &DxfDocument) -> DwgWritten {
-    let mut writer = Writer::new(doc);
+    write_dwg_as(doc, DwgVersion::R2013)
+}
+
+/// 版を選んでモデルを DWG にする。その版が持てない値は近い形にして notices で知らせる
+pub fn write_dwg_as(doc: &DxfDocument, version: DwgVersion) -> DwgWritten {
+    let mut writer = Writer::new(doc, version);
     writer.plan();
     writer.write_entities();
     writer.write_tables();
@@ -166,6 +172,8 @@ pub(super) struct Fixed {
     pub material_global: u64,
     pub mleader_style: u64,
     pub scale: u64,
+    /// R2000 の VIEWPORT ENTITY HEADER の表（20.4.69。R2004 以降の版は 0）
+    pub vpent_control: u64,
     /// 辞書の変数（名前, ハンドル, 値）
     pub variables: Vec<(&'static str, u64, &'static str)>,
     /// APPID（名前, ハンドル）
@@ -204,6 +212,12 @@ pub(super) struct LayerPlan {
 
 pub(super) struct Writer<'a> {
     pub doc: &'a DxfDocument,
+    /// 書く版
+    pub target: DwgVersion,
+    pub version: Version,
+    /// R2007 より前の文字列の文字コードと、その番号（3.2.5。ファイルの頭の 0x13）
+    pub encoding: &'static Encoding,
+    pub codepage: u16,
     pub handles: Handles,
     pub notices: NoticeList,
     /// 書いたオブジェクト（ハンドル, MS の大きさから CRC まで）
@@ -234,6 +248,14 @@ pub(super) struct Writer<'a> {
     pub viewports: HashSet<u64>,
     /// TV の長さ（BS）に入らないので切った文字列の数
     pub long_texts: Cell<u64>,
+    /// 2004 より前の版で、最も近い色の番号にしたトゥルーカラーと、書かなかった透過度の数
+    pub version_colors: Cell<u64>,
+    pub version_transparency: Cell<u64>,
+    /// R2000 の紙空間（*Paper_Space）のビューポートと、その VIEWPORT ENTITY HEADER（20.4.70）のハンドル
+    pub viewport_headers: Vec<(u64, u64)>,
+    /// R2000 で持ち主（POLYLINE・INSERT）の直後に並べる頂点・属性と SEQEND（AutoCAD の図面と同じ並び。持つ図形の並びの
+    /// ない R2000 では、ファイルの中の並びで頂点を集める読み取りがある）
+    pub followers: HashMap<u64, Vec<u64>>,
 }
 
 /// 図形（属性を含む）
@@ -367,9 +389,19 @@ pub(super) fn owned(owner: u64, reactor: bool) -> ObjectCommon {
 }
 
 impl<'a> Writer<'a> {
-    fn new(doc: &'a DxfDocument) -> Self {
+    fn new(doc: &'a DxfDocument, target: DwgVersion) -> Self {
+        let version = target.version();
+        let (codepage, encoding) = if version >= Version::R2007 {
+            (header::codepage_number(doc), encoding_rs::UTF_8)
+        } else {
+            codepage_for(doc)
+        };
         Self {
             doc,
+            target,
+            version,
+            encoding,
+            codepage,
             handles: Handles::new(doc),
             notices: NoticeList::new(),
             objects: Vec::new(),
@@ -392,7 +424,16 @@ impl<'a> Writer<'a> {
             sort_tables: Vec::new(),
             viewports: HashSet::new(),
             long_texts: Cell::new(0),
+            version_colors: Cell::new(0),
+            version_transparency: Cell::new(0),
+            viewport_headers: Vec::new(),
+            followers: HashMap::new(),
         }
+    }
+
+    /// 2004 より前の版（トゥルーカラー・透過度・グラデーション・円弧の長さの寸法を持たない）
+    pub(super) fn before_2004(&self) -> bool {
+        self.version < Version::R2004
     }
 
     /// 元のハンドルを保つ（読めないか重なれば新しく振る）。参照を付け替えられるよう、元 → 書いたハンドルを覚える
@@ -412,25 +453,88 @@ impl<'a> Writer<'a> {
         self.remap.get(&upper(original)).copied()
     }
 
-    /// 文字列を DWG の形（R2007 以降の UTF-16）にする。モデルの文字列はテキストの DXF と同じキャレット表記（「^ 」は ^、
-    /// ^J は改行。DWG の読み取りも同じ形にする）なので、文字に戻す。TV の長さは BS（2.2、読み取りは符号付き）なので、
-    /// 32,767 単位を超える文字列はそこまで（サロゲートの対を分けない）で切り、数える
+    /// 文字列を DWG の形（R2007 以降は UTF-16、それより前は図面の文字コード）にする。モデルの文字列はテキストの DXF と
+    /// 同じキャレット表記（「^ 」は ^、^J は改行。DWG の読み取りも同じ形にする）なので、文字に戻す。R2007 より前の
+    /// 文字コードで表せない文字は、DXF の書き出しと同じく \U+XXXX にする（読み取りが文字に戻す）。TV の長さは BS
+    /// （2.2、読み取りは符号付き）なので、32,767 単位（R2007 より前はバイト）を超える文字列はそこまで（サロゲートの対・
+    /// 文字を分けない）で切り、数える
     pub(super) fn text(&self, value: &str) -> RawText {
-        let mut text = if value.contains('^') {
-            RawText::new(&uncaret(value), VERSION, encoding_rs::UTF_8)
+        let uncareted;
+        let value = if value.contains('^') {
+            uncareted = uncaret(value);
+            uncareted.as_str()
         } else {
-            RawText::new(value, VERSION, encoding_rs::UTF_8)
+            value
         };
-        if let RawText::Units(units) = &mut text
-            && units.len() > i16::MAX as usize
-        {
+        if self.version < Version::R2007 {
+            let mut bytes = encode_with_escapes(value, self.encoding);
+            if bytes.len() > i16::MAX as usize {
+                bytes.clear();
+                let mut buffer = [0u8; 4];
+                for c in value.chars() {
+                    let encoded = encode_with_escapes(c.encode_utf8(&mut buffer), self.encoding);
+                    if bytes.len() + encoded.len() > i16::MAX as usize {
+                        break;
+                    }
+                    bytes.extend_from_slice(&encoded);
+                }
+                self.long_texts.set(self.long_texts.get() + 1);
+            }
+            return RawText::Bytes(bytes);
+        }
+        let mut units: Vec<u16> = value.encode_utf16().collect();
+        if units.len() > i16::MAX as usize {
             units.truncate(i16::MAX as usize);
             if units.last().is_some_and(|unit| (0xd800..0xdc00).contains(unit)) {
                 units.pop();
             }
             self.long_texts.set(self.long_texts.get() + 1);
         }
-        text
+        RawText::Units(units)
+    }
+
+    /// 空の文字列
+    pub(super) fn empty(&self) -> RawText {
+        RawText::empty(self.version)
+    }
+
+    /// 表・オブジェクトの CMC の色（2.11）。R2004 以降は ACI（0 BYBLOCK、256 BYLAYER）とトゥルーカラー（0xRRGGBB）の
+    /// RGB の値、それより前は色の番号だけ（トゥルーカラーは最も近い色の番号にして数える）
+    pub(super) fn cmc(&self, index: f64, true_color: Option<f64>) -> CmColor {
+        if !self.before_2004() {
+            return tables::cmc(index, true_color);
+        }
+        let index = match true_color {
+            Some(rgb) => {
+                self.version_colors.set(self.version_colors.get() + 1);
+                i16::from(nearest_aci(zumen_core::js::to_int32(rgb) as u32))
+            }
+            None if index.is_finite() => (index.abs() as i32).clamp(0, 256) as i16,
+            None => 256,
+        };
+        CmColor { index, rgb: 0, name: None, book: None }
+    }
+
+    /// MULTILEADER などの色の生の値（DXF の 91 など、符号付きの 32 ビット）の CMC。R2004 より前は色の番号にする
+    pub(super) fn cmc_raw(&self, raw: f64) -> CmColor {
+        let color = tables::cmc_raw(raw);
+        if self.before_2004() { self.old_color(&color) } else { color }
+    }
+
+    /// R2004 以降の形の CMC（RGB の値の上位 1 バイトが種類）を、R2004 より前の色の番号にする
+    pub(super) fn old_color(&self, color: &CmColor) -> CmColor {
+        let index = match color.rgb >> 24 {
+            0xc0 => 256,
+            0xc1 => 0,
+            0xc2 => {
+                self.version_colors.set(self.version_colors.get() + 1);
+                i16::from(nearest_aci(color.rgb))
+            }
+            0xc3 => (color.rgb & 0xff) as i16,
+            _ if color.index != 0 => color.index,
+            _ => 256,
+        };
+        CmColor { index, rgb: 0, name: None, book: None }
     }
 
     /// クラスの番号（500 から）。使った数を数える
@@ -454,7 +558,7 @@ impl<'a> Writer<'a> {
 
     /// 新しいオブジェクトを書き始める（拡張データなし）
     pub(super) fn object(&self, kind: u16, handle: u64) -> ObjectWriter {
-        ObjectWriter::new(VERSION, encoding_rs::WINDOWS_1252, kind, handle)
+        ObjectWriter::new(self.version, self.encoding, kind, handle)
     }
 
     fn add_block(&mut self, name: &str, source: Option<usize>) {
@@ -644,15 +748,21 @@ impl<'a> Writer<'a> {
             material_global: next(),
             mleader_style: next(),
             scale: next(),
+            vpent_control: 0,
             variables: Vec::new(),
             appids: Vec::new(),
         };
         fixed.variables = vec![("CANNOSCALE", next(), "1:1"), ("CMLEADERSTYLE", next(), "Standard")];
         let mut appids = vec![("ACAD", next())];
-        if self.doc.layers.iter().any(|layer| layer.transparency.is_some()) {
+        // レイヤの透過度は拡張データ AcCmTransparency の 1071（2004 より前の版は書かない）
+        let old = self.version < Version::R2004;
+        if !old && self.doc.layers.iter().any(|layer| layer.transparency.is_some()) {
             appids.push(("AcCmTransparency", next()));
         }
         fixed.appids = appids;
+        if old {
+            fixed.vpent_control = next();
+        }
         self.fixed = fixed;
     }
 
@@ -841,11 +951,29 @@ impl<'a> Writer<'a> {
         let seed = self.handles.next.max(self.objects.iter().map(|(handle, _)| handle + 1).max().unwrap_or(1));
         let header = header::header_section(&self, seed);
         if self.long_texts.get() > 0 {
+            let limit = if self.version >= Version::R2007 { "UTF-16 で 32,767 単位" } else { "32,767 バイト" };
             self.notices.add_count(
                 NoticeLevel::Warning,
                 "long-text",
-                "DWG の文字列の長さの上限（UTF-16 で 32,767 単位）を超える文字列は、その長さまでを書きました",
+                format!("DWG の文字列の長さの上限（{limit}）を超える文字列は、その長さまでを書きました"),
                 self.long_texts.get(),
+            );
+        }
+        // DXF の書き出し（write_dxf_as）と同じ notices
+        if self.version_colors.get() > 0 {
+            self.notices.add_count(
+                NoticeLevel::Info,
+                "version-color",
+                "トゥルーカラーは、AutoCAD 2004 より前の版にないため、最も近い色の番号（ACI）で書きました",
+                self.version_colors.get(),
+            );
+        }
+        if self.version_transparency.get() > 0 {
+            self.notices.add_count(
+                NoticeLevel::Info,
+                "version-transparency",
+                "透過度は、AutoCAD 2004 より前の版にないため、書きませんでした",
+                self.version_transparency.get(),
             );
         }
         let classes: Vec<ClassDef> = self
@@ -856,27 +984,46 @@ impl<'a> Writer<'a> {
             .collect();
         let mut objects = std::mem::take(&mut self.objects);
         objects.sort_by_key(|(handle, _)| *handle);
+        if !self.followers.is_empty() {
+            objects = follow_owners(objects, &self.followers);
+        }
         let count = objects.len();
-        let layout = Objects {
-            items: objects.iter().map(|(_, bytes)| bytes.clone()).collect(),
+        let layout = super::container::Objects {
             handles: objects.iter().enumerate().map(|(index, (handle, _))| (*handle, index)).collect(),
+            items: objects.into_iter().map(|(_, bytes)| bytes).collect(),
         };
-        let (stream, locations) = layout.lay_out(0);
         let measurement = self.doc.header.measurement;
-        let sections = header::sections(&self, header, &classes, stream, &locations, count, measurement, seed);
-        let mut head = [0u8; 0x80];
-        head[..6].copy_from_slice(VERSION.name().as_bytes());
-        head[0x0b] = MAINTENANCE;
-        head[0x0c] = 3;
-        // 書いたアプリケーションの版（AC1027 は 31）と保守版、文字コード
-        head[0x11] = 31;
-        head[0x12] = MAINTENANCE;
-        head[0x13..0x15].copy_from_slice(&header::codepage_number(self.doc).to_le_bytes());
-        head[0x28] = 0x80;
-        let order = header::stream_order(&sections);
-        let bytes = write_r2004(&R2004 { head, sections, stream_order: order });
+        let bytes = header::container(&self, header, &classes, layout, count, measurement, seed);
         DwgWritten { bytes, notices: self.notices.into_vec() }
     }
+}
+
+/// ハンドルの順のオブジェクトを、頂点・属性と SEQEND が持ち主の直後に来るよう並べ直す
+fn follow_owners(objects: Vec<(u64, Vec<u8>)>, followers: &HashMap<u64, Vec<u64>>) -> Vec<(u64, Vec<u8>)> {
+    let following: HashSet<u64> = followers.values().flatten().copied().collect();
+    let mut rest: HashMap<u64, Vec<u8>> = HashMap::new();
+    let mut order = Vec::with_capacity(objects.len());
+    for (handle, bytes) in objects {
+        if following.contains(&handle) {
+            rest.insert(handle, bytes);
+        } else {
+            order.push((handle, bytes));
+        }
+    }
+    let mut out = Vec::with_capacity(order.len() + rest.len());
+    for (handle, bytes) in order {
+        out.push((handle, bytes));
+        for follower in followers.get(&handle).into_iter().flatten() {
+            if let Some(bytes) = rest.remove(follower) {
+                out.push((*follower, bytes));
+            }
+        }
+    }
+    // 持ち主のないもの（持ち主を書かなかった頂点など）は終わりに
+    let mut left: Vec<(u64, Vec<u8>)> = rest.into_iter().collect();
+    left.sort_by_key(|(handle, _)| *handle);
+    out.extend(left);
+    out
 }
 
 /// 図形が属するブロック（モデル空間・紙空間・ブロック定義）の名前（大文字）
@@ -910,6 +1057,152 @@ fn uncaret(value: &str) -> String {
         }
     }
     out
+}
+
+/// AutoCAD 2007 より前の版の文字コードの番号（3.2.5）と文字コード。DXF の書き出し（zumen-dxf の codepage_for）と同じく、
+/// 元の図面のコードページ（西欧以外）、読んだときの文字コード（西欧以外）の順に決め、どちらもなければ文字列の文字を
+/// 最も多く表せるものにする。同じ数なら PAGES の順で、1 バイトのものを先にする
+fn codepage_for(doc: &DxfDocument) -> (u16, &'static Encoding) {
+    const PAGES: [(&str, &str); 14] = [
+        ("ANSI_1252", "windows-1252"),
+        ("ANSI_1250", "windows-1250"),
+        ("ANSI_1251", "windows-1251"),
+        ("ANSI_1253", "windows-1253"),
+        ("ANSI_1254", "windows-1254"),
+        ("ANSI_1257", "windows-1257"),
+        ("ANSI_1258", "windows-1258"),
+        ("ANSI_1255", "windows-1255"),
+        ("ANSI_1256", "windows-1256"),
+        ("ANSI_874", "windows-874"),
+        ("ANSI_932", "shift_jis"),
+        ("ANSI_936", "gbk"),
+        ("ANSI_949", "euc-kr"),
+        ("ANSI_950", "big5"),
+    ];
+    let encoding = |label: &str| Encoding::for_label(label.as_bytes()).unwrap_or(encoding_rs::WINDOWS_1252);
+    let declared = doc.header.codepage.as_deref().and_then(zumen_dxf::codepage_encoding);
+    let (name, label) = PAGES[1..]
+        .iter()
+        .find(|(_, label)| declared == Some(*label))
+        .or_else(|| PAGES[1..].iter().find(|(_, label)| *label == doc.encoding))
+        .copied()
+        .unwrap_or_else(|| {
+            let mut counts: HashMap<char, usize> = HashMap::new();
+            model_strings(doc, &mut |text| {
+                for c in text.chars().filter(|c| !c.is_ascii()) {
+                    *counts.entry(c).or_default() += 1;
+                }
+            });
+            let unmappable = |label: &str| {
+                let encoding = encoding(label);
+                let mut buffer = [0u8; 4];
+                counts
+                    .iter()
+                    .filter(|(c, _)| encoding.encode(c.encode_utf8(&mut buffer)).2)
+                    .map(|(_, count)| count)
+                    .sum::<usize>()
+            };
+            // 最も少ないもののうち最初のもの
+            PAGES.into_iter().min_by_key(|(_, label)| unmappable(label)).unwrap_or(PAGES[0])
+        });
+    (header::codepage_index(name).unwrap_or(30), encoding(label))
+}
+
+/// モデルの文字列（表・ブロック・レイアウトの名前と、図形の文字）。文字コードを選ぶのに使う
+fn model_strings(doc: &DxfDocument, visit: &mut dyn FnMut(&str)) {
+    for layer in &doc.layers {
+        visit(&layer.name);
+    }
+    for linetype in &doc.linetypes {
+        visit(&linetype.name);
+        visit(&linetype.description);
+    }
+    for style in &doc.styles {
+        visit(&style.name);
+        visit(&style.font);
+        visit(&style.bigfont);
+    }
+    for style in &doc.dimstyles {
+        visit(&style.name);
+    }
+    for block in &doc.blocks {
+        visit(&block.name);
+        visit(block.description.as_deref().unwrap_or(""));
+    }
+    for layout in &doc.layouts {
+        visit(&layout.name);
+    }
+    for entity in all_entities(doc) {
+        visit(&entity.base.layer);
+        match &entity.data {
+            DxfEntityData::Text(text) => visit(&text.text),
+            DxfEntityData::Attrib { text, tag, mtext, .. } => {
+                visit(&text.text);
+                visit(tag);
+                if let Some(embedded) = mtext {
+                    visit(&embedded.content.text);
+                }
+            }
+            DxfEntityData::Attdef { text, tag, prompt, mtext, .. } => {
+                visit(&text.text);
+                visit(tag);
+                visit(prompt);
+                if let Some(embedded) = mtext {
+                    visit(&embedded.content.text);
+                }
+            }
+            DxfEntityData::MText(mtext) => visit(if mtext.raw_text.is_empty() { &mtext.text } else { &mtext.raw_text }),
+            DxfEntityData::Dimension(dimension) => visit(&dimension.text),
+            DxfEntityData::Insert(insert) => visit(&insert.name),
+            DxfEntityData::MLeader(mleader) => {
+                if let Some(mtext) = &mleader.context.mtext {
+                    visit(&mtext.default_content);
+                }
+                for attrib in &mleader.block_attribs {
+                    visit(&attrib.text);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// 文字コードにする。表せない文字は \U+XXXX にする（基本多言語面の外は UTF-16 のサロゲートの 2 つ。DXF の書き出しと
+/// 同じ。読み取りは UTF-16 の単位で戻すので、元の文字になる）
+fn encode_with_escapes(text: &str, encoding: &'static Encoding) -> Vec<u8> {
+    let mut encoder = encoding.new_encoder();
+    let mut out = Vec::with_capacity(text.len() + 16);
+    let mut rest = text;
+    loop {
+        let (result, read) = encoder.encode_from_utf8_to_vec_without_replacement(rest, &mut out, true);
+        rest = &rest[read..];
+        match result {
+            encoding_rs::EncoderResult::InputEmpty => break,
+            encoding_rs::EncoderResult::OutputFull => out.reserve(rest.len() + 16),
+            encoding_rs::EncoderResult::Unmappable(c) => {
+                for unit in c.encode_utf16(&mut [0u16; 2]) {
+                    out.extend_from_slice(format!("\\U+{unit:04X}").as_bytes());
+                }
+            }
+        }
+    }
+    out
+}
+
+/// トゥルーカラー（0xRRGGBB）に最も近い ACI（1〜255。DXF の書き出しの nearest_aci と同じ）
+pub(super) fn nearest_aci(rgb: u32) -> u8 {
+    let channels = |value: u32| [(value >> 16) & 0xff, (value >> 8) & 0xff, value & 0xff].map(|c| c as i32);
+    let target = channels(rgb & 0xff_ffff);
+    let mut best = (7u8, i32::MAX);
+    for (index, hex) in zumen_dxf::ACI.iter().enumerate().skip(1) {
+        let Ok(value) = u32::from_str_radix(hex.trim_start_matches('#'), 16) else { continue };
+        let color = channels(value);
+        let distance: i32 = (0..3).map(|i| (color[i] - target[i]).pow(2)).sum();
+        if distance < best.1 {
+            best = (index as u8, distance);
+        }
+    }
+    best.0
 }
 
 /// 押し出し方向の OCS の X・Y 軸（任意の軸の求め方、DXF Reference「Arbitrary Axis Algorithm」）
@@ -947,6 +1240,82 @@ mod tests {
             let (s, e) = rad_pair(start, end);
             assert_eq!(degrees_of(e) - degrees_of(s), end - start, "{start} {end}");
         }
+    }
+
+    /// どの版に書いた図面も、入れ物の検査の値（CRC・ページの検査の値・Reed-Solomon）が合い、どのオブジェクトも codec で
+    /// 読んで書くと同じビット列になる（tests/fixtures の DXF・DWG）
+    #[test]
+    fn drawings_of_every_version_pass_the_checks_of_real_drawings() {
+        use crate::samples::{ObjectCounts, check_r2000, check_r2004, check_r2007, object_failures};
+        let folder = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures");
+        let mut counts = ObjectCounts::default();
+        let mut failures = Vec::new();
+        for format in ["dxf", "dwg"] {
+            let mut files: Vec<std::path::PathBuf> =
+                std::fs::read_dir(folder.join(format)).unwrap().map(|entry| entry.unwrap().path()).collect();
+            files.sort();
+            for path in files.iter().filter(|path| path.extension().is_some_and(|extension| extension == format)) {
+                let bytes = std::fs::read(path).unwrap();
+                let doc =
+                    if crate::is_dwg(&bytes) { crate::read_dwg(&bytes).unwrap() } else { zumen_dxf::parse_dxf(&bytes) };
+                for target in DwgVersion::ALL {
+                    let written = write_dwg_as(&doc, target);
+                    let name = format!("{} {}", path.file_name().unwrap().to_string_lossy(), target.name());
+                    match target.version() {
+                        Version::R2000 => check_r2000(&name, &written.bytes),
+                        Version::R2007 => {
+                            check_r2007(&name, &written.bytes);
+                        }
+                        version => check_r2004(&name, &written.bytes, version),
+                    }
+                    failures.extend(object_failures(&name, &written.bytes, &mut counts));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+        assert!(counts.unknown.is_empty(), "{:?}", counts.unknown);
+        // R2000 の VIEWPORT ENTITY HEADER の表と項目も確かめた
+        assert!(counts.checked.contains_key("70") && counts.checked.contains_key("71"), "{:?}", counts.checked);
+    }
+
+    /// R2007 より前の版の文字列は、DXF の書き出しと同じく選んだ文字コードで書き、その文字コードで表せない文字は
+    /// \U+XXXX にする（読み取りが文字に戻す）
+    #[test]
+    fn strings_before_2007_use_the_code_page_of_the_drawing() {
+        let folder = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/dxf");
+        let texts = |doc: &DxfDocument| -> Vec<String> {
+            doc.entities
+                .iter()
+                .filter_map(|entity| match &entity.data {
+                    DxfEntityData::Text(text) => Some(text.text.clone()),
+                    _ => None,
+                })
+                .collect()
+        };
+        let japanese = zumen_dxf::parse_dxf(&std::fs::read(folder.join("r12-shift-jis.dxf")).unwrap());
+        for target in [DwgVersion::R2000, DwgVersion::R2004] {
+            let written = write_dwg_as(&japanese, target);
+            assert_eq!(u16::from_le_bytes([written.bytes[0x13], written.bytes[0x14]]), 38, "ANSI_932");
+            let again = crate::read_dwg(&written.bytes).unwrap();
+            assert_eq!(again.header.codepage.as_deref(), Some("ANSI_932"));
+            assert!(!texts(&again).is_empty());
+            assert_eq!(texts(&again), texts(&japanese));
+        }
+        // 西欧の文字と日本語: どちらも表せる GBK（ANSI_936）にする（DXF の書き出しと同じ選び方）
+        let mut mixed = zumen_dxf::parse_dxf(&std::fs::read(folder.join("utf8-1252.dxf")).unwrap());
+        let written = write_dwg_as(&mixed, DwgVersion::R2000);
+        assert_eq!(u16::from_le_bytes([written.bytes[0x13], written.bytes[0x14]]), 39, "ANSI_936");
+        assert_eq!(texts(&crate::read_dwg(&written.bytes).unwrap()), ["Café ü 日本"]);
+        // どの文字コードにもない文字は \U+XXXX（基本多言語面の外はサロゲートの 2 つ）
+        for entity in &mut mixed.entities {
+            if let DxfEntityData::Text(text) = &mut entity.data {
+                text.text = "Café \u{1F600}".into();
+            }
+        }
+        let written = write_dwg_as(&mixed, DwgVersion::R2004);
+        assert_eq!(u16::from_le_bytes([written.bytes[0x13], written.bytes[0x14]]), 30, "ANSI_1252");
+        let again = crate::read_dwg(&written.bytes).unwrap();
+        assert_eq!(texts(&again), ["Café \u{1F600}"]);
     }
 
     #[test]
