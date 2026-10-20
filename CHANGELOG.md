@@ -4,6 +4,15 @@ All packages share one version during 0.x.
 
 ## Unreleased (0.1.0)
 
+- Rust, Python and the command line: edit drawings in place and create new ones
+  ([decision 0010](docs/decisions/0010-edit-in-place-and-write-every-format.md)). The operations are the same for every
+  format: `add`, `update` and `delete` entities, and `add-layer` and `update-layer`, with the kinds, ids and property
+  keys of the scene and coordinates in the drawing's own units (`zumen_core::edit`). An edit keeps the format, version,
+  text encoding and everything the operations do not name, and fails as a whole with a code and the number of the
+  operation. DXF is done (R12 to 2018, ASCII and binary): `zumen_dxf::edit_dxf` keeps every tag that no operation
+  changes byte for byte, so extended data, objects and unread entities stay. `zumen::edit` and `zumen::create`,
+  `zumen.edit`, `zumen.create`, `Edited` and `EditError` in Python, and `zumen edit` and `zumen create`.
+
 - Rust, Python and MCP: the shapes that an entity draws, for AI clients and data pipelines to compute with
   ([decision 0009](docs/decisions/0009-geometry-for-ai-clients.md)). `zumen_core::extract::entity_shapes` gives
   polylines (curves as drawn), segments, fills, hatched areas, points and text parts in paper millimeters, and

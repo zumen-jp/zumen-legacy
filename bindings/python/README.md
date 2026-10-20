@@ -80,6 +80,40 @@ for notice in converted.notices:  # what could not be written as it was, such as
     print(notice["code"], notice["message"], notice["count"])
 ```
 
+## Editing drawings
+
+`zumen.edit` changes a drawing in place: it applies a list of operations and keeps everything else as it was, in the
+same format, version and text encoding, including what zumen cannot read (extended data, objects, unread entities).
+DXF (R12 to 2018, ASCII and binary) can be edited so far; DWG, SXF and JWW follow.
+
+```python
+operations = [  # the operations may also be a JSON string
+    {"op": "add-layer", "name": "CHECK", "color": "#ff0000"},
+    {"op": "add", "kind": "line", "layer": "CHECK", "start": [0, 0], "end": [5000, 0]},
+    {"op": "add", "kind": "text", "layer": "CHECK", "position": [100, 200], "text": "確認済み", "height": 350},
+    {"op": "update", "id": "3F2", "set": {"end": [5200, 0], "lineType": "DASHED"}},
+    {"op": "delete", "id": "3F5"},
+]
+edited = zumen.edit("plan.dxf", operations)  # or bytes
+edited.created  # ["CHECK", "4A1", "4A2"]: what add-layer and add created, in order
+edited.save("plan.dxf")
+```
+
+- Entities are chosen by the `id` of the scene and described by the `kind` and the property keys that `Scene` reports.
+  Coordinates are the drawing's own, the `raw` of properties (`Scene.entity(id)["values"]`), not paper millimeters.
+- `add` takes `container`: `"model"` (the default), `"layout:<name>"` or `"block:<name>"` in DXF.
+- Kinds that can be added: `line`, `polyline` (`vertices`, `bulges`, `closed`), `arc`, `circle`, `ellipse`,
+  `ellipse-arc`, `point`, `text` (MTEXT when it has line breaks) and `block-reference` (`block`, `position`, `scale`,
+  `rotation`). Every kind takes `layer`, `color` (a color number, `"#rrggbb"`, `"bylayer"` or `"byblock"`),
+  `lineType` and `lineWidth` (millimeters).
+- If any operation cannot be applied, nothing is written and `zumen.EditError` is raised with `code` (such as
+  `"not-found"`, `"unknown-key"` or `"inside-block"`) and `operation`, the number of the operation from 0.
+- Values that the format cannot hold exactly, such as a true color in an old DXF, are written as the nearest one and
+  listed in `edited.notices`.
+- Checking that the file is the version that was read (a checksum) is left to the application.
+
+`zumen.create("dxf", operations, units="mm")` starts a new drawing (AutoCAD 2013 DXF) and applies the operations.
+
 ## Comparing revisions
 
 `zumen.compare` matches entities by type, shape and text, not by id, so revisions that were saved again,

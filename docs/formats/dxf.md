@@ -302,6 +302,56 @@ What cannot be written as it was is reported in `notices`:
 | `missing-block` | A block reference without a definition gets an empty block |
 | `mleader-block` | A multileader whose content block is missing is written without its content |
 
+## Editing (`edit_dxf`)
+
+`zumen_dxf::edit_dxf` (through `zumen::edit`) changes a DXF drawing in place with the operations of
+[decision 0010](../decisions/0010-edit-in-place-and-write-every-format.md). It does not go through the model: it splits
+the file into tags as the reader does, keeps the bytes of every tag, and writes back every tag that no operation
+changes as it was. Extended data, reactors, extension dictionaries, objects and the entities that zumen does not read
+stay, and an edit without operations gives the same bytes.
+
+- **Version and form**: the version, ASCII or binary, the line ends of the file (CRLF, LF or CR) and the text encoding
+  stay. AutoCAD 2007 (AC1021) and later write UTF-8; earlier versions write the encoding that the reader chose (the
+  `$DWGCODEPAGE`, or what it detected), and a character that encoding cannot hold is written as `\U+XXXX`, which
+  AutoCAD and zumen read back as the character (DXF Reference "Storage of String Values"). Control characters and the
+  caret are written in caret notation (`^J`, `^ `) in ASCII DXF.
+- **Handles**: new records take handles from `$HANDSEED` (or above the largest handle, if the seed is lower), and
+  `$HANDSEED` is set to the next one. R12 drawings without `$HANDLING` 1 get no handles; entities without handles
+  cannot be chosen by id.
+- **Where `add` puts an entity**: model space at the end of ENTITIES; `layout:<name>` in the paper space of that
+  layout (the active one in ENTITIES with 67 = 1, the others at the end of their `*Paper_Space…` block);
+  `block:<name>` at the end of the block definition, before ENDBLK. From R13 on, the owner (330) is the block record.
+- **What `add` writes** (R13 and later, with the subclass markers of AutoCAD):
+
+  | `kind` | Entity | Keys |
+  | --- | --- | --- |
+  | `line` | LINE | `start`, `end` |
+  | `circle`, `arc` | CIRCLE, ARC | `center`, `radius`, `angle` (`[from, to]` in degrees, for arcs) |
+  | `ellipse`, `ellipse-arc` | ELLIPSE (not in R12) | `center`, `majorAxis` (from the center), `ratio`, `parameter` (`[start, end]` in radians) |
+  | `point` | POINT | `position` |
+  | `polyline` | LWPOLYLINE (POLYLINE, VERTEX and SEQEND in R12) | `vertices`, `bulges`, `closed`, `width` |
+  | `text` | TEXT, or MTEXT when the text has line breaks or `wrapWidth` is given (not in R12) | `position`, `text`, `height`, `rotation`, `textStyle`, `wrapWidth` |
+  | `block-reference` | INSERT | `block`, `position`, `scale` (a number or `[x, y]`), `rotation` |
+
+  Every kind also takes `layer` (8), `color` (62 and, from AutoCAD 2004 on, 420), `lineType` (6) and `lineWidth`
+  (370, from AutoCAD 2000 on). A layer that the drawing lacks is added with color 7 and the line type `CONTINUOUS`
+  (`edit-added-layer`); a drawing without a LAYER table gets one when a layer is added. Line types, text styles and
+  blocks must exist (`missing-definition`).
+- **What `update` changes**: only the group codes of the keys set; the order and the other tags stay. Moving a TEXT,
+  ATTRIB or ATTDEF that is aligned (72 or 73, 74 for attributes, not 0) moves the alignment point (11) by the same
+  amount, as it is the point that places the text. Setting `rotation` of MTEXT removes its direction vector (11),
+  which would override it. Changing the layer of a POLYLINE also changes its VERTEX and SEQEND. LWPOLYLINE vertices are
+  written again with their bulges; other entities, such as hatches and dimensions, take the common keys only.
+- **What `delete` removes**: the entity with what follows it (VERTEX and SEQEND, ATTRIB and SEQEND), the objects it
+  owns (330), such as its extension dictionary, and its handle in SORTENTSTABLE (with its sort handle), GROUP (340) and
+  reactors (330 in `{ACAD_REACTORS`). An attribute alone cannot be deleted.
+- **Layers**: `add-layer` copies layer `0` without its handle, extension dictionary and extended data, so the plot
+  style and material references stay valid; `update-layer` sets the color (a negative 62 turns a layer off), frozen
+  (70 bit 1), locked (70 bit 4), plot (290), line type (6) and line weight (370). The count of the table (70) follows.
+- **Values the version cannot hold** are written as the nearest one and reported: `edit-nearest-color` (no true color
+  before AutoCAD 2004), `edit-rounded-lineweight` (the line weights of the DXF Reference), `edit-no-lineweight` (no
+  line weights before AutoCAD 2000).
+
 ## Verification
 
 See [verification.md](../verification.md#dxf) and [DXF writing](../verification.md#dxf-writing). The parser was compared with ezdxf 1.4.5 on public Japanese drawings
