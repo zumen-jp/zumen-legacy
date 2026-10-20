@@ -3,7 +3,7 @@
 | Item | Value |
 | --- | --- |
 | Date | 2026-10-19 |
-| Status | Accepted |
+| Status | Superseded by [0013](0013-st-bridge-out-of-zumen.md) |
 
 ## Context
 
