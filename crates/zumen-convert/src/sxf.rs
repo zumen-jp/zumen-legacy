@@ -411,7 +411,7 @@ impl<'a> Mapper<'a> {
                 self.out.notices.add(
                     NoticeLevel::Info,
                     "sfig-insert",
-                    "縦横の縮尺が違う部分図は、ビューポートにできないため、紙空間のブロック参照（INSERT）にしました",
+                    "縦横の縮尺が違う・裏返しの部分図は、ビューポートにできないため、紙空間のブロック参照（INSERT）にしました",
                 );
             }
             let scale = ctx.scale * if flag == 3.0 { 1.0 } else { local_scale };

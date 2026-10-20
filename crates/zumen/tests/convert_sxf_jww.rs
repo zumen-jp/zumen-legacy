@@ -414,6 +414,8 @@ fn places_jww_layer_groups_by_scale_in_model_space_and_one_to_one_groups_on_pape
             flatness: 1.0,
             full: true,
         }),
+        // 表示のみ（編集できない）のレイヤグループ 3（1/1）の線
+        JwwEntity::Line(jww_line(jww_base(3, 0, 2, 1), -200.0, 140.0, 200.0, 140.0)),
     ];
     let blocks = vec![JwwBlockDefinition {
         number: 7,
@@ -444,6 +446,7 @@ fn places_jww_layer_groups_by_scale_in_model_space_and_one_to_one_groups_on_pape
     // レイヤ: 非表示のレイヤは非表示、表示のみのグループはロック
     let layer = |name: &str| doc.layers.iter().find(|layer| layer.name == name);
     assert!(layer("0-1").is_some_and(|layer| !layer.off && !layer.locked));
+    assert!(layer("3-0").is_some_and(|layer| !layer.off && layer.locked));
     // 寸法は回転寸法、ソリッドは SOLID、円ソリッドは塗りつぶしの HATCH
     assert!(matches!(&handle_of(&doc, &mapped, "#8")[0].data, DxfEntityData::Dimension(d) if d.text == "10000"));
     assert_eq!(handle_of(&doc, &mapped, "#4")[0].base.kind, "SOLID");
