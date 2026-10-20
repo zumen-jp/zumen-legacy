@@ -1,8 +1,8 @@
 # How DWG is handled
 
-`zumen-dwg` (`crates/zumen-dwg`) reads DWG written by AutoCAD Release 13 (AC1012) to AutoCAD 2018 and later (AC1032)
-into the AutoCAD drawing model of `zumen-dxf` (`DxfDocument`), and `dxf_to_scene` draws it as it draws DXF. It is written in Rust
-only, with its own decoder that follows the Open Design Alliance's
+`zumen-dwg` (`crates/zumen-dwg`) reads DWG written by AutoCAD 1.0 (MC0.0) to AutoCAD 2018 and later (AC1032) into
+the AutoCAD drawing model of `zumen-dxf` (`DxfDocument`), and `dxf_to_scene` draws it as it draws DXF. It is written in
+Rust only, with its own decoder that follows the Open Design Alliance's
 [Open Design Specification for .dwg files](https://opendesign.com/files/guestdownloads/OpenDesign_Specification_for_.dwg_files.pdf)
 5.4.1 and cites its sections in comments ([decision 0003](../decisions/0003-dwg-in-rust.md)). There is no TypeScript
 DWG reader: the `zumen` command, Python and the WebAssembly build (`bindings/wasm`) read DWG, and browsers read it
@@ -20,11 +20,13 @@ object that no operation names ([Editing](#editing-edit_dwg)).
 Where the specification is silent or does not match the files, the behavior was checked against the same drawing
 saved as DXF by AutoCAD and against the MIT implementations [ACadSharp](https://github.com/DomCR/ACadSharp) and
 [ezdwg](https://github.com/monozukuri-ai/ezdwg). Those rules are marked *inferred* below. LibreDWG (GPL) is not used and
-its source was not read.
+its source was not read. The specification starts at R13; drawings of Release 12 and earlier follow other descriptions
+([R12 and earlier](#r12-and-earlier)).
 
 ## Versions and containers
 
-- **Detection**: the file starts with `AC10` and two digits. Unknown versions are refused with a message.
+- **Detection**: the file starts with `AC10` and two digits, or with `MC0.0`, `AC1.2`, `AC1.40`, `AC1.50` or `AC2.10`
+  followed by a NUL. Unknown versions are refused with a message.
 - **AC1012, AC1014, AC1015 (R13, R14, R2000)**: the section locators of the file header (3.2.1) give the header
   variables, the classes, the object map and the template section (`$MEASUREMENT`). R13 and R14 have the same container
   as R2000, without AcDb:AuxHeader ([R13 and R14](#r13-and-r14)).
@@ -89,6 +91,65 @@ when it saved the drawing as R14 (table names in capitals, names with characters
 MTEXT, the last digits of some coordinates). ezdwg reads the same coordinates and strings from the eight drawings. R13
 is covered by generated drawings checked against the equivalent R2000 model; no native R13 drawing was available to check.
 MVIEW extended data also preserves frozen-layer handles, so those layers stay hidden in the viewport.
+
+## R12 and earlier
+
+Drawings of AutoCAD 1.0 to Release 12 have another layout, which the Open Design Specification does not cover. They are
+read (`src/r12`) following the descriptions in Kaitai Struct of Michal Josef Špaček, one for each version (for example
+`dwg_ac1009.ksy`, CC0-1.0), and the reading of R10 to R12 in a fork of ACadSharp
+([FriendsOfCADability/ACadSharp](https://github.com/FriendsOfCADability/ACadSharp), MIT), which follows the same
+descriptions.
+
+| Version | AutoCAD | Read | Checked against real drawings |
+| --- | --- | --- | --- |
+| `MC0.0` | 1.0 | yes | no drawing was available |
+| `AC1.2` | 1.2 | yes | no drawing was available |
+| `AC1.40` | 1.4 | yes | 80 drawings |
+| `AC1.50` | 2.0 | yes | no drawing was available |
+| `AC2.10` | 2.1 | yes | 179 drawings |
+| `AC1001` | 2.2 | yes | no drawing was available |
+| `AC1002` | 2.5 | yes | no drawing was available |
+| `AC1003` | 2.6 | yes | 272 drawings |
+| `AC1004` | Release 9 | yes | 1 empty drawing |
+| `AC1006` | Release 10 | yes | 32 drawings |
+| `AC1009` | Release 11 and 12 | yes | 27 drawings, saved by Release 11 |
+
+The checks on real drawings: every entity record ends where its size says (474 records, all but the AutoCAD 1.x
+versions, whose records have no size), the CRCs of the R11 records match, and the values read are those the drawings were
+made with (coordinates, scales, rotations, texts, layers, block names).
+
+- **Layout** (AC1.50 on): the file header gives the entities section, the block entities section and the extra entities
+  section, and the position, record size and count of the tables (block, layer, style, line type and view at 0x2C to
+  0x5D; from R10 UCS, viewport and application; from R11 dimension style at 0x522). The header variables follow at fixed
+  positions that later versions only extend (`$EXTMIN` at 0x78, `$LTSCALE` at 0x132, `$DIMSCALE` at 0x1A3; from R11
+  `$DWGCODEPAGE` at 0x3F9 and the paper space values from 0x631). Table records have a fixed size; a record whose flags
+  have 0x80 is deleted.
+- **Entities** are records of a type (negative or 0x80 for a deleted entity), a mode, a size, a layer index and 16 bits
+  that say which optional values follow, then the optional color, line type, elevation, thickness, handle (R10 on) and,
+  from R11, extended data and the viewport of paper space entities, and then the values of the type. R11 records end
+  with a CRC (0xC0C1 seed, as from R13). Release 11 writes the thickness before the elevation, earlier versions the
+  reverse; from R10, LINE, POINT, 3DLINE and 3DFACE use the elevation bit to leave out the z of their points.
+- **JUMP** records link the entities section with the extra entities section, where entities added after the first save
+  are; the reader follows them, and returns after the jump when the extra section ends without one.
+- **References** are indexes: of layers, line types (R11: 32767 BYLAYER and 32766 BYBLOCK; earlier 255 BYBLOCK), text
+  styles, blocks and dimension styles. An anonymous block has only its prefix (`*D`), in the table and in its BLOCK, and
+  gets the number of its position in the block table (`*D1`), as from R13 on.
+- **Paper space** (R11 and R12): the entities that carry a viewport number are in paper space, and the drawing gets
+  `Layout1`, as the DXF reader does for R12. Viewports take their view from the `MVIEW` extended data.
+- **AutoCAD 1.x** (`MC0.0`, `AC1.2`, `AC1.40`): the entities follow the header variables, with a fixed record per type
+  and the block definitions among them (BLOCK to ENDBLK, referenced by name). The 128 layers are numbered (their names
+  are the numbers); the header holds their colors (255 for an unused layer, 0x80 for a layer that is off, 0 for white).
+- **REPEAT** (up to AutoCAD 2.x) repeats the entities up to ENDREP in columns and rows; they are copied, as AutoCAD drew
+  them.
+- **Text**: R11 and R12 give `$DWGCODEPAGE`, numbered as from R13. Earlier drawings have no code page; as the DXF reader
+  does, their strings are read as Shift_JIS when they decode as Shift_JIS and contain Japanese (`guessed-shift-jis`), and
+  as Windows-1252 otherwise.
+- **Ids**: an entity without a handle (R10 to R12 without handles, all earlier drawings) is `#n`, where n counts the
+  entity records of the file from 1 in the order they are stored: the entities section, the block entities section, the
+  extra entities section, and deleted entities and JUMP records too, so that the number does not change when more types
+  are read.
+- **Not read**: SHAPE and LOAD (shape files) are counted (`skipped-types`), as SHAPE is from R13 on. `rewrite_dwg` and
+  `edit_dwg` refuse these drawings.
 
 ## Text
 
@@ -181,8 +242,8 @@ the dimension style values that DXF leaves out at their defaults, the attribute 
 multi-line attributes differed too (28 and 235 against 0 in the ACadSharp sample), because the DWG reader took the
 "Is NOT annotative" bit of MTEXT the wrong way round and read the values after the embedded MTEXT out of step.
 
-Not supported yet: R12 and earlier, the fit points of splines without end tangents, HELIX, MPOLYGON, the content of
-ACAD_TABLE beyond its block, proxy graphics, and DWG files over the section limit.
+Not supported yet: the fit points of splines without end tangents, HELIX, MPOLYGON, the content of ACAD_TABLE beyond
+its block, proxy graphics, and DWG files over the section limit.
 
 ## Writing
 
@@ -221,8 +282,9 @@ it (`tests/writer`).
   hold the page size each, the last one the rest. The meta data fields that point at pages (0x0D preview, 0x20 summary
   info, 0x24 VBA project, 0x2C app info) get the new addresses; the other fields are copied. The random seed of the file
   header is kept, so the same drawing gives the same bytes.
-- R13 and R14 are read but not written yet. A password-protected drawing (security flag 1 at 0x18, or an R2007 section
-  with encryption 1) and a section over the section limit of reading are refused.
+- R13 and R14 are read but not written yet; Release 12 and earlier are read only. A password-protected drawing
+  (security flag 1 at 0x18, or an R2007 section with encryption 1) and a section over the section limit of reading are
+  refused.
 
 ### Checks
 

@@ -1328,7 +1328,7 @@ fn viewport(s: &mut Streams<'_>) -> Read<DxfViewport> {
 
 /// R13・R14 のビューポートの表示の値。拡張データの MVIEW の後の点（1010）と実数（1040）を、入れ子の { の前まで読む
 /// （DXF の R12 のビューポートの読み取りと同じ。点は目標・向き、実数はねじれ・高さ・中心の X・Y）
-fn mview(eed: &crate::objects::Eed, viewport: &mut DxfViewport) {
+pub(crate) fn mview(eed: &crate::objects::Eed, viewport: &mut DxfViewport) {
     use crate::objects::EedValue;
     for (_, values) in &eed.apps {
         let Some(start) = values.iter().position(|(code, value)| {

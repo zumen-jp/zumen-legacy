@@ -77,7 +77,8 @@ pub(crate) const MAX_SECTION_BYTES: usize = 256 << 20;
 
 /// ファイルの先頭の 6 バイトが DWG の版か
 pub fn is_dwg(bytes: &[u8]) -> bool {
-    bytes.len() >= 6 && bytes.starts_with(b"AC10") && bytes[4..6].iter().all(u8::is_ascii_digit)
+    (bytes.len() >= 6 && bytes.starts_with(b"AC10") && bytes[4..6].iter().all(u8::is_ascii_digit))
+        || crate::r12::is_old_dwg(bytes)
 }
 
 pub(crate) fn open<'a>(bytes: &'a [u8], notices: &mut NoticeList) -> Result<DwgFile<'a>, String> {
