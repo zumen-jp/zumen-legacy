@@ -6,7 +6,7 @@ ST-Bridge XML ファイル仕様書 ver.2.1.1（2026-04-15 付、2026-07-29 公�
 仕様書の節をコードのコメントに書いた。仕様書と XML Schema は配布せず、仕様書の文は転記しない。
 
 ```text
-bytes ─▶ decodeXml（UTF-8・Shift_JIS）─▶ parseXml ─▶ buildModel ─▶ StructureModel ─▶ StructureView（three.js）─▶ StbViewer（React）
+bytes ─▶ decodeXml（UTF-8・Shift_JIS）─▶ parseXml ─▶ buildModel ─▶ StructureModel ─▶ StructureViewer（three.js）─▶ フック（React）
 ```
 
 `StructureModel` は図面の `Scene` とは別の、3D の表示用モデル（全体座標系の mm、Z が鉛直上向き）。

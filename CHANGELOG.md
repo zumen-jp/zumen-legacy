@@ -75,6 +75,21 @@ All packages share one version during 0.x.
   `CadViewer`, its layer list and its CSS become the 2D sample of the playground, with the Japanese text.
 - The engine and the hooks are tested in Chromium (Vitest browser mode with Playwright, `*.browser.test.*`); CI installs
   the Chromium headless shell.
+- `@zumenjs/stb/three`: `StructureViewer`, the 3D engine for structural models on the contract of the 2D engine
+  ([decision 0005](docs/decisions/0005-browser-packages-for-embedding.md), step 2). It holds the state that
+  `StbViewer` kept in React (member kinds hidden, the story or axis in focus, several selected members, the hovered
+  member, the projection, the color mode, edges, translucency and the guides) in a store read with `getState` and
+  `subscribe`; sets and reads the camera (`jumpTo`, `getView`, `fit`, `viewFrom`, `viewAxis`, `project`) and sends
+  `move`, `moveend`, `select` and `hover` events; its rotation, panning, zooming (always, with Ctrl or ⌘ only, or
+  never) and keys can each be turned off; tools (`select`, `orbit` and the application's own) receive pointer events
+  and pick members with `memberAt`; colors come from `--zumen-*` CSS custom properties and `setStyle`, and the theme
+  follows the system unless set. The names of axes and stories are styled on their elements and need no CSS.
+  `StructureView` and the color tables (`KIND_COLORS`, `THEMES` …) are no longer exported; `DEFAULT_STRUCTURE_STYLE`
+  holds the colors. Models look as before: in the playground, the same rotation, panning, wheel, key, selection,
+  viewpoint, projection, color, guide and filter steps on four ST-Bridge models give the same WebGL pixels.
+- `@zumenjs/stb/react` has hooks only: `useStructureViewer`, `useStructureState(viewer, selector)`,
+  `useStructureEvent` and `useStbFile`. `StbViewer` and its CSS become the 3D sample of the playground, with the
+  Japanese text.
 - `@zumenjs/dwg`: read DWG in browsers and Node.js with the WebAssembly build of `zumen-dwg`. `initDwg` loads it, `dwg`
   is the reader for `readDrawing` (model space and layouts through `view`), and `isDwg` tells DWG apart without it. The
   playground opens DWG and loads the reader (1.6 MB, 494 KB with brotli) when the first DWG is opened.

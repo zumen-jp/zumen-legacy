@@ -1013,6 +1013,9 @@ export class StructureRenderer {
     this.controls.target.copy(target);
     this.camera.lookAt(target);
     this.controls.update();
+    // OrbitControls は位置を球座標から計算し直すので、渡された位置に戻す（getView の値で同じカメラに戻れるように）
+    this.camera.position.copy(position);
+    this.camera.lookAt(target);
     this.requestRender();
   }
 

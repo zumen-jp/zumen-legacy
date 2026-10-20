@@ -20,8 +20,8 @@ bytes ─▶ dwg (@zumenjs/dwg) ─▶ WebAssembly: zumen-dwg ─▶ DxfDocument
 Structural models (ST-Bridge) are not drawings. They take a separate 3D path inside `@zumenjs/stb`:
 
 ```text
-bytes ─▶ readStb ─▶ StructureModel ─▶ StructureView (three.js) ─▶ StbViewer (React)
-         (@zumenjs/stb)                (@zumenjs/stb/three)        (@zumenjs/stb/react)
+bytes ─▶ readStb ─▶ StructureModel ─▶ StructureViewer (three.js) ─▶ hooks (React)
+         (@zumenjs/stb)                (@zumenjs/stb/three)          (@zumenjs/stb/react)
 ```
 
 ## Packages and dependency rules
@@ -35,7 +35,7 @@ bytes ─▶ readStb ─▶ StructureModel ─▶ StructureView (three.js) ─�
 | `@zumenjs/dxf` | DXF parsing (ASCII and binary) into the AutoCAD drawing model (`parseDxf` → `DxfDocument`), conversion of model space or a layout to a scene (`dxfToScene`), and the `dxf` reader. Their Rust port (`zumen-dxf`) also draws DWG. |
 | `@zumenjs/dwg` | The `dwg` reader, which reads DWG with the WebAssembly build of the Rust reader (`initDwg` loads it), and `isDwg`. It has no DWG reader of its own. |
 | `@zumenjs/react` | Hooks only: `useDrawingViewer` (the engine on an element), `useViewerState` (a part of its state), `useViewerEvent` (its events) and `useDrawing` (read a file, waiting for readers that load). |
-| `@zumenjs/stb` | ST-Bridge parsing into a 3D structural model (`isStb`, `readStb` → `StructureModel`) and member filters (`isMemberVisible`, `membersOnAxis`). `@zumenjs/stb/three` draws the model with three.js (`StructureView`, tessellation and picking), and `@zumenjs/stb/react` adds `StbViewer` and `useStbFile`. |
+| `@zumenjs/stb` | ST-Bridge parsing into a 3D structural model (`isStb`, `readStb` → `StructureModel`) and member filters (`isMemberVisible`, `membersOnAxis`). `@zumenjs/stb/three` is the 3D engine (`StructureViewer`, with tessellation and picking in three.js) on the contract of the 2D engine, and `@zumenjs/stb/react` has hooks only (`useStructureViewer`, `useStructureState`, `useStructureEvent`, `useStbFile`). |
 
 1. Format packages depend only on `@zumenjs/core`, never on each other.
    For example, `@zumenjs/jww` keeps its own copy of the SXF-compatible colors and line types.
@@ -59,9 +59,9 @@ bytes ─▶ readStb ─▶ StructureModel ─▶ StructureView (three.js) ─�
    (`src/`, `src/xml/`, `src/stb/`) does not use the DOM, three.js or React, drawing lives in `src/three/` and React in
    `src/react/`, and the imports go react → three → parsing only. When plan and elevation drawings of a structure are
    added, they convert the model to a `Scene`, and `@zumenjs/stb` then depends on `@zumenjs/core` only
-   (see [decision 0001](decisions/0001-st-bridge-in-zumen.md)). Its React component `StbViewer` still keeps the
-   interaction state; the 3D step of decision 0005 moves it into the engine of `@zumenjs/stb/three` on the contract
-   of the 2D engine, and the component into the playground.
+   (see [decision 0001](decisions/0001-st-bridge-in-zumen.md)). Interaction lives in its engine, `StructureViewer`
+   of `@zumenjs/stb/three`, on the contract of the 2D engine, and `@zumenjs/stb/react` has hooks only; the interface
+   is a sample in the playground, as for 2D.
 
 ## The scene model
 
@@ -137,6 +137,31 @@ the state, the input handlers and the tools are separate, and each can be used o
 
 The playground's 2D sample (`playground/drawing-sample.tsx`, with `layer-list.tsx` and `drawing-sample.css`) is a
 complete viewer, with a toolbar, a layer list, properties, notices and a status bar, written only against this API.
+
+`StructureViewer` of `@zumenjs/stb/three` is the 3D engine for structural models, on the same contract:
+
+- **Camera.** `getView()` returns the position, the target and the visible height at the target (`span`) in model
+  millimeters with the projection, and `jumpTo` takes them back unchanged. `fit()`, `viewFrom(viewpoint)`,
+  `viewAxis(axis)` and `setProjection` place it; `move` and `moveend` carry the view and the DOM event of the user's
+  action, and `project(point)` gives the screen position of a model point, for HTML placed on the model.
+- **State.** The model, the theme, the member kinds hidden, the story or axis in focus (`focusStory`, `focusAxis`,
+  which also move the camera), the number of visible members, the selection (several members), the hovered member,
+  the projection, the color mode, edges, translucent slabs and walls, the guides shown (axes, stories, their names,
+  nodes) and the active tool. Members hidden by a filter leave the selection. `select` and `hover` events carry the
+  changes with the DOM event that caused them.
+- **Input handlers.** `rotate`, `pan`, `zoom` (`"always"`, `"modifier"` or `"never"`) and `keyboard`, on top of
+  three.js `OrbitControls`.
+- **Tools.** A `StructureTool` receives pointer events in CSS pixels and key presses and asks for the member under
+  the pointer (`memberAt`); the built-in `select` and `orbit` tools use the same interface.
+- **Style.** `--zumen-<role>-dark` and `-light` for the background, the selection, the hovered member, edges, members
+  drawn as lines, axes, stories, nodes and the names of axes and stories, and `--zumen-member-<kind>` and
+  `--zumen-structure-<kind>` for the member colors; `setStyle` overrides them. The theme follows the system color
+  scheme unless set. The names of axes and stories are styled on their elements, so they need no stylesheet.
+- **React.** `useStructureViewer`, `useStructureState(viewer, selector)` and `useStructureEvent(viewer, type,
+  listener)` of `@zumenjs/stb/react`, next to `useStbFile`.
+
+The playground's 3D sample (`playground/structure-sample.tsx` and `structure-sample.css`), with a toolbar, the filters
+by kind, story and axis, properties, notices and a status bar, is written only against this API.
 
 ## The Rust implementation
 

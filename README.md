@@ -57,7 +57,7 @@ and gives you a framework-agnostic drawing engine to embed in your own interface
 | [`@zumenjs/dxf`](packages/dxf) | `parseDxf` (the AutoCAD drawing model, shared with DWG), `dxfToScene`, the `dxf` reader |
 | [`@zumenjs/dwg`](packages/dwg) | The `dwg` reader, with the Rust DWG reader built to WebAssembly (`initDwg` or `dwg.load` loads it) |
 | [`@zumenjs/react`](packages/react) | Hooks: `useDrawingViewer`, `useViewerState`, `useViewerEvent` and `useDrawing` |
-| [`@zumenjs/stb`](packages/stb) | `readStb` and `isStb` (the 3D structural model), `StructureView` (three.js) and `StbViewer` (React) |
+| [`@zumenjs/stb`](packages/stb) | `readStb` and `isStb` (the 3D structural model), the 3D engine `StructureViewer` (`/three`, three.js) and its hooks (`/react`) |
 
 Format packages and `@zumenjs/viewer` depend only on `@zumenjs/core`, `@zumenjs/react` on `@zumenjs/viewer` and
 `@zumenjs/core`, and `@zumenjs/core` knows nothing about formats and does not use the DOM.
@@ -187,20 +187,35 @@ const sheet = dxfToScene(doc, { layout: "Layout1" }); // or the default view (mo
 A `Scene` uses paper millimeters with the Y axis up. Placements of sub-figures and blocks are resolved,
 and each entity keeps its properties and, inside a scaled placement, the transform back to real-world coordinates.
 
-Structural models (ST-Bridge): `useStbFile` reads the file and `StbViewer` shows it in 3D. `readStb` alone works in Node.js.
+Structural models (ST-Bridge): `useStbFile` reads the file and `StructureViewer`, the 3D engine on the contract of the 2D
+one, shows it; the hooks of `@zumenjs/stb/react` create it and read its state. `readStb` alone works in Node.js.
 
 ```tsx
-import { StbViewer, useStbFile } from "@zumenjs/stb/react";
+import type { StructureModel } from "@zumenjs/stb";
+import { useStbFile, useStructureState, useStructureViewer } from "@zumenjs/stb/react";
 
 export function StructureView({ file }: { file: File | null }) {
   const { model, error } = useStbFile(file);
   if (error) return <p role="alert">{error.message}</p>;
-  return model ? <StbViewer model={model} style={{ height: 640 }} /> : null;
+  return model ? <Structure model={model} /> : null;
+}
+
+function Structure({ model }: { model: StructureModel }) {
+  const { ref, viewer } = useStructureViewer(model, { label: "Structure" });
+  const selected = useStructureState(viewer, (state) => state.selection.at(-1));
+  return (
+    <>
+      <button type="button" onClick={() => viewer?.focusStory(model.stories[0]?.id ?? null)}>First story</button>
+      <div ref={ref} style={{ height: 640 }} />
+      <p>{selected?.name}</p>
+    </>
+  );
 }
 ```
 
 A `StructureModel` uses global millimeters with the Z axis up. Each member keeps its solid, its properties and the
-original XML attributes. See [packages/stb](packages/stb/README.md).
+original XML attributes. The playground's 3D sample (`playground/structure-sample.tsx`) is a complete interface written
+with this API only. See [packages/stb](packages/stb/README.md).
 
 ## Rust and Python
 

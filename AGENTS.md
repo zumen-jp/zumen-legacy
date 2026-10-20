@@ -22,13 +22,12 @@
 - Parsing (`parse*`, `read*` and everything below them) must not depend on the DOM, React or the renderer, and uses
   only the types and `NoticeList` from `@zumenjs/core`. The `*ToScene` conversions use the geometry and text helpers.
 - Interaction (the view, selection, measurement, input handlers and tools) belongs in the engines, for 2D and 3D alike:
-  `DrawingViewer` of `@zumenjs/viewer`, and `@zumenjs/stb/three` for structural models. React packages have hooks
-  only, which create an engine, read its state and events, and read files (`@zumenjs/react`).
+  `DrawingViewer` of `@zumenjs/viewer`, and `StructureViewer` of `@zumenjs/stb/three` for structural models. React
+  packages have hooks only, which create an engine, read its state and events, and read files (`@zumenjs/react` and
+  `@zumenjs/stb/react`).
 - The packages ship no CSS and no text for people: labels, buttons, panels and their wording come from the
   application, and colors from CSS custom properties (`--zumen-*`). Complete interfaces are samples in the playground,
   written only against the public API; when a sample needs something the API lacks, add it to the API.
-  `StbViewer` of `@zumenjs/stb/react` still keeps its state, CSS and text until the 3D step of
-  [decision 0005](docs/decisions/0005-browser-packages-for-embedding.md) moves it to the playground.
 - `@zumenjs/stb` (ST-Bridge structural models) is a separate 3D line that imports no other package. Its parsing
   (`src/`, `src/xml/`, `src/stb/`) must not depend on the DOM, three.js or React; three.js belongs in `src/three/` and
   React in `src/react/`. Read ST-Bridge 2.0 and 2.1 into the same `StructureModel`, never one of them only, and never

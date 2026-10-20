@@ -1,13 +1,7 @@
 import type { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { type MemberFilter, membersOnAxis } from "../filter.js";
 import type { GridAxis, MemberKind, StructureMember, StructureModel, Vec3 } from "../types.js";
-import {
-  type ColorMode,
-  type Projection,
-  type RenderColors,
-  StructureRenderer,
-  type Viewpoint,
-} from "./renderer.js";
+import { type ColorMode, type Projection, type RenderColors, StructureRenderer, type Viewpoint } from "./renderer.js";
 import {
   mergeStructurePatch,
   mergeStructureStyle,

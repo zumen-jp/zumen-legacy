@@ -28,7 +28,7 @@ npm には未公開（0.x の公開準備中）。
 | `@zumenjs/dxf` | `packages/dxf` | `parseDxf`（DWG と共有する AutoCAD の図形モデル）、`dxfToScene`、読み取りの `dxf` |
 | `@zumenjs/dwg` | `packages/dwg` | 読み取りの `dwg`（Rust の DWG の読み取りを WebAssembly にしたもの。`initDwg` か `dwg.load` で読み込む）、`isDwg` |
 | `@zumenjs/react` | `packages/react` | フックだけ。`useDrawingViewer`・`useViewerState`・`useViewerEvent`・`useDrawing` |
-| `@zumenjs/stb` | `packages/stb` | ST-Bridge の読み取り `readStb`・`isStb`（3D の構造モデル）、three.js の表示 `StructureView`（`/three`）、React の `StbViewer`・`useStbFile`（`/react`） |
+| `@zumenjs/stb` | `packages/stb` | ST-Bridge の読み取り `readStb`・`isStb`（3D の構造モデル）、画面に組み込む 3D のエンジン `StructureViewer`（`/three`、three.js）、フック（`/react`） |
 
 依存の向きは `@zumenjs/react` → `@zumenjs/viewer` → `@zumenjs/core`、`@zumenjs/sxf`・`@zumenjs/jww`・`@zumenjs/dxf`・
 `@zumenjs/dwg` → `@zumenjs/core` だけ（DWG は Rust だけで読み、`zumen-dwg` が `zumen-dxf` のモデルと変換を使う。
@@ -174,19 +174,34 @@ const scene = sxfToScene(drawing); // 必要なら表示用モデルにする
 `Scene` は用紙の mm・Y 軸上向きの座標で、部分図・作図部品の配置を解決済みの図形を持つ。
 要素ごとに属性の一覧と、部分図の中の要素なら元の座標への変換（実寸の計測用、`toReal`）を持つ。
 
-構造モデル（ST-Bridge）は、`useStbFile` で読み、`StbViewer` で 3D に表示する。`readStb` だけなら Node.js でも動く。
+構造モデル（ST-Bridge）は、`useStbFile` で読み、2D と同じ決まりの 3D のエンジン `StructureViewer` で表示する。
+`@zumenjs/stb/react` のフックがエンジンを作り、状態を読む。`readStb` だけなら Node.js でも動く。
 
 ```tsx
-import { StbViewer, useStbFile } from "@zumenjs/stb/react";
+import type { StructureModel } from "@zumenjs/stb";
+import { useStbFile, useStructureState, useStructureViewer } from "@zumenjs/stb/react";
 
 export function StructureView({ file }: { file: File | null }) {
   const { model, error } = useStbFile(file);
   if (error) return <p role="alert">{error.message}</p>;
-  return model ? <StbViewer model={model} style={{ height: 640 }} /> : null;
+  return model ? <Structure model={model} /> : null;
+}
+
+function Structure({ model }: { model: StructureModel }) {
+  const { ref, viewer } = useStructureViewer(model, { label: "構造モデル" });
+  const selected = useStructureState(viewer, (state) => state.selection.at(-1));
+  return (
+    <>
+      <button type="button" onClick={() => viewer?.focusStory(model.stories[0]?.id ?? null)}>最下階</button>
+      <div ref={ref} style={{ height: 640 }} />
+      <p>{selected?.name}</p>
+    </>
+  );
 }
 ```
 
 `StructureModel` は全体座標系の mm・Z 軸上向きで、部材ごとに立体・属性の一覧・元の XML の属性を持つ。
+試用画面の 3D のサンプル（`playground/structure-sample.tsx`）は、この API だけで作った画面。
 詳しくは [packages/stb](packages/stb/README.md)（英語）と [ST-Bridge の扱い](docs/formats/st-bridge.md)。
 
 ## Rust と Python
