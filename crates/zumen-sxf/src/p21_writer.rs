@@ -17,6 +17,7 @@ use crate::step::{Body, Part, StepWriter, V, part};
 use crate::style::DEFAULT_WIDTH;
 use crate::tables::{ARROW_NAMES, PREDEFINED_COLORS, PREDEFINED_LINE_TYPES};
 use crate::tables::{index, sheet_size};
+use crate::version::{SxfVersion, downgrade};
 use crate::write::{SxfWritten, sub_figure_order};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::f64::consts::{PI, TAU};
@@ -1355,8 +1356,8 @@ pub(crate) fn file(header: &str, instances: &[(u64, Body)], writer: &mut StepWri
     out.into_bytes()
 }
 
-/// 新しく書く P21 のヘッダ。ファイル名の拡張子は .p21、出力ライブラリ名の末尾の $$3.1 が SXF の版
-pub(crate) fn header(drawing: &SxfDrawing) -> String {
+/// 新しく書く P21 のヘッダ。ファイル名の拡張子は .p21、出力ライブラリ名の末尾の $$3.1 などが SXF の版
+pub(crate) fn header(drawing: &SxfDrawing, version: SxfVersion) -> String {
     let header = &drawing.header;
     let file_name = match header.file_name.rsplit_once('.') {
         Some((stem, _)) if !stem.is_empty() => format!("{stem}.p21"),
@@ -1367,15 +1368,17 @@ pub(crate) fn header(drawing: &SxfDrawing) -> String {
     let mut out =
         String::from("ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('SCADEC level2 AP202_mode'),'2;1');\nFILE_NAME(");
     crate::step::string(&file_name, &mut out);
-    out.push_str(",'',(''),(''),'zumen$$3.1',");
+    out.push_str(&format!(",'',(''),(''),'zumen$${}',", version.as_str()));
     crate::step::string(system, &mut out);
     out.push_str(",'');\nFILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));\nENDSEC;\nDATA;\n");
     out
 }
 
-/// SXF の図面を P21 ファイル（SXF Ver.3.1、AP202）に新しく書く
-pub(crate) fn write_p21_new(drawing: &SxfDrawing) -> SxfWritten {
-    let doc = &drawing.document;
+/// SXF の図面を P21 ファイル（AP202）の版 version に新しく書く。その版にないフィーチャは近い形にする（version.rs）
+pub(crate) fn write_p21_new(drawing: &SxfDrawing, version: SxfVersion) -> SxfWritten {
+    let mut notices = NoticeList::new();
+    let document = downgrade(&drawing.document, version, &mut notices);
+    let doc = document.as_ref();
     let mut graph = Graph::new(doc, 10, 10);
     graph.length_unit();
     graph.tables();
@@ -1388,7 +1391,6 @@ pub(crate) fn write_p21_new(drawing: &SxfDrawing) -> SxfWritten {
         }
     }
     let items: Vec<u64> = doc.sheet_members.iter().filter_map(|member| graph.member(member)).collect();
-    let mut notices = NoticeList::new();
     if doc.sheet.is_none() {
         notices.add(
             NoticeLevel::Info,
@@ -1401,7 +1403,7 @@ pub(crate) fn write_p21_new(drawing: &SxfDrawing) -> SxfWritten {
     graph.take_notices(&mut notices);
     crate::write::check_limits(doc, &mut notices);
     let mut writer = StepWriter::default();
-    let bytes = file(&header(drawing), &graph.instances, &mut writer);
+    let bytes = file(&header(drawing, version), &graph.instances, &mut writer);
     if writer.nonfinite > 0 {
         notices.add_count(NoticeLevel::Warning, "invalid-number", "数でない値を 0 にして書きました", writer.nonfinite);
     }
