@@ -380,3 +380,23 @@ fn turns_arcs_and_moves_text_with_its_end() {
     let JwwEntity::Text(text) = &doc.entities[2] else { panic!("text") };
     assert_eq!((text.x1, text.y1, text.x2, text.y2), (10.0, 20.0, 30.0, 20.0));
 }
+
+#[test]
+fn a_hidden_layer_can_be_shown_and_locked_together() {
+    let edited =
+        edit(&fixture(700), r#"[{"op":"update-layer","name":"0-2","set":{"visible":true,"locked":true}}]"#).unwrap();
+    assert_eq!(read_jww(&edited.bytes).unwrap().groups[0].layers[2].state, 1);
+}
+
+#[test]
+fn nonfinite_scalar_block_scales_are_refused() {
+    for scale in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        let operation = EditOperation::Update {
+            id: "#5".into(),
+            set: EditValues::from([("scale".into(), EditValue::Number(scale))]),
+        };
+        let Err(error) = edit_jww(&fixture(700), &[operation]) else { panic!("invalid scale was accepted") };
+        assert_eq!(error.code, "invalid-value");
+        assert_eq!(error.operation, Some(0));
+    }
+}
