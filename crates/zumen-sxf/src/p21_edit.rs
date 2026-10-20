@@ -330,7 +330,7 @@ fn shared_items(file: &P21File) -> HashSet<u64> {
 
 /// 元の P21 を書き換えられないとき、新しく書く
 fn rewrite_all(drawing: &SxfDrawing, reason: &str) -> SxfWritten {
-    let mut written = write_p21_new(drawing);
+    let mut written = write_p21_new(drawing, crate::version::SxfVersion::written(drawing));
     written.notices.insert(
         0,
         Notice {

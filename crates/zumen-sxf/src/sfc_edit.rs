@@ -370,7 +370,7 @@ pub(crate) fn write_sfc_edit(drawing: &SxfDrawing, bytes: &[u8]) -> SxfWritten {
     let source = Source::read(bytes);
     // 読み取りの上限（zumen_core::limits）で元のファイルを読み直し切れなければ、書き換えられないので新しく書く
     if zumen_core::limits::stopped() {
-        let mut written = crate::write::write_sfc_new(drawing);
+        let mut written = crate::write::write_sfc_new(drawing, crate::version::SxfVersion::written(drawing));
         written.notices.insert(0, rewrite_notice("SFC"));
         return written;
     }

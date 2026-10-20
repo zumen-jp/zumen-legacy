@@ -174,7 +174,7 @@ What cannot be written as it is, or is written in another shape, is returned as 
 | `encoding` | Characters outside CP932 became ? (`write_sfc`) |
 | `missing-block`, `block-depth`, `dimension-block`, `skewed`, `text-skew` | Undefined blocks, blocks in a cycle or nested too deep, dimensions without a display block, and skewed placements and texts were left out |
 
-## Writing SXF files (write_sfc, write_p21, write_sxf)
+## Writing SXF files (write_sfc, write_p21, write_sxf, write_sxf_version)
 
 `zumen_sxf::write_sfc`, `write_p21` and `write_sxf(drawing, format)` (`sfc`, `p21`, `sfz`, `p2z`) write an `SxfDrawing`.
 A drawing read from a file keeps that file (`SxfDrawing::source`, the extracted file and, for P2Z and SFZ, the archive).
@@ -182,6 +182,22 @@ Written in the format it was read from, the file is **edited in place**: only wh
 and everything else keeps its bytes. A drawing without a source (made by `dxf_to_sxf`, or with `source` set to `None`),
 or written in the other format, is **written anew**. Both give an `SxfWritten` with the bytes, notices, and the pairs
 (feature id in the drawing, instance number written) of the features written.
+
+### SXF versions
+
+SXF Ver.3.0 added the title block (`drawing_attribute_feature`), and Ver.3.1 added clothoids (`clothoid_feature`) and arc
+length dimensions (`curve_dim_feature`); the other features are those of Ver.2.0. In SFC, a feature added in Ver.3.0 is
+enclosed in `/*SXF3` … `SXF3*/` and one added in Ver.3.1 in `/*SXF3.1` … `SXF3.1*/`. The version of a file is the
+suffix of its output library name (`zumen$$3.1`).
+
+- Written without a version, a drawing written anew keeps its version (`SxfDrawing::version`, Ver.3.1 when unknown), or
+  takes the newer version its features need, so that nothing changes. An edited file keeps its header.
+- `write_sxf_version(drawing, format, SxfVersion)` chooses the version (`SxfVersion::V2_0`, `V3_0`, `V3_1`;
+  `SxfVersion::parse("3.0")`). A drawing read from a file of that version is edited in place as by `write_sxf`; any other
+  drawing or version is written anew, with what the version lacks written as close as it can: before Ver.3.1 clothoids
+  become polylines that keep within 0.01 mm of the curve (as the scene draws them, also in geodetic sub-figures) and arc
+  length dimensions become angular dimensions of the same shape (`clothoid`, `curve-dim`); before Ver.3.0 the title block
+  is left out (`drawing-attribute`).
 
 ### Editing SFC in place
 
@@ -241,7 +257,8 @@ The instances of each feature follow the templates of the STEP/AP202 subset volu
 and P21 files of the same drawing:
 
 - Names are `' '`. The header is `FILE_DESCRIPTION(('SCADEC level2 AP202_mode'),'2;1')` with the output library
-  `zumen$$3.1` (the SXF version is the suffix) and FILE_SCHEMA `ASSOCIATIVE_DRAUGHTING`. Instances are numbered from 10
+  `zumen$$3.1` (the SXF version is the suffix, see [SXF versions](#sxf-versions)) and FILE_SCHEMA
+  `ASSOCIATIVE_DRAUGHTING`. Instances are numbered from 10
   in steps of 10, in this order: units, colors, line types and fonts, composite curves, composite figures (placed ones
   first), the elements of the sheet, the title and the sheet, layers, INVISIBILITY.
 - Reals are written with the fewest digits that read back as the same value, always with a decimal point (`1.0`,
@@ -285,8 +302,10 @@ and P21 files of the same drawing:
 
 ### Writing SFC anew
 
-- The header is `FILE_DESCRIPTION(('SCADEC level2 feature_mode'),'2;1')` with the output library `zumen$$3.1`.
-- Each feature is enclosed in `/*SXF` … `SXF*/`; the title block and clothoids, added in Ver.3.0, in `/*SXF3` … `SXF3*/`.
+- The header is `FILE_DESCRIPTION(('SCADEC level2 feature_mode'),'2;1')` with the output library `zumen$$3.1` (or the
+  version written).
+- Each feature is enclosed in `/*SXF` … `SXF*/`; the title block, added in Ver.3.0, in `/*SXF3` … `SXF3*/`, and clothoids
+  and arc length dimensions, added in Ver.3.1, in `/*SXF3.1` … `SXF3.1*/`.
   Instance numbers run from 10 in steps of 10 in writing order, and long lines break between arguments at about 80
   columns, as public SFC files do.
 - The order is: declarations of the predefined colors and line types used, user-defined colors, line types and widths,
@@ -319,6 +338,7 @@ Names outside ASCII are Shift_JIS, or UTF-8 with the UTF-8 flag when Shift_JIS l
 | `rewrite` | The original file could not be edited in place and was written anew (the reason is in the message) |
 | `archive` | The original archive could not be read again, so a new archive holds only the SXF file |
 | `sxf-limit` | The drawing exceeds an SXF limit (256 layers, color codes up to 256, line type codes up to 32, width codes up to 16, 1,024 fonts, strings of 256 CP932 bytes, the values ezsxf checks); it is written as it is, and SXF programs may refuse it |
+| `clothoid`, `curve-dim`, `drawing-attribute` | A version chosen before Ver.3.1 got polylines for clothoids and angular dimensions for arc length dimensions; one before Ver.3.0 has no title block |
 | `encoding`, `invalid-number` | Characters outside CP932 became ? (SFC), and values that are not numbers became 0 |
 
 ### Verification
@@ -328,6 +348,9 @@ Names outside ASCII are Shift_JIS, or UTF-8 with the UTF-8 flag when Shift_JIS l
   same bytes; edits (moving, deleting and adding features, sub-figures, composite curves and layers, renaming layers,
   resizing the sheet, changing colors) change exactly those records and instances, remove the instances only removed
   features used, and read back as the edited drawing; a P2Z keeps its other files.
+- `crates/zumen-sxf/tests/versions.rs`: a drawing with a title block, clothoids and arc length dimensions written as
+  Ver.2.0 and Ver.3.0 (SFC, P21, SFZ, P2Z) has the version's header and markers and none of the newer features, and its
+  scene has the same shapes (clothoids within 0.05 mm); written as its own version it keeps its bytes.
 - The local samples (`ZUMEN_SAMPLES=… cargo test -p zumen-sxf --release -- --ignored`), a 1,201-entity drawing as SFC
   and as P21: written anew as P21 they read back the same; written unchanged they give the same bytes; moving a line,
   deleting a dimension and adding a line in place reads back as the edited drawing (35 ms for the 1.4 MB P21).
@@ -337,4 +360,6 @@ Names outside ASCII are Shift_JIS, or UTF-8 with the UTF-8 flag when Shift_JIS l
 
 - [MLIT SXF Ver.3.1 specification and the requirements for SXF display and checking functions](https://www.cals-ed.go.jp/sxf_ver3-1_specification_draft/)
 - [NILIM, CAD データの作成](https://www.nilim.go.jp/lab/bcg/siryou/tnn/tnn0403pdf/ks0403012.pdf)
+- [Utsunomiya City, 電子納品運用に関するガイドライン〔営繕編〕更新概要](https://www.city.utsunomiya.lg.jp/_res/projects/default_project/_page_/001/013/197/egaiyou4-1.pdf):
+  what each SXF version added (Ver.3.0 the title block and attributes, Ver.3.1 clothoids and arc length dimensions)
 - [ezsxf](https://github.com/monozukuri-ai/ezsxf) (MIT): a Python and Rust library that reads SXF and writes SFC and P21
