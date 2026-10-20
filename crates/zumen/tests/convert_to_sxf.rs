@@ -89,3 +89,203 @@ fn sxf_written_through_the_autocad_model_draws_the_same() {
     assert!(failures.is_empty(), "{failures:#?}");
     assert!(checked >= 100, "checked only {checked} entities");
 }
+
+/// 表示を平行移動する（モデル空間を表示する図面は、図形の範囲の左下を用紙の原点にして書く）
+fn translate(scene: &mut Scene, dx: f64, dy: f64) {
+    let shift = |points: &mut Vec<f64>| {
+        for (index, value) in points.iter_mut().enumerate() {
+            *value += if index % 2 == 0 { dx } else { dy };
+        }
+    };
+    for entity in &mut scene.entities {
+        entity.bbox = zumen::BBox {
+            min_x: entity.bbox.min_x + dx,
+            min_y: entity.bbox.min_y + dy,
+            max_x: entity.bbox.max_x + dx,
+            max_y: entity.bbox.max_y + dy,
+        };
+        for primitive in &mut entity.primitives {
+            match primitive {
+                zumen::Primitive::Stroke(stroke) => shift(&mut stroke.points),
+                zumen::Primitive::Fill(fill) => fill.rings.iter_mut().for_each(shift),
+                zumen::Primitive::Clipped(clipped) => {
+                    clipped.rings.iter_mut().for_each(shift);
+                    clipped.strokes.iter_mut().for_each(|stroke| shift(&mut stroke.points));
+                }
+                zumen::Primitive::Dot(dot) => {
+                    dot.x += dx;
+                    dot.y += dy;
+                }
+                zumen::Primitive::Text(text) => {
+                    text.matrix[4] += dx;
+                    text.matrix[5] += dy;
+                }
+            }
+        }
+    }
+}
+
+/// SFC に書けない文字（CP932 にない文字、制御文字）を含む文字か
+fn unwritable(text: &str) -> bool {
+    text.chars().any(|c| {
+        let mut buffer = [0u8; 4];
+        c.is_control() || encoding_rs::SHIFT_JIS.encode(c.encode_utf8(&mut buffer)).2
+    })
+}
+
+/// 線種の点（長さ 0 の線分）は、SXF には 0.25 mm の線分にして書く（zumen-convert の pitch と同じ）
+fn sxf_dashes(dashes: &mut [f64]) {
+    for i in (0..dashes.len()).step_by(2) {
+        if dashes[i] <= 0.0 {
+            dashes[i] = 0.25;
+            if let Some(gap) = dashes.get_mut(i + 1)
+                && *gap > 0.5
+            {
+                *gap -= 0.25;
+            }
+        }
+    }
+}
+
+/// R12 の図面のようにハンドルのない図形に、zumen-convert と同じハンドルを振る
+fn with_handles(doc: &DxfDocument) -> DxfDocument {
+    let mut out = doc.clone();
+    let mut seen = std::collections::HashSet::new();
+    let mut next = 0;
+    let mut assign = |base: &mut zumen::dxf::DxfEntityBase| {
+        if base.handle.is_empty() || !seen.insert(base.handle.clone()) {
+            next += 1;
+            base.handle = format!("ZH{next}");
+            seen.insert(base.handle.clone());
+        }
+    };
+    for entity in &mut out.entities {
+        assign(&mut entity.base);
+        if let zumen::dxf::DxfEntityData::Insert(insert) = &mut entity.data {
+            for attribute in &mut insert.attribs {
+                assign(&mut attribute.base);
+            }
+        }
+    }
+    out
+}
+
+/// DXF・DWG を SXF に書き、DXF の表示と比べる。SXF に書けないもの（CP932 にない文字、ビューポートの枠での
+/// 切り取り）による違いと、1 つの線を折線と円弧に分けたことによる線の数の違いは除く
+fn check_dxf(name: &str, doc: &DxfDocument) -> (usize, Vec<String>) {
+    let doc = &with_handles(doc);
+    let mut original = zumen::dxf::dxf_to_scene(doc, None);
+    let (again, sources, _) = to_sxf(doc);
+    if original.view.as_deref() == Some("Model") {
+        let (dx, dy) = (-original.bounds.min_x, -original.bounds.min_y);
+        translate(&mut original, dx, dy);
+    }
+    let hidden: std::collections::HashSet<u32> =
+        original.layers.iter().filter(|layer| !layer.visible).map(|layer| layer.id).collect();
+    // 表示しないレイヤのビューポートの枠は書かない
+    original
+        .entities
+        .retain(|entity| entity.source != "VIEWPORT" || !entity.layers.iter().any(|id| hidden.contains(id)));
+    let mut skip = std::collections::HashSet::new();
+    for entity in &mut original.entities {
+        for primitive in &mut entity.primitives {
+            match primitive {
+                zumen::Primitive::Text(text)
+                    if unwritable(&text.text)
+                        || text.matrix[0] * text.matrix[3] - text.matrix[1] * text.matrix[2] < 0.0 =>
+                {
+                    // CP932 にない文字と、裏返しの文字（text-mirror）は SXF に同じ形で書けない
+                    skip.insert(entity.id.clone());
+                }
+                zumen::Primitive::Stroke(stroke) => sxf_dashes(&mut stroke.dashes),
+                _ => {}
+            }
+        }
+    }
+    let groups = common::group(&again, &sources);
+    for entity in &original.entities {
+        let Some(parts) = groups.get(&entity.id) else { continue };
+        let mut bbox = zumen::geometry::empty_box();
+        for part in parts {
+            zumen::geometry::union_box(&mut bbox, &part.bbox);
+        }
+        let b = &entity.bbox;
+        let contains = bbox.min_x <= b.min_x + 1e-6
+            && bbox.min_y <= b.min_y + 1e-6
+            && bbox.max_x + 1e-6 >= b.max_x
+            && bbox.max_y + 1e-6 >= b.max_y;
+        if entity.id.contains(':') && contains {
+            // ビューポートの枠で切り取った図形は、SXF の部分図では切り取らずに書く（viewport-clip）
+            let clipped = (bbox.max_x - bbox.min_x) > (b.max_x - b.min_x) + 0.1
+                || (bbox.max_y - bbox.min_y) > (b.max_y - b.min_y) + 0.1;
+            if clipped {
+                skip.insert(entity.id.clone());
+            }
+        }
+    }
+    // 自分のブロックを配置するブロック参照
+    let recursive: std::collections::HashSet<&str> = doc
+        .entities
+        .iter()
+        .filter(|entity| match &entity.data {
+            zumen::dxf::DxfEntityData::Insert(insert) => {
+                entity.base.block.as_deref().is_some_and(|block| block.eq_ignore_ascii_case(&insert.name))
+            }
+            _ => false,
+        })
+        .map(|entity| entity.base.handle.as_str())
+        .collect();
+    let strokes_only = |list: &str| list.split(',').all(|kind| kind == "stroke");
+    // 塗りの輪郭は、重ならないものを別の塗りにする（幅のあるポリラインの区間ごとの塗り）
+    let collapsed = |list: &str| -> Vec<String> {
+        let mut kinds: Vec<String> = list.split(',').map(str::to_string).collect();
+        kinds.dedup_by(|a, b| a == b && *a == "fill");
+        kinds
+    };
+    let differences = common::differences(&original, &again, &sources)
+        .into_iter()
+        .filter(|line| {
+            let id = line.split(' ').next().unwrap_or("");
+            if skip.contains(id) {
+                return false;
+            }
+            // 自分を配置するブロック（表示は 32 段まで描く）は、SXF では循環を断って 1 段だけ書く（block-depth）
+            if id.split(['>', ':']).any(|part| recursive.contains(part)) {
+                return false;
+            }
+            // DEFPOINTS の寸法の定義点は、表示では寸法の図形にまとめ、SXF では DEFPOINTS（非表示）のレイヤに書く
+            if line.contains("layer DEFPOINTS not in") {
+                return false;
+            }
+            // 折線を折線と円弧に分けた（線の数の違い。形は外接矩形と、ほかの図形で確かめる）
+            if let Some((before, after)) = line.split_once("): [").and_then(|(_, rest)| rest.split_once("] → ["))
+                && ((strokes_only(before) && strokes_only(after.trim_end_matches(']')))
+                    || collapsed(before) == collapsed(after.trim_end_matches(']')))
+            {
+                return false;
+            }
+            true
+        })
+        .collect::<Vec<_>>();
+    (original.entities.len(), differences.into_iter().map(|line| format!("{name}: {line}")).collect())
+}
+
+#[test]
+fn dxf_and_dwg_written_as_sxf_draw_the_same() {
+    let mut failures = Vec::new();
+    for file in files(&fixtures().join("dxf"), &["dxf"]).into_iter().chain(files(&fixtures().join("dwg"), &["dwg"])) {
+        let name = file.file_name().unwrap().to_string_lossy().to_string();
+        let bytes = fs::read(&file).unwrap();
+        let doc =
+            if name.ends_with(".dwg") { zumen::dwg::read_dwg(&bytes).unwrap() } else { zumen::dxf::parse_dxf(&bytes) };
+        if name.contains("limits") {
+            // 上限を確かめる図面（巨大なメッシュ・遠すぎるハッチングの基点）は、書き終えることだけを確かめる
+            to_sxf(&doc);
+            continue;
+        }
+        let (entities, differences) = check_dxf(&name, &doc);
+        println!("{name}: {entities} entities, {} differences", differences.len());
+        failures.extend(differences.into_iter().take(40));
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}

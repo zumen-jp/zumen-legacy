@@ -80,18 +80,35 @@ pub fn dxf_to_sxf(doc: &DxfDocument) -> MappedSxf {
 /// ハンドルのない・重なる図形があるか（R12 の DXF）
 fn needs_handles(doc: &DxfDocument) -> bool {
     let mut seen = HashSet::new();
-    doc.entities.iter().any(|entity| entity.base.handle.is_empty() || !seen.insert(entity.base.handle.as_str()))
+    doc.entities.iter().flat_map(with_attribs).any(|base| base.handle.is_empty() || !seen.insert(base.handle.as_str()))
+}
+
+/// 図形と、ブロック参照に続く属性
+fn with_attribs(entity: &DxfEntity) -> Vec<&DxfEntityBase> {
+    let mut out = vec![&entity.base];
+    if let DxfEntityData::Insert(insert) = &entity.data {
+        out.extend(insert.attribs.iter().map(|attribute| &attribute.base));
+    }
+    out
 }
 
 fn with_handles(doc: &DxfDocument) -> DxfDocument {
     let mut out = doc.clone();
     let mut seen = HashSet::new();
     let mut next = 0;
-    for entity in &mut out.entities {
-        if entity.base.handle.is_empty() || !seen.insert(entity.base.handle.clone()) {
+    let mut assign = |base: &mut DxfEntityBase| {
+        if base.handle.is_empty() || !seen.insert(base.handle.clone()) {
             next += 1;
-            entity.base.handle = format!("ZH{next}");
-            seen.insert(entity.base.handle.clone());
+            base.handle = format!("ZH{next}");
+            seen.insert(base.handle.clone());
+        }
+    };
+    for entity in &mut out.entities {
+        assign(&mut entity.base);
+        if let DxfEntityData::Insert(insert) = &mut entity.data {
+            for attribute in &mut insert.attribs {
+                assign(&mut attribute.base);
+            }
         }
     }
     out
@@ -139,7 +156,7 @@ struct Inherit {
 }
 
 impl Inherit {
-    fn key(&self) -> (Paint, u64, String, Option<String>) {
+    fn key(&self) -> InheritKey {
         (self.paint, self.lineweight.to_bits(), self.linetype.to_uppercase(), self.layer.clone())
     }
 }
@@ -162,6 +179,8 @@ struct Ctx {
     prefix: String,
     /// すべての要素の元の id（寸法の中の図形は寸法の id）
     source: Option<String>,
+    /// ビューポートの枠（用紙の mm）。構築線・放射線を切る
+    clip: Option<[f64; 4]>,
 }
 
 impl Ctx {
@@ -172,9 +191,21 @@ impl Ctx {
 
 /// 入れ物の要素。表示が描く形から写す図形は、表示を作った後で要素にする
 enum Item {
-    Feature(SxfFeature, String),
+    Feature(Box<SxfFeature>, String),
     Pending(usize),
 }
+
+impl Item {
+    fn feature(feature: SxfFeature, source: String) -> Item {
+        Item::Feature(Box::new(feature), source)
+    }
+}
+
+/// 継ぐ値の比べる形（色、線の太さ、線種、レイヤ 0 の継ぎ先）
+type InheritKey = (Paint, u64, String, Option<String>);
+
+/// 文字範囲の変換を分けた値（配置基点の x・y、角度、X の倍率、斜体のずれと Y の倍率）
+type TextPlacement = (f64, f64, f64, f64, (f64, f64));
 
 /// 表示が描く形から写す図形
 struct Pending {
@@ -183,6 +214,8 @@ struct Pending {
     m: Matrix,
     /// 表示の線種の長さ → 用紙の mm
     dash_scale: f64,
+    /// 入れ物の座標の長さ → 用紙の mm（ハッチングの模様の破線は図形と同じく縮尺で変わる）
+    paper_scale: f64,
     layer: f64,
     linetype: String,
     font: f64,
@@ -221,11 +254,13 @@ struct Mapper<'a> {
     figures: Vec<(SfigOrg, Vec<Item>)>,
     figure_names: HashSet<String>,
     /// (ブロックの名前（大文字）, 継ぐ値) → 作図部品の名前
-    variants: HashMap<(String, Option<(Paint, u64, String, Option<String>)>), String>,
+    variants: HashMap<(String, Option<InheritKey>), String>,
     inherits: HashMap<String, bool>,
     pending: Vec<Pending>,
     composite_curves: Vec<CompositeCurve>,
     layers_upper: HashMap<String, &'a zumen_dxf::DxfLayer>,
+    /// 用紙の範囲（用紙の mm）。構築線・放射線を切る（表示の finish_infinite と同じ）
+    limit: [f64; 4],
     linetypes_upper: HashMap<String, &'a zumen_dxf::DxfLinetype>,
 }
 
@@ -271,6 +306,7 @@ impl<'a> Mapper<'a> {
             inherits: HashMap::new(),
             pending: Vec::new(),
             composite_curves: Vec::new(),
+            limit: [0.0; 4],
             layers_upper: doc.layers.iter().map(|layer| (layer.name.to_uppercase(), layer)).collect(),
             linetypes_upper: doc.linetypes.iter().map(|linetype| (linetype.name.to_uppercase(), linetype)).collect(),
         }
@@ -344,6 +380,7 @@ impl<'a> Mapper<'a> {
         if !(b.min_x <= b.max_x && b.min_y <= b.max_y) {
             return sheet_of("Model", 1.0, 1.0);
         }
+        self.limit = [0.0, 0.0, b.max_x - b.min_x, b.max_y - b.min_y];
         self.notices.add(
             NoticeLevel::Info,
             "model-sheet",
@@ -361,13 +398,14 @@ impl<'a> Mapper<'a> {
             flatten: false,
             prefix: String::new(),
             source: None,
+            clip: None,
         };
         let model = self.order.model.clone();
         let mut items = Vec::new();
         for entity in &model {
             self.emit(entity, &ctx, &mut items);
         }
-                let name = self.unique_figure("モデル空間");
+        let name = self.unique_figure("モデル空間");
         self.push_figure(&name, 1.0, items);
         self.locate(&name, 0.0, &to_paper, String::new(), None);
         sheet_of("Model", b.max_x - b.min_x, b.max_y - b.min_y)
@@ -401,6 +439,7 @@ impl<'a> Mapper<'a> {
             oy = -y0 * paper_unit;
         }
         let paper_matrix: Matrix = [paper_unit, 0.0, 0.0, paper_unit, ox, oy];
+        self.limit = [0.0, 0.0, width, height];
         let content = self.order.blocks.get(&layout.block.to_uppercase()).cloned().unwrap_or_default();
         let viewports: Vec<usize> = content
             .iter()
@@ -427,6 +466,7 @@ impl<'a> Mapper<'a> {
             flatten: false,
             prefix: String::new(),
             source: None,
+            clip: None,
         };
         let mut shown: HashSet<String> = HashSet::new();
         let mut items = Vec::new();
@@ -483,6 +523,7 @@ impl<'a> Mapper<'a> {
         }
         let s = viewport.height / viewport.view_height;
         let (cx, cy) = (viewport.center[0], viewport.center[1]);
+        self.viewport_frame(base, viewport, paper_matrix, items);
         let (sin, cos) = viewport.view_twist_angle.to_radians().sin_cos();
         // 表示と同じ変換: 中心 − 縮尺 × 表示の中心 + 縮尺 × R(ねじれ) × (モデル − 目標点)
         let model = multiply(
@@ -569,6 +610,7 @@ impl<'a> Mapper<'a> {
                 flatten: false,
                 prefix: format!("{}:", base.handle),
                 source: None,
+                clip: Some(clip),
             };
             for entity in &members {
                 self.emit(entity, &ctx, items);
@@ -577,7 +619,7 @@ impl<'a> Mapper<'a> {
         }
         let key: Vec<String> = members.iter().map(|entity| entity.base.handle.clone()).collect();
         let key_name = format!("\u{0}viewport:{}", key.join(","));
-                let name = match self.variants.get(&(key_name.clone(), None)) {
+        let name = match self.variants.get(&(key_name.clone(), None)) {
             Some(name) => name.clone(),
             None => {
                 let name = self.unique_figure(&format!("部分図 {}", self.figures.len() + 1));
@@ -591,6 +633,7 @@ impl<'a> Mapper<'a> {
                     flatten: false,
                     prefix: String::new(),
                     source: None,
+                    clip: Some(clip),
                 };
                 let mut figure_items = Vec::new();
                 for entity in &members {
@@ -601,6 +644,38 @@ impl<'a> Mapper<'a> {
             }
         };
         self.locate(&name, 0.0, &to_paper, format!("{}:", base.handle), Some(items));
+    }
+
+    /// ビューポートの枠（表示と同じ）。印刷しない・表示しないレイヤの枠は、印刷に出ないので書かない
+    fn viewport_frame(
+        &mut self,
+        base: &DxfEntityBase,
+        viewport: &DxfViewport,
+        paper_matrix: &Matrix,
+        items: &mut Vec<Item>,
+    ) {
+        if let Some(layer) = self.layers_upper.get(&base.layer.to_uppercase())
+            && (!layer.plot || layer.off || layer.frozen)
+        {
+            return;
+        }
+        let ctx = Ctx {
+            m: *paper_matrix,
+            to_paper: IDENTITY,
+            dash_factor: 1.0,
+            inherit: Self::root_inherit(),
+            stack: Vec::new(),
+            flatten: false,
+            prefix: String::new(),
+            source: None,
+            clip: None,
+        };
+        let style = self.style(base, &ctx, paper_matrix);
+        let (cx, cy, hw, hh) = (viewport.center[0], viewport.center[1], viewport.width / 2.0, viewport.height / 2.0);
+        let corners =
+            [(cx - hw, cy - hh), (cx + hw, cy - hh), (cx + hw, cy + hh), (cx - hw, cy + hh), (cx - hw, cy - hh)];
+        let (xs, ys) = corners.iter().map(|(x, y)| apply(paper_matrix, *x, *y)).unzip();
+        items.push(Item::feature(SxfFeature::Polyline { style, xs, ys }, base.handle.clone()));
     }
 
     fn unique_figure(&mut self, name: &str) -> String {
@@ -629,8 +704,8 @@ impl<'a> Mapper<'a> {
         let id = self.id();
         let feature = SxfFeature::SfigLocate { id, layer, name: name.to_string(), x, y, angle, ratio_x, ratio_y };
         match items {
-            Some(items) => items.push(Item::Feature(feature, source)),
-            None => self.sheet_items.push(Item::Feature(feature, source)),
+            Some(items) => items.push(Item::feature(feature, source)),
+            None => self.sheet_items.push(Item::feature(feature, source)),
         }
     }
 
@@ -641,7 +716,9 @@ impl<'a> Mapper<'a> {
         if let Some(code) = self.tables.layer_codes.get(&key) {
             return *code;
         }
-        let visible = self.layers_upper.get(&key).is_none_or(|layer| !layer.off && !layer.frozen);
+        // DEFPOINTS（寸法の定義点）は AutoCAD が印刷しないレイヤなので、SXF では非表示のレイヤにする
+        let visible = key != "DEFPOINTS"
+            && self.layers_upper.get(&key).is_none_or(|layer| !layer.off && !layer.frozen && layer.plot);
         let written = self.layers_upper.get(&key).map_or(name.to_string(), |layer| layer.name.clone());
         let id = self.id();
         self.tables.layers.push(LayerDefinition { id, name: written, visible });
@@ -879,7 +956,7 @@ impl<'a> Mapper<'a> {
                 let style = self.style(base, ctx, &ctx.m);
                 let (x1, y1) = apply(&ctx.m, start[0], start[1]);
                 let (x2, y2) = apply(&ctx.m, end[0], end[1]);
-                items.push(Item::Feature(SxfFeature::Line { style, x1, y1, x2, y2 }, source));
+                items.push(Item::feature(SxfFeature::Line { style, x1, y1, x2, y2 }, source));
             }
             DxfEntityData::Circle { center, radius } => {
                 let m = multiply(&ctx.m, &ocs_matrix(base.extrusion.as_ref(), center[2]));
@@ -889,7 +966,7 @@ impl<'a> Mapper<'a> {
                 let style = self.style(base, ctx, &m);
                 let (cx, cy) = apply(&m, center[0], center[1]);
                 let r = radius * length_scale(&m);
-                items.push(Item::Feature(SxfFeature::Circle { style, cx, cy, r }, source));
+                items.push(Item::feature(SxfFeature::Circle { style, cx, cy, r }, source));
             }
             DxfEntityData::Arc { center, radius, start_angle, end_angle } => {
                 let m = multiply(&ctx.m, &ocs_matrix(base.extrusion.as_ref(), center[2]));
@@ -899,7 +976,7 @@ impl<'a> Mapper<'a> {
                 let style = self.style(base, ctx, &m);
                 let ([cx, cy], r, start, end, ccw) =
                     map_arc(&m, [center[0], center[1]], *radius, *start_angle, *end_angle, true);
-                items.push(Item::Feature(SxfFeature::Arc { style, cx, cy, r, ccw, start, end }, source));
+                items.push(Item::feature(SxfFeature::Arc { style, cx, cy, r, ccw, start, end }, source));
             }
             DxfEntityData::Ellipse { center, major_axis, ratio, start_param, end_param } => {
                 if !is_similar(&ctx.m) {
@@ -935,7 +1012,7 @@ impl<'a> Mapper<'a> {
                         end: normalize(sign * end_param.to_degrees()),
                     }
                 };
-                items.push(Item::Feature(feature, source));
+                items.push(Item::feature(feature, source));
             }
             DxfEntityData::LwPolyline(polyline) => {
                 let widths = polyline.const_width.is_some_and(|width| width != 0.0)
@@ -990,12 +1067,12 @@ impl<'a> Mapper<'a> {
                     Some(points) if points.len() >= 4 => {
                         let style = self.style(base, ctx, &ctx.m);
                         let (xs, ys) = points.iter().map(|[x, y]| (*x, *y)).unzip();
-                        items.push(Item::Feature(SxfFeature::Spline { style, closed: false, xs, ys }, source));
+                        items.push(Item::feature(SxfFeature::Spline { style, closed: false, xs, ys }, source));
                     }
                     _ if degree == 1 && !weighted && control.len() >= 2 && base.kind == "SPLINE" => {
                         let style = self.style(base, ctx, &ctx.m);
                         let (xs, ys) = control.iter().map(|[x, y]| (*x, *y)).unzip();
-                        items.push(Item::Feature(SxfFeature::Polyline { style, xs, ys }, source));
+                        items.push(Item::feature(SxfFeature::Polyline { style, xs, ys }, source));
                     }
                     _ => {
                         self.notices.add(
@@ -1015,7 +1092,7 @@ impl<'a> Mapper<'a> {
                 let (x, y) = apply(&ctx.m, location[0], location[1]);
                 let id = self.id();
                 let feature = SxfFeature::PointMarker { id, layer, color, x, y, code: 3.0, angle: 0.0, scale: 1.0 };
-                items.push(Item::Feature(feature, source));
+                items.push(Item::feature(feature, source));
             }
             DxfEntityData::Insert(_) | DxfEntityData::Table(_) => self.insert(entity, ctx, items),
             DxfEntityData::Dimension(dimension) => {
@@ -1053,19 +1130,14 @@ impl<'a> Mapper<'a> {
                 }
             }
             DxfEntityData::Viewport(_) => {}
-            DxfEntityData::XLine { .. } => {
-                self.notices.add(
-                    NoticeLevel::Info,
-                    "xline",
-                    "構築線・放射線（無限の線）は SXF に書けないため省きました",
-                );
-            }
+            DxfEntityData::XLine { start, unit_vector } => self.xline(entity, start, unit_vector, ctx, items),
             DxfEntityData::Image(_) if base.kind == "IMAGE" => {
                 self.notices.add(
                     NoticeLevel::Info,
                     "image",
-                    "画像（IMAGE）は、その画像のファイルを読まないため書いていません",
+                    "画像（IMAGE）は、その画像のファイルを読まないため、表示と同じ枠だけを書きました",
                 );
+                self.pend(entity, ctx, items);
             }
             DxfEntityData::Attdef { attribute_flags, .. } if ctx.inherit.layer.is_some() => {
                 // ブロックの中の属性定義は、定数（2）のものだけを描く（表示と同じ。値は配置の ATTRIB が持つ）
@@ -1089,6 +1161,35 @@ impl<'a> Mapper<'a> {
                 self.pend(entity, ctx, items);
             }
         }
+    }
+
+    /// 構築線・放射線は、表示と同じく用紙の範囲（ビューポートの中はその枠も）で切った線分にする
+    fn xline(&mut self, entity: &DxfEntity, start: &[f64; 3], direction: &[f64; 3], ctx: &Ctx, items: &mut Vec<Item>) {
+        let base = &entity.base;
+        let m = multiply(&ctx.to_paper, &ctx.m);
+        let (px, py) = apply(&m, start[0], start[1]);
+        let (dx, dy) = apply_vector(&m, direction[0], direction[1]);
+        let length = dx.hypot(dy);
+        if length.is_nan() || length <= 0.0 {
+            return;
+        }
+        let (ux, uy) = (dx / length, dy / length);
+        let b = self.limit;
+        let reach = (b[2] - b[0]).hypot(b[3] - b[1]) * 2.0 + (px - b[0]).hypot(py - b[1]);
+        let from = if base.kind == "XLINE" { -reach } else { 0.0 };
+        let mut segment = [px + ux * from, py + uy * from, px + ux * reach, py + uy * reach];
+        for rect in std::iter::once(b).chain(ctx.clip) {
+            match clip_segment(segment, rect) {
+                Some(clipped) => segment = clipped,
+                None => return,
+            }
+        }
+        self.notices.add(NoticeLevel::Info, "xline", "構築線・放射線は、表示と同じく用紙の範囲で切った線分にしました");
+        let back = invert(&ctx.to_paper);
+        let (x1, y1) = apply(&back, segment[0], segment[1]);
+        let (x2, y2) = apply(&back, segment[2], segment[3]);
+        let style = self.style(base, ctx, &ctx.m);
+        items.push(Item::feature(SxfFeature::Line { style, x1, y1, x2, y2 }, ctx.source(base)));
     }
 
     /// 折線（弧の膨らみの区間は円弧）
@@ -1118,7 +1219,7 @@ impl<'a> Mapper<'a> {
                     })
                     .unzip();
                 let style = Styled { id: this.id(), ..style.clone() };
-                items.push(Item::Feature(SxfFeature::Polyline { style, xs, ys }, source.to_string()));
+                items.push(Item::feature(SxfFeature::Polyline { style, xs, ys }, source.to_string()));
             }
             run.clear();
         };
@@ -1131,7 +1232,7 @@ impl<'a> Mapper<'a> {
                     let ([cx, cy], r, start, end, ccw) = map_arc(m, center, radius, start, end, ccw);
                     let style = Styled { id: self.id(), ..style.clone() };
                     items
-                        .push(Item::Feature(SxfFeature::Arc { style, cx, cy, r, ccw, start, end }, source.to_string()));
+                        .push(Item::feature(SxfFeature::Arc { style, cx, cy, r, ccw, start, end }, source.to_string()));
                 }
                 None => {
                     if run.is_empty() {
@@ -1307,6 +1408,7 @@ impl<'a> Mapper<'a> {
             flatten: false,
             prefix: String::new(),
             source: None,
+            clip: None,
         };
         let mut figure_items = Vec::new();
         for member in members {
@@ -1339,6 +1441,18 @@ impl<'a> Mapper<'a> {
         if base.linetype.eq_ignore_ascii_case("BYBLOCK") {
             copy.base.linetype = linetype.clone();
         }
+        // ブロックの中の属性定義（定数）は、配置の中と同じく値を描くよう属性にする（最上位の属性定義は名札を描く）
+        if let DxfEntityData::Attdef { text, tag, attribute_flags, mtext, .. } = &copy.data
+            && ctx.inherit.layer.is_some()
+        {
+            copy.data = DxfEntityData::Attrib {
+                text: text.clone(),
+                tag: tag.clone(),
+                attribute_flags: *attribute_flags,
+                mtext: mtext.clone(),
+            };
+            copy.base.kind = "ATTRIB".into();
+        }
         let index = self.pending.len();
         copy.base.handle = format!("ZS{index}");
         copy.base.space = DxfSpace::Model;
@@ -1362,6 +1476,7 @@ impl<'a> Mapper<'a> {
             entity: copy,
             m: ctx.m,
             dash_scale,
+            paper_scale: length_scale(&ctx.to_paper),
             layer,
             linetype,
             font,
@@ -1522,13 +1637,17 @@ impl<'a> Mapper<'a> {
                     self.notices.add(NoticeLevel::Warning, "text-skew", "ゆがんだ文字は書いていません");
                     return;
                 };
-                if mirrors(&matrix) {
+                let (x, y) = if mirrors(&matrix) {
                     self.notices.add(
                         NoticeLevel::Info,
                         "text-mirror",
-                        "裏返しの文字は、SXF に書けないため裏返さずに書きました",
+                        "裏返しの文字は、SXF に書けないため、同じ文字範囲に裏返さずに書きました",
                     );
-                }
+                    // 裏返した文字範囲の上端が、裏返さない文字範囲の下端になる
+                    apply(&matrix, 0.0, text.box_height)
+                } else {
+                    (x, y)
+                };
                 let (shear, ry) = ry;
                 let vertical = match text.cells.as_slice() {
                     [first, second, ..] => (first.y - second.y).abs() > (first.x - second.x).abs(),
@@ -1593,25 +1712,25 @@ impl<'a> Mapper<'a> {
         features: Vec<(SxfFeature, String)>,
     ) -> Vec<(SxfFeature, String)> {
         let pending = &self.pending[index];
-        let (layer, m, dash_scale, paint, width) =
-            (pending.layer, pending.m, pending.dash_scale, pending.paint, pending.lineweight);
+        let (layer, m, container_scale, paint, width) =
+            (pending.layer, pending.m, pending.paper_scale, pending.paint, pending.lineweight);
         let ocs = multiply(&m, &ocs_matrix(pending.entity.base.extrusion.as_ref(), hatch.elevation));
         let color = self.color_code(paint);
         let line_width = self.width_code(width);
-        // 表示の線種の長さは図形の座標の長さ × dash_scale / 入れ物の倍率。模様の線は図形の座標（OCS）の長さ
-        let paper_scale = dash_scale / length_scale(&m).max(1e-300) * length_scale(&ocs);
+        // 模様の破線は、表示と同じく図形の座標（OCS）の長さに縮尺を掛けた用紙の長さ
+        let paper_scale = container_scale * length_scale(&ocs);
         let mut patterns = Vec::new();
         for line in &hatch.pattern_lines {
             let (sin, cos) = line.angle.to_radians().sin_cos();
             let (dx, dy) = apply_vector(&ocs, cos, sin);
             let length = dx.hypot(dy);
-            if !(length > 0.0) {
+            if length.is_nan() || length <= 0.0 {
                 continue;
             }
             let (ux, uy) = (dx / length, dy / length);
             let (ox, oy) = apply_vector(&ocs, line.offset[0], line.offset[1]);
             let spacing = (ux * oy - uy * ox).abs();
-            if !(spacing > 0.0) {
+            if spacing.is_nan() || spacing <= 0.0 {
                 continue;
             }
             let (x, y) = apply(&ocs, line.base[0], line.base[1]);
@@ -1627,18 +1746,82 @@ impl<'a> Mapper<'a> {
                 angle: normalize(uy.atan2(ux).to_degrees()),
             });
         }
-        if patterns.is_empty() {
-            return Vec::new();
-        }
-        features
-            .into_iter()
-            .map(|(feature, source)| match feature {
-                SxfFeature::FillAreaStyleColour { id, region, .. } => {
-                    (SxfFeature::FillAreaStyleHatching { id, layer, patterns: patterns.clone(), region }, source)
-                }
-                other => (other, source),
+        // 表示と同じく、模様のない・線の多すぎる（5,000 本を超える）ハッチングは外形の線だけにする
+        let rings: Vec<(Vec<f64>, Vec<f64>)> = features
+            .iter()
+            .filter_map(|(feature, _)| match feature {
+                SxfFeature::FillAreaStyleColour { region, .. } => Some(region),
+                _ => None,
             })
-            .collect()
+            .flat_map(|region| std::iter::once(region.out_id).chain(region.in_ids.iter().copied()))
+            .filter_map(|number| {
+                zumen_sxf::tables::index(number - 1.0).and_then(|index| self.composite_curves.get(index))
+            })
+            .filter_map(|curve| match curve.members.first() {
+                Some(SxfFeature::Polyline { xs, ys, .. }) => Some((xs.clone(), ys.clone())),
+                _ => None,
+            })
+            .collect();
+        let mut lines = 0.0;
+        for pattern in &patterns {
+            let (sin, cos) = pattern.angle.to_radians().sin_cos();
+            let along_normal =
+                rings.iter().flat_map(|(xs, ys)| xs.iter().zip(ys)).map(|(x, y)| (y * cos - x * sin) / pattern.spacing);
+            let (low, high) =
+                along_normal.fold((f64::INFINITY, f64::NEG_INFINITY), |(low, high), k| (low.min(k), high.max(k)));
+            lines += high.ceil() - low.floor() + 1.0;
+        }
+        if patterns.is_empty() || lines.is_nan() || lines > 5000.0 {
+            self.notices.add(
+                NoticeLevel::Info,
+                "hatch-dense",
+                "模様のない・線の多すぎるハッチングは、表示と同じく外形の線だけを書きました",
+            );
+            let source = self.pending[index].source.clone();
+            return rings
+                .into_iter()
+                .map(|(xs, ys)| {
+                    let style =
+                        Styled { id: self.id(), layer, color, line_type: 1.0, line_width: self.width_code(0.0) };
+                    (SxfFeature::Polyline { style, xs, ys }, source.clone())
+                })
+                .collect();
+        }
+        let mut out = Vec::new();
+        for (feature, source) in features {
+            let SxfFeature::FillAreaStyleColour { id, region, .. } = feature else {
+                out.push((feature, source));
+                continue;
+            };
+            // 模様の線の基点を、領域の近くの同じ線の上に移す（遠い基点は、線を数える計算の桁が足りなくなる）
+            let near = zumen_sxf::tables::index(region.out_id - 1.0)
+                .and_then(|index| self.composite_curves.get(index))
+                .and_then(|curve| match curve.members.first() {
+                    Some(SxfFeature::Polyline { xs, ys, .. }) => Some((xs[0], ys[0])),
+                    _ => None,
+                });
+            let patterns = patterns
+                .iter()
+                .filter_map(|pattern| {
+                    let Some((px, py)) = near else {
+                        return Some(pattern.clone());
+                    };
+                    let (sin, cos) = pattern.angle.to_radians().sin_cos();
+                    let (nx, ny) = (-sin, cos);
+                    let k = ((pattern.x - px) * nx + (pattern.y - py) * ny) / pattern.spacing;
+                    let steps = k.round();
+                    let (x, y) = (pattern.x - nx * steps * pattern.spacing, pattern.y - ny * steps * pattern.spacing);
+                    // 実線は、線の向きにも基点を領域の近くへ移す（破線は線分の位置が変わるので移さない）
+                    let along = if pattern.line_type == 1.0 { (x - px) * cos + (y - py) * sin } else { 0.0 };
+                    let (x, y) = (x - cos * along, y - sin * along);
+                    (x.is_finite() && y.is_finite()).then(|| HatchPattern { x, y, ..pattern.clone() })
+                })
+                .collect::<Vec<_>>();
+            if !patterns.is_empty() {
+                out.push((SxfFeature::FillAreaStyleHatching { id, layer, patterns, region }, source));
+            }
+        }
+        out
     }
 
     fn finish(mut self, mut sheet: DrawingSheet) -> MappedSxf {
@@ -1648,6 +1831,7 @@ impl<'a> Mapper<'a> {
             for item in items {
                 match item {
                     Item::Feature(feature, source) => {
+                        let feature = *feature;
                         this.sources.insert(format!("#{}", js::number_to_string(feature.id())), source);
                         out.push(feature);
                     }
@@ -1704,7 +1888,7 @@ impl Paint {
 }
 
 /// 文字範囲の変換（平行移動 · 回転 · 一様な拡大 · 斜体のずれ）を、配置基点・角度・X の倍率と、斜体のずれ・Y の倍率に分ける
-fn decompose_text(m: &Matrix) -> Option<(f64, f64, f64, f64, (f64, f64))> {
+fn decompose_text(m: &Matrix) -> Option<TextPlacement> {
     let rx = m[0].hypot(m[1]);
     if !(rx.is_finite() && rx > 0.0) {
         return None;
@@ -1714,8 +1898,32 @@ fn decompose_text(m: &Matrix) -> Option<(f64, f64, f64, f64, (f64, f64))> {
     // R(−angle) · 2 列目 = (ずれ × ry, ry)。裏返しは ry を正にして書く
     let c = cos * m[2] + sin * m[3];
     let d = (-sin * m[2] + cos * m[3]).abs();
-    if !(d > 0.0) {
+    if d.is_nan() || d <= 0.0 {
         return None;
     }
     Some((m[4], m[5], normalize(angle.to_degrees()), rx, (c / d, d)))
+}
+
+/// 線分を矩形（最小 x・y、最大 x・y）で切る（Liang–Barsky）。外なら None
+fn clip_segment([x1, y1, x2, y2]: [f64; 4], [min_x, min_y, max_x, max_y]: [f64; 4]) -> Option<[f64; 4]> {
+    let (dx, dy) = (x2 - x1, y2 - y1);
+    let (mut t0, mut t1) = (0.0f64, 1.0f64);
+    for (p, q) in [(-dx, x1 - min_x), (dx, max_x - x1), (-dy, y1 - min_y), (dy, max_y - y1)] {
+        if p == 0.0 {
+            if q < 0.0 {
+                return None;
+            }
+            continue;
+        }
+        let t = q / p;
+        if p < 0.0 {
+            t0 = t0.max(t);
+        } else {
+            t1 = t1.min(t);
+        }
+        if t0 > t1 {
+            return None;
+        }
+    }
+    Some([x1 + dx * t0, y1 + dy * t0, x1 + dx * t1, y1 + dy * t1])
 }

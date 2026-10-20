@@ -101,7 +101,7 @@ pub(crate) fn bezier(degree: usize, knots: &[f64], control: &[[f64; 2]]) -> Opti
     if !(2..=3).contains(&degree) || control.len() < degree + 1 || knots.len() != control.len() + degree + 1 {
         return None;
     }
-    if !clamped(knots, degree) || knots.windows(2).any(|pair| !(pair[1] >= pair[0])) {
+    if !clamped(knots, degree) || knots.windows(2).any(|pair| pair[1] < pair[0] || pair[1].is_nan()) {
         return None;
     }
     let mut knots = knots.to_vec();
@@ -159,14 +159,21 @@ fn inside(ring: &[f64], x: f64, y: f64) -> bool {
     result
 }
 
-/// 偶奇規則で塗る輪郭を、外形とその中抜きの組に分ける。輪郭の入れ子の深さが偶数なら外形、奇数なら
+/// 偶奇規則で塗る輪郭を、外形とその中抜きの組に分ける。すべての頂点がほかの輪郭の内側にある輪郭を、その輪郭の
+/// 入れ子とする（重なるだけの輪郭は別の外形）。入れ子の深さが偶数なら外形、奇数なら
 /// すぐ外の外形の中抜き（SXF のハッチングの領域は 1 つの外形と中抜き。附属書 SFC 編のハッチングの領域）
 pub(crate) fn regions(rings: &[Vec<f64>]) -> Vec<(usize, Vec<usize>)> {
     let containers: Vec<Vec<usize>> = rings
         .iter()
         .enumerate()
         .map(|(i, ring)| {
-            (0..rings.len()).filter(|j| *j != i && ring.len() >= 2 && inside(&rings[*j], ring[0], ring[1])).collect()
+            (0..rings.len())
+                .filter(|j| {
+                    *j != i
+                        && ring.len() >= 2
+                        && ring.as_chunks::<2>().0.iter().all(|[x, y]| inside(&rings[*j], *x, *y))
+                })
+                .collect()
         })
         .collect();
     let depth = |i: usize| containers[i].len();
@@ -176,10 +183,10 @@ pub(crate) fn regions(rings: &[Vec<f64>]) -> Vec<(usize, Vec<usize>)> {
             out.push((i, Vec::new()));
         }
     }
-    for i in 0..rings.len() {
+    for (i, outside) in containers.iter().enumerate() {
         if depth(i) % 2 == 1 {
             // すぐ外の外形（入れ子が 1 つ浅い、自分を囲む輪郭）
-            if let Some(parent) = containers[i].iter().copied().find(|j| depth(*j) + 1 == depth(i))
+            if let Some(parent) = outside.iter().copied().find(|j| depth(*j) + 1 == depth(i))
                 && let Some(region) = out.iter_mut().find(|(outer, _)| *outer == parent)
             {
                 region.1.push(i);
