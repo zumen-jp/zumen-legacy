@@ -8,7 +8,7 @@
 //! - ブロック定義の一覧より後ろ（版 700 以降の同梱画像）は、そのまま書く。
 
 use crate::archive::{ClassTag, ReadTable, Reader, Result, WriteTable, Writer, unicode};
-use crate::header::JwwHeader;
+use crate::header::{JwwHeader, strings_unicode};
 use crate::reader::{
     JwwBase, JwwEntity, JwwLine, JwwPoint, JwwText, find_entity_list, is_jww, read_base, read_entity_body, read_line,
     read_text,
@@ -102,6 +102,8 @@ pub struct JwwFile {
 struct FileSource {
     version: u32,
     header: Vec<u8>,
+    /// 文字列を UTF-16LE で書いたファイルか（同じ版で書くときは、足した文字列もこれに合わせる）
+    unicode: bool,
 }
 
 /// 図形の本体の最小のバイト数（件数から確保する量を抑える）
@@ -137,7 +139,8 @@ impl JwwFile {
                 .and_then(|header| read_body(bytes, start, version).map(|body| (header, body)));
             match read {
                 Ok((header, (entities, blocks, trailer))) => {
-                    let source = Some(FileSource { version, header: bytes[..start].to_vec() });
+                    let unicode = strings_unicode(bytes);
+                    let source = Some(FileSource { version, header: bytes[..start].to_vec(), unicode });
                     return Ok(Self { version, header, entities, blocks, trailer, source });
                 }
                 Err(failure) => error = failure,
@@ -146,12 +149,13 @@ impl JwwFile {
         Err(error)
     }
 
-    /// JWW に書く。読んだファイルで、版と値が変わっていない部分は元のバイト列のまま書く
+    /// JWW に書く。読んだファイルで、版と値が変わっていない部分は元のバイト列のまま書く。文字列は、読んだファイルを
+    /// 同じ版で書くならそのファイルと同じ符号、ほかは版 700 以降なら UTF-16LE、それより前は Shift_JIS
     pub fn write(&self) -> JwwWritten {
-        let mut out = Writer::new();
         let mut notices = NoticeList::new();
         let version = self.version;
         let source = self.source.as_ref().filter(|source| source.version == version);
+        let mut out = Writer::with_unicode(source.map_or_else(|| unicode(version), |source| source.unicode));
         match source {
             Some(source)
                 if JwwHeader::read(&source.header, source.header.len(), version).ok().as_ref()
@@ -167,12 +171,27 @@ impl JwwFile {
         for block in &self.blocks {
             context.block(&mut out, block);
         }
-        out.raw(&self.trailer);
+        // 同梱画像の欄（件数の DWORD と画像）は版 700 以降。読んだファイルを同じ版で書くときはそのまま書き、版を
+        // 700 より前に変えたときは書かない
+        match self.source.as_ref().map(|source| source.version != version) {
+            Some(false) => out.raw(&self.trailer),
+            _ if version >= 700 => out.raw(if self.trailer.is_empty() { &[0; 4] } else { &self.trailer }),
+            None => out.raw(&self.trailer),
+            Some(true) => {
+                if self.trailer.get(..4).is_some_and(|count| count != [0; 4]) {
+                    notices.add(
+                        NoticeLevel::Warning,
+                        "embedded-image",
+                        "版 700 より前の JWW は同梱画像を持たないため、書いていません（画像の配置の文字は残ります）",
+                    );
+                }
+            }
+        }
         if out.replaced > 0 {
             notices.add_count(
                 NoticeLevel::Warning,
                 "text-encoding",
-                "Shift_JIS で表せない文字を ? にしました（版 700 より前の JWW）",
+                "Shift_JIS で表せない文字を ? にしました（版 700 より前の JWW と、文字列が Shift_JIS の読んだファイル）",
                 out.replaced as u64,
             );
         }
@@ -229,7 +248,7 @@ fn read_records(reader: &mut Reader<'_>, bytes: &[u8], version: u32, table: &mut
 }
 
 /// 読み取りの上限（zumen_core::limits）を超えたら、途中までのファイルは書けないのでエラーにする
-fn stop_at_limit() -> Result<()> {
+pub(crate) fn stop_at_limit() -> Result<()> {
     if zumen_core::limits::tick() {
         return Err(ReadError::new("読み取りの上限を超えたため、途中でやめました"));
     }
@@ -316,7 +335,7 @@ impl Context<'_> {
                 out.u32(block.number);
                 out.u32(u32::from(block.referenced));
                 out.u32(block.time);
-                out.cstring(&block.name, unicode(self.version));
+                out.cstring(&block.name, out.unicode);
             }
         }
         self.records(out, &block.entities);
@@ -452,8 +471,8 @@ fn write_text(out: &mut Writer, text: &JwwText, version: u32) {
     out.f64s(&[text.x1, text.y1, text.x2, text.y2]);
     out.u32(text.text_type);
     out.f64s(&[text.size_x, text.size_y, text.spacing, text.angle]);
-    out.cstring(&text.font, unicode(version));
-    out.cstring(&text.content, unicode(version));
+    out.cstring(&text.font, out.unicode);
+    out.cstring(&text.content, out.unicode);
 }
 
 /// 寸法の本体から SXF のモード（版 420 以降）を読む
@@ -583,7 +602,7 @@ mod tests {
         let original = crate::read_jww(&bytes).unwrap();
         assert_eq!((read.version, &read.entities, &read.blocks), (700, &original.entities, &original.blocks));
         assert_eq!((read.memo.as_str(), &read.groups), (original.memo.as_str(), &original.groups));
-        // 文字列は UTF-16LE で書く
+        // 版を 700 に変えた図面の文字列は、新しい図面と同じく UTF-16LE で書く
         assert_eq!(&written.bytes[12..15], [0xff, 0xfe, 0xff]);
     }
 
