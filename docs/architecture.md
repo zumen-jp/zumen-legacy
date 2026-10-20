@@ -280,7 +280,9 @@ only. Measurements are from [Verification records](verification.md#the-readers-i
   string, and the page turns it into a scene with `sceneFromJson`. Sending the scene itself meant structured cloning
   one `Float64Array` per primitive: in Chromium, a 16.6 MB SFC with 227,139 entities took 14.5 s through the worker
   against 2.9 s for reading on the page, of which cloning was most; sending the string takes 2.9 s in all, 0.9 s of
-  it on the page (parsing). A string is copied, not transferred, but it is one allocation. Reads run one
+  it on the page (parsing). A string is copied, not transferred, but avoids cloning the scene's many typed arrays.
+  The alternatives and the page-side decoding cost are recorded in
+  [decision 0016](decisions/0016-send-worker-scenes-as-json.md). Reads run one
   at a time; `limits.timeout` starts when the worker is sent the drawing, and when it passes, the worker is terminated,
   the read is rejected with a `LimitError` (`time`), and the next read creates a new worker. An `AbortSignal`
   terminates it the same way. This is the only way to stop a read that is running, because WebAssembly cannot be
