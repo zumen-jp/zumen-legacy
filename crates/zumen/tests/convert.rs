@@ -234,12 +234,14 @@ fn samples_written_in_every_version_draw_the_same() {
 fn writes_the_version_asked_for_in_its_code_page() {
     let bytes = fs::read(fixtures().join("dxf/r12-shift-jis.dxf")).unwrap();
     let options = ReadDrawingOptions::default();
-    for (version, code) in [("2000", "AC1015"), ("R2004", "AC1018"), ("AC1021", "AC1021"), ("2018", "AC1032")] {
+    for (version, code) in
+        [("R12", "AC1009"), ("2000", "AC1015"), ("R2004", "AC1018"), ("AC1021", "AC1021"), ("2018", "AC1032")]
+    {
         let write = zumen::WriteOptions { version: Some(version.into()) };
         let converted = zumen::convert_with(&bytes, "dxf", &options, &write).unwrap();
         let text = String::from_utf8_lossy(&converted.bytes).into_owned();
         assert!(text.contains(&format!("$ACADVER\r\n  1\r\n{code}")), "{version}");
-        let old = matches!(code, "AC1015" | "AC1018");
+        let old = matches!(code, "AC1009" | "AC1015" | "AC1018");
         // 2007 より前は図面のコードページ（Shift_JIS）、それ以降は UTF-8
         assert_eq!(std::str::from_utf8(&converted.bytes).is_ok(), !old, "{version}");
         if old {
@@ -253,7 +255,13 @@ fn writes_the_version_asked_for_in_its_code_page() {
                 .map(|(_, text)| text.text)
                 .collect::<Vec<_>>()
         };
-        assert_eq!(texts(&original), texts(&again), "{version}");
+        if code == "AC1009" {
+            // R12 は複数行の文字を行ごとの 1 行の文字にする
+            let joined = |scene: &Scene| texts(scene).concat().replace('\n', "");
+            assert_eq!(joined(&original), joined(&again), "{version}");
+        } else {
+            assert_eq!(texts(&original), texts(&again), "{version}");
+        }
     }
     let error =
         zumen::convert_with(&bytes, "dxf", &options, &zumen::WriteOptions { version: Some("R13".into()) }).unwrap_err();

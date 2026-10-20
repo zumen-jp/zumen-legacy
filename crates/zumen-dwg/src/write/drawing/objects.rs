@@ -288,6 +288,14 @@ impl Writer<'_> {
             .collect();
         for index in 0..self.mline_styles.len() {
             let (handle, style) = (self.mline_styles[index].0, self.mline_styles[index].1.clone());
+            // MLINESTYLE (20.4.73) stores the element count as an RC (one byte).
+            if style.elements.len() > 255 {
+                self.notices.add(
+                    zumen_core::NoticeLevel::Warning,
+                    "mline-style-limit",
+                    "DWG のマルチラインスタイルの要素数の上限（255）を超えるため、先頭の 255 要素だけを書きました",
+                );
+            }
             let elements = style
                 .elements
                 .iter()

@@ -240,7 +240,7 @@ bytes ─▶ zumen-sxf, zumen-jww, zumen-dxf, zumen-dwg ─▶ Scene (zumen-core
 | `zumen-core` | The `Scene` types (serde, the same JSON as `sceneToJson`), `NoticeList`, `DrawingReader` and `read_drawing`, geometry (`geometry`), text layout (`text`), measurement, texts and entities for servers (`extract`), the fields of the title block (`title`), the comparison of two revisions (`compare`), read limits (`limits`), and JavaScript-compatible number handling (`js`). |
 | `zumen-sxf` | SFC and P21 parsing into the SXF feature model (`parse_sfc`, `parse_p21` → `SxfDrawing`), conversion to a scene (`sxf_to_scene`), the `SXF` reader, and writing the feature model as SFC (`write_sfc`). The code tables and the rules that turn codes into colors, line types, widths and text (`SxfDocument::color` …) are public, for the conversion. |
 | `zumen-jww` | JWW parsing into the JWW document model (`read_jww`), conversion to a scene (`jww_to_scene`), and the `JWW` reader. The rules for pen colors, line types, widths, layer names and text (`JwwDocument::pen_color` …) are public, for the conversion. |
-| `zumen-dxf` | DXF parsing (ASCII and binary) into the AutoCAD drawing model (`parse_dxf` → `DxfDocument`), conversion of model space or a layout to a scene (`dxf_to_scene`), the `DXF` reader, and writing the model as DXF (`write_dxf`). The draw order of each space (`draw_order`) and the drawing unit (`drawing_unit`) are public, for the conversion to SXF. |
+| `zumen-dxf` | DXF parsing (ASCII and binary) into the AutoCAD drawing model (`parse_dxf` → `DxfDocument`), conversion of model space or a layout to a scene (`dxf_to_scene`), the `DXF` reader, and writing the model as DXF (`write_dxf`, and `write_dxf_as` for R12 to 2018). The draw order of each space (`draw_order`) and the drawing unit (`drawing_unit`) are public, for the conversion to SXF. |
 | `zumen-dwg` | DWG decoding (AutoCAD 2000 to 2018) into the AutoCAD drawing model of `zumen-dxf` (`read_dwg` → `DxfDocument`), drawn with `dxf_to_scene`, and the `DWG` reader. |
 | `zumen-convert` | Maps SXF and JWW into the AutoCAD drawing model (`sxf_to_dxf`, `jww_to_dxf` → `Mapped`: the `DxfDocument`, the notices, and the source of each entity), so that they can be written as DXF ([decision 0007](decisions/0007-mapping-crate-between-formats.md)), and maps the AutoCAD drawing model into the SXF feature model (`dxf_to_sxf` → `MappedSxf`), so that it can be written as SFC ([decision 0010](decisions/0010-write-sxf-from-the-autocad-model.md)). |
 | `zumen` | `read` and `detect` over every reader, with limits for untrusted drawings (`ReadDrawingOptions::limits`), and `convert` (every format to DXF and SFC through the AutoCAD model; `mapping` re-exports `zumen-convert`). The entry point for applications. |
@@ -377,7 +377,8 @@ are unpacked up to `max_bytes`, or 2 GiB without it, so that a small archive can
 
 Drawings are written through the AutoCAD drawing model ([decision 0006](decisions/0006-write-through-the-autocad-model.md)).
 `zumen::convert` reads a DXF or DWG drawing into a `DxfDocument`, or maps an SXF or JWW drawing into one with
-`zumen-convert`, and `zumen_dxf::write_dxf` writes it as DXF of AutoCAD 2013 in UTF-8. For SFC, `dxf_to_sxf` maps the
+`zumen-convert`, and `zumen_dxf::write_dxf` writes it as DXF of AutoCAD 2013 in UTF-8 (`write_dxf_as` writes R12 to
+2018; R12 first reduces the model to what R12 holds, `r12::prepare`). For SFC, `dxf_to_sxf` maps the
 model into the SXF feature model (`SxfDrawing`) and `zumen_sxf::write_sfc` writes it
 ([decision 0010](decisions/0010-write-sxf-from-the-autocad-model.md)). Writers of P21 and JWW will start from the same
 model.

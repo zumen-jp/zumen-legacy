@@ -6,7 +6,7 @@
 use crate::bits::{Bits, Read};
 use crate::compress::{decompress_r18, decompress_r21, deinterleave};
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use zumen_core::{NoticeLevel, NoticeList};
 
 /// DWG の版（3.2.1）
@@ -488,6 +488,9 @@ impl<'a> R2007Container<'a> {
         let mut reader = Bits::new(&page_map);
         let mut offset = 0u64;
         while reader.remaining() >= 128 {
+            if zumen_core::limits::tick() {
+                return Err(broken());
+            }
             let (Ok(size), Ok(id)) = (reader.rll(), reader.rll()) else { break };
             pages.entry((id as i64).wrapping_abs()).or_insert((offset, size));
             offset = offset.saturating_add(size);
@@ -504,8 +507,12 @@ impl<'a> R2007Container<'a> {
         )
         .ok_or_else(broken)?;
         let mut sections: Vec<Section21> = Vec::new();
+        let mut names = HashSet::new();
         let mut reader = Bits::new(&section_map);
         while reader.remaining() >= 64 * 8 {
+            if zumen_core::limits::tick() {
+                return Err(broken());
+            }
             let Ok(section) = (|| -> Read<Section21> {
                 let size = reader.rll()?;
                 let max_size = reader.rll()?;
@@ -531,6 +538,9 @@ impl<'a> R2007Container<'a> {
                 }
                 let mut pages = Vec::new();
                 for _ in 0..page_count.min(1 << 20) {
+                    if zumen_core::limits::tick() {
+                        break;
+                    }
                     let offset = reader.rll()?;
                     let _size = reader.rll()?;
                     pages.push(Page21 {
@@ -546,7 +556,7 @@ impl<'a> R2007Container<'a> {
             })() else {
                 break;
             };
-            if !section.name.is_empty() && !sections.iter().any(|other| other.name == section.name) {
+            if !section.name.is_empty() && names.insert(section.name.clone()) {
                 sections.push(section);
             }
         }
