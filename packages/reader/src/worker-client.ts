@@ -1,4 +1,4 @@
-import type { Scene } from "@zumenjs/core";
+import { type Scene, sceneFromJson } from "@zumenjs/core";
 import type { ReadSceneOptions } from "./index.js";
 import { type Limit, LimitError } from "./limits.js";
 import type { FromWorker, ToWorker } from "./protocol.js";
@@ -143,8 +143,16 @@ export class ReaderWorker {
   #reply(message: Extract<FromWorker, { id: number }>): void {
     const job = this.#current;
     if (!job || job.id !== message.id) return;
-    if (message.type === "scene") this.#finish(job, undefined, message.scene);
-    else {
+    if (message.type === "scene") {
+      let scene: Scene;
+      try {
+        scene = sceneFromJson(message.json);
+      } catch (error) {
+        this.#finish(job, error);
+        return;
+      }
+      this.#finish(job, undefined, scene);
+    } else {
       const error = message.limit
         ? new LimitError(message.message, message.limit as Limit)
         : new Error(message.message);
