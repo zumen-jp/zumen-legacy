@@ -39,7 +39,7 @@ struct Out {
 }
 
 /// 実数。最短で元の値に戻る表し方にし、整数にも小数点を付ける
-fn real(value: f64) -> String {
+pub(crate) fn real(value: f64) -> String {
     if !value.is_finite() {
         return "0.0".into();
     }

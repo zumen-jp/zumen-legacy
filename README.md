@@ -41,6 +41,9 @@ and gives you a framework-agnostic drawing engine to embed in your own interface
   from the scale of SXF sub-figures, JWW layer groups, DXF units and DXF layout viewports.
 - Dark and light backgrounds; true line weights or hairlines.
 - Drawing metadata (title block, authoring software, sheet) and a list of everything that was skipped or substituted.
+- Editing in Rust and Python: add, change and delete entities and layers of a DXF drawing in place, keeping its
+  version, encoding and everything the edit does not name, and create new drawings
+  ([decision 0012](docs/decisions/0012-edit-in-place-and-write-every-format.md)).
 - No runtime dependencies; `@zumenjs/reader` ships its WebAssembly readers. Reading also runs in Node.js.
 
 ## Packages
@@ -211,6 +214,15 @@ for entity in image.entities_at(640, 480):  # the entities drawn under a pixel, 
 
 zumen.convert("plan.jww", "dxf").save("plan.dxf")  # any format as DXF of AutoCAD 2013, with notices of what changed
 zumen.convert("plan.dwg", "sfc").save("plan.sfc")  # or as SXF (SFC of SXF Ver.3.1)
+
+# Edit in place: everything the operations do not name stays as it was (DXF so far)
+edited = zumen.edit("plan.dxf", [
+    {"op": "add", "kind": "text", "layer": "NOTE", "position": [1200, 300], "text": "確認済み", "height": 350},
+    {"op": "update", "id": "3F2", "set": {"end": [5200, 0], "color": "#ff0000"}},
+    {"op": "delete", "id": "3F5"},
+])
+edited.save("plan.dxf")  # edited.created holds the ids of what was added
+zumen.create("dxf", [{"op": "add", "kind": "line", "start": [0, 0], "end": [5000, 0]}], units="mm")  # a new drawing
 ```
 
 AI applications can read drawings through the MCP server of the Python package (`pip install "zumen[mcp]"`, then
@@ -228,6 +240,8 @@ cargo run --release -p zumen-cli -- title plan.jww  # the fields of the title bl
 cargo run --release -p zumen-cli -- convert plan.dwg -o plan.dxf
 cargo run --release -p zumen-cli -- convert plan.sfc -o plan.dxf
 cargo run --release -p zumen-cli -- convert plan.dxf -o plan.sfc
+cargo run --release -p zumen-cli -- edit plan.dxf operations.json -o edited.dxf
+cargo run --release -p zumen-cli -- create operations.json -o new.dxf --units mm
 ```
 
 `convert` writes every format as DXF of AutoCAD 2013 through the AutoCAD drawing model. DXF and DWG keep their
@@ -242,19 +256,26 @@ no feature for (multiline texts, leaders, dimensions, solids) is written as the 
 for it, so the SFC draws the same as the drawing it came from
 ([decision 0010](docs/decisions/0010-write-sxf-from-the-autocad-model.md)).
 
+`edit` changes a drawing in place with operations that are the same for every format: add, update and delete
+entities, and add and update layers, chosen by the ids, kinds and property keys that the scene reports, with
+coordinates in the drawing's own units. The format, its version and encoding, and everything the operations do not name
+(extended data, objects, entities that zumen does not read) stay as they were. All operations are checked before
+anything is written. DXF (R12 to 2018, ASCII and binary) is done; DWG, SXF and JWW are next
+([decision 0012](docs/decisions/0012-edit-in-place-and-write-every-format.md)). `create` starts a new drawing.
+
 | Crate | Contents |
 | --- | --- |
-| [`zumen-core`](crates/zumen-core) | The scene model (the same JSON as `@zumenjs/core`), geometry, text layout, the texts and entities of a scene, the fields of its title block, and the comparison of two revisions |
+| [`zumen-core`](crates/zumen-core) | The scene model (the same JSON as `@zumenjs/core`), geometry, text layout, the texts and entities of a scene, the fields of its title block, the comparison of two revisions, and the edit operations |
 | [`zumen-sxf`](crates/zumen-sxf) | `parse_sfc` and `parse_p21` (the SXF feature model), `sxf_to_scene`, the `SXF` reader, and `write_sfc` (the feature model as SFC) |
 | [`zumen-jww`](crates/zumen-jww) | `read_jww` (the JWW document model), `jww_to_scene`, the `JWW` reader |
-| [`zumen-dxf`](crates/zumen-dxf) | `parse_dxf` (the AutoCAD drawing model, shared with DWG), `dxf_to_scene`, the `DXF` reader, and `write_dxf` (the model as DXF of AutoCAD 2013) |
+| [`zumen-dxf`](crates/zumen-dxf) | `parse_dxf` (the AutoCAD drawing model, shared with DWG), `dxf_to_scene`, the `DXF` reader, `write_dxf` (the model as DXF of AutoCAD 2013), and `edit_dxf` (editing in place) |
 | [`zumen-dwg`](crates/zumen-dwg) | `read_dwg` (DWG 2000 to 2018 into the AutoCAD drawing model of `zumen-dxf`), the `DWG` reader |
 | [`zumen-convert`](crates/zumen-convert) | `sxf_to_dxf` and `jww_to_dxf` (SXF and JWW into the AutoCAD drawing model, to be written as DXF), and `dxf_to_sxf` (the model as an SXF drawing, to be written as SFC) |
-| [`zumen`](crates/zumen) | `read` and `detect` over every reader, with limits on bytes, entities and time for untrusted drawings, and `convert` (every format to DXF and SFC) |
+| [`zumen`](crates/zumen) | `read` and `detect` over every reader, with limits on bytes, entities and time for untrusted drawings, `convert` (every format to DXF and SFC), `edit` and `create` |
 | [`zumen-render`](crates/zumen-render) | PNG, SVG and PDF rendering with the rules of the browser renderer, and the pixel box of every entity drawn; BIZ UDGothic is bundled for Japanese text |
-| [`zumen-cli`](crates/zumen-cli) | The `zumen` command: `detect`, `scene` (JSON), `texts` and `entities` (JSON lines), `title`, `render` (PNG), `compare` and `convert` (DXF, SFC) |
+| [`zumen-cli`](crates/zumen-cli) | The `zumen` command: `detect`, `scene` (JSON), `texts` and `entities` (JSON lines), `title`, `render` (PNG), `compare`, `convert` (DXF, SFC), `edit` and `create` |
 
-Reading, rendering and converting release the GIL in Python.
+Reading, rendering, converting and editing release the GIL in Python.
 
 ## Privacy
 
@@ -276,7 +297,8 @@ sending them anywhere.
 3. Rust readers with Python and WebAssembly bindings, and PNG, SVG and PDF rendering on servers (JWW, SXF and DXF done).
 4. DWG, read into the same AutoCAD object model (2000 to 2018 done in Rust and in the browser through WebAssembly;
    R13 and R14 are next).
-5. Writing and converting drawings (SXF, JWW, DXF and DWG to DXF done in Rust; SFC, P21 and JWW writers next),
+5. Writing, converting and editing drawings (every format to DXF and SFC, and editing DXF in place, done in Rust;
+   DWG, P21 and JWW writers and the editors of DWG, SXF and JWW next),
    analysis (tables, rooms and areas; the comparison of revisions is done), markup and PDF drawings.
 
 ## Documentation
