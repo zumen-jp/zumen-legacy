@@ -420,7 +420,7 @@ impl Context<'_> {
 }
 
 /// 図形の共通の値（CData::Serialize）。線幅は版 351 以降
-pub(crate) fn write_base(out: &mut Writer, base: &JwwBase, version: u32) {
+fn write_base(out: &mut Writer, base: &JwwBase, version: u32) {
     out.u32(base.group);
     out.u8(base.pen_style);
     out.u16(base.pen_color);

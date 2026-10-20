@@ -390,7 +390,7 @@ pub(crate) fn file_from_document(doc: &JwwDocument, notices: &mut NoticeList) ->
     let mut header = JwwHeader::new(version);
     header.memo = doc.memo.clone();
     header.paper_size = doc.paper_size;
-    set_groups(&mut header, &doc.groups);
+    set_groups(&mut header, &doc.groups, notices);
     if let Some(settings) = &mut header.settings {
         set_names(settings, &doc.groups);
         set_pens(settings, doc, version, notices);
@@ -425,7 +425,7 @@ pub(crate) fn file_from_document(doc: &JwwDocument, notices: &mut NoticeList) ->
 
 /// レイヤグループ・レイヤの状態と縮尺。Jw_cad と同じく、書込みレイヤグループと各グループの書込みレイヤだけを
 /// 状態 3 にする（状態 3 がなければ、最初の編集可能なもの（状態 2）を書込みにする）
-fn set_groups(header: &mut JwwHeader, groups: &[JwwLayerGroup]) {
+fn set_groups(header: &mut JwwHeader, groups: &[JwwLayerGroup], notices: &mut NoticeList) {
     let write_index = |states: &[u32]| -> usize {
         states.iter().position(|&state| state == 3).or_else(|| states.iter().position(|&state| state == 2)).unwrap_or(0)
     };
@@ -443,7 +443,12 @@ fn set_groups(header: &mut JwwHeader, groups: &[JwwLayerGroup]) {
         let Some(group) = groups.get(g) else {
             continue;
         };
-        header_group.scale = group.scale;
+        // 縮尺の分母は正の数（読み取りも 0 以下を 1 として描く）
+        if group.scale.is_finite() && group.scale > 0.0 {
+            header_group.scale = group.scale;
+        } else {
+            notices.add(NoticeLevel::Warning, "invalid-scale", "正の数でないレイヤグループの縮尺を 1/1 にしました");
+        }
         let layer_states: Vec<u32> = (0..16).map(|l| group.layers.get(l).map_or(2, |layer| layer.state)).collect();
         let write_layer = write_index(&layer_states);
         header_group.write_layer = write_layer as u32;
@@ -513,7 +518,7 @@ fn set_pens(settings: &mut JwwSettings, doc: &JwwDocument, version: u32, notices
     if unwritten > 0 {
         notices.add_count(
             NoticeLevel::Warning,
-            "lineweight",
+            "pen-width",
             "線幅の単位（1/100 mm か印刷の dpi）が決まらない線色の線幅は、Jw_cad の既定の線幅にしました",
             unwritten,
         );

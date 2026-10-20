@@ -274,6 +274,12 @@ fn reports_what_it_cannot_write() {
     let read = read_jww(&written.bytes).unwrap();
     let Some(JwwEntity::Text(last)) = read.entities.last() else { panic!("text") };
     assert_eq!(last.content, "?野家");
+    // 正の数でない縮尺は 1/1
+    let mut doc = normalized(drawing(700));
+    doc.groups[5].scale = 0.0;
+    let written = write_jww(&doc);
+    assert_eq!(written.notices[0].code, "invalid-scale");
+    assert_eq!(read_jww(&written.bytes).unwrap().groups[5].scale, 1.0);
     // 書けない版は 700 で書く
     let mut doc = drawing(800);
     doc.version = 800;
@@ -319,4 +325,17 @@ fn writes_the_contents_of_the_samples() {
         checked += 1;
     }
     assert!(checked > 0);
+}
+
+#[test]
+fn reads_back_a_file_with_block_definitions_only() {
+    // 図形の一覧が空でブロック定義だけの図面。JwwFile はヘッダの終わりから図形の一覧を読む
+    let mut doc = normalized(drawing(700));
+    doc.entities.clear();
+    let written = write_jww(&doc);
+    let file = JwwFile::read(&written.bytes).unwrap();
+    assert_eq!((file.entities.len(), file.blocks.len()), (0, 2));
+    let entities: Vec<&JwwEntity> = file.blocks[0].entities.iter().map(|record| &record.entity).collect();
+    assert_eq!(entities, doc.blocks[0].entities.iter().collect::<Vec<_>>());
+    assert_eq!(file.write().bytes, written.bytes);
 }
