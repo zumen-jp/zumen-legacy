@@ -24,9 +24,10 @@ Texts and entities, in paper millimeters with the Y axis up:
 ```python
 for text in scene.texts(region=(100, 50, 200, 120)):  # omit region for the whole sheet
     print(text["id"], text["text"], text["x"], text["y"], text["height"], text["angle"])
-entity = scene.entity("#120")  # id, kind, type, source, layers, bbox, text, properties, values, placement
+entity = scene.entity("#120")  # id, kind, type, source, layers, bbox, text, properties, values, placement, primitives
 entity["kind"], entity["values"]["radius"]  # "circle", 25.0: the same keys in every format
 rows = scene.entities(hidden_layers=[])  # [] includes the layers that the drawing hides
+shapes = scene.entities(region=(100, 50, 200, 120), geometry=True)  # with primitives
 table = scene.to_arrow()  # a pyarrow.Table, for pandas, Polars or DuckDB (pip install "zumen[arrow]")
 ```
 
@@ -35,6 +36,10 @@ table = scene.to_arrow()  # a pyarrow.Table, for pandas, Polars or DuckDB (pip i
 maps their stable keys (`layer`, `start`, `radius`, `text` …) to the unformatted values, such as numbers and `(x, y)`.
 `kind` (`line`, `text`, `dimension` …) and the keys are the same in every format, while `type` and the labels are
 Japanese ([the list](../../docs/architecture.md#stable-keys)). `scene.metadata_values` does the same for the metadata.
+`primitives` are what the entity draws, in drawing order and paper millimeters: lines through `(x, y)` points
+(`stroke`, curves as many short lines), filled areas (`fill`), hatch lines clipped to an area (`clipped`), point
+markers (`dot`) and runs of text (`text`, placed by a `matrix` from the text's own coordinates). `placement["inverse"]`
+turns them into real-world millimeters, `x' = a x + c y + e` and `y' = b x + d y + f`.
 
 `render` returns the image with the conversion between pixels and paper millimeters and the box of
 every entity drawn, so that an application can tell which entity a vision model refers to:
@@ -98,7 +103,8 @@ attributes of SXF). The values are guesses from the drawing's texts; check them 
 ## MCP server
 
 `zumen-mcp` lets AI applications that speak the Model Context Protocol open, render, search, measure and compare drawings
-on this computer. It serves over stdio and only reads.
+on this computer. It serves over stdio and only reads. Regions are given in paper millimeters (`region`) or as
+fractions of the frame (`frame_region`), as in [`zumen.tools`](#tools-for-ai-agents).
 
 ```bash
 pip install "zumen[mcp]"
@@ -108,17 +114,65 @@ claude mcp add zumen -- zumen-mcp --root ~/drawings  # Claude Code; other client
 | Tool | What it returns |
 | --- | --- |
 | `open_drawing` | Format, sheet, views, layers with entity counts, entity types, notices, metadata and the drawing number, revision, title, project, scale and date from the title block |
-| `render_drawing` | A PNG of the sheet or a region (1,568 pixels on the long edge by default), the scale to convert pixels to paper millimeters, and the texts drawn with their pixel boxes |
+| `render_drawing` | A PNG of the frame or a region (1,568 pixels on the long edge by default), the scale to convert pixels to paper millimeters, and the texts drawn with their pixel boxes |
 | `find_texts` | Texts that contain a query, ignoring full-width and half-width forms, case and spaces |
-| `find_entities` | Entities in a region, by kind, type or layer, with counts by type |
-| `get_entity` | One entity with its properties (key, label and value), its values by key and the scale of its placement |
+| `find_entities` | Entities in a region, by kind, type or layer, with counts by kind and type, and their geometry when asked |
+| `get_entity` | One entity with its properties (key, label and value), its values by key, the scale of its placement and its geometry |
 | `measure_distance` | The distance between two points on the sheet and in real-world millimeters |
 | `compare_drawings` | What changed between two revisions: an image of the changes, the regions that changed and the changed entities with their texts |
 
 `--root DIR` (repeatable) limits the directories the server may read. `--max-bytes` (256 MiB by default, after
 unpacking P2Z and SFZ), `--max-entities` (2,000,000) and `--timeout` (60 seconds) limit each drawing it reads. Texts, layer names and properties come from the drawing file; clients should treat them as
-data, not as instructions. The functions behind the tools (`zumen.mcp.summary`, `render`, `find_texts`,
-`find_entities`, `get_entity`, `measure`, `compare_revisions`) can be called without MCP.
+data, not as instructions. The tools are the functions of [`zumen.tools`](#tools-for-ai-agents).
+
+## Tools for AI agents
+
+Applications that give an agent their own tools, with or without MCP, call the functions behind the MCP tools in
+`zumen.tools`. Each takes a `Scene` and returns plain data that `json.dumps` writes as it is, with keys described by
+the `TypedDict` classes of the module (a later version may add keys, but does not remove or rename them); on Python
+3.12 and later, `pydantic.TypeAdapter(tools.EntityDetail).json_schema()` gives the JSON Schema of a result. They only
+read and report what the drawing holds; interpreting it is left to the agent.
+
+```python
+from zumen import tools
+
+scene = zumen.read(data, max_bytes=200_000_000, max_entities=1_000_000, timeout=30)
+info = tools.summary(scene)  # format, sheet, bounds (the frame), views, layers, kinds, notices, title block
+png, image = tools.render(scene, frame_region=[0.5, 0, 1, 0.5])  # the top right quarter, 1,568 pixels long
+page = tools.find_texts(scene, query="平面図", limit=50)  # texts with their position, height and box
+shapes = tools.find_entities(scene, kind="polyline", layer="壁", geometry=True)  # with lines as points
+entity = tools.get_entity(scene, page["texts"][0]["id"])  # properties, values, placement and geometry
+tools.measure(scene, [10, 20], [110, 20])  # on the sheet, and in real-world millimeters through the scale
+```
+
+| Function | Result | What it returns |
+| --- | --- | --- |
+| `summary` | `Summary` | Format, sheet, `bounds` (the frame), views, layers with entity counts, counts by kind and type, notices, metadata and the title block fields |
+| `render` | `bytes`, `RenderInfo` | A PNG of the frame or a region, the region shown, the scale between pixels and paper millimeters, and the texts drawn with their pixel boxes |
+| `find_texts` | `TextPage` | Texts that contain a query (ignoring full-width and half-width forms, case and spaces), with position, height, angle and box |
+| `find_entities` | `EntityPage` | Entities in a region by kind, Japanese type or layer, with counts, and their geometry when asked |
+| `get_entity` | `EntityDetail` | One entity: properties (key, label, value), values by key, placement with its scale and `inverse`, and its geometry |
+| `measure` | `MeasurementInfo` | A distance on the sheet and in real-world millimeters |
+| `compare_revisions` | `bytes`, `ComparisonInfo` | An image of the changes between two revisions, the regions that changed and the changed entities |
+
+- **Coordinates.** Paper millimeters with the Y axis up, rounded to 0.001: boxes `[min_x, min_y, max_x, max_y]`,
+  points `[x, y]`. The *frame* is the drawing's `bounds`, the box around the sheet and every entity, which a render
+  without a region shows. Functions that take `region` also take `frame_region=[left, top, right, bottom]`, fractions
+  of the frame from 0 to 1 with the origin at the top left, the way regions of pages and images are usually given;
+  `tools.paper_region` and `tools.frame_region_of` convert between the two. `values` hold the numbers of the file
+  itself, and a `placement`'s `inverse` turns paper coordinates into real-world millimeters.
+- **Geometry.** `get_entity` (and `find_entities` with `geometry=True`) returns what the entity draws: `stroke`
+  lines through points, `fill` areas, `clipped` hatch lines, `dot` markers and `text` runs with their position, height,
+  length and angle on the sheet. Curves are drawn as many short lines, so exact radii and angles are in `values`.
+- **Sizes.** Every result is bounded by its arguments: lists stop at `limit` (at most 1,000) and give the `total`,
+  texts and other strings from the drawing at `max_text_length` characters (1,000 by default; the item then has
+  `truncated: true`), geometry at `max_points` points for the call (1,000 by default, at most 100,000, with
+  `truncated` and the full count), and images at 4,096 pixels on the long edge.
+- **Reading.** `tools.Drawings` reads files from allowed directories with limits on size, entities and time, and keeps
+  the last eight scenes until their files change. A `Scene` does not change once read, so applications can keep scenes
+  in their own cache and call the functions from threads (`asyncio.to_thread`); reading, rendering and comparing
+  release the GIL. Errors that the agent can act on raise `tools.DrawingError` with an English message.
+- Texts, names and properties come from the drawing file: agents should treat them as data, not as instructions.
 
 ## Drawings from others
 

@@ -243,7 +243,9 @@ zumen.convert("plan.jww", "dxf").save("plan.dxf")  # any format as DXF of AutoCA
 AI applications can read drawings through the MCP server of the Python package (`pip install "zumen[mcp]"`, then
 `zumen-mcp --root <dir>`): open, render a region, find texts and entities, measure in real-world units and
 compare revisions. See
-[bindings/python](bindings/python/README.md#mcp-server).
+[bindings/python](bindings/python/README.md#mcp-server). Applications that give an agent tools of their own call the
+same functions in `zumen.tools`, whose results are JSON with a documented schema and bounded sizes
+([Tools for AI agents](bindings/python/README.md#tools-for-ai-agents)).
 
 ```bash
 cargo run --release -p zumen-cli -- render plan.jww -o plan.png --dpi 150 --map plan.json

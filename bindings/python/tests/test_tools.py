@@ -101,6 +101,15 @@ def test_every_result_follows_the_documented_schema(tmp_path):
     check(comparison, tools.ComparisonInfo)
 
 
+def test_the_schema_converts_to_json_schema():
+    pydantic = pytest.importorskip("pydantic")
+    scene = zumen.read(SFC)
+    for hint in [tools.Summary, tools.RenderInfo, tools.TextPage, tools.EntityPage, tools.EntityDetail]:
+        assert pydantic.TypeAdapter(hint).json_schema()["type"] == "object"
+    detail = tools.get_entity(scene, "#640")
+    assert pydantic.TypeAdapter(tools.EntityDetail).validate_python(detail) == detail
+
+
 def test_summarizes_a_drawing():
     info = tools.summary(zumen.read(SFC))
     assert (info["format"], info["version"], info["views"]) == ("sfc", "SXF 3.1", None)

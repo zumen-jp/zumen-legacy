@@ -4,6 +4,15 @@ All packages share one version during 0.x.
 
 ## Unreleased (0.1.0)
 
+- Python: `zumen.tools`, the functions behind the MCP tools for applications that give an AI agent tools of their
+  own (`summary`, `render`, `find_texts`, `find_entities`, `get_entity`, `measure`, `compare_revisions`, `Drawings`).
+  Their results are JSON with keys described by `TypedDict` classes that are part of the API, bounded by `limit`,
+  `max_text_length`, `max_points` and the image size, and they take regions in paper millimeters or as fractions of
+  the frame (`frame_region`, the scene's bounds with the origin at the top left). `get_entity` and
+  `find_entities(geometry=True)` return the geometry of entities as drawn. `zumen.mcp` wraps them and its tools gain
+  `frame_region`, `geometry` and `max_points` ([decision 0009](docs/decisions/0009-tool-functions-for-agents.md)).
+- Python: `Scene.entity(id)` has the `primitives` an entity draws (lines as points, fills, clipped hatch lines, dots and
+  text runs, in paper millimeters), and `Scene.entities(geometry=True)` gives them for every entity.
 - Stable keys in the scene model, the same in TypeScript, Rust and every format: `SceneEntity.kind` (`line`, `arc`,
   `text`, `dimension`, … listed in `ENTITY_KINDS`) next to the Japanese `type`, and `Property.key` (`layer`, `color`,
   `start`, `radius`, `dimensionType`, …) next to the Japanese `label`, with the unformatted value in `Property.raw`
