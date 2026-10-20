@@ -1,8 +1,8 @@
 //! zumen: 建築・土木の 2D 図面を読み、形式に依存しない表示用モデル（`Scene`）にする。
 //!
-//! 形式は拡張子ではなく中身で判定する。読める形式は SXF（SFC・P21、圧縮した P2Z・SFZ）・JWW・DXF・DWG。
+//! 形式は拡張子ではなく中身で判定する。読める形式は SXF（SFC・P21、圧縮した P2Z・SFZ）・JWW（JWC・JWS も）・DXF・DWG。
 //! 受け取った図面を信用できないときは、`ReadDrawingOptions::limits` でバイト数・図形の数・時間の上限を指定する。
-//! どの図面も AutoCAD の図面のモデルを経て、AutoCAD 2013 の DXF と SXF（SFC）に書き直せる（`convert`）。
+//! どの図面も AutoCAD の図面のモデルを経て、DXF・DWG・JWW・SXF に書き直せる（`convert`）。
 //! 図面をその場で編集し（`edit`）、新しい図面を作れる（`create`）。操作は形式によらない（`edit::parse_operations`）。
 //!
 //! ```no_run
@@ -25,12 +25,12 @@ pub use zumen_sxf as sxf;
 
 /// 組み込みの読み取り（判定する順）
 pub fn readers() -> Vec<&'static dyn DrawingReader> {
-    vec![&zumen_sxf::SXF, &zumen_jww::JWW, &zumen_dxf::DXF, &zumen_dwg::DWG]
+    vec![&zumen_sxf::SXF, &zumen_jww::JWW, &zumen_jww::JWC, &zumen_jww::JWS, &zumen_dxf::DXF, &zumen_dwg::DWG]
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ReadDrawingOptions {
-    /// 分かっている場合の形式（sfc・p21・p2z・sfz・jww・dxf・dwg など）。省略すると中身から判定する
+    /// 分かっている場合の形式（sfc・p21・p2z・sfz・jww・jwc・jws・dxf・dwg）。省略すると中身から判定する
     pub format: Option<String>,
     /// 描く表示（Scene.views の id）。省略すると形式ごとの既定の表示
     pub view: Option<String>,
@@ -50,13 +50,15 @@ pub struct Converted {
     pub notices: Vec<Notice>,
 }
 
-/// 書き出せる形式（dxf は AutoCAD 2013 の DXF、sfc は SXF Ver.3.1 の SFC）
-pub const WRITABLE_FORMATS: [&str; 2] = ["dxf", "sfc"];
+/// 書き出せる形式。dxf は AutoCAD 2013 の DXF（版を選べる）、dwg は AutoCAD 2013 の DWG、jww は Jw_cad 8 の JWW、
+/// sfc・p21（圧縮した sfz・p2z）は SXF Ver.3.1（版を選べる）
+pub const WRITABLE_FORMATS: [&str; 7] = ["dxf", "dwg", "jww", "sfc", "p21", "sfz", "p2z"];
 
-/// 図面を読み、別の形式に書き直す。`to` は書く形式で、dxf（ASCII、AutoCAD 2013 形式、UTF-8）か sfc（SXF Ver.3.1、
-/// CP932）。どの図面も AutoCAD の図面のモデル（`dxf::DxfDocument`）を経る。DXF・DWG はそのまま読み、SXF・JWW は
-/// モデルに写す（`mapping`。モデル空間は実寸、縮尺ごとに用紙のレイアウトのビューポート）。SFC は、モデルを SXF の
-/// 図面に写して書く（`mapping::dxf_to_sxf`。ビューポートは部分図、ブロックは作図部品）
+/// 図面を読み、別の形式に書き直す。`to` は書く形式（`WRITABLE_FORMATS`）。どの図面も AutoCAD の図面のモデル
+/// （`dxf::DxfDocument`）を経る。DXF・DWG はそのまま読み、SXF・JWW（JWC・JWS）はモデルに写す（`mapping`。モデル空間は
+/// 実寸、縮尺ごとに用紙のレイアウトのビューポート）。DXF・DWG はモデルをそのまま書き、JWW はモデルを JWW の図面に
+/// （`mapping::dxf_to_jww`）、SXF はモデルを SXF の図面に写して書く（`mapping::dxf_to_sxf`。ビューポートは部分図、
+/// ブロックは作図部品）
 pub fn convert(bytes: &[u8], to: &str, options: &ReadDrawingOptions) -> Result<Converted, ReadError> {
     convert_with(bytes, to, options, &WriteOptions::default())
 }
@@ -64,9 +66,51 @@ pub fn convert(bytes: &[u8], to: &str, options: &ReadDrawingOptions) -> Result<C
 /// 書き出しの指定
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct WriteOptions {
-    /// 書く版。DXF は R12・2000・2004・2007・2010・2013・2018（`dxf::DxfVersion::parse` が読む名前）。省略すると
-    /// 形式の既定（DXF は 2013）
+    /// 書く版。DXF は R12・2000・2004・2007・2010・2013・2018（`dxf::DxfVersion::parse` が読む名前）、SXF は
+    /// 2.0・3.0・3.1（`sxf::SxfVersion::parse`）。DWG と JWW は選べない。省略すると形式の既定（DXF は 2013、SXF は 3.1）
     pub version: Option<String>,
+}
+
+/// 書く形式と版
+enum Target {
+    Dxf(dxf::DxfVersion),
+    Dwg,
+    Jww,
+    Sxf(&'static str, sxf::SxfVersion),
+}
+
+impl Target {
+    fn parse(to: &str, version: Option<&str>) -> Result<Target, ReadError> {
+        let Some(&to) = WRITABLE_FORMATS.iter().find(|format| **format == to) else {
+            let writable: Vec<String> = WRITABLE_FORMATS.iter().map(|format| format.to_uppercase()).collect();
+            return Err(ReadError::new(format!(
+                "{} には書き出せません（書き出せるのは {}）",
+                to.to_uppercase(),
+                writable.join("・")
+            )));
+        };
+        Ok(match (to, version) {
+            ("dxf", None) => Target::Dxf(dxf::DxfVersion::R2013),
+            ("dxf", Some(name)) => Target::Dxf(dxf::DxfVersion::parse(name).ok_or_else(|| {
+                ReadError::new(format!(
+                    "DXF の版 {name} は書けません（書けるのは R12・2000・2004・2007・2010・2013・2018）"
+                ))
+            })?),
+            ("sfc" | "p21" | "sfz" | "p2z", None) => Target::Sxf(to, sxf::SxfVersion::V3_1),
+            ("sfc" | "p21" | "sfz" | "p2z", Some(name)) => Target::Sxf(
+                to,
+                sxf::SxfVersion::parse(name).ok_or_else(|| {
+                    ReadError::new(format!("SXF の版 {name} は書けません（書けるのは 2.0・3.0・3.1）"))
+                })?,
+            ),
+            ("dwg", None) => Target::Dwg,
+            ("jww", None) => Target::Jww,
+            (other, Some(_)) => {
+                return Err(ReadError::new(format!("{} の版はまだ選べません", other.to_uppercase())));
+            }
+            _ => unreachable!(),
+        })
+    }
 }
 
 /// `convert` に書き出しの指定（版など）を加えたもの
@@ -76,20 +120,7 @@ pub fn convert_with(
     options: &ReadDrawingOptions,
     write: &WriteOptions,
 ) -> Result<Converted, ReadError> {
-    if !WRITABLE_FORMATS.contains(&to) {
-        return Err(ReadError::new(format!("{} には書き出せません（書き出せるのは DXF・SFC）", to.to_uppercase())));
-    }
-    let dxf_version = match (to, write.version.as_deref()) {
-        (_, None) => dxf::DxfVersion::R2013,
-        ("dxf", Some(name)) => dxf::DxfVersion::parse(name).ok_or_else(|| {
-            ReadError::new(format!(
-                "DXF の版 {name} は書けません（書けるのは R12・2000・2004・2007・2010・2013・2018）"
-            ))
-        })?,
-        (other, Some(_)) => {
-            return Err(ReadError::new(format!("{} の版はまだ選べません", other.to_uppercase())));
-        }
-    };
+    let target = Target::parse(to, write.version.as_deref())?;
     let limits = &options.limits;
     if limits.max_bytes.is_some_and(|max| bytes.len() as u64 > max) {
         return Err(limit_error(Limit::Bytes, limits));
@@ -100,41 +131,55 @@ pub fn convert_with(
     };
     let mut notices = NoticeList::new();
     let (doc, exceeded) = zumen_core::limits::with_limits(limits, || -> Result<_, ReadError> {
-        Ok(match format {
-            "dxf" => dxf::parse_dxf(bytes),
-            "dwg" => dwg::read_dwg(bytes).map_err(ReadError::new)?,
-            "jww" => {
-                let mapped = mapping::jww_to_dxf(&jww::read_jww(bytes)?);
-                notices = NoticeList::from_notices(&mapped.notices);
-                mapped.document
-            }
+        let jww = match format {
+            "dxf" => return Ok(dxf::parse_dxf(bytes)),
+            "dwg" => return dwg::read_dwg(bytes).map_err(ReadError::new),
+            "jww" => jww::read_jww(bytes)?,
+            "jwc" => jww::read_jwc(bytes)?,
+            // JWS（図形）は図形の内容を JWW の図面と同じに写す
+            "jws" => jww::read_jws(bytes)?.content,
             format if sxf::SXF.formats().contains(&format) => {
                 let mapped = mapping::sxf_to_dxf(&sxf::parse_sxf(bytes, format)?);
                 notices = NoticeList::from_notices(&mapped.notices);
-                mapped.document
+                return Ok(mapped.document);
             }
             other => return Err(ReadError::new(format!("{} の図面は書き直せません", other.to_uppercase()))),
-        })
+        };
+        let mapped = mapping::jww_to_dxf(&jww);
+        notices = NoticeList::from_notices(&mapped.notices);
+        Ok(mapped.document)
     });
     // 上限（バイト数・時間）を超えたら、途中まで読んだ図面は書かない
     if let Some(limit) = exceeded {
         return Err(limit_error(limit, limits));
     }
     let doc = doc?;
-    let (bytes, written) = if to == "sfc" {
-        let (mapped, exceeded) = zumen_core::limits::with_limits(limits, || mapping::dxf_to_sxf(&doc));
-        if let Some(limit) = exceeded {
-            return Err(limit_error(limit, limits));
-        }
-        for notice in &mapped.notices {
-            notices.add_count(notice.level, &notice.code, notice.message.clone(), notice.count);
-        }
-        let written = sxf::write_sfc(&mapped.drawing);
-        (written.bytes, written.notices)
-    } else {
-        let written = dxf::write_dxf_as(&doc, dxf_version);
-        (written.bytes, written.notices)
-    };
+    let (written, exceeded) = zumen_core::limits::with_limits(limits, || -> Result<_, ReadError> {
+        Ok(match target {
+            Target::Dxf(version) => {
+                let written = dxf::write_dxf_as(&doc, version);
+                (written.bytes, written.notices)
+            }
+            Target::Dwg => {
+                let written = dwg::write_dwg(&doc);
+                (written.bytes, written.notices)
+            }
+            Target::Jww => {
+                let mapped = mapping::dxf_to_jww(&doc);
+                let written = mapped.write();
+                (written.bytes, [mapped.notices, written.notices].concat())
+            }
+            Target::Sxf(format, version) => {
+                let mapped = mapping::dxf_to_sxf(&doc);
+                let written = sxf::write_sxf_version(&mapped.drawing, format, version)?;
+                (written.bytes, [mapped.notices, written.notices].concat())
+            }
+        })
+    });
+    if let Some(limit) = exceeded {
+        return Err(limit_error(limit, limits));
+    }
+    let (bytes, written) = written?;
     for notice in &written {
         notices.add_count(notice.level, &notice.code, notice.message.clone(), notice.count);
     }
@@ -142,7 +187,7 @@ pub fn convert_with(
 }
 
 /// その場で編集できる形式
-pub const EDITABLE_FORMATS: [&str; 1] = ["dxf"];
+pub const EDITABLE_FORMATS: [&str; 7] = ["dxf", "dwg", "jww", "sfc", "p21", "sfz", "p2z"];
 
 /// 図面をその場で編集する（docs/decisions/0012）。元のファイルを保ち、操作した図形だけを書き換えるので、
 /// 形式・版・文字コードと、読み取りが扱わない内容（拡張データ、未対応の図形・オブジェクトなど）は元のまま残る。
@@ -163,17 +208,38 @@ pub fn edit(
     };
     match format {
         "dxf" => dxf::edit_dxf(bytes, operations),
+        "dwg" => dwg::edit_dwg(bytes, operations),
+        "jww" => jww::edit_jww(bytes, operations),
+        "sfc" | "p21" | "sfz" | "p2z" => sxf::edit_sxf(bytes, format, operations),
         other => Err(unsupported_edit(other)),
     }
 }
 
-/// 新しい図面を作り、操作（add・add-layer など）を当てる。to は形式、units は長さの単位
-/// （mm、cm、m、inch、foot、unitless）
+/// 新しい図面を作り、操作（add・add-layer など）を当てる。to は形式（`EDITABLE_FORMATS`）、units は長さの単位
+/// （mm、cm、m、inch、foot、unitless）。JWW と SXF の長さはいつも mm なので、mm 以外は受け付けない
 pub fn create(to: &str, units: &str, operations: &[edit::EditOperation]) -> Result<edit::Edited, edit::EditError> {
     match to {
         "dxf" => dxf::edit_dxf(&dxf::new_dxf(units)?, operations),
+        "dwg" => dwg::edit_dwg(&dwg::new_dwg(units)?, operations),
+        "jww" => jww::edit_jww(&jww::new_jww(), operations_in_mm(to, units, operations)?),
+        "sfc" | "p21" | "sfz" | "p2z" => sxf::edit_sxf(&sxf::new_sxf(to)?, to, operations_in_mm(to, units, operations)?),
         other => Err(unsupported_edit(other)),
     }
+}
+
+/// 長さが mm だけの形式で、units が mm か確かめる
+fn operations_in_mm<'a>(
+    to: &str,
+    units: &str,
+    operations: &'a [edit::EditOperation],
+) -> Result<&'a [edit::EditOperation], edit::EditError> {
+    if units.trim().eq_ignore_ascii_case("mm") {
+        return Ok(operations);
+    }
+    Err(edit::EditError::new(
+        "invalid-value",
+        format!("{} の図面の長さは mm だけです（{units} は選べません）", to.to_uppercase()),
+    ))
 }
 
 fn unsupported_edit(format: &str) -> edit::EditError {
