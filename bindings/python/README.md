@@ -24,13 +24,17 @@ Texts and entities, in paper millimeters with the Y axis up:
 ```python
 for text in scene.texts(region=(100, 50, 200, 120)):  # omit region for the whole sheet
     print(text["id"], text["text"], text["x"], text["y"], text["height"], text["angle"])
-entity = scene.entity("#120")  # id, type, source, layers, bbox, text, properties, placement
+entity = scene.entity("#120")  # id, kind, type, source, layers, bbox, text, properties, values, placement
+entity["kind"], entity["values"]["radius"]  # "circle", 25.0: the same keys in every format
 rows = scene.entities(hidden_layers=[])  # [] includes the layers that the drawing hides
 table = scene.to_arrow()  # a pyarrow.Table, for pandas, Polars or DuckDB (pip install "zumen[arrow]")
 ```
 
 `texts` joins the parts of a text that share a line and puts a line break between lines.
-`properties` are the label and value pairs that the format gives, as in the viewer's property panel.
+`properties` are the label and value pairs that the format gives, as in the viewer's property panel, and `values`
+maps their stable keys (`layer`, `start`, `radius`, `text` …) to the unformatted values, such as numbers and `(x, y)`.
+`kind` (`line`, `text`, `dimension` …) and the keys are the same in every format, while `type` and the labels are
+Japanese ([the list](../../docs/architecture.md#stable-keys)). `scene.metadata_values` does the same for the metadata.
 
 `render` returns the image with the conversion between pixels and paper millimeters and the box of
 every entity drawn, so that an application can tell which entity a vision model refers to:
@@ -106,8 +110,8 @@ claude mcp add zumen -- zumen-mcp --root ~/drawings  # Claude Code; other client
 | `open_drawing` | Format, sheet, views, layers with entity counts, entity types, notices, metadata and the drawing number, revision, title, project, scale and date from the title block |
 | `render_drawing` | A PNG of the sheet or a region (1,568 pixels on the long edge by default), the scale to convert pixels to paper millimeters, and the texts drawn with their pixel boxes |
 | `find_texts` | Texts that contain a query, ignoring full-width and half-width forms, case and spaces |
-| `find_entities` | Entities in a region, by type or layer, with counts by type |
-| `get_entity` | One entity with its properties and the scale of its placement |
+| `find_entities` | Entities in a region, by kind, type or layer, with counts by type |
+| `get_entity` | One entity with its properties (key, label and value), its values by key and the scale of its placement |
 | `measure_distance` | The distance between two points on the sheet and in real-world millimeters |
 | `compare_drawings` | What changed between two revisions: an image of the changes, the regions that changed and the changed entities with their texts |
 
