@@ -8,8 +8,6 @@
 AutoCAD などの **DXF**（Shift_JIS の日本語、バイナリを含む）も TypeScript で読む。
 **DWG**（AutoCAD 2000〜2018）は、GPL の部品を使わない自前の読み取りで、Rust から同じ AutoCAD の図形モデルに読む
 （ブラウザでは、その WebAssembly の build を包む `@zumenjs/dwg` で読む）。
-構造設計データの国内標準 **ST-Bridge**（`.stb`）も 2.0 系・2.1 系を読み、部材を 3D で表示する。
-ブラウザで ST-Bridge を読める JS ライブラリも見つからなかった。
 読み取りを Rust に移し、Python（サーバーやデータ処理）と WebAssembly（ブラウザ）からも同じ結果で使えるようにしている。
 
 > 状態: 公開前（0.x）。npm にはまだ公開していない。
@@ -28,13 +26,11 @@ npm には未公開（0.x の公開準備中）。
 | `@zumenjs/dxf` | `packages/dxf` | `parseDxf`（DWG と共有する AutoCAD の図形モデル）、`dxfToScene`、読み取りの `dxf` |
 | `@zumenjs/dwg` | `packages/dwg` | 読み取りの `dwg`（Rust の DWG の読み取りを WebAssembly にしたもの。`initDwg` か `dwg.load` で読み込む）、`isDwg` |
 | `@zumenjs/react` | `packages/react` | フックだけ。`useDrawingViewer`・`useViewerState`・`useViewerEvent`・`useDrawing` |
-| `@zumenjs/stb` | `packages/stb` | ST-Bridge の読み取り `readStb`・`isStb`（3D の構造モデル）、three.js の表示 `StructureView`（`/three`）、React の `StbViewer`・`useStbFile`（`/react`） |
 
 依存の向きは `@zumenjs/react` → `@zumenjs/viewer` → `@zumenjs/core`、`@zumenjs/sxf`・`@zumenjs/jww`・`@zumenjs/dxf`・
 `@zumenjs/dwg` → `@zumenjs/core` だけ（DWG は Rust だけで読み、`zumen-dwg` が `zumen-dxf` のモデルと変換を使う。
 `@zumenjs/dwg` はその WebAssembly の build を包む）。パッケージは画面の文言と CSS を持たず、画面は利用側が作る
 （試用画面にサンプルがある）。
-`@zumenjs/stb` は 3D の別の系統で、ほかのパッケージに依存しない。
 `@zumenjs/core` は形式を知らず、使う形式の読み取りを `readDrawing` に渡す。形式は拡張子ではなく中身で判定する。
 
 ## できること
@@ -54,8 +50,6 @@ npm には未公開（0.x の公開準備中）。
   背景と見分けにくい色（白背景の白、黒背景の黒）は反対の色で描く。
 - 線の太さどおりの表示と、細線表示の切り替え。
 - 図面の情報（表題欄、作成ソフト、用紙）と、省略・代替した内容の件数（読み取りの注意）。
-- 構造モデル（ST-Bridge 2.0・2.1）の 3D 表示。部材を断面の形で押し出し、階と通り芯を示す。階で絞ると伏図、
-  通り芯で絞ると軸組図になる。部材を選ぶと、断面・材料・階・元の XML の属性を確かめられる。
 
 ## 使い方
 
@@ -180,21 +174,6 @@ const circles = scene.entities.filter((entity) => entity.kind === "circle"); // 
 const radius = circles[0]?.properties.find((property) => property.key === "radius")?.raw; // label は「半径」
 ```
 
-構造モデル（ST-Bridge）は、`useStbFile` で読み、`StbViewer` で 3D に表示する。`readStb` だけなら Node.js でも動く。
-
-```tsx
-import { StbViewer, useStbFile } from "@zumenjs/stb/react";
-
-export function StructureView({ file }: { file: File | null }) {
-  const { model, error } = useStbFile(file);
-  if (error) return <p role="alert">{error.message}</p>;
-  return model ? <StbViewer model={model} style={{ height: 640 }} /> : null;
-}
-```
-
-`StructureModel` は全体座標系の mm・Z 軸上向きで、部材ごとに立体・属性の一覧・元の XML の属性を持つ。
-詳しくは [packages/stb](packages/stb/README.md)（英語）と [ST-Bridge の扱い](docs/formats/st-bridge.md)。
-
 ## Rust と Python
 
 読み取りを Rust（`crates/`）に移し、Python の結合部（`bindings/python`）と WebAssembly（`bindings/wasm`）を作っている。
@@ -274,7 +253,6 @@ Python では、読み取り・描画・書き出しの間 GIL を外す。
 - [JWW の扱い](docs/formats/jww.md)
 - [DXF の扱い（英語）](docs/formats/dxf.md)
 - [DWG の扱い（英語）](docs/formats/dwg.md)
-- [ST-Bridge の扱い](docs/formats/st-bridge.md)
 - [検証の記録（英語）](docs/verification.md)
 - [設計の判断の記録（英語）](docs/decisions/README.md)
 - [開発への参加（英語）](CONTRIBUTING.md)
@@ -288,7 +266,7 @@ pnpm run check
 ```
 
 `check` は Biome、WebAssembly の読み取りのビルドと正解との比較（`pnpm run wasm`）、型検査、単体テスト、依存監査、
-各パッケージ（core、viewer、sxf・jww・dxf・dwg、react、stb の順）と試用画面のビルドに加え、
+各パッケージ（core、viewer、sxf・jww・dxf・dwg、react の順）と試用画面のビルドに加え、
 Rust（rustfmt・Clippy・テスト・wasm32 のビルド）と Python の結合部（Ruff・maturin・pytest）を検査する。
 WebAssembly の読み取りは `scripts/wasm.mjs` が cargo と wasm-bindgen-cli（`Cargo.lock` の wasm-bindgen と同じ版）で
 `packages/dwg/wasm` に作る。`pnpm dev` と `check` は最初にこれを走らせる。
@@ -302,12 +280,10 @@ Node.js は `.node-version`、pnpm は `package.json` の `packageManager` に�
 試用画面は `pnpm dev` で開く（ポートは [config/local-ports.json](config/local-ports.json) の `playground`、既定 24100）。
 Git に入れない図面は、置いたフォルダーを `ZUMEN_SAMPLES` に指定し、`http://127.0.0.1:24100/?sample=<ファイル名>` で開く。
 ファイルの選択・ドロップでも開ける。図面は公開 API だけで作った 2D のサンプル（`playground/drawing-sample.tsx`）で表示する。
-ST-Bridge は中身で見分けて 3D の表示に切り替える（three.js はそのときだけ読み込む）。
 DWG も中身で見分け、初めて開いたときに WebAssembly の読み取りを読み込む。
 
 ## ライセンス
 
 公開の前に決める。参照した第三者のソフトウェア・資料は [packages/jww/THIRD_PARTY_NOTICES.md](packages/jww/THIRD_PARTY_NOTICES.md)、
-[packages/dxf/THIRD_PARTY_NOTICES.md](packages/dxf/THIRD_PARTY_NOTICES.md)、
-[packages/stb/THIRD_PARTY_NOTICES.md](packages/stb/THIRD_PARTY_NOTICES.md) に記録した。
+[packages/dxf/THIRD_PARTY_NOTICES.md](packages/dxf/THIRD_PARTY_NOTICES.md) に記録した。
 `zumen-render` に同梱するフォントは BIZ UDゴシック（SIL Open Font License 1.1、[crates/zumen-render/fonts/OFL.txt](crates/zumen-render/fonts/OFL.txt)）。
