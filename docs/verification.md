@@ -2,6 +2,38 @@
 
 Sample drawings are not part of this repository, because their terms of use do not allow redistribution or have not been confirmed.
 
+## Windows native verification
+
+Checked on 2026-10-20 with Windows 11, PowerShell 7, Node.js 24.21.0, Rust 1.99.0 MSVC,
+wasm-bindgen 0.2.129, Python 3.14.8 and Jw_cad 10.3.6. Samples and exported drawings stayed outside the repository.
+
+- `pnpm run check` passes, including Chromium, native Rust, WebAssembly and Python. The Python suite reports
+  42 passed and one skip: this account cannot create symlinks. Its separate directory-junction containment test
+  passes without enabling Developer Mode. A conversion test now compares viewport scale ratios with a relative
+  tolerance of 1e-12: MSVC's `hypot` differed by one ULP for equal X and Y scales.
+- The release `cp310-abi3-win_amd64` wheel installs into a fresh virtual environment in a Japanese path with spaces.
+  The installed extension imports, reads a Japanese drawing filename, returns the same JSON as reading its bytes,
+  and renders PNG outside the source tree.
+- All 15 JWW samples bundled with Jw_cad give the same scenes in TypeScript and native Rust. Script tests also
+  run a copied CLI from a Japanese path, compare every DXF view, and require missing executables, malformed drawings
+  and zero comparisons to fail instead of silently passing.
+- The installed MS Gothic and MS Mincho fonts are exercised in Chromium with Japanese text, half-width katakana,
+  punctuation, vertical writing and 30-degree rotation. Tests check visible glyph pixels and hit areas. They use the
+  normal fallback families on systems without those fonts; they do not prove identical platform font metrics.
+- Jw_cad's bundled apartment plan (1,754 entities) exposed crossed rectangular wall solids in both readers.
+  Preserving the JWW serialized boundary order fixes them in the playground and in the DXF opened by Jw_cad.
+  Synthetic rectangles, skewed quadrilaterals and triangles in versions 600 and 700 pin the rule in both readers.
+- Exporting that plan to SFC initially lost strokes using predefined widths when opened in Jw_cad. Its own SFC
+  export declares those widths; adding the declarations restores the walls, arcs and fills. Re-saving the imported
+  drawing as JWW preserves all 215 arcs/circles/ellipses, 56 texts and 10 points. Jw_cad expands the hatches into
+  many lines (509,215 scene entities after import), so raw entity counts cannot be used as a round-trip oracle.
+  The writer regression explicitly checks the declarations, since our own reader accepts the missing declarations.
+
+Limits: Jw_cad imports the DXF model at its chosen scale (1:50 here) and maps some cyan truecolor entities to yellow;
+this is not a successful paper-layout or color-fidelity check. SFC retains the sheet appearance but its hatch
+expansion makes editing expensive. AutoCAD was not installed, so native DWG/DXF rendering and AutoCAD round trips
+remain unverified. No claim of pixel-identical text or complete CAD interoperability follows from these checks.
+
 ## SXF and JWW
 
 Checked on 2026-10-18 on macOS (Apple Silicon), Node.js 24.21.0 and Chromium.

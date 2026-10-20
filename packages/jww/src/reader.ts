@@ -347,9 +347,9 @@ function readEntityBody(reader: Reader, className: string, version: number): Jww
         const [cx, cy, radius, flatness, tilt, start, sweep, mode] = values;
         return { kind: "circle-solid", ...base, cx, cy, radius, flatness, tilt, start, sweep, mode, color };
       }
-      // 値の並びは 始点・終点・第 2 点・第 3 点。四角形の順は 始点 → 第 2 点 → 第 3 点 → 終点
-      const [x1, y1, x4, y4, x2, y2, x3, y3] = values;
-      return { kind: "solid", ...base, points: [x1, y1, x2, y2, x3, y3, x4, y4], color };
+      // JWW 形式説明「ソリッドデータ」CDataSolid::Serialize の格納順で輪郭をたどる。
+      // メンバー名の点番号で並べ替えると矩形が交差する（Jw_cad で照合。docs/formats/jww.md）。
+      return { kind: "solid", ...base, points: values, color };
     }
     case "CDataBlock": {
       const base = readBase(reader, version);

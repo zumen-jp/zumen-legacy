@@ -10,7 +10,7 @@
 
 use crate::document::{SxfDocument, SxfDrawing};
 use crate::features::{Annotation, Arrow, ExtensionLine, Region, Styled, SxfFeature};
-use crate::tables::{PREDEFINED_COLORS, PREDEFINED_LINE_TYPES};
+use crate::tables::{PREDEFINED_COLORS, PREDEFINED_LINE_TYPES, PREDEFINED_WIDTHS};
 use encoding_rs::SHIFT_JIS;
 use std::collections::{HashMap, HashSet};
 use zumen_core::{Notice, NoticeLevel, NoticeList};
@@ -411,10 +411,11 @@ fn drawable(feature: &SxfFeature) -> Option<(&'static str, &'static str, Vec<Par
 }
 
 /// 要素が使う色・線種のコード
-fn codes(feature: &SxfFeature, colors: &mut HashSet<u64>, line_types: &mut HashSet<u64>) {
+fn codes(feature: &SxfFeature, colors: &mut HashSet<u64>, line_types: &mut HashSet<u64>, widths: &mut HashSet<u64>) {
     let mut style = |style: &Styled| {
         colors.insert(style.color.to_bits());
         line_types.insert(style.line_type.to_bits());
+        widths.insert(style.line_width.to_bits());
     };
     match feature {
         SxfFeature::Line { style: s, .. }
@@ -444,6 +445,7 @@ fn codes(feature: &SxfFeature, colors: &mut HashSet<u64>, line_types: &mut HashS
             for pattern in patterns {
                 colors.insert(pattern.color.to_bits());
                 line_types.insert(pattern.line_type.to_bits());
+                widths.insert(pattern.line_width.to_bits());
             }
         }
         _ => {}
@@ -516,17 +518,19 @@ pub fn write_sfc(drawing: &SxfDrawing) -> SfcWritten {
     // 既定義の色・線種のうち使うもの（コード 1〜16 は宣言の順によらない）
     let mut colors = HashSet::new();
     let mut line_types = HashSet::new();
+    let mut widths = HashSet::new();
     let all_members = doc
         .sheet_members
         .iter()
         .chain(doc.sub_figures.values().flat_map(|figure| figure.members.iter()))
         .chain(doc.composite_curves.iter().flat_map(|curve| curve.members.iter()));
     for feature in all_members {
-        codes(feature, &mut colors, &mut line_types);
+        codes(feature, &mut colors, &mut line_types, &mut widths);
     }
     for curve in &doc.composite_curves {
         colors.insert(curve.feature.color.to_bits());
         line_types.insert(curve.feature.line_type.to_bits());
+        widths.insert(curve.feature.line_width.to_bits());
     }
     for (index, color) in PREDEFINED_COLORS.iter().enumerate() {
         if colors.contains(&((index + 1) as f64).to_bits()) {
@@ -548,6 +552,13 @@ pub fn write_sfc(drawing: &SxfDrawing) -> SfcWritten {
             "",
             vec![Text(line_type.name.clone()), Num(line_type.pitch.len() as f64), List(line_type.pitch.clone())],
         );
+    }
+    // 附属書 SFC 編 1-3-17（線幅）: 既定義コードも width_feature で宣言する。
+    // Jw_cad 10.3.6 は宣言のない線幅の線・ハッチング境界を読み落とす（docs/formats/sxf.md）。
+    for (index, width) in PREDEFINED_WIDTHS.iter().enumerate() {
+        if widths.contains(&((index + 1) as f64).to_bits()) {
+            writer.feature(0.0, "width_feature", "", vec![Num(*width)]);
+        }
     }
     for width in &doc.user_widths {
         writer.feature(width.id, "width_feature", "", vec![Num(width.width)]);

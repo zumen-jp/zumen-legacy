@@ -1,0 +1,300 @@
+{
+  "format": "jww",
+  "version": "JWW 700",
+  "unit": "millimeter",
+  "sheet": {
+    "name": "",
+    "size": "A3",
+    "width": 420,
+    "height": 297
+  },
+  "bounds": {
+    "minX": 0,
+    "minY": 0,
+    "maxX": 420,
+    "maxY": 297
+  },
+  "layers": [
+    {
+      "id": 1,
+      "name": "0-0 通り芯",
+      "visible": true,
+      "group": "平面"
+    }
+  ],
+  "entities": [
+    {
+      "id": "#1",
+      "kind": "solid",
+      "type": "ソリッド",
+      "source": "CDataSolid",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "fill",
+          "color": "#c0c0c0",
+          "rings": [
+            [
+              210,
+              148.5,
+              210,
+              158.5,
+              230,
+              158.5,
+              230,
+              148.5
+            ]
+          ]
+        }
+      ],
+      "bbox": {
+        "minX": 210,
+        "minY": 148.5,
+        "maxX": 230,
+        "maxY": 158.5
+      },
+      "placement": {
+        "name": "平面（1/100）",
+        "scaleX": 0.01,
+        "scaleY": 0.01,
+        "inverse": [
+          100,
+          0,
+          0,
+          100,
+          -21000,
+          -14850
+        ]
+      },
+      "properties": [
+        {
+          "key": "type",
+          "label": "種類",
+          "value": "ソリッド"
+        },
+        {
+          "key": "id",
+          "label": "番号",
+          "value": "#1"
+        },
+        {
+          "key": "layer",
+          "label": "レイヤ",
+          "value": "平面 / 0-0 通り芯",
+          "raw": 1
+        },
+        {
+          "key": "scale",
+          "label": "縮尺",
+          "value": "1/100",
+          "raw": 100
+        },
+        {
+          "key": "color",
+          "label": "線色",
+          "value": "10",
+          "raw": 10
+        },
+        {
+          "key": "lineType",
+          "label": "線種",
+          "value": "1",
+          "raw": 1
+        }
+      ]
+    },
+    {
+      "id": "#2",
+      "kind": "solid",
+      "type": "ソリッド",
+      "source": "CDataSolid",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "fill",
+          "color": "#c0c0c0",
+          "rings": [
+            [
+              240,
+              148.5,
+              244,
+              158.5,
+              259,
+              156.5,
+              255,
+              146.5
+            ]
+          ]
+        }
+      ],
+      "bbox": {
+        "minX": 240,
+        "minY": 146.5,
+        "maxX": 259,
+        "maxY": 158.5
+      },
+      "placement": {
+        "name": "平面（1/100）",
+        "scaleX": 0.01,
+        "scaleY": 0.01,
+        "inverse": [
+          100,
+          0,
+          0,
+          100,
+          -21000,
+          -14850
+        ]
+      },
+      "properties": [
+        {
+          "key": "type",
+          "label": "種類",
+          "value": "ソリッド"
+        },
+        {
+          "key": "id",
+          "label": "番号",
+          "value": "#2"
+        },
+        {
+          "key": "layer",
+          "label": "レイヤ",
+          "value": "平面 / 0-0 通り芯",
+          "raw": 1
+        },
+        {
+          "key": "scale",
+          "label": "縮尺",
+          "value": "1/100",
+          "raw": 100
+        },
+        {
+          "key": "color",
+          "label": "線色",
+          "value": "10",
+          "raw": 10
+        },
+        {
+          "key": "lineType",
+          "label": "線種",
+          "value": "1",
+          "raw": 1
+        }
+      ]
+    },
+    {
+      "id": "#3",
+      "kind": "solid",
+      "type": "ソリッド",
+      "source": "CDataSolid",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "fill",
+          "color": "#c0c0c0",
+          "rings": [
+            [
+              270,
+              148.5,
+              275,
+              158.5,
+              280,
+              148.5,
+              280,
+              148.5
+            ]
+          ]
+        }
+      ],
+      "bbox": {
+        "minX": 270,
+        "minY": 148.5,
+        "maxX": 280,
+        "maxY": 158.5
+      },
+      "placement": {
+        "name": "平面（1/100）",
+        "scaleX": 0.01,
+        "scaleY": 0.01,
+        "inverse": [
+          100,
+          0,
+          0,
+          100,
+          -21000,
+          -14850
+        ]
+      },
+      "properties": [
+        {
+          "key": "type",
+          "label": "種類",
+          "value": "ソリッド"
+        },
+        {
+          "key": "id",
+          "label": "番号",
+          "value": "#3"
+        },
+        {
+          "key": "layer",
+          "label": "レイヤ",
+          "value": "平面 / 0-0 通り芯",
+          "raw": 1
+        },
+        {
+          "key": "scale",
+          "label": "縮尺",
+          "value": "1/100",
+          "raw": 100
+        },
+        {
+          "key": "color",
+          "label": "線色",
+          "value": "10",
+          "raw": 10
+        },
+        {
+          "key": "lineType",
+          "label": "線種",
+          "value": "1",
+          "raw": 1
+        }
+      ]
+    }
+  ],
+  "notices": [],
+  "metadata": [
+    {
+      "key": "format",
+      "label": "形式",
+      "value": "JWW（版 700）"
+    },
+    {
+      "key": "sheet",
+      "label": "用紙",
+      "value": "A3（420×297mm）"
+    },
+    {
+      "key": "scale",
+      "label": "縮尺",
+      "value": "1/100",
+      "raw": [
+        100
+      ]
+    },
+    {
+      "key": "memo",
+      "label": "メモ",
+      "value": "メモ"
+    }
+  ],
+  "background": "light"
+}
