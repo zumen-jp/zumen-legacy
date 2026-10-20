@@ -11,6 +11,7 @@ format-neutral ``Scene`` in paper millimeters (Y up), the same model as the
 >>> image = scene.render(size=(2000, 2000))  # a PNG and the pixel box of every entity drawn
 >>> changes = zumen.compare(zumen.read("plan-rev1.jww"), scene)  # removed, added and changed entities
 >>> zumen.convert("plan.jww", "dxf").save("plan.dxf")  # every format can be written as DXF
+>>> zumen.edit("plan.dxf", [{"op": "add", "kind": "line", "start": [0, 0], "end": [1000, 0]}]).save("plan.dxf")
 """
 
 from __future__ import annotations
@@ -20,6 +21,8 @@ import os
 from ._zumen import (
     Comparison,
     Converted,
+    Edited,
+    EditError,
     LimitError,
     ReadError,
     RenderError,
@@ -27,14 +30,18 @@ from ._zumen import (
     Scene,
     __version__,
     compare,
+    create,
     detect,
 )
 from ._zumen import convert as _convert
+from ._zumen import edit as _edit
 from ._zumen import read as _read
 
 __all__ = [
     "Comparison",
     "Converted",
+    "EditError",
+    "Edited",
     "LimitError",
     "ReadError",
     "RenderError",
@@ -43,7 +50,9 @@ __all__ = [
     "__version__",
     "compare",
     "convert",
+    "create",
     "detect",
+    "edit",
     "read",
 ]
 
@@ -105,3 +114,27 @@ def convert(
     Raises ``ReadError`` when the drawing cannot be read or written in that format.
     """
     return _convert(_load(source), to, format=format)
+
+
+def edit(
+    source: bytes | bytearray | memoryview | str | os.PathLike[str],
+    operations: object,
+    *,
+    format: str | None = None,
+    max_bytes: int | None = None,
+) -> Edited:
+    """Edit a drawing in place: apply ``operations`` and keep everything else as it was.
+
+    ``operations`` is a list of dicts (or the same as a JSON string): ``{"op": "add", "kind": "line", ...}``,
+    ``{"op": "update", "id": ..., "set": {...}}``, ``{"op": "delete", "id": ...}``, ``{"op": "add-layer", "name":
+    ...}`` and ``{"op": "update-layer", "name": ..., "set": {...}}``. Kinds and keys are the ones that ``Scene``
+    reports (``kind`` and the property keys), and coordinates are the drawing's own (the ``raw`` of properties), not
+    paper millimeters. The format, its version, its text encoding and everything that no operation names stay as they
+    were, including what zumen cannot read. DXF can be edited so far.
+
+    ``Edited.data`` holds the bytes, ``Edited.created`` the ids of the entities and the names of the layers added (in
+    the order of the operations), and ``Edited.notices`` what was written differently, such as a color that the format
+    cannot hold. If any operation cannot be applied, nothing is written and ``EditError`` is raised, with ``code``
+    (``"not-found"``, ``"unknown-key"`` and so on) and ``operation``, the number of the operation (from 0).
+    """
+    return _edit(_load(source), operations, format=format, max_bytes=max_bytes)
