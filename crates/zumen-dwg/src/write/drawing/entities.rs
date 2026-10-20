@@ -14,7 +14,7 @@ use crate::codec::entities::{
 };
 use crate::codec::object::{EntityColor, EntityCommon};
 use crate::codec::{CmColor, RawText};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use zumen_core::NoticeLevel;
 use zumen_dxf::{
     DxfDimension, DxfEmbeddedMText, DxfEntity, DxfEntityBase, DxfEntityData, DxfHatch, DxfHatchEdge, DxfImage,
@@ -223,12 +223,13 @@ impl Writer<'_> {
         let doc = self.doc;
         for (name, handles) in &doc.sort_handles {
             let Some(&index) = self.block_index.get(&upper(name)) else { continue };
+            let written: HashSet<u64> = self.blocks[index].entities.iter().copied().collect();
             let mut entries: Vec<(u64, u64)> = handles
                 .iter()
                 .filter_map(|(entity, sort)| {
                     let entity = self.mapped(entity)?;
                     let sort = u64::from_str_radix(sort, 16).ok()?;
-                    self.blocks[index].entities.contains(&entity).then_some((sort, entity))
+                    written.contains(&entity).then_some((sort, entity))
                 })
                 .collect();
             if entries.is_empty() {

@@ -548,8 +548,13 @@ impl<'a> Writer<'a> {
         let mut paper_blocks: Vec<String> =
             self.blocks.iter().filter(|block| block.paper).map(|block| block.name.clone()).collect();
         paper_blocks.sort_by_key(|name| (upper(name) != PAPER, upper(name)));
+        // 紙空間のブロック（大文字）→ そのレイアウト（同じブロックのレイアウトが重なれば初めのもの）
+        let mut paper_layouts: HashMap<String, &DxfLayout> = HashMap::new();
+        for layout in doc.layouts.iter().filter(|layout| !layout.model) {
+            paper_layouts.entry(upper(&layout.block)).or_insert(layout);
+        }
         for (index, block) in paper_blocks.iter().enumerate() {
-            let source = doc.layouts.iter().find(|layout| !layout.model && upper(&layout.block) == upper(block));
+            let source = paper_layouts.get(&upper(block)).copied();
             let name = source.map_or_else(|| format!("Layout{}", index + 1), |layout| layout.name.clone());
             let handle = match source {
                 Some(layout) => self.keep(&layout.handle),

@@ -8,6 +8,7 @@ use crate::codec::tables::{
     Appid, BlockHeader, Control, Dash, DimStyle, DimValue, EntryName, Layer, Linetype, TextStyle, Vport,
 };
 use crate::codec::{CmColor, RawText};
+use std::collections::HashMap;
 
 /// R2004 以降の CMC の色。ACI（0 BYBLOCK、256 BYLAYER）とトゥルーカラー（0xRRGGBB）
 pub(super) fn cmc(index: f64, true_color: Option<f64>) -> CmColor {
@@ -363,6 +364,9 @@ impl Writer<'_> {
     fn write_block_headers(&mut self, fixed: &super::Fixed) {
         let mut entries = Vec::new();
         let mut extra = vec![0, 0];
+        // ブロック → 描画順の拡張辞書
+        let sort_dictionaries: HashMap<usize, u64> =
+            self.sort_tables.iter().map(|(block, dictionary, ..)| (*block, *dictionary)).collect();
         for index in 0..self.blocks.len() {
             let block = &self.blocks[index];
             let source = block.source.map(|index| &self.doc.blocks[index]);
@@ -411,7 +415,7 @@ impl Writer<'_> {
             };
             let mut out = self.object(49, block.record);
             let mut header = header;
-            if let Some(&(_, dictionary, _, _)) = self.sort_tables.iter().find(|(block, ..)| *block == index) {
+            if let Some(&dictionary) = sort_dictionaries.get(&index) {
                 header.common.xdictionary = Some(href(3, dictionary));
             }
             header.write(&mut out);
