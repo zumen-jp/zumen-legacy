@@ -1,6 +1,7 @@
 {
   "format": "dxf",
   "version": "DXF AC1018",
+  "unit": "meter",
   "views": [
     {
       "id": "Model",

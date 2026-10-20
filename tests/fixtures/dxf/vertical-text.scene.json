@@ -1,6 +1,7 @@
 {
   "format": "dxf",
   "version": "DXF AC1027",
+  "unit": "millimeter",
   "views": [
     {
       "id": "Model",

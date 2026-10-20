@@ -232,6 +232,7 @@ export function sxfToScene(drawing: SxfDrawing, options: SxfSceneOptions = {}): 
   return {
     format: meta.format,
     version: meta.version,
+    unit: "millimeter",
     sheet,
     bounds,
     layers,

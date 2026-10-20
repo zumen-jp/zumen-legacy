@@ -1181,6 +1181,7 @@ fn entity_base(
     DxfEntityBase {
         kind: kind.to_string(),
         handle: hex(handle),
+        ordinal: 0,
         owner: Some(owner.to_string()),
         space,
         block: block.map(str::to_string),

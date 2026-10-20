@@ -4,7 +4,7 @@ Every wheel and the sdist must carry the text of the license of zumen (LICENSE, 
 bundled font (BIZ UDGothic, SIL Open Font License 1.1) is compiled into the extension module, and its license asks
 every copy of the font to carry its text. So a wheel must hold the bytes of the font in its module and the texts of both
 licenses in dist-info/licenses, and the sdist the font and the licenses that building it needs. A wheel must also be an
-abi3 wheel (one file for every Python from 3.10) with a manylinux or macOS tag, never a bare linux_x86_64, unless
+abi3 wheel (one file for every Python from 3.12) with a manylinux or macOS tag, never a bare linux_x86_64, unless
 --any-platform accepts the tag of a wheel that was built on the machine itself.
 """
 
@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[3]
 FONT = (ROOT / "crates/zumen-render/fonts/BIZUDGothic-Regular.ttf").read_bytes()
 LICENSE = (ROOT / "LICENSE").read_bytes()
 FONT_LICENSE = (ROOT / "crates/zumen-render/fonts/OFL.txt").read_bytes()
-WHEEL = re.compile(r"zumen-(?P<version>[^-]+)-cp310-abi3-(?P<platform>[\w.]+)\.whl")
+WHEEL = re.compile(r"zumen-(?P<version>[^-]+)-cp312-abi3-(?P<platform>[\w.]+)\.whl")
 RELEASE_PLATFORM = re.compile(r"(?:manylinux|macosx)_[\w.]+")
 SDIST = re.compile(r"zumen-(?P<version>[^-]+)\.tar\.gz")
 
@@ -28,7 +28,7 @@ def check_wheel(path: Path, any_platform: bool) -> list[str]:
     """Returns what is wrong with a wheel; the list is empty when it is right."""
     match = WHEEL.fullmatch(path.name)
     if match is None:
-        return [f"{path.name} is not named zumen-<version>-cp310-abi3-<platform>.whl"]
+        return [f"{path.name} is not named zumen-<version>-cp312-abi3-<platform>.whl"]
     if not any_platform and RELEASE_PLATFORM.fullmatch(match["platform"]) is None:
         return [f"{path.name} has the platform tag {match['platform']}, which is not manylinux or macOS"]
     with zipfile.ZipFile(path) as wheel:

@@ -6,7 +6,7 @@ build-backend = "maturin"
 name = "zumen"
 description = "Read 2D drawings of Japanese construction (SXF, JWW, DXF and DWG), render them to PNG, SVG and PDF, extract their texts and entities, and compare revisions"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 license = "MIT"
 # zumen の LICENSE と、同梱の BIZ UDGothic のライセンス（SIL OFL 1.1）の全文をホイールの dist-info に入れる。フォントは
 # 拡張モジュールに埋め込まれる。license-files は ../ を使えないので、LICENSE はルートの LICENSE の複製、licenses/ は

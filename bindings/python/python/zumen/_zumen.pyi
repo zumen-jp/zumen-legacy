@@ -1,9 +1,9 @@
 import os
-from typing import Any, Literal, TypeAlias, TypedDict
+from typing import Any, Literal, TypedDict
 
 __version__: str
 
-Box: TypeAlias = tuple[float, float, float, float]
+type Box = tuple[float, float, float, float]
 
 class Placement(TypedDict):
     """Paper millimeters per original millimeter, and the conversion from paper to original coordinates."""
@@ -13,8 +13,31 @@ class Placement(TypedDict):
     scale_y: float
     inverse: tuple[float, float, float, float, float, float]
 
-Point: TypeAlias = tuple[float, float]
-PropertyValue: TypeAlias = float | str | bool | tuple[float, ...]
+type Point = tuple[float, float]
+type PropertyValue = float | str | bool | tuple[float, ...]
+type LengthUnit = Literal[
+    "millimeter",
+    "centimeter",
+    "decimeter",
+    "meter",
+    "decameter",
+    "hectometer",
+    "kilometer",
+    "gigameter",
+    "micrometer",
+    "nanometer",
+    "angstrom",
+    "inch",
+    "foot",
+    "yard",
+    "mile",
+    "microinch",
+    "mil",
+    "us-survey-foot",
+    "astronomical-unit",
+    "light-year",
+    "parsec",
+]
 
 class Polyline(TypedDict):
     """A line through points; curves come as the polyline drawn (type checking only)."""
@@ -57,7 +80,7 @@ class TextPart(TypedDict):
 
 #: A shape drawn, in paper millimeters; ``real`` holds the same coordinates in real-world millimeters when the
 #: entity sits in a placement, and is None otherwise.
-Shape: TypeAlias = Polyline | Segments | Area | Dot | TextPart
+type Shape = Polyline | Segments | Area | Dot | TextPart
 
 class _Entity(TypedDict):
     id: str
@@ -142,6 +165,9 @@ class Scene:
     def format(self) -> str: ...
     @property
     def version(self) -> str: ...
+    @property
+    def unit(self) -> LengthUnit | None:
+        """The length unit of the drawing's own coordinates (the points and lengths in ``values``)."""
     @property
     def background(self) -> Literal["dark", "light"]: ...
     @property

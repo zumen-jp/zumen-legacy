@@ -4,6 +4,7 @@ use crate::model::*;
 use crate::mtext::mtext_plain_text;
 use crate::tags::{TagValue, decode_escapes, read_tags};
 use std::borrow::Cow;
+use std::cell::OnceCell;
 use std::collections::HashMap;
 use zumen_core::{NoticeLevel, NoticeList, js};
 
@@ -118,11 +119,36 @@ struct Parser<'a> {
     layout_records: Vec<(String, DxfLayout)>,
     sort_tables: Vec<(String, HashMap<String, String>)>,
     has_paper_entities: bool,
+    /// タグごとの、そこまでのレコード（グループコード 0）の数。ハンドルのない図形があるときに作る
+    records: OnceCell<Vec<u32>>,
 }
 
 impl<'a> Parser<'a> {
     fn code(&self, k: usize) -> i64 {
         code_at(self.codes, k)
+    }
+
+    /// k 番目のタグで始まるレコードが、ファイルの先頭から何番目のレコード（グループコード 0）か（1 から）
+    fn record_number(&self, k: usize) -> u32 {
+        let records = self.records.get_or_init(|| {
+            let mut count = 0;
+            (0..self.length)
+                .map(|i| {
+                    if self.code(i) == 0 {
+                        count += 1;
+                    }
+                    count
+                })
+                .collect()
+        });
+        records.get(k).copied().unwrap_or(0)
+    }
+
+    /// ハンドルのない図形に、ファイルの中の位置（ordinal）を付ける
+    fn locate(&self, base: &mut DxfEntityBase, start: usize) {
+        if base.handle.is_empty() {
+            base.ordinal = self.record_number(start);
+        }
     }
 
     /// 数の値。文字列は `Number(value) || 0`
@@ -579,7 +605,7 @@ impl<'a> Parser<'a> {
                 // POLYLINE・INSERT に続かない頂点・属性
                 if kind == "ATTRIB" {
                     let attribute = self.attribute(start, end, "ATTRIB", owner);
-                    self.push(Some(attribute));
+                    self.push(Some(attribute), start);
                 }
                 continue;
             }
@@ -591,14 +617,15 @@ impl<'a> Parser<'a> {
                 continue;
             }
             let entity = self.entity(&kind, start, end, owner);
-            self.push(entity);
+            self.push(entity, start);
         }
     }
 
-    fn push(&mut self, entity: Option<DxfEntity>) {
-        let Some(entity) = entity else {
+    fn push(&mut self, entity: Option<DxfEntity>, start: usize) {
+        let Some(mut entity) = entity else {
             return;
         };
+        self.locate(&mut entity.base, start);
         if entity.base.space == DxfSpace::Paper {
             self.has_paper_entities = true;
         }
@@ -636,6 +663,7 @@ impl<'a> Parser<'a> {
         let mut entity = DxfEntityBase {
             kind: kind.to_string(),
             handle: String::new(),
+            ordinal: 0,
             owner: None,
             space: owner.map_or(DxfSpace::Model, |owner| owner.space),
             block: None,
@@ -1194,7 +1222,9 @@ impl<'a> Parser<'a> {
                 let start = self.i;
                 let end = self.next_zero(start);
                 self.i = end;
-                insert.attribs.push(self.attribute(start, end, "ATTRIB", Some(&attribute_owner)));
+                let mut attribute = self.attribute(start, end, "ATTRIB", Some(&attribute_owner));
+                self.locate(&mut attribute.base, start);
+                insert.attribs.push(attribute);
             }
             if self.is(self.i, 0, "SEQEND") {
                 self.i = self.next_zero(self.i);
@@ -2212,6 +2242,7 @@ pub fn parse_dxf(bytes: &[u8]) -> DxfDocument {
         layout_records: Vec::new(),
         sort_tables: Vec::new(),
         has_paper_entities: false,
+        records: OnceCell::new(),
     };
     parser.parse()
 }

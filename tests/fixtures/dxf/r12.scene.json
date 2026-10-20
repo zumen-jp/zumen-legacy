@@ -1,6 +1,7 @@
 {
   "format": "dxf",
   "version": "DXF AC1009",
+  "unit": "inch",
   "views": [
     {
       "id": "Model",
@@ -38,7 +39,7 @@
   ],
   "entities": [
     {
-      "id": "?",
+      "id": "#30",
       "kind": "text",
       "type": "文字",
       "source": "TEXT",
@@ -107,7 +108,7 @@
         {
           "key": "id",
           "label": "ハンドル",
-          "value": "?"
+          "value": "#30"
         },
         {
           "key": "layer",
@@ -150,7 +151,7 @@
       ]
     },
     {
-      "id": "VP:?",
+      "id": "#32:#21",
       "kind": "line",
       "type": "線分",
       "source": "LINE",
@@ -190,7 +191,7 @@
         {
           "key": "id",
           "label": "ハンドル",
-          "value": "VP:?"
+          "value": "#32:#21"
         },
         {
           "key": "layer",
@@ -254,7 +255,7 @@
       }
     },
     {
-      "id": "VP:?",
+      "id": "#32:#22",
       "kind": "polyline",
       "type": "ポリライン",
       "source": "POLYLINE",
@@ -358,7 +359,7 @@
         {
           "key": "id",
           "label": "ハンドル",
-          "value": "VP:?"
+          "value": "#32:#22"
         },
         {
           "key": "layer",
@@ -404,7 +405,7 @@
       }
     },
     {
-      "id": "VP:?>?",
+      "id": "#32:#27>#16",
       "kind": "circle",
       "type": "円",
       "source": "CIRCLE",
@@ -501,7 +502,7 @@
         {
           "key": "id",
           "label": "ハンドル",
-          "value": "VP:?>?"
+          "value": "#32:#27>#16"
         },
         {
           "key": "layer",
@@ -561,7 +562,7 @@
       }
     },
     {
-      "id": "VP:?>?",
+      "id": "#32:#27>#28",
       "kind": "attribute",
       "type": "属性",
       "source": "ATTRIB",
@@ -620,7 +621,7 @@
         {
           "key": "id",
           "label": "ハンドル",
-          "value": "VP:?>?"
+          "value": "#32:#27>#28"
         },
         {
           "key": "layer",
@@ -686,7 +687,7 @@
       }
     },
     {
-      "id": "?",
+      "id": "#32",
       "kind": "viewport",
       "type": "ビューポート",
       "source": "VIEWPORT",
@@ -727,7 +728,7 @@
         {
           "key": "id",
           "label": "ハンドル",
-          "value": "?"
+          "value": "#32"
         },
         {
           "key": "layer",

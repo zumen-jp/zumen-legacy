@@ -19,6 +19,12 @@ export interface DxfEntityBase {
   type: string;
   /** ハンドル（5、16 進の大文字）。ハンドルを持たない R12 の図面では空文字 */
   handle: string;
+  /**
+   * ハンドルのない図形の、ファイルの中の位置。ファイルの先頭から数えて何番目のレコード（グループコード 0 で始まる
+   * セクション・表・図形・頂点など）か（1 から）。読める種類が増えても同じファイルでは変わらず、ハンドルと同じく
+   * ファイルの中で重ならない。id に使う（docs/architecture.md の「Entity ids」）
+   */
+  ordinal?: number;
   /** 所有者（330）。ブロック定義・レイアウトの BLOCK_RECORD のハンドル */
   owner?: string;
   space: DxfSpace;
