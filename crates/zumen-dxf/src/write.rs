@@ -1,5 +1,5 @@
 //! AutoCAD の図面のモデル（`DxfDocument`）を DXF（ASCII、既定は AutoCAD 2013 形式の AC1027、UTF-8）に書く。
-//! `write_dxf_as` で AutoCAD 2000〜2018 の版を選べる。版にない値（2004 より前のトゥルーカラー・透過度・グラデーション・
+//! `write_dxf_as` で AutoCAD R12・2000〜2018 の版を選べる（R12 は先に `r12::prepare` で R12 の図形にする）。版にない値（2004 より前のトゥルーカラー・透過度・グラデーション・
 //! 新しい寸法、2007 より前の MTEXT の背景）は別の形で書くか省き、notices で知らせる。2007 より前の版は文字列を図面の
 //! コードページ（西欧のものなら、文字列を最も多く表せるもの）で書く（表せない文字は \U+XXXX。DXF Reference
 //! 「Storage of String Values」）。
@@ -15,7 +15,7 @@
 use crate::colors::nearest_aci;
 use crate::model::{
     DxfBlock, DxfDocument, DxfEmbeddedMText, DxfEntity, DxfEntityBase, DxfEntityData, DxfHatch, DxfHatchEdge, DxfImage,
-    DxfLayout, DxfMLeader, DxfMLine, DxfMLineStyle, DxfMText, DxfPolyline, DxfSpace, DxfTextBase, Vec3,
+    DxfLayout, DxfMLeader, DxfMLine, DxfMLineStyle, DxfMText, DxfPolyline, DxfSpace, DxfTextBase, DxfViewport, Vec3,
 };
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
@@ -108,12 +108,14 @@ pub fn write_dxf(doc: &DxfDocument) -> DxfWritten {
     DxfWritten { bytes: writer.out.text.into_bytes(), notices: writer.notices.into_vec() }
 }
 
-/// 版を選んで DXF にする。R12 はまだ書けない
-pub fn write_dxf_as(doc: &DxfDocument, version: DxfVersion) -> Result<DxfWritten, String> {
-    if version == DxfVersion::R12 {
-        return Err("R12 の DXF はまだ書けません（書けるのは 2000〜2018）".into());
-    }
+/// 版を選んで DXF にする。R12 は、R12 にない図形を R12 の図形にしてから書く（`r12::prepare`）
+pub fn write_dxf_as(doc: &DxfDocument, version: DxfVersion) -> DxfWritten {
+    let prepared = (version == DxfVersion::R12).then(|| crate::r12::prepare(doc));
+    let doc = prepared.as_ref().map_or(doc, |prepared| &prepared.doc);
     let mut writer = Writer::new(doc, version);
+    if let Some(prepared) = &prepared {
+        writer.notices = prepared.notices.clone();
+    }
     writer.write();
     let text = std::mem::take(&mut writer.out.text);
     let bytes = if version >= DxfVersion::R2007 {
@@ -122,7 +124,7 @@ pub fn write_dxf_as(doc: &DxfDocument, version: DxfVersion) -> Result<DxfWritten
         let (codepage, encoding) = codepage_for(doc, &text);
         encode_with_escapes(&text.replacen("CODEPAGE_PLACEHOLDER", codepage, 1), encoding)
     };
-    Ok(DxfWritten { bytes, notices: writer.notices.into_vec() })
+    DxfWritten { bytes, notices: writer.notices.into_vec() }
 }
 
 /// AutoCAD 2007 より前の版の $DWGCODEPAGE と文字コード。元の図面のコードページ（西欧以外）、読んだときの文字コード
@@ -201,6 +203,8 @@ fn aci_sign(color: f64, aci: f64) -> f64 {
 /// グループコードと値の行
 struct Out {
     text: String,
+    /// R12 の書き方。サブクラスの印（100）と所有者などのハンドルの参照（330・360）は R13 からなので書かない
+    r12: bool,
 }
 
 /// 実数。最短で元の値に戻る表し方にし、整数にも小数点を付ける
@@ -226,6 +230,9 @@ fn int32(value: f64) -> i32 {
 
 impl Out {
     fn tag(&mut self, code: i32, value: impl std::fmt::Display) {
+        if self.r12 && matches!(code, 100 | 330 | 360) {
+            return;
+        }
         let _ = write!(self.text, "{code:>3}\r\n{value}\r\n");
     }
 
@@ -466,7 +473,7 @@ impl<'a> Writer<'a> {
             doc,
             version,
             color_override: None,
-            out: Out { text: String::new() },
+            out: Out { text: String::new(), r12: version == DxfVersion::R12 },
             handles: Handles::new(doc),
             notices: NoticeList::new(),
             blocks: Vec::new(),
@@ -629,7 +636,10 @@ impl<'a> Writer<'a> {
         let tables: Vec<u64> = (0..9).map(|_| self.handles.fresh()).collect();
         let root = self.handles.fresh();
         self.header();
-        self.classes();
+        // R12 はクラスと OBJECTS の節を持たない
+        if !self.r12() {
+            self.classes();
+        }
         self.tables(&tables);
         for entity in all_entities(self.doc) {
             let handle = self.keep(&entity.base.handle);
@@ -637,11 +647,18 @@ impl<'a> Writer<'a> {
         }
         self.blocks_section();
         self.entities_section();
-        self.objects(root);
+        if !self.r12() {
+            self.objects(root);
+        }
         self.out.tag(0, "EOF");
         // $HANDSEED は最後に決まるので、見出しの仮の値を置き換える
         let seed = format!("{:X}", self.handles.next + 1);
         self.out.text = self.out.text.replacen("HANDSEED_PLACEHOLDER", &seed, 1);
+    }
+
+    /// R12 の書き方か
+    fn r12(&self) -> bool {
+        self.version == DxfVersion::R12
     }
 
     fn section(&mut self, name: &str) {
@@ -651,22 +668,33 @@ impl<'a> Writer<'a> {
 
     fn header(&mut self) {
         let header = &self.doc.header;
+        let r12 = self.r12();
         self.section("HEADER");
         let out = &mut self.out;
         out.tag(9, "$ACADVER");
         out.tag(1, self.version.code());
-        out.tag(9, "$ACADMAINTVER");
-        out.tag(70, self.version.maintenance());
+        // $ACADMAINTVER・$INSUNITS・$MEASUREMENT は 2000 から（ezdxf の headervars.py の mindxf）。R12 は図形に
+        // ハンドルを付けることを $HANDLING で示す
+        if !r12 {
+            out.tag(9, "$ACADMAINTVER");
+            out.tag(70, self.version.maintenance());
+        }
         // AutoCAD 2007 以降は UTF-8 で、AutoCAD は値を見ない。それより前は書いた後に文字コードと一緒に決める
         out.tag(9, "$DWGCODEPAGE");
         out.tag(3, "CODEPAGE_PLACEHOLDER");
+        if r12 {
+            out.tag(9, "$HANDLING");
+            out.tag(70, 1);
+        }
         out.tag(9, "$HANDSEED");
         out.tag(5, "HANDSEED_PLACEHOLDER");
-        out.tag(9, "$INSUNITS");
-        out.int(70, header.insunits);
-        if let Some(measurement) = header.measurement {
-            out.tag(9, "$MEASUREMENT");
-            out.int(70, measurement);
+        if !r12 {
+            out.tag(9, "$INSUNITS");
+            out.int(70, header.insunits);
+            if let Some(measurement) = header.measurement {
+                out.tag(9, "$MEASUREMENT");
+                out.int(70, measurement);
+            }
         }
         for (name, value) in [
             ("$LTSCALE", header.ltscale),
@@ -778,10 +806,13 @@ impl<'a> Writer<'a> {
         self.out.tag(0, "ENDSEC");
     }
 
+    /// 表の始め。R12 の表と表の項目はハンドルを持たない
     fn table(&mut self, name: &str, handle: u64, count: usize) {
         self.out.tag(0, "TABLE");
         self.out.tag(2, name);
-        self.out.handle(5, handle);
+        if !self.r12() {
+            self.out.handle(5, handle);
+        }
         self.out.tag(330, 0);
         self.out.tag(100, "AcDbSymbolTable");
         self.out.tag(70, count);
@@ -792,7 +823,9 @@ impl<'a> Writer<'a> {
 
     fn record(&mut self, kind: &str, handle: u64, owner: u64, subclass: &str, name: &str) {
         self.out.tag(0, kind);
-        self.out.handle(if kind == "DIMSTYLE" { 105 } else { 5 }, handle);
+        if !self.r12() {
+            self.out.handle(if kind == "DIMSTYLE" { 105 } else { 5 }, handle);
+        }
         self.out.handle(330, owner);
         self.out.tag(100, "AcDbSymbolTableRecord");
         self.out.tag(100, subclass);
@@ -828,12 +861,15 @@ impl<'a> Writer<'a> {
         for code in [43, 44, 50, 51] {
             out.real(code, 0.0);
         }
-        for (code, value) in
-            [(71, 0), (72, 1000), (73, 1), (74, 3), (75, 0), (76, 0), (77, 0), (78, 0), (281, 0), (65, 0)]
-        {
+        for (code, value) in [(71, 0), (72, 1000), (73, 1), (74, 3), (75, 0), (76, 0), (77, 0), (78, 0)] {
             out.tag(code, value);
         }
-        out.real(146, 0.0);
+        // UCS の値（281・65・146）は R13 から
+        if !out.r12 {
+            out.tag(281, 0);
+            out.tag(65, 0);
+            out.real(146, 0.0);
+        }
         self.out.tag(0, "ENDTAB");
 
         // LTYPE: ByBlock・ByLayer・Continuous と、図面の線種。図形やレイヤが参照するのに定義がない線種は実線として補う
@@ -914,9 +950,12 @@ impl<'a> Writer<'a> {
             out.tag(72, 65);
             out.tag(73, linetype.dashes.len());
             out.real(40, if linetype.dashes.is_empty() { 0.0 } else { linetype.length });
+            // 線・空白の種類（74。文字・形を含むか）は R13 から
             for dash in &linetype.dashes {
                 out.real(49, *dash);
-                out.tag(74, 0);
+                if !out.r12 {
+                    out.tag(74, 0);
+                }
             }
         }
         self.out.tag(0, "ENDTAB");
@@ -970,6 +1009,7 @@ impl<'a> Writer<'a> {
             }
         }
         self.table("LAYER", ids[2], layers.len());
+        let mut lineweights = 0;
         for layer in &layers {
             let handle = match &layer.handle {
                 Some(original) => self.keep(original),
@@ -996,6 +1036,13 @@ impl<'a> Writer<'a> {
                 out.int(420, true_color);
             }
             out.str(6, &layer.linetype);
+            // 印刷するか（290）・線の太さ（370）・印刷スタイル（390）は 2000 から。R12 は線の太さを持たない
+            if out.r12 {
+                if layer.lineweight >= 0.0 {
+                    lineweights += 1;
+                }
+                continue;
+            }
             if !layer.plot {
                 out.tag(290, 0);
             }
@@ -1006,6 +1053,9 @@ impl<'a> Writer<'a> {
                 out.tag(1001, "AcCmTransparency");
                 out.int(1071, transparency);
             }
+        }
+        if lineweights > 0 {
+            self.version_lineweight(lineweights);
         }
         self.out.tag(0, "ENDTAB");
 
@@ -1031,6 +1081,7 @@ impl<'a> Writer<'a> {
             }
         }
         self.table("STYLE", ids[3], styles.len());
+        let mut families = 0;
         for (name, style) in &styles {
             let handle = match style {
                 Some(style) => self.keep(&style.handle),
@@ -1049,7 +1100,11 @@ impl<'a> Writer<'a> {
                     out.real(42, 2.5);
                     out.str(3, if style.font.is_empty() { "txt" } else { &style.font });
                     out.str(4, &style.bigfont);
-                    if let Some(family) = &style.font_family {
+                    // TrueType のフォントの名前は拡張データ。R12 の表は拡張データを持たない（ezdxf の r12export）
+                    if style.font_family.is_some() && out.r12 {
+                        families += 1;
+                    }
+                    if let Some(family) = style.font_family.as_ref().filter(|_| !out.r12) {
                         out.tag(1001, "ACAD");
                         out.str(1000, family);
                         out.tag(1071, 0);
@@ -1068,6 +1123,14 @@ impl<'a> Writer<'a> {
             }
         }
         self.out.tag(0, "ENDTAB");
+        if families > 0 {
+            self.notices.add_count(
+                NoticeLevel::Info,
+                "version-font-family",
+                "TrueType のフォント名（縦書きの @ を含む）は、AutoCAD R12 の文字スタイルに書けないため、フォントのファイルだけを書きました",
+                families,
+            );
+        }
 
         // VIEW・UCS（空）、APPID
         self.table("VIEW", ids[4], 0);
@@ -1125,7 +1188,11 @@ impl<'a> Writer<'a> {
         }
         self.out.tag(0, "ENDTAB");
 
-        // BLOCK_RECORD
+        // BLOCK_RECORD（R13 から）
+        if self.r12() {
+            self.out.tag(0, "ENDSEC");
+            return;
+        }
         self.table("BLOCK_RECORD", ids[8], self.blocks.len());
         for index in 0..self.blocks.len() {
             let (handle, name, layout) =
@@ -1169,8 +1236,15 @@ impl<'a> Writer<'a> {
                 block.paper,
             );
             let key = upper(&name);
+            // R12 はモデル空間・紙空間のブロックを持たない（図形は ENTITIES 節にある）
+            let r12 = self.r12();
+            if r12 && (key == MODEL || paper) {
+                continue;
+            }
             self.out.tag(0, "BLOCK");
-            self.out.handle(5, begin);
+            if !r12 {
+                self.out.handle(5, begin);
+            }
             self.out.handle(330, handle);
             self.out.tag(100, "AcDbEntity");
             if paper {
@@ -1190,7 +1264,9 @@ impl<'a> Writer<'a> {
                 }
             }
             self.out.tag(0, "ENDBLK");
-            self.out.handle(5, end);
+            if !r12 {
+                self.out.handle(5, end);
+            }
             self.out.handle(330, handle);
             self.out.tag(100, "AcDbEntity");
             if paper {
@@ -1670,13 +1746,15 @@ impl<'a> Writer<'a> {
         }
         let dropped_color = old && base.true_color.is_some();
         let dropped_transparency = old && base.transparency.is_some();
-        if base.lineweight != -1.0 {
+        // 線の太さ（370）は 2000 から、線種の尺度（48）・非表示（60）は R13 から
+        let r12 = out.r12;
+        if base.lineweight != -1.0 && !r12 {
             out.int(370, base.lineweight);
         }
-        if base.linetype_scale != 1.0 {
+        if base.linetype_scale != 1.0 && !r12 {
             out.real(48, base.linetype_scale);
         }
-        if base.invisible {
+        if base.invisible && !r12 {
             out.tag(60, 1);
         }
         if dropped_color {
@@ -1684,6 +1762,16 @@ impl<'a> Writer<'a> {
         }
         if dropped_transparency {
             self.version_transparency();
+        }
+        if r12 && base.lineweight >= 0.0 {
+            self.version_lineweight(1);
+        }
+        if r12 && base.linetype_scale != 1.0 {
+            self.notices.add(
+                NoticeLevel::Info,
+                "version-linetype-scale",
+                "図形ごとの線種の尺度は、AutoCAD R12 にないため、書きませんでした",
+            );
         }
         handle
     }
@@ -1701,6 +1789,15 @@ impl<'a> Writer<'a> {
             NoticeLevel::Info,
             "version-transparency",
             "透過度は、AutoCAD 2004 より前の版にないため、書きませんでした",
+        );
+    }
+
+    fn version_lineweight(&mut self, count: u64) {
+        self.notices.add_count(
+            NoticeLevel::Info,
+            "version-lineweight",
+            "線の太さは、AutoCAD R12 にないため、書きませんでした",
+            count,
         );
     }
 
@@ -1725,6 +1822,11 @@ impl<'a> Writer<'a> {
                 "image",
                 "画像（IMAGE）は、画像のファイルへの参照を読んでいないため省きました",
             );
+            return;
+        }
+        // R12 に書く図面は、R12 にない図形を先に r12::prepare で R12 の図形にしてある
+        if self.r12() && !r12_native(&entity.data) {
+            self.notices.add(NoticeLevel::Warning, "version-skipped", "AutoCAD R12 に書けない図形を省きました");
             return;
         }
         match &entity.data {
@@ -1868,7 +1970,9 @@ impl<'a> Writer<'a> {
                 self.out.tag(100, "AcDbText");
                 self.text_body(base, text);
                 self.out.tag(100, "AcDbAttribute");
-                self.out.tag(280, 0);
+                if !self.r12() {
+                    self.out.tag(280, 0);
+                }
                 self.out.str(2, tag);
                 self.out.int(70, *attribute_flags);
                 if text.valign != 0.0 {
@@ -1881,7 +1985,9 @@ impl<'a> Writer<'a> {
                 self.out.tag(100, "AcDbText");
                 self.text_body(base, text);
                 self.out.tag(100, "AcDbAttributeDefinition");
-                self.out.tag(280, 0);
+                if !self.r12() {
+                    self.out.tag(280, 0);
+                }
                 self.out.str(3, prompt);
                 self.out.str(2, tag);
                 self.out.int(70, *attribute_flags);
@@ -2014,6 +2120,7 @@ impl<'a> Writer<'a> {
                 self.mleader(base, mleader, owner, paper)
             }
             DxfEntityData::MLine(mline) => self.mline(base, mline, owner, paper),
+            DxfEntityData::Viewport(viewport) if self.r12() => self.viewport_r12(base, viewport, owner, paper),
             DxfEntityData::Viewport(viewport) => {
                 self.common("VIEWPORT", base, owner, paper);
                 self.out.tag(100, "AcDbViewport");
@@ -2035,12 +2142,18 @@ impl<'a> Writer<'a> {
                 self.out.real(50, 0.0);
                 self.out.real(51, viewport.view_twist_angle);
                 self.out.tag(72, 1000);
-                // 凍結したレイヤと切り抜きの境界は、書いたレイヤ・図形のハンドルに付け替える（見つからなければ書かない）
+                // 凍結したレイヤと切り抜きの境界は、書いたレイヤ・図形のハンドルに付け替える（見つからなければ書かない）。
+                // R12 から読んだ凍結したレイヤは名前で持つ
                 for frozen in &viewport.frozen_layer_handles {
                     if let Some(handle) =
                         self.mapped(frozen).filter(|handle| self.layer_handles.values().any(|known| known == handle))
                     {
                         self.out.handle(331, handle);
+                    }
+                }
+                for name in &viewport.frozen_layer_names {
+                    if let Some(handle) = self.layer_handles.get(&upper(name)) {
+                        self.out.handle(331, *handle);
                     }
                 }
                 self.out.int(90, viewport.status_flags);
@@ -2089,6 +2202,60 @@ impl<'a> Writer<'a> {
                 }
             }
         }
+    }
+
+    /// R12 のビューポート。表示の値は拡張データ ACAD の MVIEW に持つ（ezdxf の viewport.py の R12 と同じ並び。
+    /// 読み取りの viewport_r12 が読み戻す）。このビューポートだけで凍結したレイヤは、名前（1003）で書く
+    fn viewport_r12(&mut self, base: &DxfEntityBase, viewport: &DxfViewport, owner: u64, paper: bool) {
+        self.common("VIEWPORT", base, owner, paper);
+        let frozen: Vec<&str> = viewport
+            .frozen_layer_handles
+            .iter()
+            .filter_map(|handle| self.doc.layers.iter().find(|layer| layer.handle.eq_ignore_ascii_case(handle)))
+            .map(|layer| layer.name.as_str())
+            .chain(viewport.frozen_layer_names.iter().map(String::as_str))
+            .collect();
+        let out = &mut self.out;
+        out.point(10, &viewport.center);
+        out.real(40, viewport.width);
+        out.real(41, viewport.height);
+        // R12 は表示しないビューポートを状態（68）の 0 で表す（2000 からは 90 の 0x20000）
+        let off = js_int(viewport.status_flags) & 0x20000 != 0;
+        out.int(68, if off { 0.0 } else { viewport.status });
+        out.int(69, viewport.id);
+        out.tag(1001, "ACAD");
+        out.tag(1000, "MVIEW");
+        out.tag(1002, "{");
+        out.tag(1070, 16);
+        out.point(1010, &viewport.view_target);
+        out.point(1010, &viewport.view_direction);
+        // ねじれの角度、表示の高さ、表示の中心、レンズの長さ、前と後ろの切り取り
+        for value in [
+            viewport.view_twist_angle,
+            viewport.view_height,
+            viewport.view_center[0],
+            viewport.view_center[1],
+            50.0,
+            0.0,
+            0.0,
+        ] {
+            out.real(1040, value);
+        }
+        // 表示の設定、円の滑らかさ、高速ズーム、UCS アイコン、スナップ、グリッド、スナップの種類と面
+        for value in [0, 1000, 1, 1, 0, 0, 0, 0] {
+            out.tag(1070, value);
+        }
+        // スナップの角度・基点・間隔、グリッドの間隔
+        for value in [0.0, 0.0, 0.0, 0.5, 0.5, 0.5, 0.5] {
+            out.real(1040, value);
+        }
+        out.tag(1070, 0);
+        out.tag(1002, "{");
+        for name in frozen {
+            out.str(1003, name);
+        }
+        out.tag(1002, "}");
+        out.tag(1002, "}");
     }
 
     /// TEXT・ATTRIB・ATTDEF の 1 行の文字（AcDbText）
@@ -2184,7 +2351,7 @@ impl<'a> Writer<'a> {
     /// 複数行の属性（AutoCAD 2018 以降）の文字。AutoCAD と同じく、属性の種類（71。2 は属性、4 は属性定義）の後の
     /// 「101 Embedded Object」に MTEXT の値を続ける。1 行の文字（AcDbText の 1）は読んだまま（AutoCAD は空にする）
     fn embedded_mtext(&mut self, embedded: Option<&DxfEmbeddedMText>, attribute_type: i64) {
-        let Some(embedded) = embedded else { return };
+        let Some(embedded) = embedded.filter(|_| !self.r12()) else { return };
         self.out.tag(71, attribute_type);
         self.out.tag(101, "Embedded Object");
         self.mtext_body(&embedded.content, embedded.extrusion);
@@ -2320,7 +2487,11 @@ impl<'a> Writer<'a> {
         };
         self.common(name, base, owner, paper);
         self.out.tag(100, "AcDbDimension");
-        self.out.tag(280, 0);
+        // 版（280）は 2010 から、文字の位置合わせ（71）・実測値（42）は 2000 から
+        let r12 = self.r12();
+        if !r12 {
+            self.out.tag(280, 0);
+        }
         self.out.str(2, &dimension.anonymous_block_name);
         self.out.point(10, &dimension.defpoint);
         self.out.point(11, &dimension.text_midpoint);
@@ -2328,11 +2499,11 @@ impl<'a> Writer<'a> {
             self.out.point(12, &insert);
         }
         self.out.int(70, dimension.dimtype);
-        if let Some(attachment) = dimension.attachment_point {
+        if let Some(attachment) = dimension.attachment_point.filter(|_| !r12) {
             self.out.int(71, attachment);
         }
         self.out.str(1, &dimension.text);
-        if let Some(measurement) = dimension.actual_measurement {
+        if let Some(measurement) = dimension.actual_measurement.filter(|_| !r12) {
             self.out.real(42, measurement);
         }
         if let Some(rotation) = dimension.text_rotation {
@@ -2598,6 +2769,25 @@ impl<'a> Writer<'a> {
 }
 
 /// JavaScript の ToInt32 と同じく、数を 32 ビットの整数にする
+/// R12 にある図形か（表はブロックの参照として、円弧の長さ・大きい半径の寸法はブロックの参照として書く）
+fn r12_native(data: &DxfEntityData) -> bool {
+    match data {
+        DxfEntityData::Line { .. }
+        | DxfEntityData::Circle { .. }
+        | DxfEntityData::Arc { .. }
+        | DxfEntityData::Point { .. }
+        | DxfEntityData::Polyline(_)
+        | DxfEntityData::Text(_)
+        | DxfEntityData::Insert(_)
+        | DxfEntityData::Dimension(_)
+        | DxfEntityData::Solid { .. }
+        | DxfEntityData::Viewport(_)
+        | DxfEntityData::Table(_) => true,
+        DxfEntityData::Attrib { mtext, .. } | DxfEntityData::Attdef { mtext, .. } => mtext.is_none(),
+        _ => false,
+    }
+}
+
 fn js_int(value: f64) -> i64 {
     i64::from(zumen_core::js::to_int32(value))
 }
@@ -2655,7 +2845,6 @@ mod tests {
         let (expected, _, _) = encoding_rs::SHIFT_JIS.encode("壁 \\U+0100 \\U+D83D\\U+DE00");
         assert_eq!(bytes, expected.into_owned());
         assert_eq!(crate::tags::decode_escapes("\\U+0100 \\U+D83D\\U+DE00"), "Ā 😀");
-        assert!(write_dxf_as(&parse_dxf(b"0\nEOF\n"), DxfVersion::R12).is_err());
     }
 
     #[test]
@@ -2684,7 +2873,7 @@ mod tests {
             ("Wall", "ANSI_932", "ANSI_932", "shift_jis"),
             ("壁", "GB2312", "ANSI_936", "gbk"),
         ] {
-            let written = write_dxf_as(&text(content, codepage), DxfVersion::R2000).unwrap();
+            let written = write_dxf_as(&text(content, codepage), DxfVersion::R2000);
             let decoded = crate::tags::decode(&written.bytes, label);
             assert!(decoded.contains(&format!("$DWGCODEPAGE\r\n  3\r\n{page}\r\n")), "{content}: {decoded}");
             assert!(decoded.contains(&format!("\r\n  1\r\n{content}\r\n")), "{content}: {decoded}");
@@ -2762,6 +2951,137 @@ mod tests {
             }
         }
         assert!(checked >= 10);
+    }
+
+    /// R12 の図面: クラス・OBJECTS・ブロックの記録の表・サブクラスの印・所有者の参照がなく、表の項目はハンドルを持たず、
+    /// 図形は R12 にある種類だけで、ハンドルは重ならない
+    #[test]
+    fn writes_r12_with_only_what_r12_has() {
+        const R12_KINDS: [&str; 19] = [
+            "LINE",
+            "POINT",
+            "CIRCLE",
+            "ARC",
+            "TRACE",
+            "SOLID",
+            "TEXT",
+            "SHAPE",
+            "INSERT",
+            "ATTDEF",
+            "ATTRIB",
+            "POLYLINE",
+            "VERTEX",
+            "SEQEND",
+            "3DFACE",
+            "DIMENSION",
+            "VIEWPORT",
+            "BLOCK",
+            "ENDBLK",
+        ];
+        let folder = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/dxf");
+        let mut checked = 0;
+        for entry in std::fs::read_dir(folder).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().is_none_or(|extension| extension != "dxf") {
+                continue;
+            }
+            let name = path.file_name().unwrap().to_string_lossy().to_string();
+            let written = write_dxf_as(&parse_dxf(&std::fs::read(&path).unwrap()), DxfVersion::R12);
+            // 文字コードは図面のコードページなので、構造だけを見る
+            let text = String::from_utf8_lossy(&written.bytes).into_owned();
+            let lines: Vec<&str> = text.split("\r\n").collect();
+            let tags: Vec<(i32, &str)> =
+                lines.as_chunks::<2>().0.iter().map(|[code, value]| (code.trim().parse().unwrap(), *value)).collect();
+            let at = |variable: &str| tags.iter().position(|tag| *tag == (9, variable)).map(|index| tags[index + 1].1);
+            assert_eq!(at("$ACADVER"), Some("AC1009"), "{name}");
+            assert_eq!(at("$HANDLING"), Some("1"), "{name}");
+            assert_eq!(at("$INSUNITS"), None, "{name}");
+            let mut section = "";
+            let mut seed = 0;
+            let mut handles = HashSet::new();
+            for (index, &(code, value)) in tags.iter().enumerate() {
+                assert!(!matches!(code, 100 | 102 | 330 | 360 | 370 | 420 | 440), "{name}: {code} {value}");
+                if code == 2 && index > 0 && tags[index - 1] == (0, "SECTION") {
+                    section = value;
+                    assert!(matches!(value, "HEADER" | "TABLES" | "BLOCKS" | "ENTITIES"), "{name}: {value}");
+                }
+                if code == 2 && index > 0 && tags[index - 1] == (0, "TABLE") {
+                    assert!(value != "BLOCK_RECORD", "{name}");
+                }
+                if code == 5 && index > 0 && tags[index - 1] == (9, "$HANDSEED") {
+                    seed = u64::from_str_radix(value, 16).unwrap();
+                    continue;
+                }
+                if code == 0
+                    && matches!(section, "BLOCKS" | "ENTITIES")
+                    && !matches!(value, "SECTION" | "ENDSEC" | "EOF")
+                {
+                    assert!(R12_KINDS.contains(&value), "{name}: {value}");
+                }
+                if code == 2 && index > 0 && tags[index - 1].1 == "BLOCK" {
+                    assert!(!value.to_uppercase().starts_with("*MODEL_SPACE"), "{name}");
+                    assert!(!value.to_uppercase().starts_with("*PAPER_SPACE"), "{name}");
+                }
+                if code == 5 || code == 105 {
+                    assert!(section == "BLOCKS" || section == "ENTITIES", "{name}: a handle in {section}");
+                    assert!(handles.insert(u64::from_str_radix(value, 16).unwrap()), "{name}: handle {value} twice");
+                }
+            }
+            assert!(handles.iter().all(|handle| *handle < seed), "{name}: $HANDSEED {seed:X}");
+            checked += 1;
+        }
+        assert!(checked >= 10);
+    }
+
+    /// R12 のビューポートは表示の値と凍結したレイヤの名前を拡張データ MVIEW に持ち、表示しないものは状態 0
+    #[test]
+    fn writes_r12_viewports_in_their_extended_data() {
+        let viewport = |handle: &'static str, status_flags: &'static str| {
+            vec![
+                (0, "VIEWPORT"),
+                (5, handle),
+                (67, "1"),
+                (8, "0"),
+                (10, "100"),
+                (20, "80"),
+                (40, "120"),
+                (41, "90"),
+                (68, "2"),
+                (69, "2"),
+                (12, "30"),
+                (22, "40"),
+                (17, "1"),
+                (27, "2"),
+                (45, "60"),
+                (51, "15"),
+                (90, status_flags),
+                (331, "20"),
+            ]
+        };
+        let mut body = vec![(0, "TABLE"), (2, "LAYER"), (0, "LAYER"), (5, "20"), (2, "壁"), (70, "0"), (0, "ENDTAB")];
+        body.insert(0, (0, "SECTION"));
+        body.insert(1, (2, "TABLES"));
+        body.extend([(0, "ENDSEC"), (0, "SECTION"), (2, "ENTITIES")]);
+        body.extend(viewport("A1", "0"));
+        body.extend(viewport("A2", "131072"));
+        body.extend([(0, "ENDSEC"), (0, "EOF")]);
+        let written = write_dxf_as(&parse_dxf(&dxf(&body)), DxfVersion::R12);
+        let again = parse_dxf(&written.bytes);
+        let viewports: Vec<&DxfViewport> = again
+            .entities
+            .iter()
+            .filter_map(|entity| match &entity.data {
+                DxfEntityData::Viewport(viewport) => Some(viewport),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(viewports.len(), 2);
+        let first = viewports[0];
+        assert_eq!((first.view_center, first.view_target, first.view_height), ([30.0, 40.0], [1.0, 2.0, 0.0], 60.0));
+        assert_eq!((first.view_twist_angle, first.status), (15.0, 2.0));
+        assert_eq!(first.frozen_layer_names, ["壁"]);
+        // 表示しないビューポート（90 の 0x20000）は、R12 では状態 0
+        assert_eq!(viewports[1].status, 0.0);
     }
 
     #[test]

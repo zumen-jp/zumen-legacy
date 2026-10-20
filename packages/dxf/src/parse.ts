@@ -1842,6 +1842,7 @@ class Parser {
       view_twist_angle: this.number(body, 51, 0),
       status_flags: this.number(body, 90, 0),
       frozen_layer_handles: frozen,
+      frozen_layer_names: [],
     };
     const clip = this.text(body, 340);
     if (clip && clip !== "0") viewport.clipping_boundary_handle = clip.trim().toUpperCase();
@@ -1862,7 +1863,14 @@ class Parser {
       else if (code === 1020 && points.length > 0) (points[points.length - 1] as Vec3)[1] = this.num(k);
       else if (code === 1030 && points.length > 0) (points[points.length - 1] as Vec3)[2] = this.num(k);
       else if (code === 1040) reals.push(this.num(k));
-      else if (code === 1002 && this.raw(k).trim() === "{" && reals.length > 0) break;
+      else if (code === 1002 && this.raw(k).trim() === "{" && reals.length > 0) {
+        // 凍結したレイヤの名前の並び（1003）
+        for (k++; k < end && !(this.code(k) === 1002 && this.raw(k).trim() === "}"); k++) {
+          // レイヤの名前と同じく \U+XXXX を文字にする
+          if (this.code(k) === 1003) viewport.frozen_layer_names.push(this.str(k).trim().toUpperCase());
+        }
+        break;
+      }
     }
     if (points[0]) viewport.view_target = points[0];
     if (points[1]) viewport.view_direction = points[1];

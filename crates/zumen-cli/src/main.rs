@@ -46,8 +46,9 @@ the conversion between pixels and paper millimeters, and the pixel box of every 
 compare matches entities by shape and text (not by id) and writes the removed, added and changed
 entities and the regions that changed as JSON; -o draws them over the unchanged ones (red before,
 blue after, gray unchanged).
-convert writes a drawing as DXF (AutoCAD 2013, UTF-8, or the version of --target-version: 2000, 2004, 2007, 2010, 2013
-or 2018, before 2007 in a code page such as ANSI_932) or SFC (SXF Ver.3.1, CP932), by the extension of the output,
+convert writes a drawing as DXF (AutoCAD 2013, UTF-8, or the version of --target-version: R12, 2000, 2004, 2007, 2010,
+2013 or 2018, before 2007 in a code page such as ANSI_932; R12 explodes what it lacks, such as MTEXT and hatches) or
+SFC (SXF Ver.3.1, CP932), by the extension of the output,
 and reports what it could not write. SXF and JWW are mapped into the AutoCAD model: model space at real size, the
 sheet as a layout with a viewport for each scale. SFC is written from that model: the layout is the sheet, each
 viewport a sub-figure at its scale and each block a drawing part.";

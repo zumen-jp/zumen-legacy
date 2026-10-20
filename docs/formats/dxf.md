@@ -82,7 +82,7 @@ the differences that remain are in [How DWG is handled](dwg.md).
   and leaves out the 0.18 of the others, and ACadSharp and netDxf read missing values as 0.18 too (*inferred* for metric
   drawings, as no AutoCAD DXF of a metric drawing was at hand).
 - R12 files without `LAYOUT` objects get one `Layout1` when they have paper space entities. R12 viewport settings are read
-  from the `ACAD` `MVIEW` extended data, as ezdxf does.
+  from the `ACAD` `MVIEW` extended data, as ezdxf does, with the names of the layers frozen in the viewport (1003).
 
 ## Drawing (`dxfToScene`)
 
@@ -99,7 +99,7 @@ the differences that remain are in [How DWG is handled](dwg.md).
   and target (17), the same transformation as ezdxf's `Viewport.get_transformation_matrix`. Lines and fills are clipped to the viewport
   rectangle; text across the border is kept whole and reported. Each entity inside a viewport has a `Placement` with the viewport scale,
   so distances measured on the sheet are converted back to real model millimeters. The overall paper space viewport (ID 1) is not
-  a view, viewports switched off (68 ≤ 0 or flag `0x20000`) are skipped, layers frozen in a viewport (331) are not drawn in it,
+  a view, viewports switched off (68 ≤ 0 or flag `0x20000`) are skipped, layers frozen in a viewport (331, or 1003 in R12) are not drawn in it,
   and non-rectangular clip boundaries use their bounding rectangle. Viewports that do not look straight down are skipped.
 - The default view is the space the drawing was saved in: the active layout when `$TILEMODE` is 0 and it has content, otherwise
   model space, otherwise the first layout with content. `Scene.views` lists model space and the layouts; pass a view to
@@ -304,11 +304,11 @@ What cannot be written as it was is reported in `notices`:
 
 ### Versions (`write_dxf_as`)
 
-`write_dxf_as(doc, version)` writes AutoCAD 2000 (AC1015), 2004 (AC1018), 2007 (AC1021), 2010 (AC1024), 2013 (AC1027,
-the default of `write_dxf`) or 2018 (AC1032); R12 is not written yet. `zumen::convert_with` takes the version in
-`WriteOptions`, `zumen.convert(..., version="2000")` in Python and `zumen convert --target-version 2000` on the command
-line. `DxfVersion::parse` reads `2000`, `R2000` and `AC1015` alike. `$ACADVER` and `$ACADMAINTVER` are the values that
-ezdxf 1.4.5 writes for each version.
+`write_dxf_as(doc, version)` writes AutoCAD R12 (AC1009), 2000 (AC1015), 2004 (AC1018), 2007 (AC1021), 2010 (AC1024),
+2013 (AC1027, the default of `write_dxf`) or 2018 (AC1032). `zumen::convert_with` takes the version in `WriteOptions`,
+`zumen.convert(..., version="2000")` in Python and `zumen convert --target-version 2000` on the command line.
+`DxfVersion::parse` reads `2000`, `R2000` and `AC1015` alike. `$ACADVER` and `$ACADMAINTVER` are the values that ezdxf
+1.4.5 writes for each version.
 
 - **Text encoding**: 2007 and later are UTF-8. Earlier versions are written in a code page (DXF Reference "Storage of
   String Values"): the drawing's `$DWGCODEPAGE` when it is not western, else the code page of the encoding it was read
@@ -329,6 +329,41 @@ ezdxf 1.4.5 writes for each version.
 | `version-dimension` | 2000 | ARC_DIMENSION and LARGE_RADIAL_DIMENSION are written as the INSERT of their block |
 | `version-background` | 2000, 2004 | The background fill of MTEXT (90, 63, 421, 45, 441) is left out, also in blocks: the text fill of a dimension (DIMTFILL, 2007 and later) is the MTEXT in its block |
 | `version-mleader` | 2000, 2004 | MULTILEADER is written as it is, as ezdxf writes it; AutoCAD before 2008 does not know it |
+
+#### R12 (`r12::prepare`)
+
+R12 has no subclass markers, owner handles, classes, objects, block records or layouts, so these are not written;
+entities keep their handles (`$HANDLING` 1) and table entries have none. The drawing is first reduced to what R12 holds,
+as ezdxf's `r12export` does, and the rest is reported:
+
+- LWPOLYLINE becomes a 2D POLYLINE with the same vertices, bulges and widths.
+- ELLIPSE, SPLINE (and HELIX), MTEXT, HATCH (and MPOLYGON), LEADER, MULTILEADER and MLINE are exploded into what zumen
+  draws for them (`scene::Exploder`, the same curves as the model space view): lines as LINE and POLYLINE, fills as
+  SOLIDs, one for each trapezoid of a horizontal band (even-odd rule), hatch patterns as the LINEs of their dashes cut at
+  the boundary, text as one TEXT for each run, with a text style added for a font that a format code sets, and points
+  as POINT. One resulting entity takes the place and handle of the original. Several go into an anonymous block (`*U`)
+  whose INSERT, at the original's anchor, takes its handle, layer, color and line type; the parts are on layer `0`,
+  and those with the original's color and line type use BYBLOCK. A fill with the background color (a background mask)
+  cannot be drawn in R12 and is left out.
+- A multiline attribute becomes a one-line attribute with its lines joined by spaces.
+- Only the current layout (`*Paper_Space`) is kept, as R12 has one paper space; its sheet becomes the paper space
+  limits (`$PLIMMIN`, `$PLIMMAX`), which is what a reader of R12 takes as the sheet. Viewports keep their view in the
+  extended data `ACAD`/`MVIEW`, with the layers frozen in them by name (1003), and a viewport that is off has status 0.
+- Entities are written in their draw order, as R12 has no SORTENTSTABLE.
+
+| Code | What is written |
+| --- | --- |
+| `version-ellipse`, `version-spline` | ELLIPSE, SPLINE and HELIX as POLYLINE |
+| `version-mtext` | MTEXT as TEXT, several in an anonymous block |
+| `version-hatch`, `version-leader`, `version-mline` | HATCH, LEADER, MULTILEADER and MLINE as an anonymous block of LINE, POLYLINE, SOLID and TEXT |
+| `version-multiline-attribute` | Multiline attributes as one line |
+| `version-mask` | Fills with the background color (background masks) are left out |
+| `version-xline`, `version-wipeout`, `version-invisible` | XLINE, RAY, WIPEOUT and invisible entities are left out |
+| `version-layouts` | Entities of the layouts other than the current one are left out |
+| `version-units` | The length unit (`$INSUNITS`) is left out; zumen reads an R12 drawing as millimeters |
+| `version-lineweight`, `version-linetype-scale` | Line weights and the line type scale of entities are left out |
+| `version-font-family` | The TrueType font name of a text style (extended data, which R12 tables cannot have) is left out, so a vertical `@` font is written as its file |
+| `version-color`, `version-transparency`, `version-dimension` | As in 2000 |
 
 ## Verification
 
