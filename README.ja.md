@@ -6,7 +6,7 @@
 国交省の電子納品で使う **SXF（SFC・P21）** を公開仕様から、Jw_cad の **JWW** を形式の解説から実装した。
 2026-10 の調査では、SXF をブラウザで読める JS ライブラリはなく、JWW もブラウザ向けの npm と React の部品がなかった。
 AutoCAD などの **DXF**（Shift_JIS の日本語、バイナリを含む）も読む。
-**DWG**（AutoCAD 2000〜2018）は、GPL の部品を使わない自前の読み取りで、Rust から同じ AutoCAD の図形モデルに読む。
+**DWG**（AutoCAD 1.0〜2018）は、GPL の部品を使わない自前の読み取りで、Rust から同じ AutoCAD の図形モデルに読む。
 どの形式も Rust の同じ読み取りで読み、ブラウザでは `@zumenjs/reader` がその WebAssembly の build をページか Web Worker で動かす。
 読み取りは Rust で書き、Python（サーバーやデータ処理）と WebAssembly（ブラウザ）から同じ結果で使う。
 
@@ -40,7 +40,7 @@ TypeScript の読み取り（`packages/sxf`・`packages/jww`・`packages/dxf`）
 - 図形を選んで属性を確認する。種類、レイヤ、色・線種・線幅、座標、寸法値、部分図の縮尺など。
 - DXF の R12〜2018（テキスト・バイナリ）。線分・円弧・ふくらみと幅のあるポリライン・スプライン・文字・書式つきの複数行文字・
   属性と配列のあるブロック・寸法・ハッチング・引出線・ソリッド・ワイプアウトを、レイヤ・線種・線の太さ・ACI とトゥルーカラー・透過度・文字スタイルとともに描く。
-- DWG の AutoCAD 2000〜2018。DXF と同じく描く（[DWG の扱い（英語）](docs/formats/dwg.md)）。
+- DWG の AutoCAD 1.0〜2018。DXF と同じく描く（[DWG の扱い（英語）](docs/formats/dwg.md)）。
 - 受け取った図面のための、大きさ・図形の数・時間の上限と、止められる Web Worker での読み取り。
 - DXF・DWG のモデル空間とレイアウト（紙空間）の切り替え。ビューポートの中はその縮尺で描き、計測すると実寸を返す。
 - 2 点間の距離の計測。端点・頂点、なければ線上の点に吸着し、部分図・部品（JWW はレイヤグループ、DXF は単位とビューポート）の縮尺から**実寸**も出す。
@@ -228,8 +228,8 @@ cargo run --release -p zumen-cli -- create operations.json -o new.dxf --units mm
 ```
 
 `convert` は、どの形式の図面も AutoCAD の図面のモデルを経て AutoCAD 2013 の DXF に書く（`--target-version` で
-2000・2004・2007・2010・2018 を選べ、2007 より前は日本語なら ANSI_932 のようなコードページで書く）。DXF・DWG は
-ハンドル・表・ブロック・レイアウトを保つ。SXF・JWW はモデル空間を実寸にして写す。SXF の部分図・JWW のレイヤグループの
+R12・2000・2004・2007・2010・2018 を選べ、2007 より前は日本語なら ANSI_932 のようなコードページで書き、R12 は複数行の
+文字・ハッチングなど R12 にない図形を崩して書く）。DXF・DWG はハンドル・表・ブロック・レイアウトを保つ。SXF・JWW はモデル空間を実寸にして写す。SXF の部分図・JWW のレイヤグループの
 縮尺ごとに、用紙のレイアウトのビューポートがその縮尺で見せ、用紙にじかに描いたもの（図枠・表題欄）は紙空間に置く。
 レイヤ・色・線種・線の太さ・フォント・縦書き・ブロック・寸法・ハッチングを AutoCAD の図形にし、レイアウトは元の図面と
 同じに描ける（[決定 0008（英語）](docs/decisions/0008-sheets-and-scales-in-the-autocad-model.md)）。
@@ -249,7 +249,7 @@ DXF（R12〜2018、テキストとバイナリ）ができていて、DWG・SXF�
 | `zumen-sxf` | `parse_sfc`・`parse_p21`（SXF のフィーチャのモデル）、`sxf_to_scene`、読み取りの `SXF`、`write_sfc`（フィーチャのモデルを SFC に書く） |
 | `zumen-jww` | `read_jww`（JWW のままのモデル）、`jww_to_scene`、読み取りの `JWW` |
 | `zumen-dxf` | `parse_dxf`（DWG と共有する AutoCAD の図形モデル）、`dxf_to_scene`、読み取りの `DXF`、`write_dxf`（モデルを AutoCAD 2013 の DXF に書く）、`edit_dxf`（その場の編集） |
-| `zumen-dwg` | `read_dwg`（DWG 2000〜2018 を `zumen-dxf` の AutoCAD の図形モデルにする）、読み取りの `DWG` |
+| `zumen-dwg` | `read_dwg`（DWG 1.0〜2018 を `zumen-dxf` の AutoCAD の図形モデルにする）、読み取りの `DWG` |
 | `zumen-convert` | `sxf_to_dxf`・`jww_to_dxf`（SXF・JWW を AutoCAD の図形モデルに写し、DXF に書けるようにする）、`dxf_to_sxf`（モデルを SXF の図面に写し、SFC に書けるようにする） |
 | `zumen` | すべての読み取りをまとめた `read`・`detect` と、`convert`（どの形式も DXF・SFC に書き直す）、`edit`・`create`。受け取った図面のためのバイト数・図形の数・時間の上限 |
 | `zumen-render` | ブラウザの描画と同じ規則で PNG・SVG・PDF に描き、描いた図形の画像の上の位置を返す。日本語の文字は同梱の BIZ UDゴシックで描く |

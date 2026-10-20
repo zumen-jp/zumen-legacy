@@ -516,6 +516,7 @@ name = "zumen-convert"
 version = "0.1.0"
 dependencies = [
  "zumen-core",
+ "zumen-dwg",
  "zumen-dxf",
  "zumen-jww",
  "zumen-sxf",
@@ -554,6 +555,7 @@ name = "zumen-jww"
 version = "0.1.0"
 dependencies = [
  "encoding_rs",
+ "serde_json",
  "zumen-core",
 ]
 
@@ -586,6 +588,7 @@ version = "0.1.0"
 dependencies = [
  "encoding_rs",
  "miniz_oxide 0.8.9",
+ "serde_json",
  "zumen-core",
 ]
 

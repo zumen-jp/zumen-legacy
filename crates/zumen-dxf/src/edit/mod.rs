@@ -1359,7 +1359,6 @@ impl<'a> Editor<'a> {
         // 頂点のタグ（10・20・40・41・42・91）の並び
         let vertex_codes = [10, 20, 40, 41, 42, 91];
         let first = (start..end).find(|&at| tags[at].code == 10);
-        let current: Vec<f64> = (start..end).filter(|&at| tags[at].code == 42).map(|at| tags[at].number()).collect();
         let count = (start..end).filter(|&at| tags[at].code == 10).count();
         let bulges = match reader.numbers("bulges", vertices.as_ref().map_or(count, Vec::len))? {
             Some(bulges) => Some(bulges),
@@ -1368,18 +1367,9 @@ impl<'a> Editor<'a> {
             }
             None => None,
         };
-        if vertices.is_some() || bulges.is_some() {
-            let points: Vec<[f64; 2]> = match &vertices {
-                Some(vertices) => vertices.iter().map(|vertex| [vertex[0], vertex[1]]).collect(),
-                None => {
-                    let xs: Vec<f64> =
-                        (start..end).filter(|&at| tags[at].code == 10).map(|at| tags[at].number()).collect();
-                    let ys: Vec<f64> =
-                        (start..end).filter(|&at| tags[at].code == 20).map(|at| tags[at].number()).collect();
-                    xs.into_iter().zip(ys).map(|(x, y)| [x, y]).collect()
-                }
-            };
-            let bulges = bulges.unwrap_or_else(|| if vertices.is_some() { vec![0.0; points.len()] } else { current });
+        if let Some(vertices) = vertices {
+            let points: Vec<[f64; 2]> = vertices.iter().map(|vertex| [vertex[0], vertex[1]]).collect();
+            let bulges = bulges.unwrap_or_else(|| vec![0.0; points.len()]);
             let at = first.unwrap_or(end);
             let mut kept: Vec<Tag> = Vec::with_capacity(tags.len());
             for (position, tag) in tags.iter().enumerate() {
@@ -1401,6 +1391,24 @@ impl<'a> Editor<'a> {
                 }
             }
             set(tags, 90, points.len().to_string(), &[100]);
+        } else if let Some(bulges) = bulges {
+            // DXF Reference, LWPOLYLINE: each vertex has independent width (40/41),
+            // bulge (42) and identifier (91). Updating bulges must keep the others.
+            let mut vertex = 0;
+            let mut updated = Vec::with_capacity(end - start + bulges.len());
+            for tag in &tags[start..end] {
+                if tag.code == 42 {
+                    continue;
+                }
+                updated.push(tag.clone());
+                if tag.code == 10 {
+                    if bulges[vertex] != 0.0 {
+                        updated.push(Tag::new(42, real(bulges[vertex])));
+                    }
+                    vertex += 1;
+                }
+            }
+            tags.splice(start..end, updated);
         }
         if let Some(closed) = closed {
             let flags = number(tags, 70).unwrap_or(0.0) as i64;

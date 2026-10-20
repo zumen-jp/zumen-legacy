@@ -31,7 +31,8 @@ pub(crate) fn has_extra(version: Version, maintenance: u8) -> bool {
 }
 
 impl Database {
-    /// 版の入れ物に並べた DWG。R2007 はまだ書けないので None
+    /// 版の入れ物に並べた DWG。テストの図面を作らない R2007（tests/writer は R2007 のオブジェクトを書かない）は None。
+    /// R13・R14 は R2000 と同じ入れ物（AuxHeader はない。実物の R14 の図面と同じ）
     pub fn bytes(&self) -> Option<Vec<u8>> {
         let extra = has_extra(self.version, self.maintenance).then_some([0u8; 4]);
         let framed = |data: &[u8]| Framed { extra, data: data.to_vec(), crc_ok: true };
@@ -47,8 +48,8 @@ impl Database {
         let mut template = 0u16.to_le_bytes().to_vec();
         template.extend_from_slice(&self.measurement.to_le_bytes());
         match self.version {
-            Version::R13 | Version::R14 | Version::R2007 => None,
-            Version::R2000 => {
+            Version::R2007 => None,
+            Version::R13 | Version::R14 | Version::R2000 => {
                 let mut head = [0u8; 0x15];
                 head[..6].copy_from_slice(self.version.name().as_bytes());
                 head[0x0b] = self.maintenance;
@@ -74,6 +75,7 @@ impl Database {
                     compressed: true,
                     encrypted: 0,
                     preview_base: None,
+                    keep_zero_pages: false,
                 };
                 let sections = vec![
                     section("", Vec::new()),

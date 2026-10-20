@@ -22,6 +22,9 @@ pub struct ObjectWriter {
     /// R2007 以降の文字列の並び
     pub strings: BitWriter,
     pub handles: BitWriter,
+    /// R13・R14 の値の並びの大きさ（RL）を置く、data の中のビットの位置。図形でないものは拡張データの後（0）、
+    /// 図形は代わりの表示の後（20.1、20.4.1）。R2000 以降は使わない（RL は型の後）
+    pub r14_size_at: u64,
 }
 
 impl ObjectWriter {
@@ -35,7 +38,12 @@ impl ObjectWriter {
             data: BitWriter::new(),
             strings: BitWriter::new(),
             handles: BitWriter::new(),
+            r14_size_at: 0,
         }
+    }
+
+    pub fn r2000(&self) -> bool {
+        self.version >= Version::R2000
     }
 
     pub fn r2004(&self) -> bool {
@@ -69,15 +77,60 @@ impl ObjectWriter {
         }
     }
 
+    /// TV をそのままの形で書く（R2007 より前のバイト、R2007 以降の UTF-16 の単位）
+    pub(crate) fn text(&mut self, text: &crate::codec::RawText) {
+        match text {
+            crate::codec::RawText::Units(units) => {
+                let target = if self.r2007() { &mut self.strings } else { &mut self.data };
+                target.bs(units.len().min(i16::MAX as usize) as i16);
+                for unit in units.iter().take(i16::MAX as usize) {
+                    target.rs(*unit);
+                }
+            }
+            crate::codec::RawText::Bytes(bytes) => {
+                self.data.bs(bytes.len().min(i16::MAX as usize) as i16);
+                self.data.raw(&bytes[..bytes.len().min(i16::MAX as usize)]);
+            }
+        }
+    }
+
     /// H（ハンドルの並び）
     pub fn h(&mut self, code: u8, value: u64) {
         self.handles.handle(code, value);
     }
 
-    /// 版の形にまとめる（20.1）。MS の大きさ、（R2010 以降）ハンドルの並びのビット数（MC）、型、（R2010 より前）
+    /// 読んだハンドルの参照をそのまま書く
+    pub(crate) fn href(&mut self, handle: crate::bits::HandleRef) {
+        self.handles.handle(handle.code, handle.value);
+    }
+
+    /// CMC（2.11）
+    pub(crate) fn cmc(&mut self, color: &crate::codec::CmColor) {
+        self.data.bs(color.index);
+        if !self.r2004() {
+            return;
+        }
+        self.data.bl(color.rgb as i32);
+        let flags = u8::from(color.name.is_some()) | (u8::from(color.book.is_some()) << 1);
+        self.data.rc(flags);
+        if let Some(name) = &color.name {
+            self.text(name);
+        }
+        if let Some(book) = &color.book {
+            self.text(book);
+        }
+    }
+
+    /// 版の形にまとめる（20.1）。MS の大きさ、（R2010 以降）ハンドルの並びのビット数（MC）、型、（R2000〜R2007）
     /// ハンドルの並びの位置（RL、型の始まりからのビット数）、ハンドル、拡張データ、値、（R2007 以降）文字列の並びと
-    /// その大きさと印、ハンドルの並び、バイトの境目までの 0、CRC（MS から、初めの値 0xC0C1）
+    /// その大きさと印、ハンドルの並び、バイトの境目までの 0、CRC（MS から、初めの値 0xC0C1）。R13・R14 の RL は
+    /// 値の並びの r14_size_at の位置
     pub fn bytes(&self) -> Vec<u8> {
+        self.frame().0
+    }
+
+    /// bytes と、ハンドルの並びの後ろの埋めたビットの数（テストで、埋めるビットを除いて比べる）
+    pub(crate) fn frame(&self) -> (Vec<u8>, u64) {
         let r2010 = self.r2010();
         let mut rest = BitWriter::new();
         rest.handle(0, self.handle);
@@ -87,21 +140,36 @@ impl ObjectWriter {
             rest.raw(&data[..data.len().min(i16::MAX as usize)]);
         }
         rest.bs(0);
-        rest.append(&self.data);
+        // R13・R14 の RL の後の値
+        let mut tail = BitWriter::new();
+        if self.r2000() {
+            rest.append(&self.data);
+        } else {
+            let at = self.r14_size_at.min(self.data.bit_len());
+            rest.append_slice(self.data.as_bytes(), 0, at);
+            tail.append_slice(self.data.as_bytes(), at, self.data.bit_len() - at);
+        }
         if self.r2007() {
             append_strings(&mut rest, &self.strings);
         }
         let mut body = BitWriter::new();
         body.ot(self.kind, r2010);
-        if !r2010 {
+        if !r2010 && self.r2000() {
             // ハンドルの並びの位置は型の始まりからのビット数。RL 自身の 32 ビットを含む
             let kind_bits = body.bit_len();
             body.rl((kind_bits + 32 + rest.bit_len()) as u32);
         }
         body.append(&rest);
+        if !self.r2000() {
+            let size = body.bit_len() + 32 + tail.bit_len();
+            body.rl(size as u32);
+            body.append(&tail);
+        }
         let data_bits = body.bit_len();
         body.append(&self.handles);
+        let unpadded = body.bit_len();
         body.pad();
+        let padding = body.bit_len() - unpadded;
         let handle_bits = body.bit_len() - data_bits;
         let body = body.into_bytes();
         let mut out = BitWriter::new();
@@ -113,7 +181,7 @@ impl ObjectWriter {
         let mut bytes = out.into_bytes();
         let crc = crc8(CRC8_SEED, &bytes);
         bytes.extend_from_slice(&crc.to_le_bytes());
-        bytes
+        (bytes, padding)
     }
 }
 

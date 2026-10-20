@@ -460,8 +460,8 @@ def test_converted_dxf_reads_in_ezdxf_and_passes_its_audit(tmp_path):
 
 
 def test_writes_every_dxf_version_that_ezdxf_audits(tmp_path):
-    """Every fixture written as DXF 2000 to 2018 reads in ezdxf with the version asked for, and its audit finds only
-    what features.dxf and limits.dxf pin on purpose (as in the test of the default version)."""
+    """Every fixture written as DXF R12 and 2000 to 2018 reads in ezdxf with the version asked for, and its audit finds
+    only what features.dxf and limits.dxf pin on purpose (as in the test of the default version)."""
     ezdxf = pytest.importorskip("ezdxf")
     from ezdxf.audit import AuditError
 
@@ -476,6 +476,7 @@ def test_writes_every_dxf_version_that_ezdxf_audits(tmp_path):
     }
     sources = [*sorted((FIXTURES / "dxf").glob("*.dxf")), *sorted((FIXTURES / "dwg").glob("*.dwg"))]
     for version, code in [
+        ("R12", "AC1009"),
         ("2000", "AC1015"),
         ("2004", "AC1018"),
         ("2007", "AC1021"),
@@ -489,10 +490,12 @@ def test_writes_every_dxf_version_that_ezdxf_audits(tmp_path):
             assert doc.dxfversion == code, (source.name, version)
             auditor = doc.audit()
             found = {entry.code for entry in [*auditor.errors, *auditor.fixes]}
-            # 2004 より前は透過度を書かないので、透過度の誤りも出ない
+            # 2004 より前は透過度を書かないので、透過度の誤りも出ない。R12 は引出線を線にするので、頂点の数の誤りも出ない
             expected = pinned.get(source.name, set())
-            if version == "2000":
+            if version in ("R12", "2000"):
                 expected = expected - {AuditError.INVALID_TRANSPARENCY}
+            if version == "R12":
+                expected = expected - {AuditError.INVALID_VERTEX_COUNT}
             assert found == expected, (source.name, version, found)
     with pytest.raises(zumen.ReadError):
         zumen.convert(FIXTURES / "dxf" / "r12.dxf", "dxf", version="R13")

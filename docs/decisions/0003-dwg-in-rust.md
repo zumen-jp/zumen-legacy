@@ -86,3 +86,8 @@ Read DWG only in Rust, in a new crate `crates/zumen-dwg` with our own decoder:
 - [How DXF is handled](../formats/dxf.md#the-autocad-drawing-model) and [the architecture notes](../architecture.md)
 - ezdwg's [README](https://github.com/monozukuri-ai/ezdwg/blob/main/README.md) and
   [Cargo.toml](https://github.com/monozukuri-ai/ezdwg/blob/main/Cargo.toml), commit d5e4336, read on 2026-10-19
+
+## Implementation update (2026-10-20)
+
+The reader now includes R13 and R14 using the existing R2000 container. See
+[R13 and R14](../formats/dwg.md#r13-and-r14) for the version-specific fields and verification limits.

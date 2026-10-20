@@ -156,7 +156,15 @@ const MARKERS: [&str; 9] = [
 ];
 
 /// DWG の文字コードの番号（3.2.5）と DXF の $DWGCODEPAGE の名前。AutoCAD の番号の順（ACadSharp の CadUtils と同じ並び）
-fn codepage_name(number: u16) -> Option<&'static str> {
+/// R2007 より前の文字列の文字コード（ファイルの頭の文字コードの番号から。分からなければ Windows-1252。読み取りと同じ）
+pub(crate) fn text_encoding(codepage: u16) -> &'static encoding_rs::Encoding {
+    codepage_name(codepage)
+        .and_then(codepage_encoding)
+        .and_then(|label| encoding_rs::Encoding::for_label(label.as_bytes()))
+        .unwrap_or(encoding_rs::WINDOWS_1252)
+}
+
+pub(crate) fn codepage_name(number: u16) -> Option<&'static str> {
     const NAMES: [&str; 45] = [
         "",
         "ASCII",
@@ -293,8 +301,13 @@ impl<'a> Reader<'a> {
             non_entity(object)?;
             let s = &mut object.streams;
             let count = s.data.bl()?;
-            s.data.bs()?;
-            s.data.rc()?;
+            // 複製のフラグ（BS）と持ち主のフラグ（RC）は R2000 から。R14 は不明の RC（つねに 0）
+            if s.format.r2000() {
+                s.data.bs()?;
+                s.data.rc()?;
+            } else if s.format.version == Version::R14 {
+                s.data.rc()?;
+            }
             let mut entries = Vec::new();
             for _ in 0..count.clamp(0, 1 << 20) {
                 let name = s.tv()?;
@@ -348,6 +361,10 @@ struct Record {
 
 /// DWG を AutoCAD の図面のモデルにする。読めないファイルは利用者に見せるメッセージを返す
 pub fn read_dwg(bytes: &[u8]) -> Result<DxfDocument, String> {
+    // R13 より前の図面は形が違う（r12）
+    if let Some(version) = crate::r12::Old::from_magic(bytes) {
+        return crate::r12::read_old(bytes, version);
+    }
     let mut notices = NoticeList::new();
     let dwg = file::open(bytes, &mut notices)?;
     let version = dwg.version;
@@ -434,6 +451,9 @@ pub fn read_dwg(bytes: &[u8]) -> Result<DxfDocument, String> {
         }
     }
     doc.blocks = records.into_iter().map(|record| record.block).collect();
+    if !version_has_layouts(version) {
+        add_paper_layout(&mut doc);
+    }
 
     js::order_object_keys(&mut doc.sort_handles);
     doc.skipped = std::mem::take(&mut reader.skipped);
@@ -461,6 +481,40 @@ pub fn read_dwg(bytes: &[u8]) -> Result<DxfDocument, String> {
     }
     doc.notices = notices.into_vec();
     Ok(doc)
+}
+
+/// LAYOUT は R2000 から
+fn version_has_layouts(version: Version) -> bool {
+    version >= Version::R2000
+}
+
+/// R13・R14 には LAYOUT がない。紙空間の図形があれば、DXF の R12 の読み取りと同じく 1 つのレイアウト（Layout1）として持つ
+pub(crate) fn add_paper_layout(doc: &mut DxfDocument) {
+    let Some(paper) = doc.entities.iter().find(|entity| entity.base.space == DxfSpace::Paper) else {
+        return;
+    };
+    let block = paper.base.block.clone().unwrap_or_else(|| "*Paper_Space".into());
+    doc.layouts.push(DxfLayout {
+        handle: String::new(),
+        name: "Layout1".into(),
+        tab_order: 1.0,
+        model: false,
+        active: true,
+        block,
+        block_record_handle: None,
+        paper_width: 0.0,
+        paper_height: 0.0,
+        margins: [0.0, 0.0, 0.0, 0.0],
+        paper_size: String::new(),
+        // Inferred for pre-LAYOUT files: template MEASUREMENT (ODA section 24)
+        // selects the units of paper-space limits, as it does the drawing units.
+        paper_units: if doc.header.measurement == Some(0.0) { 0.0 } else { 1.0 },
+        plot_rotation: 0.0,
+        plot_scale: [1.0, 1.0],
+        plot_origin: [0.0, 0.0],
+        limmin: doc.header.plimmin.unwrap_or([0.0, 0.0]),
+        limmax: doc.header.plimmax.unwrap_or([0.0, 0.0]),
+    });
 }
 
 fn is_model_name(name: &str) -> bool {
@@ -587,7 +641,8 @@ fn read_linetypes(reader: &mut Reader<'_>, header: &Header, doc: &mut DxfDocumen
 }
 
 /// LAYER（20.4.54）。R2000 以降の BS は 1 凍結、2 非表示、4 新しいビューポートで凍結、8 ロック、16 印刷、0x3E0 線の太さ。
-/// 2 は仕様では「表示」だが、ACadSharp と同じく立っていれば非表示として読む（実際の図面で確かめた）
+/// 2 は仕様では「表示」だが、ACadSharp と同じく立っていれば非表示として読む（実際の図面で確かめた）。R13・R14 は
+/// 凍結・非表示・新しいビューポートで凍結・ロックの 4 つの B で、印刷する・線の太さは既定（DXF の読み取りと同じ）
 fn read_layers(
     reader: &mut Reader<'_>,
     header: &Header,
@@ -602,11 +657,23 @@ fn read_layers(
             non_entity(object)?;
             let name = entry_name(object)?;
             let s = &mut object.streams;
-            let values = s.data.bs()?;
+            let values = if s.format.r2000() {
+                s.data.bs()?
+            } else {
+                let mut values = 16 | (31 << 5);
+                for bit in [1, 2, 4, 8] {
+                    if s.data.bit()? {
+                        values |= bit;
+                    }
+                }
+                values
+            };
             let color = s.cmc()?;
-            // 外部参照のブロック、印刷スタイル、（R2007 以降）マテリアル、線種
+            // 外部参照のブロック、（R2000 以降）印刷スタイル、（R2007 以降）マテリアル、線種
             s.handle()?;
-            s.handle()?;
+            if s.format.r2000() {
+                s.handle()?;
+            }
             if s.format.r2007() {
                 s.handle()?;
             }
@@ -693,9 +760,31 @@ fn read_dimstyles(reader: &mut Reader<'_>, header: &Header, doc: &mut DxfDocumen
             non_entity(object)?;
             let name = entry_name(object)?;
             let s = &mut object.streams;
-            // DIMPOST、DIMAPOST
-            s.tv()?;
-            s.tv()?;
+            if s.format.r2000() {
+                // DIMPOST、DIMAPOST
+                s.tv()?;
+                s.tv()?;
+            } else {
+                // R13・R14: DIMTOL〜DIMSOXD（B × 11）、DIMALTD・DIMZIN（RC）、DIMSD1・DIMSD2（B）、DIMTOLJ・DIMJUST・DIMFIT
+                // （RC）、DIMUPT（B）、DIMTZIN・DIMALTZ・DIMALTTZ・DIMTAD（RC）、DIMUNIT〜DIMALTTD（BS × 6）
+                for _ in 0..11 {
+                    s.data.bit()?;
+                }
+                s.data.rc()?;
+                s.data.rc()?;
+                s.data.bit()?;
+                s.data.bit()?;
+                for _ in 0..3 {
+                    s.data.rc()?;
+                }
+                s.data.bit()?;
+                for _ in 0..4 {
+                    s.data.rc()?;
+                }
+                for _ in 0..6 {
+                    s.data.bs()?;
+                }
+            }
             let dimscale = s.data.bd()?;
             let dimasz = s.data.bd()?;
             for _ in 0..7 {
@@ -707,11 +796,13 @@ fn read_dimstyles(reader: &mut Reader<'_>, header: &Header, doc: &mut DxfDocumen
                 s.data.bs()?;
                 s.cmc()?;
             }
-            for _ in 0..6 {
-                s.data.bit()?;
-            }
-            for _ in 0..3 {
-                s.data.bs()?;
+            if s.format.r2000() {
+                for _ in 0..6 {
+                    s.data.bit()?;
+                }
+                for _ in 0..3 {
+                    s.data.bs()?;
+                }
             }
             if s.format.r2007() {
                 s.data.bs()?;
@@ -748,17 +839,24 @@ fn read_block_records(reader: &mut Reader<'_>, header: &Header, names: &mut Name
             let has_attributes = s.data.bit()?;
             let xref = s.data.bit()?;
             let overlaid = s.data.bit()?;
-            s.data.bit()?;
+            // 読み込んだ外部参照（R2000 から）
+            if s.format.r2000() {
+                s.data.bit()?;
+            }
             let owned_count = if s.format.r2004() && !xref && !overlaid { s.data.bl()?.max(0) as usize } else { 0 };
             let base_point = s.data.bd3()?;
             let xref_path = s.tv()?;
+            // 挿入の数・説明・プレビュー（R2000 から）
             let mut inserts = 0usize;
-            while s.data.rc()? != 0 {
-                inserts += 1;
+            let mut description = String::new();
+            if s.format.r2000() {
+                while s.data.rc()? != 0 {
+                    inserts += 1;
+                }
+                description = s.tv()?;
+                let preview = s.data.bl()?.max(0) as u64;
+                s.data.skip(preview * 8)?;
             }
-            let description = s.tv()?;
-            let preview = s.data.bl()?.max(0) as u64;
-            s.data.skip(preview * 8)?;
             if s.format.r2007() {
                 s.data.bs()?;
                 s.data.bit()?;
