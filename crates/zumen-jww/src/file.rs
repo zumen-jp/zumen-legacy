@@ -248,7 +248,7 @@ fn read_records(reader: &mut Reader<'_>, bytes: &[u8], version: u32, table: &mut
 }
 
 /// 読み取りの上限（zumen_core::limits）を超えたら、途中までのファイルは書けないのでエラーにする
-fn stop_at_limit() -> Result<()> {
+pub(crate) fn stop_at_limit() -> Result<()> {
     if zumen_core::limits::tick() {
         return Err(ReadError::new("読み取りの上限を超えたため、途中でやめました"));
     }

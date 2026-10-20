@@ -1,5 +1,5 @@
 use super::*;
-use crate::{JWW, JwwBlock, JwwBlockDefinition, JwwCircleSolid, JwwDimension, JwwSolid, read_jww, write_jww};
+use crate::{JWC, JWW, JwwBlock, JwwBlockDefinition, JwwCircleSolid, JwwDimension, JwwSolid, read_jww, write_jww};
 use zumen_core::{DrawingReader, ReadOptions};
 
 fn base(group: u16, layer: u16, color: u16, style: u8) -> JwwBase {
@@ -290,6 +290,35 @@ fn keeps_header_fields_and_text_bytes_it_does_not_use() {
 }
 
 #[test]
+fn bounds_the_records_that_nested_blocks_give() {
+    // 10 個の配置を 8 段重ねたブロック（分解すると 1 億本の線）
+    let place = |definition: u32| {
+        JwwEntity::Block(JwwBlock {
+            base: base(0, 0, 2, 1),
+            x: 1.0,
+            y: 0.0,
+            scale_x: 1.0,
+            scale_y: 1.0,
+            rotation: 0.0,
+            definition,
+        })
+    };
+    let mut doc = drawing(vec![place(1)]);
+    for number in 1..=8 {
+        let entities = if number == 8 {
+            vec![line(base(0, 0, 2, 1), 0.0, 0.0, 1.0, 0.0)]
+        } else {
+            (0..10).map(|_| place(number + 1)).collect()
+        };
+        doc.blocks.push(JwwBlockDefinition { number, name: format!("段 {number}"), entities });
+    }
+    let written = write_jwc(&doc);
+    assert!(written.notices.iter().any(|notice| notice.code == "jwc-limit"));
+    let file = JwcFile::read(&written.bytes).unwrap();
+    assert!(file.lines.len() <= MAX_RECORDS && !file.lines.is_empty());
+}
+
+#[test]
 fn keeps_unused_temporary_slots_and_write_layer_bits() {
     let doc = drawing(vec![point(base(0, 0, 2, 1), 0.0, 0.0, true), point(base(0, 1, 2, 1), 10.0, 0.0, true)]);
     let mut bytes = write_jwc(&doc).bytes;
@@ -321,8 +350,10 @@ fn keeps_unused_temporary_slots_and_write_layer_bits() {
 #[test]
 fn reads_jwc_as_a_scene() {
     let bytes = write_jwc(&drawing(vec![line(base(0, 0, 2, 1), -100.0, 0.0, 0.0, 0.0)])).bytes;
-    assert_eq!(JWW.detect(&bytes), Some("jwc"));
-    let scene = JWW.read(&bytes, "jwc", &ReadOptions::default()).unwrap();
+    // JWC は JWW の読み取りとは別の読み取り（Rust だけ）
+    assert_eq!((JWC.detect(&bytes), JWW.detect(&bytes)), (Some("jwc"), None));
+    assert!(JWW.read(&bytes, "jwc", &ReadOptions::default()).is_err());
+    let scene = JWC.read(&bytes, "jwc", &ReadOptions::default()).unwrap();
     assert_eq!((scene.format.as_str(), scene.entities.len()), ("jwc", 1));
     // 実寸（単精度の座標）
     let start = scene.entities[0].properties.iter().find(|property| property.key == "start").unwrap();

@@ -251,12 +251,20 @@ when JWW is added to it, with the updated entity's layer compared by the end of 
 
 ## JWC (Jw_cad for DOS)
 
-`zumen-jww` also reads and writes JWC, the drawing file of Jw_cad for DOS, in Rust only (the TypeScript package does not
-read it). Jw_cad for Windows still opens and saves JWC. No official description of JWC was found: the layout follows
-the findings of [ezjww](https://github.com/monozukuri-ai/ezjww) (MIT), which compared JWC files that Jw_cad 10.02.1
-saved with their known contents. zumen was checked against those 80 files (kept outside the repository): every one is
+`zumen-jww` also reads and writes JWC, the drawing file of Jw_cad for DOS, with its own reader `JWC` (format `jwc`,
+detected by the signature `jw_cad(c)data`). Jw_cad for Windows still opens and saves JWC.
+
+JWC is read in Rust only, as DWG is ([decision 0003](../decisions/0003-dwg-in-rust.md)): the Rust code is to become
+the single implementation of the readers, with the browser packages moving to its WebAssembly build format by format
+([The Rust implementation](../architecture.md#the-rust-implementation)), and JWC is a new format with no TypeScript
+reader to keep equal. A TypeScript reader would have to be written and kept equal value for value, for the files of a
+program that new drawings no longer use. Browsers would read JWC through the WebAssembly build, as they read DWG.
+
+No official description of JWC was found: the layout follows the findings of
+[ezjww](https://github.com/monozukuri-ai/ezjww) (MIT), which compared JWC files that Jw_cad 10.02.1 saved with their
+known contents. zumen was checked against those 80 files saved by Jw_cad 10 (kept outside the repository): every one is
 written back byte for byte, and reading them gives the same entities as Jw_cad's own JWW saves of them, except one text
-longer than 256 bytes that Jw_cad lays out again.
+longer than 256 bytes that Jw_cad lays out again. No JWC saved by Jw_cad for DOS itself was at hand.
 
 - **Fixed header**: a 40-byte signature `jw_cad(c)data.......a.f.m...............` (byte 22 `f`: layer group scales as
   f32 and a header of 2,421 bytes; `.`: as u16 and 2,389 bytes); three CSV blocks of 199 bytes at 200, 400 and 600
@@ -278,8 +286,9 @@ longer than 256 bytes that Jw_cad lays out again.
 
 `JwcFile::read` keeps the fixed header as it was and writes again only the fields it models. The bytes of each text up
 to the next text stay too (Jw_cad cuts a text over 256 bytes with a NUL and leaves the rest), and so does each name slot
-(the bytes after its NUL are left from memory). `read_jwc` (and `zumen::read`, as the format `jwc`) maps a JWC to the
-JWW drawing content (`JwwDocument`, version 700), so that the scene and the conversion to DXF follow the JWW rules:
+(the bytes after its NUL are left from memory), and so do the temporary point slots past the count and the upper bits
+of each group's write layer. `read_jwc` maps a JWC to the JWW drawing content (`JwwDocument`, version 700), and the
+`JWC` reader draws it with `jwc_to_scene`, so that the scene and the conversion to DXF follow the JWW rules:
 paper millimeters from the center of the sheet, arcs with their start angle in −180°–180° as Jw_cad saves them, texts
 with the size, spacing and pen color of their style and Jw_cad's default font, and temporary points. Entities come in
 the order temporary points, lines, arcs, texts and points, which gives their ids. JWC stores no palette, so the scene
@@ -304,6 +313,7 @@ written the nearest way it can and reported:
 | `jwc-name` | Names longer than the slots (7 bytes for layers, 15 for groups) were shortened |
 | `jwc-text-pool` | Texts beyond the 64 KB string pool were left out |
 | `jwc-temporary-points` | Temporary points beyond 100 were left out |
+| `jwc-limit` | Records beyond a million of a kind, or beyond four million entities visited while exploding blocks, were left out |
 | `point-symbol`, `embedded-image`, `memo`, `missing-block`, `text-encoding` | As for JWW |
 
 Written JWC has not yet been opened in Jw_cad either.

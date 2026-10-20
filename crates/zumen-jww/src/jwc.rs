@@ -14,7 +14,7 @@
 use crate::archive::{Result, encode_shift_jis};
 use crate::create::JWW_VERSION;
 use crate::edit::DEFAULT_FONT;
-use crate::file::JwwWritten;
+use crate::file::{JwwWritten, stop_at_limit};
 use crate::reader::{
     JwwArc, JwwBase, JwwDocument, JwwEntity, JwwLayer, JwwLayerGroup, JwwLine, JwwPoint, JwwText, WidthUnit,
 };
@@ -57,6 +57,8 @@ const EXTENT: f64 = 518.0;
 const MAX_RECORDS: usize = 1_000_000;
 /// 文字列の領域の上限（DOS の 1 つのセグメント）
 const MAX_POOL: usize = 0xffff;
+/// 書くときにたどる図形の数の上限（ブロックの分解で図形が増えすぎないように）
+const MAX_VISITS: usize = 4 * MAX_RECORDS;
 
 /// 名前と文字列。text は Shift_JIS を復号したもの。raw は元のバイト列（名前は欄の全体）
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -418,16 +420,19 @@ impl JwcFile {
             spare: bytes[at + 3],
             flags: u16_at(bytes, at + 4),
         };
+        // 読み取りの上限（zumen_core::limits）を超えたら、途中までは読まずにエラーにする
         let lines = (0..lines)
             .map(|i| {
+                stop_at_limit()?;
                 let at = lines_at + i * LINE;
-                JwcLine { start: xy(at), end: xy(at + 8), attributes: attributes(at + 16) }
+                Ok(JwcLine { start: xy(at), end: xy(at + 8), attributes: attributes(at + 16) })
             })
-            .collect();
+            .collect::<Result<_>>()?;
         let arcs = (0..arcs)
             .map(|i| {
+                stop_at_limit()?;
                 let at = arcs_at + i * ARC;
-                JwcArc {
+                Ok(JwcArc {
                     center: xy(at),
                     radius: f32_at(bytes, at + 8),
                     flatness: u16_at(bytes, at + 12),
@@ -435,9 +440,9 @@ impl JwcFile {
                     end: u32_at(bytes, at + 18) as i32,
                     tilt: u32_at(bytes, at + 22) as i32,
                     attributes: attributes(at + 26),
-                }
+                })
             })
-            .collect();
+            .collect::<Result<_>>()?;
         // 文字の文字列は、領域の中に文字の順に並ぶ。文字の内容は最初の NUL まで。次の文字の場所（最後の文字は領域の
         // 終わり）までを元のバイト列のまま持つ（Jw_cad は 256 バイトを超える文字を NUL で切り、残りをそのまま書く）
         let pool = &bytes[pool_at..points_at];
@@ -445,6 +450,7 @@ impl JwcFile {
             (0..texts).map(|i| u32_at(bytes, texts_at + i * TEXT + 16).wrapping_sub(pool_start) as usize).collect();
         let mut text_records = Vec::with_capacity(texts);
         for i in 0..texts {
+            stop_at_limit()?;
             let at = texts_at + i * TEXT;
             let begin = references[i];
             let finish = references.get(i + 1).copied().unwrap_or(pool.len());
@@ -470,10 +476,16 @@ impl JwcFile {
         }
         let points = (0..points)
             .map(|i| {
+                stop_at_limit()?;
                 let at = points_at + i * POINT;
-                JwcPoint { position: xy(at), layer: bytes[at + 8], color: bytes[at + 9], flags: u16_at(bytes, at + 10) }
+                Ok(JwcPoint {
+                    position: xy(at),
+                    layer: bytes[at + 8],
+                    color: bytes[at + 9],
+                    flags: u16_at(bytes, at + 10),
+                })
             })
-            .collect();
+            .collect::<Result<_>>()?;
         Ok(Self {
             float_scales,
             paper_size,
@@ -922,6 +934,8 @@ struct Lost {
     symbols: u64,
     images: u64,
     depth: u64,
+    /// 図形の数の上限で書かなかったもの
+    overflow: u64,
 }
 
 /// 図形の配置の変換（用紙の mm）: x' = a x + c y + e、y' = b x + d y + f
@@ -967,6 +981,8 @@ struct Converter<'a> {
     styles: Vec<JwcTextStyle>,
     /// 図形が使う文字種の番号
     used_styles: Vec<bool>,
+    /// たどった図形の数（MAX_VISITS まで）
+    visits: usize,
 }
 
 fn jwc_from_document(doc: &JwwDocument, notices: &mut NoticeList) -> JwcFile {
@@ -1013,6 +1029,7 @@ fn jwc_from_document(doc: &JwwDocument, notices: &mut NoticeList) -> JwcFile {
         height,
         styles: Vec::new(),
         used_styles: vec![false; 11],
+        visits: 0,
     };
     converter.styles = converter.file.text_styles.clone();
     for entity in &doc.entities {
@@ -1034,31 +1051,14 @@ impl Converter<'_> {
         ((base.layer_group as u8 & 0x0f) << 4) | (base.layer as u8 & 0x0f)
     }
 
-    /// 線色（1〜9）。SXF 対応色などは、画面色が最も近い線色 1〜9
-    fn color(&mut self, color: u16) -> u8 {
+    /// 線色（1〜9）。SXF 対応色やソリッドの任意色（custom）は、画面色が最も近い線色 1〜9
+    fn color(&mut self, color: u16, custom: Option<u32>) -> u8 {
         if (1..=9).contains(&color) {
             return color as u8;
         }
         self.lost.colors += 1;
-        let rgb = |value: &str| u32::from_str_radix(value.trim_start_matches('#'), 16).ok();
-        let target =
-            self.doc.pen_color(&JwwBase { pen_color: color, ..JwwBase::default() }, None).and_then(|value| rgb(&value));
-        let Some(target) = target else {
-            return 2;
-        };
-        let channels = |value: u32| [(value >> 16) & 0xff, (value >> 8) & 0xff, value & 0xff];
-        (1..=9u16)
-            .filter_map(|pen| {
-                let value = self
-                    .doc
-                    .pen_color(&JwwBase { pen_color: pen, ..JwwBase::default() }, None)
-                    .and_then(|value| rgb(&value))?;
-                let distance: u32 =
-                    channels(value).iter().zip(channels(target)).map(|(a, b)| a.abs_diff(b).pow(2)).sum();
-                Some((distance, pen))
-            })
-            .min()
-            .map_or(2, |(_, pen)| pen as u8)
+        let target = self.doc.pen_color(&JwwBase { pen_color: color, ..JwwBase::default() }, custom);
+        self.doc.nearest_pen_color(target.as_deref()) as u8
     }
 
     /// 線種（1〜9）。ランダム線は実線、倍長線種は同じ形の線種、SXF 対応線種は近い Jw_cad の線種
@@ -1085,20 +1085,41 @@ impl Converter<'_> {
         }
         JwcAttributes {
             style: self.line_type(base.pen_style),
-            color: self.color(base.pen_color),
+            color: self.color(base.pen_color, None),
             layer: Self::layer(base),
             spare: 0,
             flags: 0,
         }
     }
 
+    /// ソリッドの輪郭の属性。線種は実線、任意色（線色 10）は画面色が最も近い線色
+    fn solid_base(&mut self, base: &JwwBase, custom: Option<u32>) -> JwwBase {
+        JwwBase { pen_style: 1, pen_color: u16::from(self.color(base.pen_color, custom)), ..*base }
+    }
+
+    /// 種類ごとの図形の数が上限（読み取りと同じ）に達したか。達していれば数えて、書かない
+    fn full(&mut self, count: usize) -> bool {
+        let full = count >= MAX_RECORDS;
+        self.lost.overflow += u64::from(full);
+        full
+    }
+
     fn line(&mut self, base: &JwwBase, m: &Matrix, (x1, y1): (f64, f64), (x2, y2): (f64, f64)) {
+        if self.full(self.file.lines.len()) {
+            return;
+        }
         let attributes = self.attributes(base);
         let line = JwcLine { start: self.point(m, x1, y1), end: self.point(m, x2, y2), attributes };
         self.file.lines.push(line);
     }
 
     fn entity(&mut self, entity: &JwwEntity, m: &Matrix, depth: usize) {
+        // ブロックの分解で図形が増えすぎないように、たどる数を抑える
+        self.visits += 1;
+        if self.visits > MAX_VISITS {
+            self.lost.overflow += 1;
+            return;
+        }
         match entity {
             JwwEntity::Line(e) => self.line(&e.base, m, (e.x1, e.y1), (e.x2, e.y2)),
             JwwEntity::Arc(e) => self.arc(e, m),
@@ -1109,27 +1130,28 @@ impl Converter<'_> {
                 let position = self.point(m, e.x, e.y);
                 if e.temporary {
                     self.file.temporary_points.push(JwcTemporaryPoint { position, layer: Self::layer(&e.base) });
-                } else {
-                    let color = self.color(e.base.pen_color);
+                } else if !self.full(self.file.points.len()) {
+                    let color = self.color(e.base.pen_color, None);
                     self.file.points.push(JwcPoint { position, layer: Self::layer(&e.base), color, flags: 0 });
                 }
             }
             JwwEntity::Text(e) => self.text(e, m),
             JwwEntity::Solid(e) => {
                 self.lost.solids += 1;
+                let base = self.solid_base(&e.base, e.color);
                 let p = &e.points;
                 let corners = [(p[0], p[1]), (p[2], p[3]), (p[4], p[5]), (p[6], p[7])];
                 for i in 0..4 {
                     let (a, b) = (corners[i], corners[(i + 1) % 4]);
                     if a != b {
-                        self.line(&JwwBase { pen_style: 1, ..e.base }, m, a, b);
+                        self.line(&base, m, a, b);
                     }
                 }
             }
             JwwEntity::CircleSolid(e) => {
                 self.lost.solids += 1;
                 let arc = JwwArc {
-                    base: JwwBase { pen_style: 1, ..e.base },
+                    base: self.solid_base(&e.base, e.color),
                     cx: e.cx,
                     cy: e.cy,
                     radius: e.radius.abs(),
@@ -1155,6 +1177,10 @@ impl Converter<'_> {
                 let local = [cos * e.scale_x, sin * e.scale_x, -sin * e.scale_y, cos * e.scale_y, e.x, e.y];
                 let child = multiply(m, &local);
                 for member in &block.entities {
+                    if self.visits >= MAX_VISITS {
+                        self.lost.overflow += 1;
+                        break;
+                    }
                     self.entity(member, &child, depth + 1);
                 }
             }
@@ -1197,6 +1223,9 @@ impl Converter<'_> {
                 let b = at(start + sweep * (i + 1) as f64 / segments as f64);
                 self.line(&e.base, m, a, b);
             }
+            return;
+        }
+        if self.full(self.file.arcs.len()) {
             return;
         }
         let rotation = m[1].atan2(m[0]);
@@ -1247,13 +1276,16 @@ impl Converter<'_> {
             self.lost.images += 1;
             return;
         }
+        if self.full(self.file.texts.len()) {
+            return;
+        }
         if e.font.starts_with('@') || (!e.font.is_empty() && e.font != DEFAULT_FONT) {
             self.lost.fonts += 1;
         }
         let scale = m[0].hypot(m[1]);
         let tenths = |mm: f64| (mm * scale * 10.0).round().clamp(0.0, f64::from(u16::MAX)) as u16;
         let wanted = JwcTextStyle {
-            color: u16::from(self.color(e.base.pen_color)),
+            color: u16::from(self.color(e.base.pen_color, None)),
             // 負の大きさ（Jw_cad 10.03 以降の反転した文字）は、JWC では反転しない文字にする
             width: tenths(e.size_x.abs()),
             height: tenths(if e.size_y != 0.0 { e.size_y.abs() } else { 2.5 }),
@@ -1322,6 +1354,11 @@ impl Converter<'_> {
             ),
             (lost.symbols, "point-symbol", "JWC は点の記号を持たないため、ふつうの点にしました"),
             (lost.images, "embedded-image", "JWC は画像を持たないため、画像の配置の文字を書いていません"),
+            (
+                lost.overflow,
+                "jwc-limit",
+                "図形が多すぎる（線・円弧・文字・点がそれぞれ 100 万、ブロックの分解でたどる図形が 400 万を超えた）ため、残りを書いていません",
+            ),
         ];
         for (count, code, message) in reports {
             if count > 0 {
