@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 mod archive;
+mod create;
 mod file;
 mod header;
 mod reader;
@@ -10,6 +11,7 @@ mod scene;
 mod style;
 mod sxf_tables;
 
+pub use create::{JWW_VERSION, write_jww};
 pub use file::{JwwBlockRecord, JwwFile, JwwRecord, JwwWritten};
 pub use header::{
     JwwDisplaySettings, JwwGeneralSettings, JwwGroupState, JwwHeader, JwwLayerState, JwwLinePattern, JwwMarkJump,

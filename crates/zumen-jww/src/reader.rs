@@ -199,7 +199,7 @@ pub(crate) fn colorref(value: u32) -> String {
 }
 
 /// 線種のビット列（下位 unit ビットが 1 周期）を、線分・空白の長さ（mm）にする
-fn pattern_segments(pattern: u32, unit: u32, printer_pitch: u32) -> Vec<f64> {
+pub(crate) fn pattern_segments(pattern: u32, unit: u32, printer_pitch: u32) -> Vec<f64> {
     if !(1..=32).contains(&unit) {
         return Vec::new();
     }

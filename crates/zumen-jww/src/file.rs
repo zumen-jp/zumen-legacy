@@ -42,11 +42,6 @@ impl JwwRecord {
     pub fn new(entity: JwwEntity) -> Self {
         Self { entity, source: None }
     }
-
-    /// ファイルから読んだレコードか（足したものは false）
-    pub fn is_read(&self) -> bool {
-        self.source.is_some()
-    }
 }
 
 impl From<JwwEntity> for JwwRecord {
@@ -127,19 +122,21 @@ impl JwwFile {
         }
         let mut reader = Reader::new(bytes, 8);
         let version = reader.u32()?;
-        // 図形の一覧の始まりの候補: ヘッダを仕様の並びで読み終えたところと、最初の図形クラスの登録の前（read_jww と同じ）
+        // 図形の一覧の始まり。表示の読み取り（read_jww）と同じく最初の図形クラスの登録の前を先に試し、
+        // 見つからない・読めない（図形の一覧が空など）ときは、ヘッダを仕様の並びで読み終えたところを試す
         let full = JwwHeader::read(bytes, bytes.len(), version)?;
-        let mut starts = vec![bytes.len() - full.rest.len()];
-        if let Some(found) = find_entity_list(bytes)
-            && !starts.contains(&found)
-        {
-            starts.push(found);
+        let mut starts = Vec::with_capacity(2);
+        starts.extend(find_entity_list(bytes));
+        let end = bytes.len() - full.rest.len();
+        if !starts.contains(&end) {
+            starts.push(end);
         }
         let mut error = ReadError::new("図形の一覧が見つかりません");
         for start in starts {
-            match read_body(bytes, start, version) {
-                Ok((entities, blocks, trailer)) => {
-                    let header = JwwHeader::read(bytes, start, version)?;
+            let read = JwwHeader::read(bytes, start, version)
+                .and_then(|header| read_body(bytes, start, version).map(|body| (header, body)));
+            match read {
+                Ok((header, (entities, blocks, trailer))) => {
                     let source = Some(FileSource { version, header: bytes[..start].to_vec() });
                     return Ok(Self { version, header, entities, blocks, trailer, source });
                 }
@@ -276,9 +273,10 @@ impl Context<'_> {
 
     fn record(&mut self, out: &mut Writer, record: &JwwRecord) {
         let class = class_of(&record.entity);
-        let source = record.source.as_ref().filter(|source| source.class == class);
+        // 元のタグと本体は、同じ版で同じクラスのときだけ使う（版を変えたら、Jw_cad と同じく版をスキーマにする）
+        let source = record.source.as_ref().filter(|source| self.reuse && source.class == class);
         self.table.write_object(out, class, schema(self.version), source.map(|source| source.tag));
-        if let Some(source) = source.filter(|_| self.reuse) {
+        if let Some(source) = source {
             let mut reader = Reader::new(&source.body, 0);
             let same = read_entity_body(&mut reader, class, self.version).ok().as_ref() == Some(&record.entity);
             if same && reader.remaining() == 0 {
@@ -287,7 +285,7 @@ impl Context<'_> {
             }
         }
         // 寸法の SXF のモードは図形の値にないので、元の本体から引き継ぐ
-        let mode = match (&record.entity, source.filter(|_| self.reuse)) {
+        let mode = match (&record.entity, source) {
             (JwwEntity::Dimension(_), Some(source)) => dimension_mode(&source.body, self.version).unwrap_or(0),
             _ => 0,
         };
@@ -295,9 +293,9 @@ impl Context<'_> {
     }
 
     fn block(&mut self, out: &mut Writer, block: &JwwBlockRecord) {
-        let source = block.source.as_ref();
+        let source = block.source.as_ref().filter(|_| self.reuse);
         self.table.write_object(out, "CDataList", schema(self.version), source.map(|source| source.tag));
-        let head = source.filter(|_| self.reuse).filter(|source| {
+        let head = source.filter(|source| {
             let mut reader = Reader::new(&source.head, 0);
             let read = (|| -> Result<_> {
                 Ok((
@@ -505,6 +503,89 @@ mod tests {
             let bytes = fixture(name);
             assert_eq!(first_difference(&rewrite_from_values(&bytes), &bytes), None, "{name}");
         }
+    }
+
+    fn position(haystack: &[u8], needle: &[u8]) -> usize {
+        haystack.windows(needle.len()).position(|window| window == needle).unwrap()
+    }
+
+    /// 違うバイトの範囲（元のバイト列の中）
+    fn changed_range(original: &[u8], written: &[u8]) -> std::ops::Range<usize> {
+        let prefix = original.iter().zip(written).take_while(|(a, b)| a == b).count();
+        let suffix = original.iter().rev().zip(written.iter().rev()).take_while(|(a, b)| a == b).count();
+        prefix..original.len().saturating_sub(suffix).max(prefix)
+    }
+
+    #[test]
+    fn rewrites_only_the_records_that_change() {
+        let bytes = fixture("minimal-v700.jww");
+        let mut file = JwwFile::read(&bytes).unwrap();
+        let body = file.entities[2].source.as_ref().unwrap().body.clone();
+        let JwwEntity::Text(text) = &mut file.entities[2].entity else { panic!("text") };
+        text.content = "書き換えた文字".into();
+        text.x2 = 40.0;
+        let written = file.write();
+        let start = position(&bytes, &body);
+        let changed = changed_range(&bytes, &written.bytes);
+        assert!(changed.start >= start && changed.end <= start + body.len(), "{changed:?} / {start}+{}", body.len());
+        let read = crate::read_jww(&written.bytes).unwrap();
+        let JwwEntity::Text(text) = &read.entities[2] else { panic!("text") };
+        assert_eq!((text.content.as_str(), text.x2), ("書き換えた文字", 40.0));
+        assert_eq!(read.entities.len(), 6);
+    }
+
+    #[test]
+    fn numbers_classes_again_after_adding_and_deleting_records() {
+        let bytes = fixture("minimal-v600.jww");
+        let original = crate::read_jww(&bytes).unwrap();
+        let mut file = JwwFile::read(&bytes).unwrap();
+        // 最初の線（CDataSen のクラスを登録したレコード）を消し、線と点を足す。後ろの線とブロックの中の線は、
+        // クラスを登録し直して読める
+        file.entities.remove(0);
+        let line = JwwLine {
+            base: JwwBase { pen_style: 1, pen_color: 2, ..JwwBase::default() },
+            x1: 1.0,
+            y1: 2.0,
+            x2: 3.0,
+            y2: 4.0,
+        };
+        file.entities.push(JwwRecord::new(JwwEntity::Line(line.clone())));
+        let point = JwwPoint {
+            base: JwwBase { pen_style: 1, ..JwwBase::default() },
+            x: 5.0,
+            y: 6.0,
+            temporary: false,
+            code: 0,
+            angle: 0.0,
+            scale: 0.0,
+        };
+        file.entities.push(JwwRecord::new(JwwEntity::Point(point.clone())));
+        file.blocks[0].entities.push(JwwRecord::new(JwwEntity::Point(point.clone())));
+        let written = file.write();
+        assert!(written.notices.is_empty(), "{:?}", written.notices);
+        let read = crate::read_jww(&written.bytes).unwrap();
+        let mut expected = original.entities[1..].to_vec();
+        expected.push(JwwEntity::Line(line));
+        expected.push(JwwEntity::Point(point.clone()));
+        assert_eq!(read.entities, expected);
+        assert_eq!(read.blocks[0].entities[1], JwwEntity::Point(point));
+        assert_eq!(read.blocks[0].entities[0], original.blocks[0].entities[0]);
+        // 書いたものを読んで書くと同じ
+        assert_eq!(JwwFile::read(&written.bytes).unwrap().write().bytes, written.bytes);
+    }
+
+    #[test]
+    fn writes_the_records_again_in_another_version() {
+        let bytes = fixture("minimal-v600.jww");
+        let mut file = JwwFile::read(&bytes).unwrap();
+        file.version = 700;
+        let written = file.write();
+        let read = crate::read_jww(&written.bytes).unwrap();
+        let original = crate::read_jww(&bytes).unwrap();
+        assert_eq!((read.version, &read.entities, &read.blocks), (700, &original.entities, &original.blocks));
+        assert_eq!((read.memo.as_str(), &read.groups), (original.memo.as_str(), &original.groups));
+        // 文字列は UTF-16LE で書く
+        assert_eq!(&written.bytes[12..15], [0xff, 0xfe, 0xff]);
     }
 
     /// `ZUMEN_SAMPLES=<folder> cargo test -p zumen-jww --lib -- --ignored`

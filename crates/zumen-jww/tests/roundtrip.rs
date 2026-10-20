@@ -1,7 +1,7 @@
 //! 読んで書くと元と同じバイト列になること（tests/fixtures/jww と、ZUMEN_SAMPLES の図面）
 
 use std::path::Path;
-use zumen_jww::JwwFile;
+use zumen_jww::{JwwEntity, JwwFile, read_jww};
 
 fn fixture(name: &str) -> Vec<u8> {
     std::fs::read(format!("{}/../../tests/fixtures/jww/{name}", env!("CARGO_MANIFEST_DIR"))).unwrap()
@@ -14,6 +14,17 @@ fn first_difference(a: &[u8], b: &[u8]) -> Option<usize> {
 
 fn assert_same_bytes(name: &str, bytes: &[u8]) {
     let file = JwwFile::read(bytes).unwrap_or_else(|error| panic!("{name}: {error:?}"));
+    // 図形の一覧とブロック定義は、表示用の読み取りと同じ
+    let doc = read_jww(bytes).unwrap();
+    assert_eq!(doc.truncated, None, "{name}");
+    let entities: Vec<&JwwEntity> = file.entities.iter().map(|record| &record.entity).collect();
+    assert_eq!(entities, doc.entities.iter().collect::<Vec<_>>(), "{name}");
+    assert_eq!(file.blocks.len(), doc.blocks.len(), "{name}");
+    for (block, definition) in file.blocks.iter().zip(&doc.blocks) {
+        let entities: Vec<&JwwEntity> = block.entities.iter().map(|record| &record.entity).collect();
+        assert_eq!((block.number, &block.name), (definition.number, &definition.name), "{name}");
+        assert_eq!(entities, definition.entities.iter().collect::<Vec<_>>(), "{name}");
+    }
     let written = file.write();
     assert!(written.notices.is_empty(), "{name}: {:?}", written.notices);
     assert_eq!(
