@@ -351,9 +351,20 @@ folding and removing spaces and punctuation; a bare 番号 or `NO` is not taken 
 has several title blocks, the one nearest the bottom right of the sheet comes first. Every candidate is kept with
 its source, label and entities, so an application can show where a value came from.
 
+`zumen_core::regions` finds the regions that drawn lines close, such as rooms, with their areas
+([decision 0015](decisions/0015-analysis-in-zumen-core.md)). The lines of lines, polylines, arcs, circles, splines
+and solids (not dimensions, texts, leaders or hatches) are split where they cross and where an end lies on another
+line, ends closer than the tolerance (0.01 paper millimeters by default) become one point, and lines that end
+nowhere are removed. Every bounded face of what is left is a region, found by walking the half-edges around each
+point in angle order; a closed shape that touches no other line is a hole of the smallest face around it. Lines of
+placements at different scales are never joined, and a region inside a placement also has its outline, area and
+perimeter in real-world millimeters. Each region names the entities that bound it and the texts whose box center lies
+inside it. Which regions are rooms is left to the caller, with filters by layer, text and area.
+
 `zumen.tools` gives them to AI agents as functions with JSON results: summarize a drawing (with its placements and
 their conversion to real-world millimeters), render a region, find texts and entities, show one entity with its
-shapes, measure in real-world millimeters through the scale of a placement and compare two revisions. The results
+shapes, measure in real-world millimeters through the scale of a placement, find the closed regions with their
+real-world areas and compare two revisions. The results
 follow `TypedDict` classes that are part of the API, are bounded by the arguments (items, characters of a text, points
 of shapes, pixels), and take regions in paper millimeters or as fractions of the frame (the scene's `bounds`, origin at
 the top left) ([decision 0011](decisions/0011-tool-functions-for-agents.md)). `zumen.mcp` serves the same functions as

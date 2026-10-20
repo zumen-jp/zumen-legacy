@@ -4,6 +4,14 @@ All packages share one version during 0.x.
 
 ## Unreleased
 
+- Rust, Python, the command line and the MCP server: find the regions that drawn lines close, such as rooms, with
+  their areas ([decision 0015](docs/decisions/0015-analysis-in-zumen-core.md)). Lines are split where they cross or
+  meet and joined where their ends are within a tolerance, lines that end nowhere close nothing, and closed shapes
+  inside that touch no other line are holes. Each region has its outline, holes, area and perimeter on the sheet and,
+  inside a placement, in real-world millimeters, the entities that bound it and the texts inside.
+  `zumen_core::regions::closed_regions`, `Scene.regions` and `zumen.tools.find_regions` in Python (areas in square
+  meters, filters by layer, text and area), `zumen regions` and the `find_regions` MCP tool.
+
 ## 0.1.0 — 2026-10-20
 
 - First public release under the MIT license, with third-party license notices, four npm packages
