@@ -380,3 +380,23 @@ fn turns_arcs_and_moves_text_with_its_end() {
     let JwwEntity::Text(text) = &doc.entities[2] else { panic!("text") };
     assert_eq!((text.x1, text.y1, text.x2, text.y2), (10.0, 20.0, 30.0, 20.0));
 }
+
+#[test]
+fn writes_new_strings_in_the_encoding_of_the_file() {
+    // Jw_cad 9 までの版 700 の図面は、文字列を Shift_JIS で書く（版 600 の fixtures の版を 700 にしたもの）
+    let mut bytes = fixture(600);
+    bytes[8..12].copy_from_slice(&700u32.to_le_bytes());
+    assert_eq!(edit_jww(&bytes, &[]).unwrap().bytes, bytes);
+    let edited =
+        edit(&bytes, r##"[{"op": "add", "kind": "text", "position": [0, 0], "text": "追加", "height": 3}]"##).unwrap();
+    let shift_jis = [4u8, 0x92, 0xc7, 0x89, 0xc1];
+    assert!(edited.bytes.windows(5).any(|window| window == shift_jis), "the new text is not in Shift_JIS");
+    let Some(JwwEntity::Text(text)) = read_jww(&edited.bytes).unwrap().entities.last().cloned() else { panic!("text") };
+    assert_eq!(text.content, "追加");
+    // Jw_cad 10 の版 700 の図面（UTF-16LE）には UTF-16LE で書く
+    let edited =
+        edit(&fixture(700), r##"[{"op": "add", "kind": "text", "position": [0, 0], "text": "追加", "height": 3}]"##)
+            .unwrap();
+    let utf16 = [0xff, 0xfe, 0xff, 2, 0xfd, 0x8f, 0xa0, 0x52];
+    assert!(edited.bytes.windows(8).any(|window| window == utf16));
+}

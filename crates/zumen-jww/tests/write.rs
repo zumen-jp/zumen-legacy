@@ -202,8 +202,15 @@ fn writes_what_older_versions_hold() {
                 }
             }
         }
+        // 版 410 より前のブロック名は複合図形の種別を持たない
         let written = write_jww(&doc);
-        assert!(written.notices.is_empty(), "{version}: {:?}", written.notices);
+        let codes: Vec<&str> = written.notices.iter().map(|notice| notice.code.as_str()).collect();
+        if version < 410 {
+            assert_eq!(codes, ["block-name"], "{version}");
+            doc.blocks[1].name = "小部品".into();
+        } else {
+            assert!(codes.is_empty(), "{version}: {codes:?}");
+        }
         let read = read_jww(&written.bytes).unwrap();
         assert_eq!((read.version, &read.entities, &read.blocks), (version, &doc.entities, &doc.blocks), "{version}");
         assert_eq!(read.groups, doc.groups, "{version}");
@@ -338,4 +345,55 @@ fn reads_back_a_file_with_block_definitions_only() {
     let entities: Vec<&JwwEntity> = file.blocks[0].entities.iter().map(|record| &record.entity).collect();
     assert_eq!(entities, doc.blocks[0].entities.iter().collect::<Vec<_>>());
     assert_eq!(file.write().bytes, written.bytes);
+}
+
+#[test]
+fn writes_versions_before_300_with_their_header_fields() {
+    let length = |version: u32| {
+        let mut doc = JwwDocument::new();
+        doc.version = version;
+        // 版 600 より前は印刷の dpi を持たない
+        doc.width_unit = WidthUnit::default();
+        doc.pen_widths = Some(vec![None; 10]);
+        let written = write_jww(&doc);
+        assert!(written.notices.is_empty(), "{version}: {:?}", written.notices);
+        let file = JwwFile::read(&written.bytes).unwrap();
+        let settings = file.header.settings.as_ref().unwrap();
+        assert!(settings.display.is_some() && settings.text.is_some() && file.header.rest.is_empty(), "{version}");
+        assert_eq!(file.write().bytes, written.bytes, "{version}");
+        written.bytes.len()
+    };
+    // 300 より前: 天空図（16 バイト）、マークジャンプ 5〜8 とレイヤグループ（128）、文字の描画状態（56）がない
+    assert_eq!(length(300) - length(252), 200);
+    // 230 より前はソリッドの任意色（8）、225 より前は最終値（32）、223 より前は作図時間と 2.5D の視点（60）がない
+    assert_eq!(length(230) - length(225), 8);
+    assert_eq!(length(225) - length(223), 32);
+    assert_eq!(length(223) - length(200), 60);
+}
+
+#[test]
+fn fits_what_older_versions_cannot_hold() {
+    let mut doc = normalized(drawing(700));
+    doc.version = 200;
+    doc.width_unit = WidthUnit::default();
+    doc.pen_widths = Some(vec![None; 10]);
+    doc.entities.retain(|entity| !matches!(entity, JwwEntity::Dimension(_)));
+    doc.entities.push(JwwEntity::Line(line(JwwBase { pen_width: 25, ..base(0, 0, 2, 1) }, 0.0, 0.0, 1.0, 0.0)));
+    doc.entities.push(JwwEntity::Text(text(
+        base(0, 0, 2, 1),
+        0.0,
+        0.0,
+        "^@BM%temp%zumen.bmp,100,50,0,0,1,0,255,255,255",
+    )));
+    let written = write_jww(&doc);
+    let codes: Vec<&str> = written.notices.iter().map(|notice| notice.code.as_str()).collect();
+    assert_eq!(codes, ["entity-width", "point-symbol", "circle-solid", "block-name", "embedded-image"]);
+    let read = read_jww(&written.bytes).unwrap();
+    // 円のソリッド（90° の扇形）は、中心からの三角形のソリッドに分ける
+    let solids = read.entities.iter().filter(|entity| matches!(entity, JwwEntity::Solid(_))).count();
+    assert_eq!(solids, 2 + 8);
+    assert!(read.entities.iter().all(|entity| !matches!(entity, JwwEntity::CircleSolid(_))));
+    // 記号の点はふつうの点に、ブロック名は複合図形の種別を除く
+    assert!(read.entities.iter().all(|entity| entity.base().pen_style != 100));
+    assert_eq!(read.blocks[1].name, "小部品");
 }

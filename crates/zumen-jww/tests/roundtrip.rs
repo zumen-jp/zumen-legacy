@@ -40,6 +40,10 @@ fn assert_same_bytes(name: &str, bytes: &[u8]) {
 fn rewrites_the_fixtures_byte_for_byte() {
     for name in ["minimal-v600.jww", "minimal-v700.jww"] {
         assert_same_bytes(name, &fixture(name));
+        // fixtures は文字の設定の欄を持たない（その前までは型つき）
+        let header = JwwFile::read(&fixture(name)).unwrap().header;
+        let settings = header.settings.as_ref().unwrap();
+        assert!(settings.sxf.is_some() && settings.text.is_none() && header.rest.is_empty(), "{name}");
     }
 }
 
@@ -56,7 +60,12 @@ fn rewrites_the_samples_byte_for_byte() {
             continue;
         }
         let name = path.file_name().unwrap().to_string_lossy().to_string();
-        assert_same_bytes(&name, &std::fs::read(&path).unwrap());
+        let bytes = std::fs::read(&path).unwrap();
+        assert_same_bytes(&name, &bytes);
+        // Jw_cad が書いたヘッダは、すべての欄を型つきで読める
+        let header = JwwFile::read(&bytes).unwrap().header;
+        let settings = header.settings.as_ref().unwrap_or_else(|| panic!("{name}: no settings"));
+        assert!(settings.display.is_some() && settings.text.is_some() && header.rest.is_empty(), "{name}");
         checked += 1;
     }
     assert!(checked > 0, "no JWW in {folder}");

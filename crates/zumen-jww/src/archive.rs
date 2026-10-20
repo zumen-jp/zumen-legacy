@@ -11,7 +11,8 @@ pub(crate) type Result<T> = std::result::Result<T, ReadError>;
 
 pub(crate) const END_OF_DATA: &str = "データが途中で終わっています";
 
-/// 文字列を UTF-16LE で書く版（Jw_cad 7 以降の Unicode の版）
+/// 新しい図面の文字列を UTF-16LE で書く版。Jw_cad 10.01 以降は版 700 の文字列を UTF-16LE で書き、それより前の
+/// Jw_cad は版 700 でも Shift_JIS で書く（読んだ図面は、その図面の書き方に合わせる）
 pub(crate) const UNICODE_VERSION: u32 = 700;
 
 /// 新しいクラスのタグ（wNewClassTag）
@@ -188,20 +189,27 @@ fn encode_shift_jis(text: &str) -> (Vec<u8>, usize) {
     }
 }
 
-/// 書く版で文字列を UTF-16LE にするか
+/// 新しい図面を、その版で書くときに文字列を UTF-16LE にするか
 pub(crate) fn unicode(version: u32) -> bool {
     version >= UNICODE_VERSION
 }
 
 pub(crate) struct Writer {
     pub(crate) bytes: Vec<u8>,
+    /// 文字列を UTF-16LE で書く（そうでなければ Shift_JIS）
+    pub(crate) unicode: bool,
     /// Shift_JIS で表せず ? にした文字の数
     pub(crate) replaced: usize,
 }
 
 impl Writer {
+    #[cfg(test)]
     pub(crate) fn new() -> Self {
-        Self { bytes: Vec::new(), replaced: 0 }
+        Self::with_unicode(false)
+    }
+
+    pub(crate) fn with_unicode(unicode: bool) -> Self {
+        Self { bytes: Vec::new(), unicode, replaced: 0 }
     }
 
     pub(crate) fn raw(&mut self, bytes: &[u8]) {

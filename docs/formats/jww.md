@@ -87,9 +87,15 @@ kept bytes and from the typed values alone.
   group, the state, write layer, scale and protection of the 16 layer groups and 256 layers, the dimension, printer and
   grid settings, layer and group names, shadow and sky settings, the view and mark jumps, parallel line distances, the
   screen and printer pens, line types 2–9, random lines and the long line types, print and 2.5D settings, the last
-  entered sizes, the solid color, the SXF colors and line types (version 4.20 and later) and the text styles. Versions
-  before 3.00, and anything that does not follow this order (the fixtures, which end before the text styles), are kept
-  as the bytes up to the entity list (`rest`).
+  entered sizes, the solid color, the SXF colors and line types (version 4.20 and later) and the text styles. The fields
+  a version lacks follow the notes of jwdatafmt.txt: before 3.00 there is no sky diagram, no mark jumps 5–8 and no
+  layer group of a jump (4 jumps of 24 bytes), and no text drawing state; before 2.30 no solid color, before 2.25 no
+  last entered sizes, before 2.23 no drawing time and 2.5D views. Those fields are read and written only from their
+  version, so the header model is the same for every version. The settings read are written again at once and must
+  give back the same bytes; when they do not (a layout that differs from the notes, a string written differently),
+  the settings stay as the bytes up to the entity list (`rest`), as do the parts that do not follow the order at all
+  (the fixtures end before the text styles). Versions before 3.00 follow the notes alone: no file of those versions
+  was at hand.
 - **Records** (`JwwRecord`, `JwwBlockRecord`): each entity keeps its values (`JwwEntity`, the same as `read_jww`) and the
   bytes of its body. A record whose entity has not changed is written from its bytes; a changed or added one is written
   from its values, in the order of the class's `Serialize` in jwdatafmt.txt. A changed dimension keeps its SXF mode
@@ -101,11 +107,14 @@ kept bytes and from the typed values alone.
   0x7FFF); each object takes a number before its body. A tag that registered a class is written the same way again, so
   an unchanged file keeps its bytes, and after records are added or deleted every reference stays valid. The schema is
   the version, as Jw_cad writes it.
-- **Strings** are CStrings: a length of 1 byte, or `FF` and 2 bytes, or `FF FF FF` and 4 bytes, then the text. Version
-  7.00 and later put `FF FE FF` before the length and write UTF-16LE; older versions write Shift_JIS.
-  **Counts** are 2 bytes, or `FF FF` and 4 bytes.
+- **Strings** are CStrings: a length of 1 byte, or `FF` and 2 bytes, or `FF FF FF` and 4 bytes, then the text in
+  Shift_JIS, or `FF FE FF` before the length and the text in UTF-16LE. Jw_cad 10.01 (2025) and later write UTF-16LE;
+  earlier versions write Shift_JIS, also in data version 700. A file read keeps the encoding of its memo for the
+  strings that are added or changed; a new drawing uses UTF-16LE from version 700. **Counts** are 2 bytes, or `FF FF`
+  and 4 bytes.
 - **After the block definitions** (the count and files of embedded images in version 7.00 and later) the bytes are kept
-  as they are.
+  as they are. Written in a version before 7.00, they are left out (`embedded-image`), and written in 7.00 or later
+  without them, the count 0 is added.
 - Null objects in a list hold nothing and are left out. A body that cannot be read to its end (an unknown class) is an
   error: `JwwFile` never writes part of a file, unlike `read_jww`, which draws what it could read.
 
@@ -116,10 +125,14 @@ version 700, A3, all layer groups 1/1, layer 0 of group 0 for writing, Jw_cad's 
 and the same names `read_jww` gives unnamed groups and layers. Entity coordinates are paper millimeters from the center
 of the sheet; `JwwDocument::paper_factor(group)` turns the real coordinates of a layer group into them (1 / scale).
 
-- **Version**: `doc.version` from 300 to 700, otherwise 700 (`JWW_VERSION`, notice `version`). Version 700 is what
-  Jw_cad 7.02 and later write, so Jw_cad 8 and later open it; it stores text in UTF-16LE and ends with an image count
-  of 0. The version decides what is written, as in jwdatafmt.txt: line widths of entities from 3.51, SXF colors and line
-  types and the extension lines and points of dimensions from 4.20, the dpi of printer widths from 6.00.
+- **Version**: `doc.version` from 200 to 700, otherwise 700 (`JWW_VERSION`, notice `version`). Version 700 is the
+  data version of Jw_cad 7.02 and later, so Jw_cad 8 and later open it; it ends with an image count of 0, and zumen
+  writes its text in UTF-16LE as Jw_cad 10.01 and later do. The version decides what is written, as in jwdatafmt.txt:
+  the header fields of each version (above), point symbols from 2.52, circle solids from 2.30, block names with the
+  kind of composite figure from 4.10, line widths of entities from 3.51, SXF colors and line types and the extension
+  lines and points of dimensions from 4.20, the dpi of printer widths from 6.00. What an older version cannot hold is
+  written the nearest way it can and reported: a point symbol becomes a plain point, a circle solid becomes triangular
+  solids (its outline as drawn, from the center for sectors), the kind of composite figure leaves a block name.
 - **Settings the document does not hold** take the values of a new Jw_cad drawing: dimension settings, printer origin
   and scale, grid, shadow (latitude 36°), view, parallel line distances, printer pens, random lines, 2.5D views, text
   styles 1–10 (2 mm to 10 mm), and the SXF tables (the 16 SXF colors and 15 line types with their names).
@@ -144,7 +157,7 @@ Notices when writing:
 | code | Meaning |
 | --- | --- |
 | `version` | A version that cannot be written was written as 700 |
-| `text-encoding` | Characters that Shift_JIS cannot hold (versions before 7.00) became `?` |
+| `text-encoding` | Characters that Shift_JIS cannot hold (versions before 7.00, or a file read that writes Shift_JIS) became `?` |
 | `sxf-attributes` | Versions before 4.20 have no SXF colors or line types, so entities that use them get Jw_cad's defaults |
 | `line-type` | Dash and gap lengths that a JWW line type cannot hold kept Jw_cad's default line type |
 | `pen-width` | Pen widths in millimeters without a unit to write them in (printer dots of a version before 6.00) kept Jw_cad's default widths |
@@ -152,6 +165,11 @@ Notices when writing:
 | `invalid-color` | Colors that are not `#rrggbb` kept the default color |
 | `dimension-parts` | Extension lines and points of dimensions beyond two and four, or in versions before 4.20, are not written |
 | `solid-style` | The line type of a solid was changed to match its kind (circle solids from 101) |
+| `entity-width` | Versions before 3.51 have no line widths of entities; they draw with the width of their pen color |
+| `point-symbol` | Versions before 2.52 have no point symbols (arrows, markers); they became plain points |
+| `circle-solid` | Versions before 2.30 have no circle solids; they became triangular solids |
+| `block-name` | Versions before 4.10 have no kind of composite figure after a block name; it was left out |
+| `embedded-image` | The files of embedded images are not in the drawing content (and versions before 7.00 have none); only the text that places an image was written |
 
 ## Editing (`edit_jww`)
 
@@ -218,7 +236,7 @@ all layer groups 1/1, lengths in millimeters).
   takes the same values and `name`, which renames the layer. JWW layers have no color, line type, line width, frozen or
   plot setting (`edit-layer-attributes`).
 - **Notices of the writer** come with the prefix `edit-`: `edit-text-encoding` for characters that Shift_JIS cannot
-  hold, in versions before 7.00.
+  hold, in a file that writes Shift_JIS (versions before 7.00, and version 700 from Jw_cad before 10.01).
 - **Errors**: `unreadable` (not JWW, or a file that `JwwFile` cannot read to its end), `unsupported-kind`,
   `unknown-key`, `invalid-value`, `not-found`, `inside-block`, `missing-definition`, `already-exists`.
 
