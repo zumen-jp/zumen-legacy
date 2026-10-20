@@ -1,4 +1,6 @@
 import type { Placement, Scene, SceneEntity } from "@zumenjs/core";
+import { apply, emptyBox, extendBox, IDENTITY } from "@zumenjs/core/geometry";
+import { fontFamilyFor, layoutText } from "@zumenjs/core/text";
 import { afterEach, describe, expect, it } from "vitest";
 import { DrawingViewer, type DrawingViewerOptions, type ViewEvent, type ViewerTool } from "../src/index.js";
 
@@ -150,6 +152,73 @@ function record(viewer: DrawingViewer) {
   viewer.on("moveend", (event) => events.push({ type: "moveend", event }));
   return events;
 }
+
+describe("日本語フォント", () => {
+  it.each(["ＭＳ ゴシック", "ＭＳ 明朝"])("%s の横書き・縦書き・回転文字を描き、同じ位置で選択できる", async (font) => {
+    for (const [vertical, angle] of [
+      [false, 0],
+      [true, 0],
+      [false, 30],
+    ] as const) {
+      const primitive = layoutText(
+        {
+          text: "図面ｶﾅ。、",
+          x: 0,
+          y: 0,
+          height: vertical ? 50 : 10,
+          width: vertical ? 10 : 50,
+          spacing: 0,
+          angle,
+          slant: 0,
+          anchor: 1,
+          vertical,
+          color: "#000000",
+          fontFamily: fontFamilyFor(font),
+        },
+        IDENTITY,
+      );
+      if (!primitive) throw new Error("文字がありません");
+      await document.fonts.load(`64px ${primitive.fontFamily}`, primitive.text);
+      const bbox = emptyBox();
+      for (const [x, y] of [
+        [0, 0],
+        [primitive.boxWidth, 0],
+        [primitive.boxWidth, primitive.boxHeight],
+        [0, primitive.boxHeight],
+      ]) {
+        extendBox(bbox, ...apply(primitive.matrix, x as number, y as number));
+      }
+      const entity: SceneEntity = {
+        id: "text",
+        kind: "text",
+        type: "文字",
+        source: "test",
+        layers: [0],
+        primitives: [primitive],
+        bbox,
+        properties: [],
+      };
+      const { viewer, base } = await mount(drawing({ entities: [entity], bounds: bbox, background: "light" }));
+      const ctx = base.getContext("2d") as CanvasRenderingContext2D;
+      const dpr = base.width / base.getBoundingClientRect().width;
+      for (const cell of primitive.cells) {
+        const paper = apply(primitive.matrix, cell.x, cell.y);
+        expect(viewer.entitiesAt(...paper, { tolerance: 0 }).map((item) => item.id)).toEqual(["text"]);
+        // Check each glyph's cell has ink, including half-width kana and punctuation. No OS-specific pixel golden.
+        const [x, y] = viewer.toScreen(...paper);
+        const [edgeX, edgeY] = viewer.toScreen(...apply(primitive.matrix, cell.x + primitive.height / 2, cell.y));
+        const radius = Math.ceil(Math.hypot(edgeX - x, edgeY - y) * dpr);
+        const pixels = ctx.getImageData(
+          Math.floor(x * dpr) - radius,
+          Math.floor(y * dpr) - radius,
+          radius * 2,
+          radius * 2,
+        ).data;
+        expect(pixels.some((value, index) => index % 4 !== 3 && value < 100)).toBe(true);
+      }
+    }
+  });
+});
 
 describe("表示範囲", () => {
   // 保存した表示範囲を戻す、2 つの表示をそろえる、といった使い方は、値がそのまま往復することに頼る

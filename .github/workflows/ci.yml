@@ -14,8 +14,12 @@ concurrency:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     steps:
       # actions/checkout v7.0.1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -34,9 +38,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
       # wasm-bindgen-cli writes the JavaScript of the WebAssembly reader (scripts/wasm.mjs, packages/dwg/wasm) and must
       # be the version of the wasm-bindgen crate in Cargo.lock
-      - run: >-
-          cargo install wasm-bindgen-cli --locked --version
-          "$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n 's/^version = "\(.*\)"$/\1/p')"
+      - run: node scripts/install-wasm-bindgen.mjs
       # astral-sh/setup-uv v10.3.0 (Python comes from bindings/python/.python-version)
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
       - run: pnpm install --frozen-lockfile
@@ -44,3 +46,6 @@ jobs:
       # the Playwright version in package.json
       - run: pnpm exec playwright install --with-deps --only-shell chromium
       - run: pnpm run check
+      # Exercise the installed wheel too: maturin develop alone does not verify wheel packaging.
+      - run: uv run --project bindings/python --frozen maturin build --release -m bindings/python/Cargo.toml --out target/wheels
+      - run: node scripts/check-wheel.mjs

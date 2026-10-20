@@ -440,6 +440,26 @@
       ]
     }
   },
+  "jww/solids-v600.jww": {
+    "bytes": "02e528c1f54b5e82",
+    "views": {
+      "": [
+        "#1",
+        "#2",
+        "#3"
+      ]
+    }
+  },
+  "jww/solids-v700.jww": {
+    "bytes": "25bd7c28ce6ad251",
+    "views": {
+      "": [
+        "#1",
+        "#2",
+        "#3"
+      ]
+    }
+  },
   "p21/features.p21": {
     "bytes": "43ec3b16a2cdfc81",
     "views": {
