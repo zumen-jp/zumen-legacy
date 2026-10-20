@@ -5,10 +5,6 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { LayerList } from "./layer-list.js";
 import "./drawing-sample.css";
 
-/**
- * 2D の図面の画面のサンプル。@zumenjs/react のフックと @zumenjs/viewer の公開された API だけで、操作盤・レイヤの一覧・
- * 属性・状態の欄を作る。文言と CSS（drawing-sample.css）はこちらが持ち、図面の表示と操作はエンジンが受け持つ
- */
 export interface DrawingSampleProps {
   scene: Scene;
   /** 図面の名前。見出しと読み上げに使う */
@@ -32,6 +28,10 @@ function formatZoom(zoom: number): string {
   return zoom > 0 ? `${Number((zoom * 100).toPrecision(2))}%` : "";
 }
 
+/**
+ * 2D の図面の画面のサンプル。@zumenjs/react のフックと @zumenjs/viewer の公開された API だけで、操作盤・レイヤの一覧・
+ * 属性・状態の欄を作る。文言と CSS（drawing-sample.css）はこちらが持ち、図面の表示と操作はエンジンが受け持つ
+ */
 export function DrawingSample({ scene, label, onViewChange }: DrawingSampleProps) {
   const rootRef = useRef<HTMLElement>(null);
   const titleId = useId();
