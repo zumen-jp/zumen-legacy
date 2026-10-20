@@ -4,10 +4,12 @@
 
 use super::bits::BitWriter;
 use super::object::{append_strings, write_tu};
-use crate::bits::{Bits, Read, TextCodec};
 use crate::file::Version;
-use crate::objects::{Streams, Text, string_stream};
 use encoding_rs::Encoding;
+#[cfg(test)]
+use crate::bits::{Bits, Read, TextCodec};
+#[cfg(test)]
+use crate::objects::{Streams, Text, string_stream};
 
 /// 1 つのクラス（10.2）
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -95,12 +97,15 @@ pub(crate) fn classes_bits(version: Version, encoding: &'static Encoding, classe
 }
 
 /// クラスの節の値（大きさの後から。R2010 以降の不明の RL の後）を読む。読めなくなった所までのクラスを返す
+/// （書き出しが実物の図面と同じバイト列になることを確かめるのに使う）
+#[cfg(test)]
 pub(crate) fn read_class_defs(data: &[u8], version: Version, codec: TextCodec) -> Vec<ClassDef> {
     let mut out = Vec::new();
     let _ = read(data, version, codec, &mut out);
     out
 }
 
+#[cfg(test)]
 fn read(data: &[u8], version: Version, codec: TextCodec, out: &mut Vec<ClassDef>) -> Read<()> {
     let r2004 = version >= Version::R2004;
     let mut bits = Bits::new(data);

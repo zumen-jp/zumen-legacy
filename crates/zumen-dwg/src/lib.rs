@@ -26,6 +26,7 @@ pub use write::{DwgWritten, rewrite_dwg};
 pub mod raw {
     pub use crate::file::Version;
     pub use crate::write::bits::BitWriter;
+    pub use crate::write::classes::ClassDef;
     pub use crate::write::database::Database;
     pub use crate::write::object::ObjectWriter;
 }

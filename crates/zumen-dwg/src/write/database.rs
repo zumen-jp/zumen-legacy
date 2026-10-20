@@ -1,5 +1,6 @@
 //! 版ごとの入れ物に置く前の図面（ヘッダ変数・クラス・オブジェクトなどの節）を、版の入れ物に並べる
 
+use super::classes::{ClassDef, classes_data};
 use super::container::{self, DataSection, Objects, Preview, R2000, R2004};
 use super::sections::{CLASSES_END, CLASSES_SENTINEL, Framed, HEADER_END, HEADER_SENTINEL, object_map};
 use crate::file::Version;
@@ -14,8 +15,8 @@ pub struct Database {
     pub codepage: u16,
     /// ヘッダ変数の値（9。区切り・大きさ・CRC を除く。R2007 以降はビット数の RL から）
     pub header: Vec<u8>,
-    /// クラスの値（10。区切り・大きさ・CRC を除く）
-    pub classes: Vec<u8>,
+    /// クラス（10）
+    pub classes: Vec<ClassDef>,
     /// オブジェクト（ハンドル, MS の大きさから CRC まで）。この順に並べる
     pub objects: Vec<(u64, Vec<u8>)>,
     /// MEASUREMENT（22。0 はインチ、1 はメートル）
@@ -36,7 +37,8 @@ impl Database {
         let framed = |data: &[u8]| Framed { extra, data: data.to_vec(), crc_ok: true };
         let trailing = if self.version >= Version::R2004 { 8 } else { 0 };
         let header = framed(&self.header).bytes(&HEADER_SENTINEL, &HEADER_END, 0);
-        let classes = framed(&self.classes).bytes(&CLASSES_SENTINEL, &CLASSES_END, trailing);
+        let classes = classes_data(self.version, encoding_rs::WINDOWS_1252, &self.classes);
+        let classes = framed(&classes).bytes(&CLASSES_SENTINEL, &CLASSES_END, trailing);
         let objects = Objects {
             items: self.objects.iter().map(|(_, bytes)| bytes.clone()).collect(),
             handles: self.objects.iter().enumerate().map(|(index, (handle, _))| (*handle, index)).collect(),

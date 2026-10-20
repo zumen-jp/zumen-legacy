@@ -163,7 +163,7 @@ fn rewrite_r2000(bytes: &[u8], notices: &mut NoticeList) -> Result<Vec<u8>, Stri
             header.dimstyle_control,
             header.vpent_control,
             header.named_objects,
-            header.cmlstyle,
+            header.mlinestyle_dictionary,
             header.groups,
         ],
     };

@@ -41,8 +41,6 @@ pub(crate) struct Header {
     pub continuous: u64,
     /// 次に振るハンドル（HANDSEED）
     pub handseed: u64,
-    /// 今のマルチラインのスタイル（CMLSTYLE）
-    pub cmlstyle: u64,
     pub view_control: u64,
     pub ucs_control: u64,
     pub vport_control: u64,
@@ -155,10 +153,9 @@ fn read_variables(s: &mut Streams<'_>) -> Read<Header> {
     // HANDSEED は R2007 以降も値の並びの中
     h.handseed = s.data.handle()?.value;
     // CLAYER、TEXTSTYLE、CELTYPE、（R2007 以降）CMATERIAL、DIMSTYLE、CMLSTYLE
-    for _ in 0..if f.r2007() { 5 } else { 4 } {
+    for _ in 0..if f.r2007() { 6 } else { 5 } {
         s.handle()?;
     }
-    h.cmlstyle = s.handle()?.value;
     // PSVPSCALE
     s.data.bd()?;
     // 紙空間: INSBASE、EXTMIN、EXTMAX、LIMMIN、LIMMAX、ELEVATION、UCSORG、UCSXDIR、UCSYDIR、UCSNAME

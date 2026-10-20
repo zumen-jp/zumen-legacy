@@ -1,7 +1,11 @@
 //! R2004 以降の圧縮（4.7）。LZ77 の変種で、伸長は compress.rs の decompress_r18。前の同じ並びを探すのは
 //! 3 バイトの並びのハッシュの鎖で、見つけた中でいちばん長いものを使う（仕様は ODA もハッシュで探すと書く）。
 //! 文字だけの出力も正しい形だが、AutoCAD の図面と同じくらいの大きさになるよう縮める。
-//! 終わりは 0x11 と 2 バイトの 0（AutoCAD が書く形。伸長は 0x11 で止まる）
+//!
+//! 命令は AutoCAD が書く図面に現れるものだけを使う（実物の図面の圧縮したページで数えた）。仕様と ACadSharp の
+//! 読み方が分かれる命令は使わない: 最初の 0x12 以上のバイトで始まる文字（LZO の形。仕様にない）と、0x18〜0x1F
+//! （仕様は長さ、ACadSharp は遡る数の 0x4000 の位と読む）。そのため最初の文字は 4 バイト以上にし、0x4000 を超えて
+//! 遡るのは 0x10 と 0x12〜0x17 だけで 0x7FFF まで。終わりは 0x11 と 2 バイトの 0（AutoCAD が書く形）
 
 /// ハッシュの表の大きさ（ビット数）
 const HASH_BITS: u32 = 15;
@@ -9,8 +13,10 @@ const HASH_BITS: u32 = 15;
 const MAX_CANDIDATES: usize = 48;
 /// 写す長さの下限。2 バイトで書ける 0x40〜0xFF の命令は 3 バイトから
 const MIN_MATCH: usize = 3;
-/// 遡れる位置の上限（0x10〜0x1F の命令の 0xBFFF）
-const MAX_OFFSET: usize = 0xbfff;
+/// 遡れる位置の上限（0x10・0x12〜0x17 の命令の 0x7FFF。ページは 0x7400 まで）
+const MAX_OFFSET: usize = 0x7fff;
+/// 最初の文字の数の下限（Literal Length で書ける 4。1〜3 は仕様の形で書けない）
+const FIRST_LITERALS: usize = 4;
 /// 一度に写す長さの上限（長さは何バイトでも書けるが、比べる手間を抑える）
 const MAX_MATCH: usize = 0x1_0000;
 
@@ -25,7 +31,11 @@ pub(crate) fn compress_r18(data: &[u8]) -> Vec<u8> {
     let mut last_opcode: Option<usize> = None;
     let mut at = 0usize;
     while at < data.len() {
-        let (length, offset) = longest_match(data, at, &head, &previous);
+        let (length, offset) = if last_opcode.is_some() || at >= FIRST_LITERALS {
+            longest_match(data, at, &head, &previous)
+        } else {
+            (0, 0)
+        };
         if length >= MIN_MATCH && worth(length, offset) {
             emit_literals(&mut out, &data[literal_start..at], last_opcode);
             last_opcode = Some(emit_match(&mut out, length, offset));
@@ -93,7 +103,7 @@ fn worth(length: usize, offset: usize) -> bool {
         1..=0x400 if length <= 14 => length >= 3,
         // 0x20〜0x3F の 3 バイト以上の命令（0x4000 まで）
         1..=0x4000 => length >= 4,
-        // 0x10〜0x1F。長さ 3 は 0x11（終わりの印）と重なるので 4 から
+        // 0x10・0x12〜0x17。長さ 3 は 0x11（終わりの印）と重なるので 4 から
         _ => offset <= MAX_OFFSET && length >= 4,
     }
 }
@@ -115,7 +125,7 @@ fn emit_literals(out: &mut Vec<u8>, literals: &[u8], last_opcode: Option<usize>)
     }
     match last_opcode {
         Some(opcode) if count <= 3 => out[opcode] |= count as u8,
-        // 最初の文字が 1〜3 個なら、0x11 に数を足した最初のバイト
+        // 3 バイト以下のデータだけは、0x11 に数を足した最初のバイト（LZO の形。ページは 4 バイトより大きいので使わない）
         None if count <= 3 => out.push(0x11 + count as u8),
         _ => {
             // Literal Length: 0x01〜0x0F は 4〜18 文字、0x00 は 0x0F と続きのバイト（どちらも 3 を足した数）
@@ -144,12 +154,9 @@ fn emit_match(out: &mut Vec<u8>, length: usize, offset: usize) -> usize {
     let (opcode, mask, two) = if offset <= 0x4000 {
         // 0x20〜0x3F: Two Byte Offset は遡る数 − 1
         (0x20u8, 0x1fusize, offset - 1)
-    } else if offset < 0x8000 {
-        // 0x10〜0x17: Two Byte Offset は遡る数 − 0x4000
-        (0x10u8, 0x07usize, offset - 0x4000)
     } else {
-        // 0x18〜0x1F: 0x08 のビットは遡る数の 0x4000 の位
-        (0x18u8, 0x07usize, offset - 0x8000)
+        // 0x10・0x12〜0x17: Two Byte Offset は遡る数 − 0x4000
+        (0x10u8, 0x07usize, offset - 0x4000)
     };
     let count = length - 2;
     if count <= mask {
@@ -173,7 +180,98 @@ mod tests {
     fn round_trip(data: &[u8]) -> Vec<u8> {
         let compressed = compress_r18(data);
         assert_eq!(decompress_r18(&compressed, data.len() + 64), data, "{} bytes", data.len());
+        if data.len() >= FIRST_LITERALS {
+            assert_eq!(by_the_specification(&compressed), data, "{} bytes", data.len());
+        }
         compressed
+    }
+
+    /// 4.7 を文字どおりに読む伸長（ezdwg と同じ読み方。最初のバイトは Literal Length か命令、0x12〜0x1F の長さは
+    /// 下位 4 ビット + 2、遡る数は Two Byte Offset + 0x3FFF + 1）
+    fn by_the_specification(source: &[u8]) -> Vec<u8> {
+        let mut out: Vec<u8> = Vec::new();
+        let mut at = 0;
+        let mut byte = || {
+            at += 1;
+            source[at - 1]
+        };
+        let mut literal_length = |byte: &mut dyn FnMut() -> u8| -> (usize, u8) {
+            let first = byte();
+            match first {
+                0x01..=0x0f => (usize::from(first) + 3, 0),
+                0x00 => {
+                    let mut length = 0x0f;
+                    let mut next = byte();
+                    while next == 0 {
+                        length += 0xff;
+                        next = byte();
+                    }
+                    (length + usize::from(next) + 3, 0)
+                }
+                _ => (0, first),
+            }
+        };
+        let long = |byte: &mut dyn FnMut() -> u8| -> usize {
+            let first = byte();
+            if first != 0 {
+                return usize::from(first);
+            }
+            let mut value = 0xff;
+            let mut next = byte();
+            while next == 0 {
+                value += 0xff;
+                next = byte();
+            }
+            value + usize::from(next)
+        };
+        let (count, mut opcode) = literal_length(&mut byte);
+        let mut literals: Vec<u8> = (0..count).map(|_| byte()).collect();
+        out.append(&mut literals);
+        loop {
+            if opcode == 0 {
+                opcode = byte();
+            }
+            let two = |byte: &mut dyn FnMut() -> u8| -> (usize, usize) {
+                let first = byte();
+                let second = byte();
+                ((usize::from(first) >> 2) | (usize::from(second) << 6), usize::from(first & 3))
+            };
+            let (count, offset, literal) = match opcode {
+                0x11 => break,
+                0x10 => {
+                    let count = long(&mut byte) + 9;
+                    let (offset, literal) = two(&mut byte);
+                    (count, offset + 0x3fff, literal)
+                }
+                0x12..=0x1f => {
+                    let (offset, literal) = two(&mut byte);
+                    (usize::from(opcode & 0x0f) + 2, offset + 0x3fff, literal)
+                }
+                0x20 => {
+                    let count = long(&mut byte) + 0x21;
+                    let (offset, literal) = two(&mut byte);
+                    (count, offset, literal)
+                }
+                0x21..=0x3f => {
+                    let (offset, literal) = two(&mut byte);
+                    (usize::from(opcode) - 0x1e, offset, literal)
+                }
+                0x40..=0xff => {
+                    let next = usize::from(byte());
+                    ((usize::from(opcode) >> 4) - 1, (next << 2) | ((usize::from(opcode) & 0x0c) >> 2), usize::from(opcode & 3))
+                }
+                _ => panic!("opcode {opcode:#x}"),
+            };
+            let start = out.len() - (offset + 1);
+            for index in 0..count {
+                out.push(out[start + index]);
+            }
+            let (count, next) = if literal == 0 { literal_length(&mut byte) } else { (literal, 0) };
+            let mut literals: Vec<u8> = (0..count).map(|_| byte()).collect();
+            out.append(&mut literals);
+            opcode = next;
+        }
+        out
     }
 
     #[test]
@@ -228,9 +326,12 @@ mod tests {
 
     #[test]
     fn the_stream_ends_like_autocad_writes_it() {
-        // 4 文字以上の最初の文字は Literal Length（4〜18 は 0x01〜0x0F）、終わりは 0x11 0x00 0x00
+        // 最初の文字は Literal Length（4〜18 は 0x01〜0x0F）、終わりは 0x11 0x00 0x00
         assert_eq!(compress_r18(b"abcd"), [0x01, b'a', b'b', b'c', b'd', 0x11, 0x00, 0x00]);
         assert_eq!(compress_r18(b"ab"), [0x13, b'a', b'b', 0x11, 0x00, 0x00]);
         assert_eq!(compress_r18(b""), [0x11, 0x00, 0x00]);
+        // 0 で始まるページも、最初の 4 バイトは文字にする（1 バイトの文字と 1 つ前を写す命令にはしない）。
+        // 残りの 60 バイトは 1 つ前を写す 0x20 の命令（長さ 60 − 0x21 = 27 の続きのバイト）
+        assert_eq!(compress_r18(&[0; 64])[..7], [0x01, 0, 0, 0, 0, 0x20, 27]);
     }
 }
