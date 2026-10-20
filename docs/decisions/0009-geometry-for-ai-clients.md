@@ -8,11 +8,12 @@
 ## Context
 
 - The MCP server of [decision 0004](0004-mcp-server-in-the-python-package.md) gives texts, boxes, images and the
-  properties of an entity. Properties are labels and values formatted for people, in each format's own coordinates
-  (a DXF block's own space, drawing units such as inches). Most coordinates cannot be read at all: the vertices of a
-  polyline, the outline of a hatch and the parts of a dimension are only counted. A client cannot compute the area
-  of an outline, the thickness of a wall, the distance between two lines, or tell which line a dimension measures,
-  except by guessing from pixels.
+  properties of an entity. Since the stable keys of [decision 0005](0005-browser-packages-for-embedding.md), a
+  property also has its unformatted value (a start point, a center, a radius), but in each format's own coordinates
+  (a DXF block's own space, drawing units such as inches, an SXF part's own space). Many coordinates cannot be read
+  at all: the vertices of a polyline, the outline of a hatch and the lines of a dimension are only counted or not
+  given. A client cannot compute the area of an outline, the thickness of a wall, the distance between two lines in
+  different blocks, or tell which line a dimension measures, except by guessing from pixels.
 - Capable models can interpret raw geometry themselves, deciding what is a wall or a room, once they can get it.
   The server's part is to give the facts of the drawing completely and simply; interpretation in the server would be
   complex, would guess, and would decide for the client what it may ask.
@@ -20,16 +21,15 @@
   and images, and each entity in a scaled part of the sheet (an SXF sub-figure or part, a JWW layer group, a DXF
   viewport or model space) holds the conversion from paper to the coordinates of that part. Measuring in real-world
   millimeters already goes through it.
-- Stable entity kinds and property keys, with the raw values of properties, are a later step of
-  [decision 0005](0005-browser-packages-for-embedding.md). They give definitions in each format's own coordinates.
 - MCP clients bound what a tool may return: Claude Code warns above 10,000 tokens and limits a result to 25,000 by
   default.
 
 ## Options
 
-- **Definitions of each format as data** (centers, radii, bulges, control points): exact, and short for curves, but
-  every reader in TypeScript and Rust and every golden file would change, and the values stay in each format's own
-  coordinates. This is what the raw values of stable keys will give.
+- **Definitions of each format only**, extending the raw values of properties (vertices, bulges, control points,
+  hatch boundaries): exact, and short for curves, but every reader in TypeScript and Rust and every golden file
+  would change again, and the values stay in each format's own coordinates, which a client cannot relate to each
+  other or to the image without the transformations of blocks and parts.
 - **The shapes drawn, from the primitives of the scene**: one implementation in `zumen-core` for every format, in
   the coordinates of boxes, regions and images, and through the placement in real-world coordinates. Curves come as
   the polylines drawn.
@@ -38,12 +38,12 @@
 
 ## Decision
 
-The shapes drawn, with the definitions left in the properties:
+The shapes drawn, next to the definitions that the properties keep:
 
 - `zumen_core::extract::entity_shapes` turns the primitives of an entity into shapes: polylines (points, closed),
   segments (pairs of points), fills (rings), hatches (the rings of the area; the hatch lines are a pattern and are
   left out), points, and text parts (the lower left of the text, its height and angle). Curves are the polylines
-  drawn; their center, radius and angles are in the properties. `real_shapes` gives the same shapes through the
+  drawn; their center, radius and angles are in the values of the properties. `real_shapes` gives the same shapes through the
   inverse of the entity's placement: the real-world coordinates of JWW, those of the SXF sub-figure or part, and DXF
   model space in millimeters. Entities outside a placement have none.
 - Python has them as `Scene.entity(id, geometry=True)` and `Scene.entities(..., geometry=True)`, and the command line
@@ -63,7 +63,7 @@ The shapes drawn, with the definitions left in the properties:
 - Clients compute lengths, areas and distances, and join lines into outlines, from the coordinates; nothing in the
   server decides what a shape means.
 - A curve costs points (a full circle is 16 or more), which is the price of one representation for every shape.
-  When stable keys land, the raw values of `center` and `radius` give the definitions as numbers.
+  The values of `center` and `radius` give the definition as numbers, in the format's own coordinates.
 - `find_entities` with `geometry` builds the shapes of every entity it selects before it pages (about half a second
   for the 25,873 entities of a DWG house plan), so clients should narrow the search with a region, a type or a layer.
 - The command line and Python keep `real` even where it equals the coordinates on the sheet: data pipelines read the

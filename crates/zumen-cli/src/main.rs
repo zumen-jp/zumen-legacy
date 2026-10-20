@@ -194,7 +194,8 @@ fn bbox_json(b: &BBox) -> Value {
 fn text_json(scene: &Scene, entity: &SceneEntity, text: &EntityText) -> Value {
     json!({
         "id": entity.id,
-        "type": entity.kind,
+        "kind": entity.kind,
+        "type": entity.type_name,
         "text": text.text,
         "x": mm(text.x),
         "y": mm(text.y),
@@ -265,7 +266,8 @@ fn shape_json(shape: &Shape, real: Option<&Shape>) -> Value {
 fn entity_json(scene: &Scene, entity: &SceneEntity, geometry: bool) -> Value {
     let mut object = Map::new();
     object.insert("id".into(), json!(entity.id));
-    object.insert("type".into(), json!(entity.kind));
+    object.insert("kind".into(), json!(entity.kind));
+    object.insert("type".into(), json!(entity.type_name));
     object.insert("source".into(), json!(entity.source));
     object.insert("layers".into(), json!(layer_names(scene, entity)));
     object.insert("bbox".into(), bbox_json(&entity.bbox));
@@ -275,6 +277,16 @@ fn entity_json(scene: &Scene, entity: &SceneEntity, geometry: bool) -> Value {
     let properties: Vec<Value> =
         entity.properties.iter().map(|property| json!([property.label, property.value])).collect();
     object.insert("properties".into(), Value::Array(properties));
+    // 形式によらない key → 整形する前の値（なければ文字列の値）
+    let values: Map<String, Value> = entity
+        .properties
+        .iter()
+        .map(|property| {
+            let value = property.raw.as_ref().map_or_else(|| json!(property.value), |raw| json!(raw));
+            (property.key.to_string(), value)
+        })
+        .collect();
+    object.insert("values".into(), Value::Object(values));
     if let Some(placement) = &entity.placement {
         object.insert(
             "placement".into(),
@@ -301,7 +313,8 @@ fn map_json(scene: &Scene, image: &RenderedImage, options: &RenderOptions) -> Va
             let b = image.view.pixel_box(&entity.bbox, image.width, image.height)?;
             let mut object = Map::new();
             object.insert("id".into(), json!(entity.id));
-            object.insert("type".into(), json!(entity.kind));
+            object.insert("kind".into(), json!(entity.kind));
+            object.insert("type".into(), json!(entity.type_name));
             object.insert("box".into(), json!([px(b.left), px(b.top), px(b.right), px(b.bottom)]));
             if let Some(text) = entity_text(entity) {
                 object.insert("text".into(), json!(text.text));
@@ -334,7 +347,8 @@ fn write_lines(lines: impl Iterator<Item = Value>) -> Result<(), String> {
 fn brief_json(entity: &SceneEntity) -> Value {
     let mut object = Map::new();
     object.insert("id".into(), json!(entity.id));
-    object.insert("type".into(), json!(entity.kind));
+    object.insert("kind".into(), json!(entity.kind));
+    object.insert("type".into(), json!(entity.type_name));
     object.insert("bbox".into(), bbox_json(&entity.bbox));
     if let Some(text) = entity_text(entity) {
         object.insert("text".into(), json!(text.text));

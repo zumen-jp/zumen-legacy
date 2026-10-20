@@ -284,8 +284,8 @@ describe("DXF の複数行の属性", () => {
     expect(hidden.mtext?.raw_text).toBe("Hidden");
     const scene = dxfToScene(doc);
     const attribute = scene.entities.find((entity) => entity.id === "50>51");
-    expect(attribute).toMatchObject({ type: "属性", source: "ATTRIB" });
-    expect(attribute?.properties).toContainEqual({ label: "タグ", value: "NOTE" });
+    expect(attribute).toMatchObject({ kind: "attribute", type: "属性", source: "ATTRIB" });
+    expect(attribute?.properties).toContainEqual({ key: "tag", label: "タグ", value: "NOTE" });
     expect(texts(attribute).map((item) => [item.text, item.color])).toEqual([
       ["First line", "#00ff00"],
       ["Second line", "#00ff00"],

@@ -243,6 +243,8 @@ pub struct Region {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TitleValue {
+    /// 形式によらないキー（docs/architecture.md の「Stable keys」）
+    pub key: &'static str,
     pub label: &'static str,
     pub value: String,
 }
@@ -726,19 +728,20 @@ fn region(args: &Args<'_>, at: usize) -> Result<Region, InvalidFeature> {
     Ok(Region { out_id: args.int(at)?, in_ids: args.nums(at + 2)?.into_iter().map(f64::trunc).collect() })
 }
 
-const TITLE_LABELS: [&str; 12] = [
-    "事業名",
-    "工事名",
-    "契約区分",
-    "図面名",
-    "図面番号",
-    "図面種別",
-    "尺度",
-    "作成年",
-    "作成月",
-    "作成日",
-    "受注会社名",
-    "発注事業者名",
+/// 図面表題欄の項目の、形式によらないキーと名前（docs/architecture.md の「Stable keys」）
+const TITLE_LABELS: [(&str, &str); 12] = [
+    ("businessName", "事業名"),
+    ("constructionName", "工事名"),
+    ("contractType", "契約区分"),
+    ("drawingName", "図面名"),
+    ("drawingNumber", "図面番号"),
+    ("drawingType", "図面種別"),
+    ("scale", "尺度"),
+    ("year", "作成年"),
+    ("month", "作成月"),
+    ("day", "作成日"),
+    ("contractor", "受注会社名"),
+    ("client", "発注事業者名"),
 ];
 
 /// SFC のレコードをフィーチャにする。未対応の名前は Ok(None)、引数の不備は Err
@@ -756,10 +759,10 @@ fn convert(kind: FeatureKind, a: &Args<'_>, id: f64) -> Result<SxfFeature, Inval
             values: TITLE_LABELS
                 .iter()
                 .enumerate()
-                .map(|(index, label)| {
+                .map(|(index, &(key, label))| {
                     let value =
                         if index < a.values.len() { js::trim(&a.str(index)?).to_string() } else { String::new() };
-                    Ok(TitleValue { label, value })
+                    Ok(TitleValue { key, label, value })
                 })
                 .collect::<Result<_, _>>()?,
         }),

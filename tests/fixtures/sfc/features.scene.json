@@ -43,6 +43,7 @@
   "entities": [
     {
       "id": "#501",
+      "kind": "point",
       "type": "点マーカ",
       "source": "point_marker_feature",
       "layers": [
@@ -97,33 +98,47 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "点マーカ"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#501"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "道路"
+          "value": "道路",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "黒（1）"
+          "value": "黒（1）",
+          "raw": 1
         },
         {
+          "key": "marker",
           "label": "マーカ",
-          "value": "asterisk"
+          "value": "asterisk",
+          "raw": 1
         },
         {
+          "key": "position",
           "label": "位置",
-          "value": "20, 280"
+          "value": "20, 280",
+          "raw": [
+            20,
+            280
+          ]
         }
       ]
     },
     {
       "id": "#502",
+      "kind": "point",
       "type": "点マーカ",
       "source": "point_marker_feature",
       "layers": [
@@ -196,33 +211,47 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "点マーカ"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#502"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "道路"
+          "value": "道路",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "赤（2）"
+          "value": "赤（2）",
+          "raw": 2
         },
         {
+          "key": "marker",
           "label": "マーカ",
-          "value": "circle"
+          "value": "circle",
+          "raw": 2
         },
         {
+          "key": "position",
           "label": "位置",
-          "value": "40, 280"
+          "value": "40, 280",
+          "raw": [
+            40,
+            280
+          ]
         }
       ]
     },
     {
       "id": "#503",
+      "kind": "point",
       "type": "点マーカ",
       "source": "point_marker_feature",
       "layers": [
@@ -244,33 +273,47 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "点マーカ"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#503"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "道路"
+          "value": "道路",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "緑（3）"
+          "value": "緑（3）",
+          "raw": 3
         },
         {
+          "key": "marker",
           "label": "マーカ",
-          "value": "dot"
+          "value": "dot",
+          "raw": 3
         },
         {
+          "key": "position",
           "label": "位置",
-          "value": "60, 280"
+          "value": "60, 280",
+          "raw": [
+            60,
+            280
+          ]
         }
       ]
     },
     {
       "id": "#504",
+      "kind": "point",
       "type": "点マーカ",
       "source": "point_marker_feature",
       "layers": [
@@ -312,33 +355,47 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "点マーカ"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#504"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "道路"
+          "value": "道路",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "青（4）"
+          "value": "青（4）",
+          "raw": 4
         },
         {
+          "key": "marker",
           "label": "マーカ",
-          "value": "plus"
+          "value": "plus",
+          "raw": 4
         },
         {
+          "key": "position",
           "label": "位置",
-          "value": "80, 280"
+          "value": "80, 280",
+          "raw": [
+            80,
+            280
+          ]
         }
       ]
     },
     {
       "id": "#505",
+      "kind": "point",
       "type": "点マーカ",
       "source": "point_marker_feature",
       "layers": [
@@ -371,33 +428,47 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "点マーカ"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#505"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "道路"
+          "value": "道路",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "黄色（5）"
+          "value": "黄色（5）",
+          "raw": 5
         },
         {
+          "key": "marker",
           "label": "マーカ",
-          "value": "square"
+          "value": "square",
+          "raw": 5
         },
         {
+          "key": "position",
           "label": "位置",
-          "value": "100, 280"
+          "value": "100, 280",
+          "raw": [
+            100,
+            280
+          ]
         }
       ]
     },
     {
       "id": "#506",
+      "kind": "point",
       "type": "点マーカ",
       "source": "point_marker_feature",
       "layers": [
@@ -428,33 +499,47 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "点マーカ"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#506"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "道路"
+          "value": "道路",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "マジェンタ（6）"
+          "value": "マジェンタ（6）",
+          "raw": 6
         },
         {
+          "key": "marker",
           "label": "マーカ",
-          "value": "triangle"
+          "value": "triangle",
+          "raw": 6
         },
         {
+          "key": "position",
           "label": "位置",
-          "value": "120, 280"
+          "value": "120, 280",
+          "raw": [
+            120,
+            280
+          ]
         }
       ]
     },
     {
       "id": "#507",
+      "kind": "point",
       "type": "点マーカ",
       "source": "point_marker_feature",
       "layers": [
@@ -496,33 +581,47 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "点マーカ"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#507"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "道路"
+          "value": "道路",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "シアン（7）"
+          "value": "シアン（7）",
+          "raw": 7
         },
         {
+          "key": "marker",
           "label": "マーカ",
-          "value": "X"
+          "value": "X",
+          "raw": 7
         },
         {
+          "key": "position",
           "label": "位置",
-          "value": "140, 280"
+          "value": "140, 280",
+          "raw": [
+            140,
+            280
+          ]
         }
       ]
     },
     {
       "id": "#509",
+      "kind": "point",
       "type": "点マーカ",
       "source": "point_marker_feature",
       "layers": [
@@ -544,33 +643,47 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "点マーカ"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#509"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "道路"
+          "value": "道路",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "牡丹（9）"
+          "value": "牡丹（9）",
+          "raw": 9
         },
         {
+          "key": "marker",
           "label": "マーカ",
-          "value": "9"
+          "value": "9",
+          "raw": 9
         },
         {
+          "key": "position",
           "label": "位置",
-          "value": "180, 280"
+          "value": "180, 280",
+          "raw": [
+            180,
+            280
+          ]
         }
       ]
     },
     {
       "id": "#600",
+      "kind": "line",
       "type": "線分",
       "source": "line_feature",
       "layers": [
@@ -604,45 +717,68 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "線分"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#600"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "道路"
+          "value": "道路",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "ユーザ定義 RGB(255, 128, 0)（17）"
+          "value": "ユーザ定義 RGB(255, 128, 0)（17）",
+          "raw": 17
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "$$SXF_custom（17）"
+          "value": "$$SXF_custom（17）",
+          "raw": 17
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.3mm（11）"
+          "value": "0.3mm（11）",
+          "raw": 0.3
         },
         {
+          "key": "start",
           "label": "始点",
-          "value": "10, 250"
+          "value": "10, 250",
+          "raw": [
+            10,
+            250
+          ]
         },
         {
+          "key": "end",
           "label": "終点",
-          "value": "100, 250"
+          "value": "100, 250",
+          "raw": [
+            100,
+            250
+          ]
         },
         {
+          "key": "length",
           "label": "長さ",
-          "value": "90"
+          "value": "90",
+          "raw": 90
         }
       ]
     },
     {
       "id": "#610",
+      "kind": "line",
       "type": "線分",
       "source": "line_feature",
       "layers": [
@@ -671,45 +807,68 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "線分"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#610"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "道路"
+          "value": "道路",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "未定義（99）"
+          "value": "未定義（99）",
+          "raw": 99
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "未定義（30）"
+          "value": "未定義（30）",
+          "raw": 30
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.13mm（20）"
+          "value": "0.13mm（20）",
+          "raw": 0.13
         },
         {
+          "key": "start",
           "label": "始点",
-          "value": "10, 245"
+          "value": "10, 245",
+          "raw": [
+            10,
+            245
+          ]
         },
         {
+          "key": "end",
           "label": "終点",
-          "value": "100, 245"
+          "value": "100, 245",
+          "raw": [
+            100,
+            245
+          ]
         },
         {
+          "key": "length",
           "label": "長さ",
-          "value": "90"
+          "value": "90",
+          "raw": 90
         }
       ]
     },
     {
       "id": "#620",
+      "kind": "line",
       "type": "線分",
       "source": "line_feature",
       "layers": [
@@ -738,45 +897,68 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "線分"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#620"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "未定義（9）"
+          "value": "未定義（9）",
+          "raw": 9
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "ユーザ定義 RGB(250, 250, 250)（18）"
+          "value": "ユーザ定義 RGB(250, 250, 250)（18）",
+          "raw": 18
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "$$SXF_odd（18）"
+          "value": "$$SXF_odd（18）",
+          "raw": 18
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.05mm（12）"
+          "value": "0.05mm（12）",
+          "raw": 0.05
         },
         {
+          "key": "start",
           "label": "始点",
-          "value": "10, 240"
+          "value": "10, 240",
+          "raw": [
+            10,
+            240
+          ]
         },
         {
+          "key": "end",
           "label": "終点",
-          "value": "100, 240"
+          "value": "100, 240",
+          "raw": [
+            100,
+            240
+          ]
         },
         {
+          "key": "length",
           "label": "長さ",
-          "value": "90"
+          "value": "90",
+          "raw": 90
         }
       ]
     },
     {
       "id": "#630",
+      "kind": "line",
       "type": "線分",
       "source": "line_feature",
       "layers": [
@@ -805,45 +987,68 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "線分"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#630"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "道路"
+          "value": "道路",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "白（8）"
+          "value": "白（8）",
+          "raw": 8
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "未定義（16）"
+          "value": "未定義（16）",
+          "raw": 16
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.13mm（0）"
+          "value": "0.13mm（0）",
+          "raw": 0.13
         },
         {
+          "key": "start",
           "label": "始点",
-          "value": "10, 235"
+          "value": "10, 235",
+          "raw": [
+            10,
+            235
+          ]
         },
         {
+          "key": "end",
           "label": "終点",
-          "value": "100, 235"
+          "value": "100, 235",
+          "raw": [
+            100,
+            235
+          ]
         },
         {
+          "key": "length",
           "label": "長さ",
-          "value": "90"
+          "value": "90",
+          "raw": 90
         }
       ]
     },
     {
       "id": "#640",
+      "kind": "polyline",
       "type": "折線",
       "source": "polyline_feature",
       "layers": [
@@ -879,37 +1084,50 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "折線"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#640"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "道路"
+          "value": "道路",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "マジェンタ（6）"
+          "value": "マジェンタ（6）",
+          "raw": 6
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "一点長鎖線（4）"
+          "value": "一点長鎖線（4）",
+          "raw": 4
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.5mm（5）"
+          "value": "0.5mm（5）",
+          "raw": 0.5
         },
         {
+          "key": "vertexCount",
           "label": "頂点数",
-          "value": "3"
+          "value": "3",
+          "raw": 3
         }
       ]
     },
     {
       "id": "#650",
+      "kind": "circle",
       "type": "円",
       "source": "circle_feature",
       "layers": [
@@ -1006,41 +1224,59 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "円"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#650"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "道路"
+          "value": "道路",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "シアン（7）"
+          "value": "シアン（7）",
+          "raw": 7
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "実線（1）"
+          "value": "実線（1）",
+          "raw": 1
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.25mm（3）"
+          "value": "0.25mm（3）",
+          "raw": 0.25
         },
         {
+          "key": "center",
           "label": "中心",
-          "value": "170, 245"
+          "value": "170, 245",
+          "raw": [
+            170,
+            245
+          ]
         },
         {
+          "key": "radius",
           "label": "半径",
-          "value": "5"
+          "value": "5",
+          "raw": 5
         }
       ]
     },
     {
       "id": "#660",
+      "kind": "arc",
       "type": "円弧",
       "source": "arc_feature",
       "layers": [
@@ -1117,45 +1353,68 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "円弧"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#660"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "道路"
+          "value": "道路",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "赤（2）"
+          "value": "赤（2）",
+          "raw": 2
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "実線（1）"
+          "value": "実線（1）",
+          "raw": 1
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.25mm（3）"
+          "value": "0.25mm（3）",
+          "raw": 0.25
         },
         {
+          "key": "center",
           "label": "中心",
-          "value": "190, 245"
+          "value": "190, 245",
+          "raw": [
+            190,
+            245
+          ]
         },
         {
+          "key": "radius",
           "label": "半径",
-          "value": "5"
+          "value": "5",
+          "raw": 5
         },
         {
+          "key": "angle",
           "label": "角度",
-          "value": "45° → 300°（反時計回り）"
+          "value": "45° → 300°（反時計回り）",
+          "raw": [
+            45,
+            300
+          ]
         }
       ]
     },
     {
       "id": "#670",
+      "kind": "arc",
       "type": "円弧",
       "source": "arc_feature",
       "layers": [
@@ -1207,45 +1466,68 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "円弧"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#670"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "道路"
+          "value": "道路",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "緑（3）"
+          "value": "緑（3）",
+          "raw": 3
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "破線（2）"
+          "value": "破線（2）",
+          "raw": 2
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.25mm（3）"
+          "value": "0.25mm（3）",
+          "raw": 0.25
         },
         {
+          "key": "center",
           "label": "中心",
-          "value": "210, 245"
+          "value": "210, 245",
+          "raw": [
+            210,
+            245
+          ]
         },
         {
+          "key": "radius",
           "label": "半径",
-          "value": "5"
+          "value": "5",
+          "raw": 5
         },
         {
+          "key": "angle",
           "label": "角度",
-          "value": "45° → 300°（時計回り）"
+          "value": "45° → 300°（時計回り）",
+          "raw": [
+            300,
+            45
+          ]
         }
       ]
     },
     {
       "id": "#680",
+      "kind": "ellipse",
       "type": "楕円",
       "source": "ellipse_feature",
       "layers": [
@@ -1360,41 +1642,62 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "楕円"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#680"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "道路"
+          "value": "道路",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "青（4）"
+          "value": "青（4）",
+          "raw": 4
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "実線（1）"
+          "value": "実線（1）",
+          "raw": 1
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.25mm（3）"
+          "value": "0.25mm（3）",
+          "raw": 0.25
         },
         {
+          "key": "center",
           "label": "中心",
-          "value": "230, 245"
+          "value": "230, 245",
+          "raw": [
+            230,
+            245
+          ]
         },
         {
+          "key": "radii",
           "label": "半径（X・Y）",
-          "value": "8・4"
+          "value": "8・4",
+          "raw": [
+            8,
+            4
+          ]
         }
       ]
     },
     {
       "id": "#690",
+      "kind": "ellipse-arc",
       "type": "楕円弧",
       "source": "ellipse_arc_feature",
       "layers": [
@@ -1463,45 +1766,71 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "楕円弧"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#690"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "道路"
+          "value": "道路",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "黄色（5）"
+          "value": "黄色（5）",
+          "raw": 5
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "実線（1）"
+          "value": "実線（1）",
+          "raw": 1
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.25mm（3）"
+          "value": "0.25mm（3）",
+          "raw": 0.25
         },
         {
+          "key": "center",
           "label": "中心",
-          "value": "250, 245"
+          "value": "250, 245",
+          "raw": [
+            250,
+            245
+          ]
         },
         {
+          "key": "radii",
           "label": "半径（X・Y）",
-          "value": "8・4"
+          "value": "8・4",
+          "raw": [
+            8,
+            4
+          ]
         },
         {
+          "key": "angle",
           "label": "角度",
-          "value": "10° → 200°（時計回り）"
+          "value": "10° → 200°（時計回り）",
+          "raw": [
+            200,
+            10
+          ]
         }
       ]
     },
     {
       "id": "#700",
+      "kind": "text",
       "type": "文字",
       "source": "text_string_feature",
       "layers": [
@@ -1552,45 +1881,66 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "文字"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#700"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "寸法"
+          "value": "寸法",
+          "raw": 2
         },
         {
+          "key": "text",
           "label": "文字列",
           "value": "平面図"
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "黒（1）"
+          "value": "黒（1）",
+          "raw": 1
         },
         {
+          "key": "font",
           "label": "フォント",
           "value": "ＭＳ 明朝"
         },
         {
+          "key": "textBox",
           "label": "文字範囲",
-          "value": "高さ 5・幅 15"
+          "value": "高さ 5・幅 15",
+          "raw": [
+            5,
+            15
+          ]
         },
         {
+          "key": "position",
           "label": "位置",
-          "value": "10, 220"
+          "value": "10, 220",
+          "raw": [
+            10,
+            220
+          ]
         },
         {
+          "key": "rotation",
           "label": "回転角",
-          "value": "0°"
+          "value": "0°",
+          "raw": 0
         }
       ]
     },
     {
       "id": "#710",
+      "kind": "text",
       "type": "文字",
       "source": "text_string_feature",
       "layers": [
@@ -1636,45 +1986,66 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "文字"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#710"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "寸法"
+          "value": "寸法",
+          "raw": 2
         },
         {
+          "key": "text",
           "label": "文字列",
           "value": "道路"
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "赤（2）"
+          "value": "赤（2）",
+          "raw": 2
         },
         {
+          "key": "font",
           "label": "フォント",
           "value": "ＭＳ ゴシック"
         },
         {
+          "key": "textBox",
           "label": "文字範囲",
-          "value": "高さ 5・幅 12"
+          "value": "高さ 5・幅 12",
+          "raw": [
+            5,
+            12
+          ]
         },
         {
+          "key": "position",
           "label": "位置",
-          "value": "40, 220"
+          "value": "40, 220",
+          "raw": [
+            40,
+            220
+          ]
         },
         {
+          "key": "rotation",
           "label": "回転角",
-          "value": "30°"
+          "value": "30°",
+          "raw": 30
         }
       ]
     },
     {
       "id": "#720",
+      "kind": "text",
       "type": "文字",
       "source": "text_string_feature",
       "layers": [
@@ -1725,45 +2096,66 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "文字"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#720"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "寸法"
+          "value": "寸法",
+          "raw": 2
         },
         {
+          "key": "text",
           "label": "文字列",
           "value": "縦書き"
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "緑（3）"
+          "value": "緑（3）",
+          "raw": 3
         },
         {
+          "key": "font",
           "label": "フォント",
           "value": "ＭＳ ゴシック"
         },
         {
+          "key": "textBox",
           "label": "文字範囲",
-          "value": "高さ 15・幅 5"
+          "value": "高さ 15・幅 5",
+          "raw": [
+            15,
+            5
+          ]
         },
         {
+          "key": "position",
           "label": "位置",
-          "value": "70, 220"
+          "value": "70, 220",
+          "raw": [
+            70,
+            220
+          ]
         },
         {
+          "key": "rotation",
           "label": "回転角",
-          "value": "0°"
+          "value": "0°",
+          "raw": 0
         }
       ]
     },
     {
       "id": "#730",
+      "kind": "text",
       "type": "文字",
       "source": "text_string_feature",
       "layers": [
@@ -1849,45 +2241,66 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "文字"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#730"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "寸法"
+          "value": "寸法",
+          "raw": 2
         },
         {
+          "key": "text",
           "label": "文字列",
           "value": "ｶﾀｶﾅ ABC\\x"
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "青（4）"
+          "value": "青（4）",
+          "raw": 4
         },
         {
+          "key": "font",
           "label": "フォント",
           "value": "未定義（9）"
         },
         {
+          "key": "textBox",
           "label": "文字範囲",
-          "value": "高さ 4・幅 0"
+          "value": "高さ 4・幅 0",
+          "raw": [
+            4,
+            0
+          ]
         },
         {
+          "key": "position",
           "label": "位置",
-          "value": "90, 220"
+          "value": "90, 220",
+          "raw": [
+            90,
+            220
+          ]
         },
         {
+          "key": "rotation",
           "label": "回転角",
-          "value": "0°"
+          "value": "0°",
+          "raw": 0
         }
       ]
     },
     {
       "id": "#750",
+      "kind": "text",
       "type": "文字",
       "source": "text_string_feature",
       "layers": [
@@ -1943,45 +2356,66 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "文字"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#750"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "寸法"
+          "value": "寸法",
+          "raw": 2
         },
         {
+          "key": "text",
           "label": "文字列",
           "value": "表示ソ能"
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "マジェンタ（6）"
+          "value": "マジェンタ（6）",
+          "raw": 6
         },
         {
+          "key": "font",
           "label": "フォント",
           "value": "ＭＳ 明朝"
         },
         {
+          "key": "textBox",
           "label": "文字範囲",
-          "value": "高さ 4・幅 16"
+          "value": "高さ 4・幅 16",
+          "raw": [
+            4,
+            16
+          ]
         },
         {
+          "key": "position",
           "label": "位置",
-          "value": "130, 220"
+          "value": "130, 220",
+          "raw": [
+            130,
+            220
+          ]
         },
         {
+          "key": "rotation",
           "label": "回転角",
-          "value": "90°"
+          "value": "90°",
+          "raw": 90
         }
       ]
     },
     {
       "id": "#760",
+      "kind": "spline",
       "type": "スプライン",
       "source": "spline_feature",
       "layers": [
@@ -2056,37 +2490,50 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "スプライン"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#760"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "道路"
+          "value": "道路",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "黒（1）"
+          "value": "黒（1）",
+          "raw": 1
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "実線（1）"
+          "value": "実線（1）",
+          "raw": 1
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.13mm（1）"
+          "value": "0.13mm（1）",
+          "raw": 0.13
         },
         {
+          "key": "controlPointCount",
           "label": "制御点数",
-          "value": "4"
+          "value": "4",
+          "raw": 4
         }
       ]
     },
     {
       "id": "#770",
+      "kind": "spline",
       "type": "スプライン",
       "source": "spline_feature",
       "layers": [
@@ -2165,37 +2612,50 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "スプライン"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#770"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "道路"
+          "value": "道路",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "赤（2）"
+          "value": "赤（2）",
+          "raw": 2
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "実線（1）"
+          "value": "実線（1）",
+          "raw": 1
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.13mm（1）"
+          "value": "0.13mm（1）",
+          "raw": 0.13
         },
         {
+          "key": "controlPointCount",
           "label": "制御点数",
-          "value": "6"
+          "value": "6",
+          "raw": 6
         }
       ]
     },
     {
       "id": "#780",
+      "kind": "spline",
       "type": "スプライン",
       "source": "spline_feature",
       "layers": [
@@ -2270,37 +2730,50 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "スプライン"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#780"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "道路"
+          "value": "道路",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "緑（3）"
+          "value": "緑（3）",
+          "raw": 3
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "実線（1）"
+          "value": "実線（1）",
+          "raw": 1
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.13mm（1）"
+          "value": "0.13mm（1）",
+          "raw": 0.13
         },
         {
+          "key": "controlPointCount",
           "label": "制御点数",
-          "value": "4"
+          "value": "4",
+          "raw": 4
         }
       ]
     },
     {
       "id": "#790",
+      "kind": "clothoid",
       "type": "クロソイド",
       "source": "clothoid_feature",
       "layers": [
@@ -2477,41 +2950,59 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "クロソイド"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#790"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "道路"
+          "value": "道路",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "青（4）"
+          "value": "青（4）",
+          "raw": 4
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "実線（1）"
+          "value": "実線（1）",
+          "raw": 1
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.13mm（1）"
+          "value": "0.13mm（1）",
+          "raw": 0.13
         },
         {
+          "key": "parameter",
           "label": "パラメータ A",
-          "value": "30"
+          "value": "30",
+          "raw": 30
         },
         {
+          "key": "curveLength",
           "label": "曲線長",
-          "value": "10 → 40"
+          "value": "10 → 40",
+          "raw": [
+            10,
+            40
+          ]
         }
       ]
     },
     {
       "id": "#800",
+      "kind": "clothoid",
       "type": "クロソイド",
       "source": "clothoid_feature",
       "layers": [
@@ -2738,41 +3229,59 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "クロソイド"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#800"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "道路"
+          "value": "道路",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "黄色（5）"
+          "value": "黄色（5）",
+          "raw": 5
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "実線（1）"
+          "value": "実線（1）",
+          "raw": 1
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.13mm（1）"
+          "value": "0.13mm（1）",
+          "raw": 0.13
         },
         {
+          "key": "parameter",
           "label": "パラメータ A",
-          "value": "30"
+          "value": "30",
+          "raw": 30
         },
         {
+          "key": "curveLength",
           "label": "曲線長",
-          "value": "0 → 40"
+          "value": "0 → 40",
+          "raw": [
+            0,
+            40
+          ]
         }
       ]
     },
     {
       "id": "#802",
+      "kind": "clothoid",
       "type": "クロソイド",
       "source": "clothoid_feature",
       "layers": [
@@ -2949,41 +3458,59 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "クロソイド"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#802"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "道路"
+          "value": "道路",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "マジェンタ（6）"
+          "value": "マジェンタ（6）",
+          "raw": 6
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "実線（1）"
+          "value": "実線（1）",
+          "raw": 1
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.13mm（1）"
+          "value": "0.13mm（1）",
+          "raw": 0.13
         },
         {
+          "key": "parameter",
           "label": "パラメータ A",
-          "value": "0.1"
+          "value": "0.1",
+          "raw": 0.1
         },
         {
+          "key": "curveLength",
           "label": "曲線長",
-          "value": "0 → 30"
+          "value": "0 → 30",
+          "raw": [
+            0,
+            30
+          ]
         }
       ]
     },
     {
       "id": "#804",
+      "kind": "line",
       "type": "線分",
       "source": "line_feature",
       "layers": [],
@@ -3010,45 +3537,68 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "線分"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#804"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "未定義（123456789012）"
+          "value": "未定義（123456789012）",
+          "raw": 0
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "黒（1）"
+          "value": "黒（1）",
+          "raw": 1
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "実線（1）"
+          "value": "実線（1）",
+          "raw": 1
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.13mm（1）"
+          "value": "0.13mm（1）",
+          "raw": 0.13
         },
         {
+          "key": "start",
           "label": "始点",
-          "value": "260, 180"
+          "value": "260, 180",
+          "raw": [
+            260,
+            180
+          ]
         },
         {
+          "key": "end",
           "label": "終点",
-          "value": "280, 180"
+          "value": "280, 180",
+          "raw": [
+            280,
+            180
+          ]
         },
         {
+          "key": "length",
           "label": "長さ",
-          "value": "20"
+          "value": "20",
+          "raw": 20
         }
       ]
     },
     {
       "id": "#810>#260>#220",
+      "kind": "line",
       "type": "線分",
       "source": "line_feature",
       "layers": [
@@ -3079,44 +3629,67 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "線分"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#810>#260>#220"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "道路"
+          "value": "道路",
+          "raw": 1
         },
         {
+          "key": "placement",
           "label": "配置",
           "value": "作図部品 部品（縮尺 1/10）"
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "赤（2）"
+          "value": "赤（2）",
+          "raw": 2
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "実線（1）"
+          "value": "実線（1）",
+          "raw": 1
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.18mm（2）"
+          "value": "0.18mm（2）",
+          "raw": 0.18
         },
         {
+          "key": "start",
           "label": "始点",
-          "value": "0, 0"
+          "value": "0, 0",
+          "raw": [
+            0,
+            0
+          ]
         },
         {
+          "key": "end",
           "label": "終点",
-          "value": "10, 0"
+          "value": "10, 0",
+          "raw": [
+            10,
+            0
+          ]
         },
         {
+          "key": "length",
           "label": "長さ",
-          "value": "10"
+          "value": "10",
+          "raw": 10
         }
       ],
       "placement": {
@@ -3135,6 +3708,7 @@
     },
     {
       "id": "#810>#260>#230",
+      "kind": "circle",
       "type": "円",
       "source": "circle_feature",
       "layers": [
@@ -3193,40 +3767,58 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "円"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#810>#260>#230"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "道路"
+          "value": "道路",
+          "raw": 1
         },
         {
+          "key": "placement",
           "label": "配置",
           "value": "作図部品 部品（縮尺 1/10）"
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "緑（3）"
+          "value": "緑（3）",
+          "raw": 3
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "実線（1）"
+          "value": "実線（1）",
+          "raw": 1
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.18mm（2）"
+          "value": "0.18mm（2）",
+          "raw": 0.18
         },
         {
+          "key": "center",
           "label": "中心",
-          "value": "5, 0"
+          "value": "5, 0",
+          "raw": [
+            5,
+            0
+          ]
         },
         {
+          "key": "radius",
           "label": "半径",
-          "value": "2"
+          "value": "2",
+          "raw": 2
         }
       ],
       "placement": {
@@ -3245,6 +3837,7 @@
     },
     {
       "id": "#810>#260>#240",
+      "kind": "text",
       "type": "文字",
       "source": "text_string_feature",
       "layers": [
@@ -3292,44 +3885,65 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "文字"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#810>#260>#240"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "道路"
+          "value": "道路",
+          "raw": 1
         },
         {
+          "key": "placement",
           "label": "配置",
           "value": "作図部品 部品（縮尺 1/10）"
         },
         {
+          "key": "text",
           "label": "文字列",
           "value": "部品"
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "青（4）"
+          "value": "青（4）",
+          "raw": 4
         },
         {
+          "key": "font",
           "label": "フォント",
           "value": "ＭＳ ゴシック"
         },
         {
+          "key": "textBox",
           "label": "文字範囲",
-          "value": "高さ 2・幅 4"
+          "value": "高さ 2・幅 4",
+          "raw": [
+            2,
+            4
+          ]
         },
         {
+          "key": "position",
           "label": "位置",
-          "value": "0, 3"
+          "value": "0, 3",
+          "raw": [
+            0,
+            3
+          ]
         },
         {
+          "key": "rotation",
           "label": "回転角",
-          "value": "0°"
+          "value": "0°",
+          "raw": 0
         }
       ],
       "placement": {
@@ -3348,6 +3962,7 @@
     },
     {
       "id": "#810>#270",
+      "kind": "line",
       "type": "線分",
       "source": "line_feature",
       "layers": [
@@ -3377,44 +3992,67 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "線分"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#810>#270"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "道路"
+          "value": "道路",
+          "raw": 1
         },
         {
+          "key": "placement",
           "label": "配置",
           "value": "部分図（数学座標系） 部分図（縮尺 1/20）"
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "黒（1）"
+          "value": "黒（1）",
+          "raw": 1
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "実線（1）"
+          "value": "実線（1）",
+          "raw": 1
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.13mm（1）"
+          "value": "0.13mm（1）",
+          "raw": 0.13
         },
         {
+          "key": "start",
           "label": "始点",
-          "value": "0, 0"
+          "value": "0, 0",
+          "raw": [
+            0,
+            0
+          ]
         },
         {
+          "key": "end",
           "label": "終点",
-          "value": "1,000, 0"
+          "value": "1,000, 0",
+          "raw": [
+            1000,
+            0
+          ]
         },
         {
+          "key": "length",
           "label": "長さ",
-          "value": "1,000"
+          "value": "1,000",
+          "raw": 1000
         }
       ],
       "placement": {
@@ -3433,6 +4071,7 @@
     },
     {
       "id": "#810>#280",
+      "kind": "point",
       "type": "点マーカ",
       "source": "point_marker_feature",
       "layers": [
@@ -3506,32 +4145,46 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "点マーカ"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#810>#280"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "道路"
+          "value": "道路",
+          "raw": 1
         },
         {
+          "key": "placement",
           "label": "配置",
           "value": "部分図（数学座標系） 部分図（縮尺 1/20）"
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "赤（2）"
+          "value": "赤（2）",
+          "raw": 2
         },
         {
+          "key": "marker",
           "label": "マーカ",
-          "value": "circle"
+          "value": "circle",
+          "raw": 2
         },
         {
+          "key": "position",
           "label": "位置",
-          "value": "500, 0"
+          "value": "500, 0",
+          "raw": [
+            500,
+            0
+          ]
         }
       ],
       "placement": {
@@ -3550,6 +4203,7 @@
     },
     {
       "id": "#810>#290",
+      "kind": "dimension",
       "type": "直線寸法",
       "source": "linear_dim_feature",
       "layers": [
@@ -3678,42 +4332,68 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "直線寸法"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#810>#290"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "寸法"
+          "value": "寸法",
+          "raw": 2
         },
         {
+          "key": "placement",
           "label": "配置",
           "value": "部分図（数学座標系） 部分図（縮尺 1/20）"
         },
         {
+          "key": "dimensionType",
+          "label": "寸法の種類",
+          "value": "直線寸法",
+          "raw": "linear"
+        },
+        {
+          "key": "dimensionText",
           "label": "寸法値",
           "value": "1,000"
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "黒（1）"
+          "value": "黒（1）",
+          "raw": 1
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "実線（1）"
+          "value": "実線（1）",
+          "raw": 1
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.13mm（1）"
+          "value": "0.13mm（1）",
+          "raw": 0.13
         },
         {
+          "key": "dimensionLine",
           "label": "寸法線",
-          "value": "0, 200 → 1,000, 200"
+          "value": "0, 200 → 1,000, 200",
+          "raw": [
+            0,
+            200,
+            1000,
+            200
+          ]
         },
         {
+          "key": "arrows",
           "label": "矢印",
           "value": "filled arrow（外向き）・filled arrow（外向き）"
         }
@@ -3734,6 +4414,7 @@
     },
     {
       "id": "#820>#260>#220",
+      "kind": "line",
       "type": "線分",
       "source": "line_feature",
       "layers": [
@@ -3764,44 +4445,67 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "線分"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#820>#260>#220"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "道路"
+          "value": "道路",
+          "raw": 1
         },
         {
+          "key": "placement",
           "label": "配置",
           "value": "作図部品 部品（縮尺 0.158114）"
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "赤（2）"
+          "value": "赤（2）",
+          "raw": 2
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "実線（1）"
+          "value": "実線（1）",
+          "raw": 1
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.18mm（2）"
+          "value": "0.18mm（2）",
+          "raw": 0.18
         },
         {
+          "key": "start",
           "label": "始点",
-          "value": "0, 0"
+          "value": "0, 0",
+          "raw": [
+            0,
+            0
+          ]
         },
         {
+          "key": "end",
           "label": "終点",
-          "value": "10, 0"
+          "value": "10, 0",
+          "raw": [
+            10,
+            0
+          ]
         },
         {
+          "key": "length",
           "label": "長さ",
-          "value": "10"
+          "value": "10",
+          "raw": 10
         }
       ],
       "placement": {
@@ -3820,6 +4524,7 @@
     },
     {
       "id": "#820>#260>#230",
+      "kind": "circle",
       "type": "円",
       "source": "circle_feature",
       "layers": [
@@ -3878,40 +4583,58 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "円"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#820>#260>#230"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "道路"
+          "value": "道路",
+          "raw": 1
         },
         {
+          "key": "placement",
           "label": "配置",
           "value": "作図部品 部品（縮尺 0.158114）"
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "緑（3）"
+          "value": "緑（3）",
+          "raw": 3
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "実線（1）"
+          "value": "実線（1）",
+          "raw": 1
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.18mm（2）"
+          "value": "0.18mm（2）",
+          "raw": 0.18
         },
         {
+          "key": "center",
           "label": "中心",
-          "value": "5, 0"
+          "value": "5, 0",
+          "raw": [
+            5,
+            0
+          ]
         },
         {
+          "key": "radius",
           "label": "半径",
-          "value": "2"
+          "value": "2",
+          "raw": 2
         }
       ],
       "placement": {
@@ -3930,6 +4653,7 @@
     },
     {
       "id": "#820>#260>#240",
+      "kind": "text",
       "type": "文字",
       "source": "text_string_feature",
       "layers": [
@@ -3977,44 +4701,65 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "文字"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#820>#260>#240"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "道路"
+          "value": "道路",
+          "raw": 1
         },
         {
+          "key": "placement",
           "label": "配置",
           "value": "作図部品 部品（縮尺 0.158114）"
         },
         {
+          "key": "text",
           "label": "文字列",
           "value": "部品"
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "青（4）"
+          "value": "青（4）",
+          "raw": 4
         },
         {
+          "key": "font",
           "label": "フォント",
           "value": "ＭＳ ゴシック"
         },
         {
+          "key": "textBox",
           "label": "文字範囲",
-          "value": "高さ 2・幅 4"
+          "value": "高さ 2・幅 4",
+          "raw": [
+            2,
+            4
+          ]
         },
         {
+          "key": "position",
           "label": "位置",
-          "value": "0, 3"
+          "value": "0, 3",
+          "raw": [
+            0,
+            3
+          ]
         },
         {
+          "key": "rotation",
           "label": "回転角",
-          "value": "0°"
+          "value": "0°",
+          "raw": 0
         }
       ],
       "placement": {
@@ -4033,6 +4778,7 @@
     },
     {
       "id": "#820>#270",
+      "kind": "line",
       "type": "線分",
       "source": "line_feature",
       "layers": [
@@ -4062,44 +4808,67 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "線分"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#820>#270"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "道路"
+          "value": "道路",
+          "raw": 1
         },
         {
+          "key": "placement",
           "label": "配置",
           "value": "部分図（数学座標系） 部分図（縮尺 1/10・縦 1/20）"
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "黒（1）"
+          "value": "黒（1）",
+          "raw": 1
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "実線（1）"
+          "value": "実線（1）",
+          "raw": 1
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.13mm（1）"
+          "value": "0.13mm（1）",
+          "raw": 0.13
         },
         {
+          "key": "start",
           "label": "始点",
-          "value": "0, 0"
+          "value": "0, 0",
+          "raw": [
+            0,
+            0
+          ]
         },
         {
+          "key": "end",
           "label": "終点",
-          "value": "1,000, 0"
+          "value": "1,000, 0",
+          "raw": [
+            1000,
+            0
+          ]
         },
         {
+          "key": "length",
           "label": "長さ",
-          "value": "1,000"
+          "value": "1,000",
+          "raw": 1000
         }
       ],
       "placement": {
@@ -4118,6 +4887,7 @@
     },
     {
       "id": "#820>#280",
+      "kind": "point",
       "type": "点マーカ",
       "source": "point_marker_feature",
       "layers": [
@@ -4191,32 +4961,46 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "点マーカ"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#820>#280"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "道路"
+          "value": "道路",
+          "raw": 1
         },
         {
+          "key": "placement",
           "label": "配置",
           "value": "部分図（数学座標系） 部分図（縮尺 1/10・縦 1/20）"
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "赤（2）"
+          "value": "赤（2）",
+          "raw": 2
         },
         {
+          "key": "marker",
           "label": "マーカ",
-          "value": "circle"
+          "value": "circle",
+          "raw": 2
         },
         {
+          "key": "position",
           "label": "位置",
-          "value": "500, 0"
+          "value": "500, 0",
+          "raw": [
+            500,
+            0
+          ]
         }
       ],
       "placement": {
@@ -4235,6 +5019,7 @@
     },
     {
       "id": "#820>#290",
+      "kind": "dimension",
       "type": "直線寸法",
       "source": "linear_dim_feature",
       "layers": [
@@ -4363,42 +5148,68 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "直線寸法"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#820>#290"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "寸法"
+          "value": "寸法",
+          "raw": 2
         },
         {
+          "key": "placement",
           "label": "配置",
           "value": "部分図（数学座標系） 部分図（縮尺 1/10・縦 1/20）"
         },
         {
+          "key": "dimensionType",
+          "label": "寸法の種類",
+          "value": "直線寸法",
+          "raw": "linear"
+        },
+        {
+          "key": "dimensionText",
           "label": "寸法値",
           "value": "1,000"
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "黒（1）"
+          "value": "黒（1）",
+          "raw": 1
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "実線（1）"
+          "value": "実線（1）",
+          "raw": 1
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.13mm（1）"
+          "value": "0.13mm（1）",
+          "raw": 0.13
         },
         {
+          "key": "dimensionLine",
           "label": "寸法線",
-          "value": "0, 200 → 1,000, 200"
+          "value": "0, 200 → 1,000, 200",
+          "raw": [
+            0,
+            200,
+            1000,
+            200
+          ]
         },
         {
+          "key": "arrows",
           "label": "矢印",
           "value": "filled arrow（外向き）・filled arrow（外向き）"
         }
@@ -4419,6 +5230,7 @@
     },
     {
       "id": "#830>#310",
+      "kind": "line",
       "type": "線分",
       "source": "line_feature",
       "layers": [
@@ -4448,44 +5260,67 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "線分"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#830>#310"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "道路"
+          "value": "道路",
+          "raw": 1
         },
         {
+          "key": "placement",
           "label": "配置",
           "value": "部分図（測地座標系） 測地（縮尺 1/2）"
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "黒（1）"
+          "value": "黒（1）",
+          "raw": 1
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "実線（1）"
+          "value": "実線（1）",
+          "raw": 1
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.13mm（1）"
+          "value": "0.13mm（1）",
+          "raw": 0.13
         },
         {
+          "key": "start",
           "label": "始点",
-          "value": "0, 0"
+          "value": "0, 0",
+          "raw": [
+            0,
+            0
+          ]
         },
         {
+          "key": "end",
           "label": "終点",
-          "value": "100, 0"
+          "value": "100, 0",
+          "raw": [
+            100,
+            0
+          ]
         },
         {
+          "key": "length",
           "label": "長さ",
-          "value": "100"
+          "value": "100",
+          "raw": 100
         }
       ],
       "placement": {
@@ -4504,6 +5339,7 @@
     },
     {
       "id": "#830>#320",
+      "kind": "arc",
       "type": "円弧",
       "source": "arc_feature",
       "layers": [
@@ -4571,44 +5407,67 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "円弧"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#830>#320"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "道路"
+          "value": "道路",
+          "raw": 1
         },
         {
+          "key": "placement",
           "label": "配置",
           "value": "部分図（測地座標系） 測地（縮尺 1/2）"
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "黒（1）"
+          "value": "黒（1）",
+          "raw": 1
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "実線（1）"
+          "value": "実線（1）",
+          "raw": 1
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.13mm（1）"
+          "value": "0.13mm（1）",
+          "raw": 0.13
         },
         {
+          "key": "center",
           "label": "中心",
-          "value": "0, 0"
+          "value": "0, 0",
+          "raw": [
+            0,
+            0
+          ]
         },
         {
+          "key": "radius",
           "label": "半径",
-          "value": "50"
+          "value": "50",
+          "raw": 50
         },
         {
+          "key": "angle",
           "label": "角度",
-          "value": "0° → 90°（反時計回り）"
+          "value": "0° → 90°（反時計回り）",
+          "raw": [
+            0,
+            90
+          ]
         }
       ],
       "placement": {
@@ -4627,6 +5486,7 @@
     },
     {
       "id": "#830>#330",
+      "kind": "text",
       "type": "文字",
       "source": "text_string_feature",
       "layers": [
@@ -4673,44 +5533,65 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "文字"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#830>#330"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "道路"
+          "value": "道路",
+          "raw": 1
         },
         {
+          "key": "placement",
           "label": "配置",
           "value": "部分図（測地座標系） 測地（縮尺 1/2）"
         },
         {
+          "key": "text",
           "label": "文字列",
           "value": "測地"
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "黒（1）"
+          "value": "黒（1）",
+          "raw": 1
         },
         {
+          "key": "font",
           "label": "フォント",
           "value": "ＭＳ 明朝"
         },
         {
+          "key": "textBox",
           "label": "文字範囲",
-          "value": "高さ 5・幅 10"
+          "value": "高さ 5・幅 10",
+          "raw": [
+            5,
+            10
+          ]
         },
         {
+          "key": "position",
           "label": "位置",
-          "value": "10, 10"
+          "value": "10, 10",
+          "raw": [
+            10,
+            10
+          ]
         },
         {
+          "key": "rotation",
           "label": "回転角",
-          "value": "0°"
+          "value": "0°",
+          "raw": 0
         }
       ],
       "placement": {
@@ -4729,6 +5610,7 @@
     },
     {
       "id": "#840>#350",
+      "kind": "line",
       "type": "線分",
       "source": "line_feature",
       "layers": [
@@ -4757,45 +5639,68 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "線分"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#840>#350"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "道路"
+          "value": "道路",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "黄色（5）"
+          "value": "黄色（5）",
+          "raw": 5
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "実線（1）"
+          "value": "実線（1）",
+          "raw": 1
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.13mm（1）"
+          "value": "0.13mm（1）",
+          "raw": 0.13
         },
         {
+          "key": "start",
           "label": "始点",
-          "value": "0, 0"
+          "value": "0, 0",
+          "raw": [
+            0,
+            0
+          ]
         },
         {
+          "key": "end",
           "label": "終点",
-          "value": "5, 5"
+          "value": "5, 5",
+          "raw": [
+            5,
+            5
+          ]
         },
         {
+          "key": "length",
           "label": "長さ",
-          "value": "7.071"
+          "value": "7.071",
+          "raw": 7.0710678118654755
         }
       ]
     },
     {
       "id": "#850>#390>#415",
+      "kind": "line",
       "type": "線分",
       "source": "line_feature",
       "layers": [
@@ -4824,44 +5729,67 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "線分"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#850>#390>#415"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "道路"
+          "value": "道路",
+          "raw": 1
         },
         {
+          "key": "placement",
           "label": "配置",
           "value": "作図部品 循環B（縮尺 1/1）"
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "黒（1）"
+          "value": "黒（1）",
+          "raw": 1
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "実線（1）"
+          "value": "実線（1）",
+          "raw": 1
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.13mm（1）"
+          "value": "0.13mm（1）",
+          "raw": 0.13
         },
         {
+          "key": "start",
           "label": "始点",
-          "value": "0, 0"
+          "value": "0, 0",
+          "raw": [
+            0,
+            0
+          ]
         },
         {
+          "key": "end",
           "label": "終点",
-          "value": "3, 0"
+          "value": "3, 0",
+          "raw": [
+            3,
+            0
+          ]
         },
         {
+          "key": "length",
           "label": "長さ",
-          "value": "3"
+          "value": "3",
+          "raw": 3
         }
       ],
       "placement": {
@@ -4880,6 +5808,7 @@
     },
     {
       "id": "#880>#450",
+      "kind": "circle",
       "type": "円",
       "source": "circle_feature",
       "layers": [
@@ -4936,40 +5865,58 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "円"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#880>#450"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "道路"
+          "value": "道路",
+          "raw": 1
         },
         {
+          "key": "placement",
           "label": "配置",
           "value": "作図部品 重複（縮尺 1/1）"
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "黒（1）"
+          "value": "黒（1）",
+          "raw": 1
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "実線（1）"
+          "value": "実線（1）",
+          "raw": 1
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.13mm（1）"
+          "value": "0.13mm（1）",
+          "raw": 0.13
         },
         {
+          "key": "center",
           "label": "中心",
-          "value": "0, 0"
+          "value": "0, 0",
+          "raw": [
+            0,
+            0
+          ]
         },
         {
+          "key": "radius",
           "label": "半径",
-          "value": "1"
+          "value": "1",
+          "raw": 1
         }
       ],
       "placement": {
@@ -4988,6 +5935,7 @@
     },
     {
       "id": "#890",
+      "kind": "symbol",
       "type": "既定義シンボル",
       "source": "externally_defined_symbol_feature",
       "layers": [
@@ -5143,29 +6091,40 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "既定義シンボル"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#890"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "道路"
+          "value": "道路",
+          "raw": 1
         },
         {
+          "key": "name",
           "label": "シンボル名",
           "value": "40201050100000&&a0010010"
         },
         {
+          "key": "position",
           "label": "位置",
-          "value": "20, 160"
+          "value": "20, 160",
+          "raw": [
+            20,
+            160
+          ]
         }
       ]
     },
     {
       "id": "#900",
+      "kind": "symbol",
       "type": "既定義シンボル",
       "source": "externally_defined_symbol_feature",
       "layers": [
@@ -5206,29 +6165,40 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "既定義シンボル"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#900"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "道路"
+          "value": "道路",
+          "raw": 1
         },
         {
+          "key": "name",
           "label": "シンボル名",
           "value": ""
         },
         {
+          "key": "position",
           "label": "位置",
-          "value": "40, 160"
+          "value": "40, 160",
+          "raw": [
+            40,
+            160
+          ]
         }
       ]
     },
     {
       "id": "#910",
+      "kind": "dimension",
       "type": "直線寸法",
       "source": "linear_dim_feature",
       "layers": [
@@ -5342,38 +6312,63 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "直線寸法"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#910"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "寸法"
+          "value": "寸法",
+          "raw": 2
         },
         {
+          "key": "dimensionType",
+          "label": "寸法の種類",
+          "value": "直線寸法",
+          "raw": "linear"
+        },
+        {
+          "key": "dimensionText",
           "label": "寸法値",
           "value": "50"
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "黒（1）"
+          "value": "黒（1）",
+          "raw": 1
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "実線（1）"
+          "value": "実線（1）",
+          "raw": 1
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.13mm（1）"
+          "value": "0.13mm（1）",
+          "raw": 0.13
         },
         {
+          "key": "dimensionLine",
           "label": "寸法線",
-          "value": "10, 130 → 60, 130"
+          "value": "10, 130 → 60, 130",
+          "raw": [
+            10,
+            130,
+            60,
+            130
+          ]
         },
         {
+          "key": "arrows",
           "label": "矢印",
           "value": "filled arrow（外向き）・open arrow（内向き）"
         }
@@ -5381,6 +6376,7 @@
     },
     {
       "id": "#920",
+      "kind": "dimension",
       "type": "直線寸法",
       "source": "linear_dim_feature",
       "layers": [
@@ -5409,34 +6405,58 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "直線寸法"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#920"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "寸法"
+          "value": "寸法",
+          "raw": 2
         },
         {
+          "key": "dimensionType",
+          "label": "寸法の種類",
+          "value": "直線寸法",
+          "raw": "linear"
+        },
+        {
+          "key": "color",
           "label": "色",
-          "value": "黒（1）"
+          "value": "黒（1）",
+          "raw": 1
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "実線（1）"
+          "value": "実線（1）",
+          "raw": 1
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.13mm（1）"
+          "value": "0.13mm（1）",
+          "raw": 0.13
         },
         {
+          "key": "dimensionLine",
           "label": "寸法線",
-          "value": "70, 130 → 90, 130"
+          "value": "70, 130 → 90, 130",
+          "raw": [
+            70,
+            130,
+            90,
+            130
+          ]
         },
         {
+          "key": "arrows",
           "label": "矢印",
           "value": "0（外向き）"
         }
@@ -5444,6 +6464,7 @@
     },
     {
       "id": "#930",
+      "kind": "dimension",
       "type": "弧長寸法",
       "source": "curve_dim_feature",
       "layers": [
@@ -5715,38 +6736,62 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "弧長寸法"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#930"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "寸法"
+          "value": "寸法",
+          "raw": 2
         },
         {
+          "key": "dimensionType",
+          "label": "寸法の種類",
+          "value": "弧長寸法",
+          "raw": "arc-length"
+        },
+        {
+          "key": "dimensionText",
           "label": "寸法値",
           "value": "23.56"
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "赤（2）"
+          "value": "赤（2）",
+          "raw": 2
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "実線（1）"
+          "value": "実線（1）",
+          "raw": 1
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.13mm（1）"
+          "value": "0.13mm（1）",
+          "raw": 0.13
         },
         {
+          "key": "dimensionArc",
           "label": "中心・半径",
-          "value": "120, 120・15"
+          "value": "120, 120・15",
+          "raw": [
+            120,
+            120,
+            15
+          ]
         },
         {
+          "key": "arrows",
           "label": "矢印",
           "value": "blanked arrow（外向き）・blanked dot（内向き）"
         }
@@ -5754,6 +6799,7 @@
     },
     {
       "id": "#940",
+      "kind": "dimension",
       "type": "角度寸法",
       "source": "angular_dim_feature",
       "layers": [
@@ -5962,38 +7008,62 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "角度寸法"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#940"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "寸法"
+          "value": "寸法",
+          "raw": 2
         },
         {
+          "key": "dimensionType",
+          "label": "寸法の種類",
+          "value": "角度寸法",
+          "raw": "angular"
+        },
+        {
+          "key": "dimensionText",
           "label": "寸法値",
           "value": "120°"
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "緑（3）"
+          "value": "緑（3）",
+          "raw": 3
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "実線（1）"
+          "value": "実線（1）",
+          "raw": 1
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.13mm（1）"
+          "value": "0.13mm（1）",
+          "raw": 0.13
         },
         {
+          "key": "dimensionArc",
           "label": "中心・半径",
-          "value": "160, 120・15"
+          "value": "160, 120・15",
+          "raw": [
+            160,
+            120,
+            15
+          ]
         },
         {
+          "key": "arrows",
           "label": "矢印",
           "value": "dimension origin（外向き）・integral symbol（外向き）"
         }
@@ -6001,6 +7071,7 @@
     },
     {
       "id": "#950",
+      "kind": "dimension",
       "type": "半径寸法",
       "source": "radius_dim_feature",
       "layers": [
@@ -6080,38 +7151,63 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "半径寸法"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#950"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "寸法"
+          "value": "寸法",
+          "raw": 2
         },
         {
+          "key": "dimensionType",
+          "label": "寸法の種類",
+          "value": "半径寸法",
+          "raw": "radius"
+        },
+        {
+          "key": "dimensionText",
           "label": "寸法値",
           "value": "R15"
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "青（4）"
+          "value": "青（4）",
+          "raw": 4
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "実線（1）"
+          "value": "実線（1）",
+          "raw": 1
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.13mm（1）"
+          "value": "0.13mm（1）",
+          "raw": 0.13
         },
         {
+          "key": "dimensionLine",
           "label": "寸法線",
-          "value": "200, 120 → 210.607, 130.607"
+          "value": "200, 120 → 210.607, 130.607",
+          "raw": [
+            200,
+            120,
+            210.606602,
+            130.606602
+          ]
         },
         {
+          "key": "arrows",
           "label": "矢印",
           "value": "filled box（外向き）"
         }
@@ -6119,6 +7215,7 @@
     },
     {
       "id": "#960",
+      "kind": "dimension",
       "type": "直径寸法",
       "source": "diameter_dim_feature",
       "layers": [
@@ -6251,38 +7348,63 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "直径寸法"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#960"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "寸法"
+          "value": "寸法",
+          "raw": 2
         },
         {
+          "key": "dimensionType",
+          "label": "寸法の種類",
+          "value": "直径寸法",
+          "raw": "diameter"
+        },
+        {
+          "key": "dimensionText",
           "label": "寸法値",
           "value": "φ30"
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "黄色（5）"
+          "value": "黄色（5）",
+          "raw": 5
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "実線（1）"
+          "value": "実線（1）",
+          "raw": 1
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.13mm（1）"
+          "value": "0.13mm（1）",
+          "raw": 0.13
         },
         {
+          "key": "dimensionLine",
           "label": "寸法線",
-          "value": "230, 120 → 260, 120"
+          "value": "230, 120 → 260, 120",
+          "raw": [
+            230,
+            120,
+            260,
+            120
+          ]
         },
         {
+          "key": "arrows",
           "label": "矢印",
           "value": "filled dot（内向き）・slash（外向き）"
         }
@@ -6290,6 +7412,7 @@
     },
     {
       "id": "#965",
+      "kind": "dimension",
       "type": "直径寸法",
       "source": "diameter_dim_feature",
       "layers": [
@@ -6366,34 +7489,58 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "直径寸法"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#965"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "寸法"
+          "value": "寸法",
+          "raw": 2
         },
         {
+          "key": "dimensionType",
+          "label": "寸法の種類",
+          "value": "直径寸法",
+          "raw": "diameter"
+        },
+        {
+          "key": "color",
           "label": "色",
-          "value": "マジェンタ（6）"
+          "value": "マジェンタ（6）",
+          "raw": 6
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "実線（1）"
+          "value": "実線（1）",
+          "raw": 1
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.13mm（1）"
+          "value": "0.13mm（1）",
+          "raw": 0.13
         },
         {
+          "key": "dimensionLine",
           "label": "寸法線",
-          "value": "270, 120 → 290, 120"
+          "value": "270, 120 → 290, 120",
+          "raw": [
+            270,
+            120,
+            290,
+            120
+          ]
         },
         {
+          "key": "arrows",
           "label": "矢印",
           "value": "unfilled arrow（外向き）・blanked box（内向き）"
         }
@@ -6401,6 +7548,7 @@
     },
     {
       "id": "#970",
+      "kind": "leader",
       "type": "引出し線",
       "source": "label_feature",
       "layers": [
@@ -6494,37 +7642,49 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "引出し線"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#970"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "寸法"
+          "value": "寸法",
+          "raw": 2
         },
         {
+          "key": "text",
           "label": "文字列",
           "value": "メモ"
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "黒（1）"
+          "value": "黒（1）",
+          "raw": 1
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "実線（1）"
+          "value": "実線（1）",
+          "raw": 1
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.13mm（1）"
+          "value": "0.13mm（1）",
+          "raw": 0.13
         }
       ]
     },
     {
       "id": "#980",
+      "kind": "leader",
       "type": "引出し線",
       "source": "label_feature",
       "layers": [
@@ -6553,33 +7713,44 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "引出し線"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#980"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "寸法"
+          "value": "寸法",
+          "raw": 2
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "赤（2）"
+          "value": "赤（2）",
+          "raw": 2
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "実線（1）"
+          "value": "実線（1）",
+          "raw": 1
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.13mm（1）"
+          "value": "0.13mm（1）",
+          "raw": 0.13
         }
       ]
     },
     {
       "id": "#990",
+      "kind": "balloon",
       "type": "バルーン",
       "source": "balloon_feature",
       "layers": [
@@ -6728,37 +7899,49 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "バルーン"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#990"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "寸法"
+          "value": "寸法",
+          "raw": 2
         },
         {
+          "key": "text",
           "label": "文字列",
           "value": "1"
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "緑（3）"
+          "value": "緑（3）",
+          "raw": 3
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "実線（1）"
+          "value": "実線（1）",
+          "raw": 1
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.13mm（1）"
+          "value": "0.13mm（1）",
+          "raw": 0.13
         }
       ]
     },
     {
       "id": "#1000",
+      "kind": "hatch",
       "type": "ハッチング（外部定義）",
       "source": "externally_defined_hatch_feature",
       "layers": [
@@ -6793,29 +7976,37 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "ハッチング（外部定義）"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#1000"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "非表示"
+          "value": "非表示",
+          "raw": 3
         },
         {
+          "key": "pattern",
           "label": "名前",
           "value": "sxf_hatch_style_1"
         },
         {
+          "key": "holeCount",
           "label": "中抜き",
-          "value": "0 件"
+          "value": "0 件",
+          "raw": 0
         }
       ]
     },
     {
       "id": "#1010",
+      "kind": "hatch",
       "type": "ハッチング（外部定義）",
       "source": "externally_defined_hatch_feature",
       "layers": [
@@ -6848,29 +8039,37 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "ハッチング（外部定義）"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#1010"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "非表示"
+          "value": "非表示",
+          "raw": 3
         },
         {
+          "key": "pattern",
           "label": "名前",
           "value": "Area_control"
         },
         {
+          "key": "holeCount",
           "label": "中抜き",
-          "value": "0 件"
+          "value": "0 件",
+          "raw": 0
         }
       ]
     },
     {
       "id": "#1020",
+      "kind": "hatch",
       "type": "ハッチング（塗り）",
       "source": "fill_area_style_colour_feature",
       "layers": [
@@ -6965,29 +8164,38 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "ハッチング（塗り）"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#1020"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "非表示"
+          "value": "非表示",
+          "raw": 3
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "ユーザ定義 RGB(255, 128, 0)（17）"
+          "value": "ユーザ定義 RGB(255, 128, 0)（17）",
+          "raw": 17
         },
         {
+          "key": "holeCount",
           "label": "中抜き",
-          "value": "1 件"
+          "value": "1 件",
+          "raw": 1
         }
       ]
     },
     {
       "id": "#1030",
+      "kind": "hatch",
       "type": "ハッチング（ユーザ定義）",
       "source": "fill_area_style_hatching_feature",
       "layers": [
@@ -7168,29 +8376,37 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "ハッチング（ユーザ定義）"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#1030"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "非表示"
+          "value": "非表示",
+          "raw": 3
         },
         {
+          "key": "hatchLines",
           "label": "ハッチング線",
           "value": "間隔 3・45°・黒（1） / 間隔 4・-30°・赤（2） / 間隔 0・0°・緑（3）"
         },
         {
+          "key": "holeCount",
           "label": "中抜き",
-          "value": "0 件"
+          "value": "0 件",
+          "raw": 0
         }
       ]
     },
     {
       "id": "#1040",
+      "kind": "hatch",
       "type": "ハッチング（ユーザ定義）",
       "source": "fill_area_style_hatching_feature",
       "layers": [
@@ -7684,29 +8900,37 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "ハッチング（ユーザ定義）"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#1040"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "非表示"
+          "value": "非表示",
+          "raw": 3
         },
         {
+          "key": "hatchLines",
           "label": "ハッチング線",
           "value": "間隔 0・0°・黒（1）"
         },
         {
+          "key": "holeCount",
           "label": "中抜き",
-          "value": "0 件"
+          "value": "0 件",
+          "raw": 0
         }
       ]
     },
     {
       "id": "#1050",
+      "kind": "hatch",
       "type": "ハッチング（パターン）",
       "source": "fill_area_style_tiles_feature",
       "layers": [
@@ -7744,29 +8968,37 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "ハッチング（パターン）"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#1050"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "非表示"
+          "value": "非表示",
+          "raw": 3
         },
         {
+          "key": "pattern",
           "label": "シンボル",
           "value": "40201050100000&&a0010010"
         },
         {
+          "key": "holeCount",
           "label": "中抜き",
-          "value": "0 件"
+          "value": "0 件",
+          "raw": 0
         }
       ]
     },
     {
       "id": "#1180",
+      "kind": "line",
       "type": "線分",
       "source": "line_feature",
       "layers": [
@@ -7795,45 +9027,68 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "線分"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#1180"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "寸法"
+          "value": "寸法",
+          "raw": 2
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "黒（1）"
+          "value": "黒（1）",
+          "raw": 1
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "実線（1）"
+          "value": "実線（1）",
+          "raw": 1
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.13mm（1）"
+          "value": "0.13mm（1）",
+          "raw": 0.13
         },
         {
+          "key": "start",
           "label": "始点",
-          "value": "0, 0"
+          "value": "0, 0",
+          "raw": [
+            0,
+            0
+          ]
         },
         {
+          "key": "end",
           "label": "終点",
-          "value": "10, 10"
+          "value": "10, 10",
+          "raw": [
+            10,
+            10
+          ]
         },
         {
+          "key": "length",
           "label": "長さ",
-          "value": "14.142"
+          "value": "14.142",
+          "raw": 14.142135623730951
         }
       ]
     },
     {
       "id": "#1200",
+      "kind": "line",
       "type": "線分",
       "source": "line_feature",
       "layers": [
@@ -7862,40 +9117,62 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "線分"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#1200"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "道路"
+          "value": "道路",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "黒（1）"
+          "value": "黒（1）",
+          "raw": 1
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "実線（1）"
+          "value": "実線（1）",
+          "raw": 1
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.13mm（1）"
+          "value": "0.13mm（1）",
+          "raw": 0.13
         },
         {
+          "key": "start",
           "label": "始点",
-          "value": "0, 10"
+          "value": "0, 10",
+          "raw": [
+            0,
+            10
+          ]
         },
         {
+          "key": "end",
           "label": "終点",
-          "value": "10, 0"
+          "value": "10, 0",
+          "raw": [
+            10,
+            0
+          ]
         },
         {
+          "key": "length",
           "label": "長さ",
-          "value": "14.142"
+          "value": "14.142",
+          "raw": 14.142135623730951
         }
       ]
     }
@@ -8036,64 +9313,83 @@
   ],
   "metadata": [
     {
+      "key": "format",
       "label": "形式",
       "value": "SFC（SXF 3.1）"
     },
     {
+      "key": "sheet",
       "label": "用紙",
       "value": "平面図・A3 縦（297×420mm）"
     },
     {
+      "key": "businessName",
       "label": "事業名",
       "value": "道路改良事業"
     },
     {
+      "key": "constructionName",
       "label": "工事名",
       "value": "工事"
     },
     {
+      "key": "drawingName",
       "label": "図面名",
       "value": "平面図"
     },
     {
+      "key": "drawingNumber",
       "label": "図面番号",
       "value": "No.1"
     },
     {
+      "key": "scale",
       "label": "尺度",
       "value": "1:500"
     },
     {
+      "key": "year",
       "label": "作成年",
       "value": "2026"
     },
     {
+      "key": "month",
       "label": "作成月",
       "value": "10"
     },
     {
+      "key": "day",
       "label": "作成日",
       "value": "18"
     },
     {
+      "key": "contractor",
       "label": "受注会社名",
       "value": "受注会社"
     },
     {
+      "key": "client",
       "label": "発注事業者名",
       "value": "発注者"
     },
     {
+      "key": "software",
       "label": "作成ソフト",
       "value": "test"
     },
     {
+      "key": "library",
       "label": "出力ライブラリ",
       "value": "SCADEC_API_Ver3.10$$3.1"
     },
     {
+      "key": "figureCount",
       "label": "複合図形",
-      "value": "9 件（部分図 2 件）"
+      "value": "9 件（部分図 2 件）",
+      "raw": [
+        9,
+        2
+      ]
     }
   ],
   "background": "light"

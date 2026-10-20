@@ -20,14 +20,17 @@
   ],
   "metadata": [
     {
+      "key": "format",
       "label": "形式",
       "value": "P21（SXF）"
     },
     {
+      "key": "software",
       "label": "作成ソフト",
       "value": "zumen テスト it's"
     },
     {
+      "key": "library",
       "label": "出力ライブラリ",
       "value": "zumen"
     }

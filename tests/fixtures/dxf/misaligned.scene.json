@@ -25,6 +25,7 @@
   "entities": [
     {
       "id": "?",
+      "kind": "line",
       "type": "線分",
       "source": "LINE",
       "layers": [
@@ -53,40 +54,60 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "線分（LINE）"
         },
         {
+          "key": "id",
           "label": "ハンドル",
           "value": "?"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "0"
+          "value": "0",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "BYLAYER"
+          "value": "BYLAYER",
+          "raw": 256
         },
         {
+          "key": "lineType",
           "label": "線種",
           "value": "BYLAYER（CONTINUOUS）"
         },
         {
+          "key": "lineWidth",
           "label": "線の太さ",
           "value": "BYLAYER"
         },
         {
+          "key": "start",
           "label": "始点",
-          "value": "1, 2"
+          "value": "1, 2",
+          "raw": [
+            1,
+            2
+          ]
         },
         {
+          "key": "end",
           "label": "終点",
-          "value": "3, 4"
+          "value": "3, 4",
+          "raw": [
+            3,
+            4
+          ]
         },
         {
+          "key": "length",
           "label": "長さ",
-          "value": "2.8284"
+          "value": "2.8284",
+          "raw": 2.8284271247461903
         }
       ],
       "placement": {
@@ -120,20 +141,26 @@
   ],
   "metadata": [
     {
+      "key": "format",
       "label": "形式",
       "value": "DXF AutoCAD R12（AC1009、テキスト）"
     },
     {
+      "key": "encoding",
       "label": "文字コード",
-      "value": "西欧（Windows-1252）（指定なし）"
+      "value": "西欧（Windows-1252）（指定なし）",
+      "raw": "windows-1252"
     },
     {
+      "key": "units",
       "label": "単位",
       "value": "mm（指定なし）"
     },
     {
+      "key": "view",
       "label": "表示",
-      "value": "モデル空間"
+      "value": "モデル空間",
+      "raw": "Model"
     }
   ],
   "background": "dark"

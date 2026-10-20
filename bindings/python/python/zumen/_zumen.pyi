@@ -14,6 +14,7 @@ class Placement(TypedDict):
     inverse: tuple[float, float, float, float, float, float]
 
 Point: TypeAlias = tuple[float, float]
+PropertyValue: TypeAlias = float | str | bool | tuple[float, ...]
 
 class Polyline(TypedDict):
     """A line through points; curves come as the polyline drawn (type checking only)."""
@@ -60,16 +61,22 @@ Shape: TypeAlias = Polyline | Segments | Area | Dot | TextPart
 
 class _Entity(TypedDict):
     id: str
+    kind: str
     type: str
     source: str
     layers: list[str]
     bbox: Box
     text: str | None
     properties: list[tuple[str, str]]
+    values: dict[str, PropertyValue]
     placement: Placement | None
 
 class Entity(_Entity, total=False):
-    """An entity of ``Scene.entities`` and ``Scene.entity``, with ``geometry`` when asked (type checking only)."""
+    """An entity of ``Scene.entities`` and ``Scene.entity``, with ``geometry`` when asked (type checking only).
+
+    ``kind`` and the keys of ``values`` are the same for every format (see "Stable keys" in docs/architecture.md);
+    ``type`` and the labels of ``properties`` are Japanese, for people. ``values`` maps each property's key to its
+    unformatted value (numbers, ``(x, y)``), or to the formatted text when it has none."""
 
     geometry: list[Shape]
 
@@ -77,6 +84,7 @@ class Text(TypedDict):
     """A text of ``Scene.texts`` in paper millimeters (type checking only)."""
 
     id: str
+    kind: str
     type: str
     text: str
     x: float
@@ -113,6 +121,7 @@ class DrawnEntity(TypedDict):
     """An entity drawn in a ``Rendering``, with its box in pixels (type checking only)."""
 
     id: str
+    kind: str
     type: str
     box: Box
     text: str | None
@@ -145,6 +154,8 @@ class Scene:
     def notices(self) -> list[dict[str, str | int]]: ...
     @property
     def metadata(self) -> list[tuple[str, str]]: ...
+    @property
+    def metadata_values(self) -> dict[str, PropertyValue]: ...
     @property
     def views(self) -> list[tuple[str, str]] | None: ...
     @property

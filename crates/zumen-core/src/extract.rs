@@ -260,7 +260,8 @@ mod tests {
     fn entity(id: &str, layers: Vec<u32>, primitives: Vec<Primitive>, bbox: BBox) -> SceneEntity {
         SceneEntity {
             id: id.into(),
-            kind: "文字".into(),
+            kind: crate::EntityKind::Text,
+            type_name: "文字".into(),
             source: "test".into(),
             layers,
             primitives,

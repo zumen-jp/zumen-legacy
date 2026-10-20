@@ -42,7 +42,11 @@ def test_finds_entities_by_type_and_layer():
     assert all("寸法" in entity["type"] for entity in found["entities"])
     assert mcp.find_entities(scene, layer="寸法", region=(0, 215, 30, 230))["entities"][0]["id"] == "#700"
     entity = mcp.get_entity(scene, "#700")
-    assert {"label": "文字列", "value": "平面図"} in entity["properties"] and entity["placement"] is None
+    assert {"key": "text", "label": "文字列", "value": "平面図"} in entity["properties"] and entity["placement"] is None
+    assert (entity["kind"], entity["values"]["position"]) == ("text", (10.0, 220.0))
+    dimensions = mcp.find_entities(scene, kind="dimension")
+    assert dimensions["total"] == found["total"]
+    assert {entity["kind"] for entity in dimensions["entities"]} == {"dimension"}
     with pytest.raises(mcp.DrawingError):
         mcp.get_entity(scene, "no such id")
 

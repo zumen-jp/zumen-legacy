@@ -397,7 +397,7 @@ pub fn differences(original: &Scene, again: &Scene, sources: &HashMap<String, St
         let id = &entity.id;
         let Some(converted) = groups.get(id) else {
             if !expected.is_empty() {
-                out.push(format!("{id} ({}): missing", entity.kind));
+                out.push(format!("{id} ({}): missing", entity.type_name));
             }
             continue;
         };
@@ -418,22 +418,22 @@ pub fn differences(original: &Scene, again: &Scene, sources: &HashMap<String, St
         {
             out.push(format!(
                 "{id} ({}): box [{:.3}, {:.3}, {:.3}, {:.3}] → [{:.3}, {:.3}, {:.3}, {:.3}]",
-                entity.kind, b.min_x, b.min_y, b.max_x, b.max_y, bbox.min_x, bbox.min_y, bbox.max_x, bbox.max_y
+                entity.type_name, b.min_x, b.min_y, b.max_x, b.max_y, bbox.min_x, bbox.min_y, bbox.max_x, bbox.max_y
             ));
         }
         if expected.len() != actual.len() {
             let kinds = |list: &[Primitive]| list.iter().map(kind).collect::<Vec<_>>().join(",");
-            out.push(format!("{id} ({}): [{}] → [{}]", entity.kind, kinds(&expected), kinds(&actual)));
+            out.push(format!("{id} ({}): [{}] → [{}]", entity.type_name, kinds(&expected), kinds(&actual)));
         } else if let Some(difference) =
             expected.iter().zip(&actual).find_map(|(a, b)| compare_primitive(a, b, tolerance))
         {
-            out.push(format!("{id} ({}): {difference}", entity.kind));
+            out.push(format!("{id} ({}): {difference}", entity.type_name));
         }
         let own: Vec<String> = layer_names(original, entity).iter().map(|name| dxf_name(name)).collect();
         for part in converted {
             for name in layer_names(again, part) {
                 if name != "0" && !own.iter().any(|candidate| candidate == without_number(&name)) {
-                    out.push(format!("{id} ({}): layer {name} not in {own:?}", entity.kind));
+                    out.push(format!("{id} ({}): layer {name} not in {own:?}", entity.type_name));
                 }
             }
         }
@@ -450,7 +450,7 @@ pub fn differences(original: &Scene, again: &Scene, sources: &HashMap<String, St
         original.entities.iter().map(|entity| entity.id.as_str()).collect();
     for (id, entities) in &groups {
         if !expected_ids.contains(id.as_str()) {
-            out.push(format!("{id}: not in the original ({} entities, {})", entities.len(), entities[0].kind));
+            out.push(format!("{id}: not in the original ({} entities, {})", entities.len(), entities[0].type_name));
         }
     }
     if matched == 0 && !original.entities.is_empty() {

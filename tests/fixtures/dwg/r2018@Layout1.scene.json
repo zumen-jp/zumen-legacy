@@ -34,6 +34,7 @@
   "entities": [
     {
       "id": "50",
+      "kind": "line",
       "type": "線分",
       "source": "LINE",
       "layers": [
@@ -62,40 +63,60 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "線分（LINE）"
         },
         {
+          "key": "id",
           "label": "ハンドル",
           "value": "50"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "0"
+          "value": "0",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "BYLAYER"
+          "value": "BYLAYER",
+          "raw": 256
         },
         {
+          "key": "lineType",
           "label": "線種",
           "value": "BYLAYER（Continuous）"
         },
         {
+          "key": "lineWidth",
           "label": "線の太さ",
           "value": "BYLAYER"
         },
         {
+          "key": "start",
           "label": "始点",
-          "value": "10, 10"
+          "value": "10, 10",
+          "raw": [
+            10,
+            10
+          ]
         },
         {
+          "key": "end",
           "label": "終点",
-          "value": "100, 10"
+          "value": "100, 10",
+          "raw": [
+            100,
+            10
+          ]
         },
         {
+          "key": "length",
           "label": "長さ",
-          "value": "90"
+          "value": "90",
+          "raw": 90
         }
       ]
     }
@@ -103,30 +124,40 @@
   "notices": [],
   "metadata": [
     {
+      "key": "format",
       "label": "形式",
       "value": "DWG AutoCAD 2018（AC1032）"
     },
     {
+      "key": "encoding",
       "label": "文字コード",
-      "value": "UTF-16（AutoCAD 2007 以降の DWG）"
+      "value": "UTF-16（AutoCAD 2007 以降の DWG）",
+      "raw": "utf-16le"
     },
     {
+      "key": "units",
       "label": "単位",
       "value": "m"
     },
     {
+      "key": "blockCount",
       "label": "ブロック",
-      "value": "1 件"
+      "value": "1 件",
+      "raw": 1
     },
     {
+      "key": "layouts",
       "label": "レイアウト",
       "value": "Layout1"
     },
     {
+      "key": "view",
       "label": "表示",
-      "value": "レイアウト Layout1"
+      "value": "レイアウト Layout1",
+      "raw": "Layout1"
     },
     {
+      "key": "sheet",
       "label": "用紙",
       "value": "ISO A3 (420.00 x 297.00 MM)（420×297 mm）"
     }

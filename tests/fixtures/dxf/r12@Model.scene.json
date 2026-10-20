@@ -34,6 +34,7 @@
   "entities": [
     {
       "id": "?",
+      "kind": "line",
       "type": "線分",
       "source": "LINE",
       "layers": [
@@ -65,40 +66,60 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "線分（LINE）"
         },
         {
+          "key": "id",
           "label": "ハンドル",
           "value": "?"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "WALL"
+          "value": "WALL",
+          "raw": 2
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "BYLAYER"
+          "value": "BYLAYER",
+          "raw": 256
         },
         {
+          "key": "lineType",
           "label": "線種",
           "value": "HIDDEN"
         },
         {
+          "key": "lineWidth",
           "label": "線の太さ",
           "value": "BYLAYER"
         },
         {
+          "key": "start",
           "label": "始点",
-          "value": "0, 0"
+          "value": "0, 0",
+          "raw": [
+            0,
+            0
+          ]
         },
         {
+          "key": "end",
           "label": "終点",
-          "value": "100, 0"
+          "value": "100, 0",
+          "raw": [
+            100,
+            0
+          ]
         },
         {
+          "key": "length",
           "label": "長さ",
-          "value": "100"
+          "value": "100",
+          "raw": 100
         }
       ],
       "placement": {
@@ -117,6 +138,7 @@
     },
     {
       "id": "?",
+      "kind": "polyline",
       "type": "ポリライン",
       "source": "POLYLINE",
       "layers": [
@@ -369,32 +391,42 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "ポリライン（POLYLINE）"
         },
         {
+          "key": "id",
           "label": "ハンドル",
           "value": "?"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "WALL"
+          "value": "WALL",
+          "raw": 2
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "BYLAYER"
+          "value": "BYLAYER",
+          "raw": 256
         },
         {
+          "key": "lineType",
           "label": "線種",
           "value": "BYLAYER（CONTINUOUS）"
         },
         {
+          "key": "lineWidth",
           "label": "線の太さ",
           "value": "BYLAYER"
         },
         {
+          "key": "vertexCount",
           "label": "頂点",
-          "value": "3 点"
+          "value": "3 点",
+          "raw": 3
         }
       ],
       "placement": {
@@ -413,6 +445,7 @@
     },
     {
       "id": "?>?",
+      "kind": "circle",
       "type": "円",
       "source": "CIRCLE",
       "layers": [
@@ -661,40 +694,56 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "円（CIRCLE）"
         },
         {
+          "key": "id",
           "label": "ハンドル",
           "value": "?>?"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "0"
+          "value": "0",
+          "raw": 1
         },
         {
+          "key": "block",
           "label": "ブロック",
           "value": "TREE"
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "BYLAYER"
+          "value": "BYLAYER",
+          "raw": 256
         },
         {
+          "key": "lineType",
           "label": "線種",
           "value": "BYLAYER（CONTINUOUS）"
         },
         {
+          "key": "lineWidth",
           "label": "線の太さ",
           "value": "BYLAYER"
         },
         {
+          "key": "center",
           "label": "中心",
-          "value": "20, 30"
+          "value": "20, 30",
+          "raw": [
+            20,
+            30
+          ]
         },
         {
+          "key": "radius",
           "label": "半径",
-          "value": "2"
+          "value": "2",
+          "raw": 2
         }
       ],
       "placement": {
@@ -713,6 +762,7 @@
     },
     {
       "id": "?>?",
+      "kind": "attribute",
       "type": "属性",
       "source": "ATTRIB",
       "layers": [
@@ -763,46 +813,60 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "属性（ATTRIB）"
         },
         {
+          "key": "id",
           "label": "ハンドル",
           "value": "?>?"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "0"
+          "value": "0",
+          "raw": 1
         },
         {
+          "key": "block",
           "label": "ブロック",
           "value": "TREE"
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "BYLAYER"
+          "value": "BYLAYER",
+          "raw": 256
         },
         {
+          "key": "lineType",
           "label": "線種",
           "value": "BYLAYER（CONTINUOUS）"
         },
         {
+          "key": "lineWidth",
           "label": "線の太さ",
           "value": "BYLAYER"
         },
         {
+          "key": "text",
           "label": "文字列",
           "value": "OAK"
         },
         {
+          "key": "tag",
           "label": "タグ",
           "value": "KIND"
         },
         {
+          "key": "height",
           "label": "高さ",
-          "value": "1"
+          "value": "1",
+          "raw": 1
         },
         {
+          "key": "textStyle",
           "label": "文字スタイル",
           "value": "STANDARD"
         }
@@ -844,28 +908,37 @@
   ],
   "metadata": [
     {
+      "key": "format",
       "label": "形式",
       "value": "DXF AutoCAD R12（AC1009、テキスト）"
     },
     {
+      "key": "encoding",
       "label": "文字コード",
-      "value": "西欧（Windows-1252）（指定なし）"
+      "value": "西欧（Windows-1252）（指定なし）",
+      "raw": "windows-1252"
     },
     {
+      "key": "units",
       "label": "単位",
       "value": "インチ（指定なし）"
     },
     {
+      "key": "blockCount",
       "label": "ブロック",
-      "value": "1 件"
+      "value": "1 件",
+      "raw": 1
     },
     {
+      "key": "layouts",
       "label": "レイアウト",
       "value": "Layout1"
     },
     {
+      "key": "view",
       "label": "表示",
-      "value": "モデル空間"
+      "value": "モデル空間",
+      "raw": "Model"
     }
   ],
   "background": "dark"

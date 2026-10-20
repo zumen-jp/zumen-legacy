@@ -2,7 +2,7 @@
 //! 読み取りの注意に、描画で省いた内容を加える。
 
 use crate::document::{SxfDocument, SxfDrawing};
-use crate::features::{Annotation, Arrow, ExtensionLine, HatchPattern, Region, SxfFeature};
+use crate::features::{Annotation, Arrow, ExtensionLine, FeatureKind, HatchPattern, Region, SxfFeature};
 use crate::style::DEFAULT_WIDTH;
 use crate::symbols::{arrow_primitives, marker_primitives};
 use crate::tables::{
@@ -18,8 +18,8 @@ use zumen_core::geometry::{
 };
 use zumen_core::text::{TextLayoutInput, font_family_for, layout_text};
 use zumen_core::{
-    BACKGROUND_COLOR, BBox, Background, ClippedPrimitive, FillPrimitive, Matrix, NoticeLevel, NoticeList, Placement,
-    Primitive, Property, Scene, SceneEntity, SceneLayer, Sheet, StrokePrimitive, TextPrimitive, js,
+    BACKGROUND_COLOR, BBox, Background, ClippedPrimitive, EntityKind, FillPrimitive, Matrix, NoticeLevel, NoticeList,
+    Placement, Primitive, Property, Scene, SceneEntity, SceneLayer, Sheet, StrokePrimitive, TextPrimitive, js,
 };
 
 const DEFAULT_COLOR: &str = "#ffffff";
@@ -57,8 +57,59 @@ fn string(value: f64) -> String {
     js::number_to_string(value)
 }
 
-fn property(label: &str, value: impl Into<String>) -> Property {
-    Property::new(label, value)
+fn property(key: &'static str, label: &str, value: impl Into<String>) -> Property {
+    Property::new(key, label, value)
+}
+
+/// 座標の属性。value は整形した「x, y」、raw は [x, y]
+fn point_property(key: &'static str, label: &str, x: f64, y: f64) -> Property {
+    property(key, label, format!("{}, {}", number(x), number(y))).raw([x, y])
+}
+
+/// 数の属性
+fn number_property(key: &'static str, label: &str, value: f64) -> Property {
+    property(key, label, number(value)).raw(value)
+}
+
+/// SXF のフィーチャの、形式によらない種類（docs/architecture.md の「Stable keys」）
+fn entity_kind(kind: FeatureKind) -> EntityKind {
+    match kind {
+        FeatureKind::PointMarker => EntityKind::Point,
+        FeatureKind::Line => EntityKind::Line,
+        FeatureKind::Polyline => EntityKind::Polyline,
+        FeatureKind::Circle => EntityKind::Circle,
+        FeatureKind::Arc => EntityKind::Arc,
+        FeatureKind::Ellipse => EntityKind::Ellipse,
+        FeatureKind::EllipseArc => EntityKind::EllipseArc,
+        FeatureKind::TextString => EntityKind::Text,
+        FeatureKind::Spline => EntityKind::Spline,
+        FeatureKind::Clothoid => EntityKind::Clothoid,
+        FeatureKind::ExternallyDefinedSymbol => EntityKind::Symbol,
+        FeatureKind::LinearDim
+        | FeatureKind::CurveDim
+        | FeatureKind::AngularDim
+        | FeatureKind::RadiusDim
+        | FeatureKind::DiameterDim => EntityKind::Dimension,
+        FeatureKind::Label => EntityKind::Leader,
+        FeatureKind::Balloon => EntityKind::Balloon,
+        FeatureKind::ExternallyDefinedHatch
+        | FeatureKind::FillAreaStyleColour
+        | FeatureKind::FillAreaStyleHatching
+        | FeatureKind::FillAreaStyleTiles => EntityKind::Hatch,
+        // 図形にならない定義（レイヤ・色・複合図形など）
+        _ => unreachable!("{kind:?} は図形にならない"),
+    }
+}
+
+/// 寸法の種類の、形式によらないキー（DXF・DWG の寸法と同じ値）
+fn dimension_type(kind: FeatureKind) -> &'static str {
+    match kind {
+        FeatureKind::LinearDim => "linear",
+        FeatureKind::CurveDim => "arc-length",
+        FeatureKind::AngularDim => "angular",
+        FeatureKind::RadiusDim => "radius",
+        _ => "diameter",
+    }
 }
 
 /// 曲線を点列にする分割数。NaN なら点を作らない（TypeScript の `for (i = 0; i <= NaN; …)`）
@@ -170,10 +221,12 @@ fn sheet_of(doc: &SxfDocument) -> Option<Sheet> {
 }
 
 fn metadata_of(doc: &SxfDocument, drawing: &SxfDrawing, sheet: Option<&Sheet>) -> Vec<Property> {
-    let mut items = vec![property("形式", format!("{}（{}）", drawing.format.to_uppercase(), drawing.version))];
+    let mut items =
+        vec![property("format", "形式", format!("{}（{}）", drawing.format.to_uppercase(), drawing.version))];
     if let Some(sheet) = sheet {
         let name = if js::trim(&sheet.name).is_empty() { String::new() } else { format!("{}・", sheet.name) };
         items.push(property(
+            "sheet",
             "用紙",
             format!("{name}{}（{}×{}mm）", sheet.size, string(sheet.width), string(sheet.height)),
         ));
@@ -181,21 +234,24 @@ fn metadata_of(doc: &SxfDocument, drawing: &SxfDrawing, sheet: Option<&Sheet>) -
     if let Some(title) = &doc.title {
         for value in &title.values {
             if !value.value.is_empty() && value.value != " " {
-                items.push(property(value.label, value.value.clone()));
+                items.push(property(value.key, value.label, value.value.clone()));
             }
         }
     }
     if !drawing.header.originating_system.is_empty() {
-        items.push(property("作成ソフト", drawing.header.originating_system.clone()));
+        items.push(property("software", "作成ソフト", drawing.header.originating_system.clone()));
     }
     if !drawing.header.preprocessor.is_empty() {
-        items.push(property("出力ライブラリ", drawing.header.preprocessor.clone()));
+        items.push(property("library", "出力ライブラリ", drawing.header.preprocessor.clone()));
     }
     let figures = doc.sub_figures.len();
     let partial =
         doc.sub_figures.values().filter(|figure| figure.feature.flag == 1.0 || figure.feature.flag == 2.0).count();
     if figures > 0 {
-        items.push(property("複合図形", format!("{figures} 件（部分図 {partial} 件）")));
+        items.push(
+            property("figureCount", "複合図形", format!("{figures} 件（部分図 {partial} 件）"))
+                .raw([figures as f64, partial as f64]),
+        );
     }
     items
 }
@@ -484,9 +540,9 @@ impl SceneBuilder<'_> {
         let kind = feature.kind();
         let id = format!("{}#{}", ctx.path, string(feature.id()));
         let mut all = vec![
-            property("種類", kind.label()),
-            property("番号", id.clone()),
-            property("レイヤ", self.layer_name(layer)),
+            property("type", "種類", kind.label()),
+            property("id", "番号", id.clone()),
+            property("layer", "レイヤ", self.layer_name(layer)).raw(own),
         ];
         if let Some(placement) = &ctx.placement {
             let vertical = if (placement.scale_x - placement.scale_y).abs() > 1e-12 {
@@ -495,6 +551,7 @@ impl SceneBuilder<'_> {
                 String::new()
             };
             all.push(property(
+                "placement",
                 "配置",
                 format!("{}（縮尺 {}{vertical}）", placement.name, scale_label(placement.scale_x)),
             ));
@@ -506,7 +563,8 @@ impl SceneBuilder<'_> {
         }
         self.entities.push(SceneEntity {
             id,
-            kind: kind.label().into(),
+            kind: entity_kind(kind),
+            type_name: kind.label().into(),
             source: format!("{}_feature", kind.name()),
             layers: layers.iter().map(|code| *code as u32).collect(),
             primitives,
@@ -530,9 +588,9 @@ impl SceneBuilder<'_> {
         let line_type_label = self.line_type_label(line_type);
         let width = self.width(line_width);
         vec![
-            property("色", color_label),
-            property("線種", line_type_label),
-            property("線幅", format!("{}mm（{}）", number(width), string(line_width))),
+            property("color", "色", color_label).raw(color),
+            property("lineType", "線種", line_type_label).raw(line_type),
+            property("lineWidth", "線幅", format!("{}mm（{}）", number(width), string(line_width))).raw(width),
         ]
     }
 
@@ -548,16 +606,17 @@ impl SceneBuilder<'_> {
                 let (bx, by) = Self::local(ctx, *x2, *y2);
                 let stroke = self.stroke(ctx, &[ax, ay, bx, by], false, style.color, style.line_type, style.line_width);
                 let mut properties = self.style_properties(style.color, style.line_type, style.line_width);
-                properties.push(property("始点", format!("{}, {}", number(*x1), number(*y1))));
-                properties.push(property("終点", format!("{}, {}", number(*x2), number(*y2))));
-                properties.push(property("長さ", number(js::hypot2(x2 - x1, y2 - y1))));
+                properties.push(point_property("start", "始点", *x1, *y1));
+                properties.push(point_property("end", "終点", *x2, *y2));
+                properties.push(number_property("length", "長さ", js::hypot2(x2 - x1, y2 - y1)));
                 self.add(feature, ctx, style.layer, vec![stroke], properties);
             }
             SxfFeature::Polyline { style, xs, ys } => {
                 let points = Self::local_points(ctx, xs, ys);
                 let stroke = self.stroke(ctx, &points, false, style.color, style.line_type, style.line_width);
                 let mut properties = self.style_properties(style.color, style.line_type, style.line_width);
-                properties.push(property("頂点数", string(points.len() as f64 / 2.0)));
+                let count = points.len() as f64 / 2.0;
+                properties.push(property("vertexCount", "頂点数", string(count)).raw(count));
                 self.add(feature, ctx, style.layer, vec![stroke], properties);
             }
             SxfFeature::Circle { style, .. }
@@ -585,22 +644,28 @@ impl SceneBuilder<'_> {
                     points.truncate(points.len().saturating_sub(2));
                 }
                 let mut properties = self.style_properties(style.color, style.line_type, style.line_width);
-                properties.push(property("中心", format!("{}, {}", number(fcx), number(fcy))));
+                properties.push(point_property("center", "中心", fcx, fcy));
                 if matches!(feature, SxfFeature::Circle { .. } | SxfFeature::Arc { .. }) {
-                    properties.push(property("半径", number(rx)));
+                    properties.push(number_property("radius", "半径", rx));
                 } else {
-                    properties.push(property("半径（X・Y）", format!("{}・{}", number(rx), number(ry))));
+                    properties.push(
+                        property("radii", "半径（X・Y）", format!("{}・{}", number(rx), number(ry))).raw([rx, ry]),
+                    );
                 }
                 if !full {
-                    properties.push(property(
-                        "角度",
-                        format!(
-                            "{}° → {}°（{}）",
-                            number(start),
-                            number(end),
-                            if ccw { "反時計回り" } else { "時計回り" }
-                        ),
-                    ));
+                    properties.push(
+                        property(
+                            "angle",
+                            "角度",
+                            format!(
+                                "{}° → {}°（{}）",
+                                number(start),
+                                number(end),
+                                if ccw { "反時計回り" } else { "時計回り" }
+                            ),
+                        )
+                        .raw(if ccw { [start, end] } else { [end, start] }),
+                    );
                 }
                 let stroke = self.stroke(ctx, &points, full, style.color, style.line_type, style.line_width);
                 self.add(feature, ctx, style.layer, vec![stroke], properties);
@@ -618,7 +683,7 @@ impl SceneBuilder<'_> {
                 let points = bezier_points(&control, 24);
                 let stroke = self.stroke(ctx, &points, false, style.color, style.line_type, style.line_width);
                 let mut properties = self.style_properties(style.color, style.line_type, style.line_width);
-                properties.push(property("制御点数", string(count as f64)));
+                properties.push(property("controlPointCount", "制御点数", string(count as f64)).raw(count as f64));
                 self.add(feature, ctx, style.layer, vec![stroke], properties);
             }
             SxfFeature::Clothoid { style, x, y, parameter, ccw, angle, start_length, end_length } => {
@@ -628,8 +693,11 @@ impl SceneBuilder<'_> {
                 let points = clothoid(lx, ly, *parameter, *ccw, *angle, *start_length, *end_length, segments);
                 let stroke = self.stroke(ctx, &points, false, style.color, style.line_type, style.line_width);
                 let mut properties = self.style_properties(style.color, style.line_type, style.line_width);
-                properties.push(property("パラメータ A", number(*parameter)));
-                properties.push(property("曲線長", format!("{} → {}", number(*start_length), number(*end_length))));
+                properties.push(number_property("parameter", "パラメータ A", *parameter));
+                properties.push(
+                    property("curveLength", "曲線長", format!("{} → {}", number(*start_length), number(*end_length)))
+                        .raw([*start_length, *end_length]),
+                );
                 self.add(feature, ctx, style.layer, vec![stroke], properties);
             }
             SxfFeature::PointMarker { layer, color, x, y, code, angle, scale, .. } => {
@@ -638,9 +706,10 @@ impl SceneBuilder<'_> {
                 let primitives =
                     marker_primitives(*code, px, py, angle + rotation_deg(&ctx.m), *scale, &color_value, 0.0);
                 let properties = vec![
-                    property("色", self.color_label(*color)),
-                    property("マーカ", marker_name(*code).map_or_else(|| string(*code), str::to_string)),
-                    property("位置", format!("{}, {}", number(*x), number(*y))),
+                    property("color", "色", self.color_label(*color)).raw(*color),
+                    property("marker", "マーカ", marker_name(*code).map_or_else(|| string(*code), str::to_string))
+                        .raw(*code),
+                    point_property("position", "位置", *x, *y),
                 ];
                 self.add(feature, ctx, *layer, primitives, properties);
             }
@@ -649,15 +718,17 @@ impl SceneBuilder<'_> {
                     return;
                 };
                 let properties = vec![
-                    property("文字列", text.text.clone()),
-                    property("色", self.color_label(*color)),
+                    property("text", "文字列", text.text.clone()),
+                    property("color", "色", self.color_label(*color)).raw(*color),
                     property(
+                        "font",
                         "フォント",
                         self.font(text.font).map_or_else(|| format!("未定義（{}）", string(text.font)), str::to_string),
                     ),
-                    property("文字範囲", format!("高さ {}・幅 {}", number(text.height), number(text.width))),
-                    property("位置", format!("{}, {}", number(text.x), number(text.y))),
-                    property("回転角", format!("{}°", number(text.angle))),
+                    property("textBox", "文字範囲", format!("高さ {}・幅 {}", number(text.height), number(text.width)))
+                        .raw([text.height, text.width]),
+                    point_property("position", "位置", text.x, text.y),
+                    property("rotation", "回転角", format!("{}°", number(text.angle))).raw(text.angle),
                 ];
                 self.add(feature, ctx, *layer, vec![Primitive::Text(primitive)], properties);
             }
@@ -686,10 +757,8 @@ impl SceneBuilder<'_> {
                     &IDENTITY,
                 );
                 self.notices.add(NoticeLevel::Info, "symbol", "既定義シンボルは形の代わりに名前を表示しました");
-                let properties = vec![
-                    property("シンボル名", name.clone()),
-                    property("位置", format!("{}, {}", number(*x), number(*y))),
-                ];
+                let properties =
+                    vec![property("name", "シンボル名", name.clone()), point_property("position", "位置", *x, *y)];
                 self.add(feature, ctx, *layer, label.map(Primitive::Text).into_iter().collect(), properties);
             }
             SxfFeature::LinearDim { .. }
@@ -872,10 +941,14 @@ impl SceneBuilder<'_> {
                 primitives.extend(ext2);
                 primitives.extend(Self::arc_arrow(ctx, dimension.arrow1.as_ref(), center, true, &color));
                 primitives.extend(Self::arc_arrow(ctx, dimension.arrow2.as_ref(), center, false, &color));
-                properties.push(property(
-                    "中心・半径",
-                    format!("{}, {}・{}", number(dimension.cx), number(dimension.cy), number(dimension.radius)),
-                ));
+                properties.push(
+                    property(
+                        "dimensionArc",
+                        "中心・半径",
+                        format!("{}, {}・{}", number(dimension.cx), number(dimension.cy), number(dimension.radius)),
+                    )
+                    .raw([dimension.cx, dimension.cy, dimension.radius]),
+                );
             }
             SxfFeature::LinearDim { line, .. }
             | SxfFeature::RadiusDim { line, .. }
@@ -904,10 +977,14 @@ impl SceneBuilder<'_> {
                     }
                     _ => {}
                 }
-                properties.push(property(
-                    "寸法線",
-                    format!("{}, {} → {}, {}", number(x1), number(y1), number(x2), number(y2)),
-                ));
+                properties.push(
+                    property(
+                        "dimensionLine",
+                        "寸法線",
+                        format!("{}, {} → {}, {}", number(x1), number(y1), number(x2), number(y2)),
+                    )
+                    .raw([x1, y1, x2, y2]),
+                );
             }
             _ => {}
         }
@@ -915,8 +992,10 @@ impl SceneBuilder<'_> {
             if let Some(primitive) = self.text(ctx, text, style.color) {
                 primitives.push(Primitive::Text(primitive));
             }
-            properties.insert(0, property("寸法値", text.text.clone()));
+            properties.insert(0, property("dimensionText", "寸法値", text.text.clone()));
         }
+        let kind = feature.kind();
+        properties.insert(0, property("dimensionType", "寸法の種類", kind.label()).raw(dimension_type(kind)));
         let arrows: Vec<&Arrow> = match feature {
             SxfFeature::RadiusDim { arrow, .. } => arrow.iter().collect(),
             SxfFeature::LinearDim { arrow1, arrow2, .. } | SxfFeature::DiameterDim { arrow1, arrow2, .. } => {
@@ -939,7 +1018,7 @@ impl SceneBuilder<'_> {
                 })
                 .collect::<Vec<_>>()
                 .join("・");
-            properties.push(property("矢印", value));
+            properties.push(property("arrows", "矢印", value));
         }
         self.add(feature, ctx, style.layer, primitives, properties);
     }
@@ -996,7 +1075,7 @@ impl SceneBuilder<'_> {
             if let Some(primitive) = self.text(ctx, text, style.color) {
                 primitives.push(Primitive::Text(primitive));
             }
-            properties.insert(0, property("文字列", text.text.clone()));
+            properties.insert(0, property("text", "文字列", text.text.clone()));
         }
         self.add(feature, ctx, style.layer, primitives, properties);
     }
@@ -1073,12 +1152,13 @@ impl SceneBuilder<'_> {
         local_rings.extend(in_ids.iter().filter_map(|id| self.ring(ctx, *id)));
         let rings: Vec<Vec<f64>> = local_rings.iter().map(|ring| transform_points(&ctx.m, ring)).collect();
         let mut primitives = Vec::new();
-        let mut properties = vec![property("中抜き", format!("{} 件", in_ids.len()))];
+        let mut properties =
+            vec![property("holeCount", "中抜き", format!("{} 件", in_ids.len())).raw(in_ids.len() as f64)];
         match feature {
             SxfFeature::FillAreaStyleColour { color, .. } => {
                 let fill_color = self.color(*color);
                 primitives.push(Primitive::Fill(FillPrimitive { color: fill_color, rings: rings.clone() }));
-                properties.insert(0, property("色", self.color_label(*color)));
+                properties.insert(0, property("color", "色", self.color_label(*color)).raw(*color));
             }
             SxfFeature::FillAreaStyleHatching { patterns, .. } => {
                 let strokes: Vec<StrokePrimitive> =
@@ -1096,7 +1176,7 @@ impl SceneBuilder<'_> {
                     })
                     .collect::<Vec<_>>()
                     .join(" / ");
-                properties.insert(0, property("ハッチング線", value));
+                properties.insert(0, property("hatchLines", "ハッチング線", value));
             }
             SxfFeature::FillAreaStyleTiles { name, .. } => {
                 self.notices.add(
@@ -1104,7 +1184,7 @@ impl SceneBuilder<'_> {
                     "hatch-pattern",
                     "パターンハッチングの模様は描かず、外形だけを表示しました",
                 );
-                properties.insert(0, property("シンボル", name.clone()));
+                properties.insert(0, property("pattern", "シンボル", name.clone()));
             }
             SxfFeature::ExternallyDefinedHatch { name, .. } => {
                 if name.to_lowercase() == "area_control" {
@@ -1120,7 +1200,7 @@ impl SceneBuilder<'_> {
                         "外部定義ハッチングの模様は描かず、外形だけを表示しました",
                     );
                 }
-                properties.insert(0, property("名前", name.clone()));
+                properties.insert(0, property("pattern", "名前", name.clone()));
             }
             _ => {}
         }

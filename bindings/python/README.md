@@ -24,13 +24,17 @@ Texts and entities, in paper millimeters with the Y axis up:
 ```python
 for text in scene.texts(region=(100, 50, 200, 120)):  # omit region for the whole sheet
     print(text["id"], text["text"], text["x"], text["y"], text["height"], text["angle"])
-entity = scene.entity("#120")  # id, type, source, layers, bbox, text, properties, placement
+entity = scene.entity("#120")  # id, kind, type, source, layers, bbox, text, properties, values, placement
+entity["kind"], entity["values"]["radius"]  # "circle", 25.0: the same keys in every format
 rows = scene.entities(hidden_layers=[])  # [] includes the layers that the drawing hides
 table = scene.to_arrow()  # a pyarrow.Table, for pandas, Polars or DuckDB (pip install "zumen[arrow]")
 ```
 
 `texts` joins the parts of a text that share a line and puts a line break between lines.
-`properties` are the label and value pairs that the format gives, as in the viewer's property panel.
+`properties` are the label and value pairs that the format gives, as in the viewer's property panel, and `values`
+maps their stable keys (`layer`, `start`, `radius`, `text` …) to the unformatted values, such as numbers and `(x, y)`.
+`kind` (`line`, `text`, `dimension` …) and the keys are the same in every format, while `type` and the labels are
+Japanese ([the list](../../docs/architecture.md#stable-keys)). `scene.metadata_values` does the same for the metadata.
 
 `geometry=True` adds the shapes drawn, in drawing order, so that an application or an AI model can compute with
 the coordinates of lines, outlines and hatched areas:
@@ -46,7 +50,7 @@ for shape in entity["geometry"]:
 Segments have `segments` (pairs of points), fills and hatches `rings` (the outline and its holes; hatch lines are
 left out), and points and text parts one `point` (for text, the lower left, with `text`, `height` and `angle`).
 Arcs, circles, ellipses and splines come as the polyline drawn (arcs, circles and ellipses within 0.02 mm of the
-curve on the sheet); their center, radius and angles are in `properties`. `real` goes through the placement of the
+curve on the sheet); their center, radius and angles are in `values`. `real` goes through the placement of the
 entity (an SXF sub-figure or part, a JWW layer group, a DXF viewport or model space), so it is in the coordinates
 of the drawing itself: the real-world coordinates of JWW, those of the SXF sub-figure or part, and DXF model space
 in millimeters, also for drawings in inches.
@@ -125,8 +129,8 @@ claude mcp add zumen -- zumen-mcp --root ~/drawings  # Claude Code; other client
 | `open_drawing` | Format, sheet, views, layers with entity counts, entity types, the placements drawn at a scale (with their box and the conversion from paper to real-world millimeters), notices, metadata and the drawing number, revision, title, project, scale and date from the title block |
 | `render_drawing` | A PNG of the sheet or a region (1,568 pixels on the long edge by default), the scale to convert pixels to paper millimeters, and the texts drawn with their pixel boxes |
 | `find_texts` | Texts that contain a query, ignoring full-width and half-width forms, case and spaces |
-| `find_entities` | Entities in a region, by type or layer, with counts by type; with `geometry`, their shapes as `get_entity` gives them |
-| `get_entity` | One entity with its properties, the scale of its placement and its geometry: the shapes drawn, in paper millimeters and, inside a placement, in real-world millimeters |
+| `find_entities` | Entities in a region, by kind, type or layer, with counts by type; with `geometry`, their shapes as `get_entity` gives them |
+| `get_entity` | One entity with its properties (key, label and value), its values by key, the scale of its placement and its geometry: the shapes drawn, in paper millimeters and, inside a placement, in real-world millimeters |
 | `measure_distance` | The distance between two points on the sheet and in real-world millimeters |
 | `compare_drawings` | What changed between two revisions: an image of the changes, the regions that changed and the changed entities with their texts |
 
