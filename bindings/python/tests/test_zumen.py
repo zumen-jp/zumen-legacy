@@ -198,3 +198,15 @@ def test_reads_the_title_block():
         "date": "2026年10月18日",
     }
     assert zumen.read(FIXTURES / "jww" / "minimal-v700.jww").title_block()["scale"] == "1/100"
+
+
+def test_writes_svg_and_pdf_of_the_sheet():
+    scene = zumen.read(FIXTURES / "jww" / "minimal-v700.jww")
+    svg = scene.render_svg()
+    assert svg.startswith('<svg xmlns="http://www.w3.org/2000/svg" width="420mm" height="297mm" viewBox="0 0 420 297">')
+    assert "<text" in svg
+    assert 'viewBox="0 0 100 50"' in scene.render_svg(region=(0, 0, 100, 50))
+    pdf = scene.render_pdf(theme="light")
+    assert pdf.startswith(b"%PDF-1.7") and b"/FontFile2" in pdf and b"/ToUnicode" in pdf
+    with pytest.raises(zumen.RenderError):
+        scene.render_pdf(region=(0, 0, 0, 10))

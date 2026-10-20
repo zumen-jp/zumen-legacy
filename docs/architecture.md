@@ -160,7 +160,7 @@ bytes ─▶ zumen-sxf, zumen-jww, zumen-dxf, zumen-dwg ─▶ Scene (zumen-core
 | `zumen-dxf` | DXF parsing (ASCII and binary) into the AutoCAD drawing model (`parse_dxf` → `DxfDocument`), conversion of model space or a layout to a scene (`dxf_to_scene`), and the `DXF` reader. |
 | `zumen-dwg` | DWG decoding (AutoCAD 2000 to 2018) into the AutoCAD drawing model of `zumen-dxf` (`read_dwg` → `DxfDocument`), drawn with `dxf_to_scene`, and the `DWG` reader. |
 | `zumen` | `read` and `detect` over every reader. The entry point for applications. |
-| `zumen-render` | Draws a scene to PNG with the rules of `render.ts` in `@zumenjs/viewer` (color inversion, line weights with a 1 px minimum, dash rules, even-odd fills, clipping, per-character text, small text as a line), and reports which entities it drew and where (`render_image`, `drawn_entities`, `View::pixel_box`). |
+| `zumen-render` | Draws a scene to PNG with the rules of `render.ts` in `@zumenjs/viewer` (color inversion, line weights with a 1 px minimum, dash rules, even-odd fills, clipping, per-character text, small text as a line), and reports which entities it drew and where (`render_image`, `drawn_entities`, `View::pixel_box`). It also writes SVG (`render_svg`) and one-page PDF (`render_pdf`) with the same colors, fills, clipping and text placement. |
 | `zumen-cli` | The `zumen` command (`detect`, `scene`, `texts`, `entities`, `title`, `render`, `compare`). |
 | `bindings/python` | PyO3 bindings, built with maturin as an abi3 wheel for Python 3.10 and later. The GIL is released while reading and rendering. `Scene.to_arrow` needs pyarrow (Apache-2.0, `zumen[arrow]`), and the MCP server `zumen.mcp` needs the MCP SDK (MIT, `zumen[mcp]`); both are optional dependencies. |
 | `bindings/wasm` | wasm-bindgen bindings that detect the format (`detect`) and return scene JSON (`readSceneJson`). `scripts/wasm.mjs` builds them into `packages/dwg/wasm` for `@zumenjs/dwg`. |
@@ -303,9 +303,22 @@ Runtime dependencies are permissive and work in WebAssembly. Recorded with the r
 | `unicode-normalization` | (MIT OR Apache-2.0) AND Unicode-3.0 | NFKC for font names, as `String.prototype.normalize` (about 128 KB of the WebAssembly build) |
 | `libm` | MIT | The same trigonometry on every target |
 | `tiny-skia` | BSD-3-Clause | CPU rasterization for PNG, with anti-aliasing, dashes, even-odd fills and masks |
+| `pdf-writer` | MIT OR Apache-2.0 | PDF objects and content streams for `render_pdf` (no dependencies beyond number formatting) |
+| `subsetter` | MIT OR Apache-2.0 | The glyphs of the bundled font that a PDF uses, embedded as a subset; default features off (no variable fonts) |
+| `miniz_oxide` | MIT OR Zlib OR Apache-2.0 | Flate compression of PDF streams; already compiled for PNG encoding |
 | `ttf-parser` | MIT OR Apache-2.0 | Glyph outlines of the bundled font |
 | `pyo3` | MIT OR Apache-2.0 | Python bindings |
 | `wasm-bindgen` | MIT OR Apache-2.0 | WebAssembly bindings |
+
+SVG and PDF draw the sheet, or a region given in paper millimeters, at its real size; without a sheet, the bounds of
+the drawing. Coordinates stay paper millimeters, moved so that the page starts at zero before they are written as
+32-bit numbers. Lines keep their weights: in SVG no thinner than 1 CSS pixel at 100% (0.2646 mm), as the viewer
+draws them at zoom 1, and in PDF exactly as drawn, with weight 0 as the thinnest line the device draws. Dash lengths
+stay in millimeters, since vector output is zoomed and printed rather than drawn at one scale. SVG writes text as
+`<text>` in the scene's CSS fonts, one character per cell, so it can be searched and selected. PDF embeds the glyphs
+of BIZ UDGothic that the page uses (a CID font with Identity-H and a ToUnicode map, so text can be searched and
+copied) and places each glyph like the PNG renderer: the middle of its advance and of the em box at the center of
+its cell. A page that is the sheet itself has no sheet frame.
 
 `zumen-render` bundles BIZ UDGothic Regular (SIL Open Font License 1.1, `crates/zumen-render/fonts/OFL.txt`),
 a Japanese gothic close to the MS Gothic that SXF and Jw_cad drawings assume. Characters without a glyph are reported

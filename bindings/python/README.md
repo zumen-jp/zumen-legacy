@@ -12,6 +12,8 @@ import zumen
 scene = zumen.read("plan.jww")  # the format is detected from the contents
 print(scene.version, len(scene), scene.sheet)
 png = scene.render_png(dpi=150)  # for thumbnails or as an image for vision models
+pdf = scene.render_pdf()  # one page, the sheet at its real size, with searchable text
+svg = scene.render_svg()  # millimeters, with text as <text>
 part = scene.render_png(dpi=300, region=(100, 50, 200, 120))  # paper millimeters
 json_text = scene.to_json()  # pass to sceneFromJson in @zumenjs/core
 ```

@@ -19,7 +19,7 @@ Usage:
   zumen texts <file> [--region <x0>,<y0>,<x1>,<y1>] [--all-layers] [--format <name>] [--view <id>]
   zumen entities <file> [--region <x0>,<y0>,<x1>,<y1>] [--all-layers] [--format <name>] [--view <id>]
   zumen title <file> [--format <name>] [--view <id>]
-  zumen render <file> -o <out.png> [--dpi <n> | --size <w>x<h> [--margin <px>]] [--dpr <n>]
+  zumen render <file> -o <out.png|out.svg|out.pdf> [--dpi <n> | --size <w>x<h> [--margin <px>]] [--dpr <n>]
                [--region <x0>,<y0>,<x1>,<y1>] [--all-layers] [--map <out.json>]
                [--theme light|dark] [--thin] [--format <name>] [--view <id>]
   zumen compare <before> <after> [--tolerance <mm>] [--style] [--all-layers] [--no-align]
@@ -28,6 +28,8 @@ Usage:
 Reads SXF, JWW, DXF and DWG drawings into zumen's scene model.
 texts and entities write one JSON object per line, in paper millimeters (Y up) rounded to 0.001.
 title finds the drawing number, revision, title, project, scale and date in the title block.
+render writes SVG or PDF when the output ends in .svg or .pdf: the sheet (or --region) at its real size,
+with text that can be searched. --dpi, --size, --dpr and --map are for PNG only.
 --region selects a part of the sheet in paper millimeters, and --all-layers includes the layers
 that the drawing hides. --map writes the size of the image,
 the conversion between pixels and paper millimeters, and the pixel box of every entity drawn.
@@ -355,6 +357,29 @@ fn run(args: Args) -> Result<(), String> {
                 hidden_layers: filter.hidden_layers.clone(),
                 ..RenderOptions::default()
             };
+            let extension = output.rsplit_once('.').map(|(_, extension)| extension.to_ascii_lowercase());
+            if matches!(extension.as_deref(), Some("svg" | "pdf")) {
+                if args.map.is_some() {
+                    return Err("--map is for PNG output".into());
+                }
+                let (bytes, missing) = if extension.as_deref() == Some("svg") {
+                    let svg = zumen_render::render_svg(&scene, args.region, &options).map_err(|e| e.to_string())?;
+                    (svg.into_bytes(), Default::default())
+                } else {
+                    let (pdf, report) =
+                        zumen_render::render_pdf(&scene, args.region, &options).map_err(|e| e.to_string())?;
+                    (pdf, report.missing_glyphs)
+                };
+                std::fs::write(&output, bytes).map_err(|error| format!("{output}: {error}"))?;
+                if !missing.is_empty() {
+                    let chars: String = missing.iter().collect();
+                    eprintln!("warning: no glyph in the bundled font for: {chars}");
+                }
+                for notice in &scene.notices {
+                    eprintln!("notice ({:?}, {}): {} × {}", notice.level, notice.code, notice.message, notice.count);
+                }
+                return Ok(());
+            }
             let size = match args.size {
                 Some((width, height)) => ImageSize::Fit { width, height, margin: args.margin },
                 None => ImageSize::Dpi(args.dpi),

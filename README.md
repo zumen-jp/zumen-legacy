@@ -216,6 +216,7 @@ import zumen
 
 scene = zumen.read("plan.jww")  # the format is detected from the contents
 png = scene.render_png(dpi=150)  # thumbnails, or images for vision models
+pdf = scene.render_pdf()  # the sheet at its real size, with searchable text (also render_svg)
 part = scene.render_png(dpi=300, region=(100, 50, 200, 120))  # a part, in paper millimeters
 json_text = scene.to_json()  # sceneFromJson() in @zumenjs/core turns it back into a Scene
 
@@ -237,6 +238,7 @@ compare revisions. See
 
 ```bash
 cargo run --release -p zumen-cli -- render plan.jww -o plan.png --dpi 150 --map plan.json
+cargo run --release -p zumen-cli -- render plan.jww -o plan.pdf  # or plan.svg
 cargo run --release -p zumen-cli -- texts plan.jww --region 100,50,200,120  # one JSON object per line
 cargo run --release -p zumen-cli -- title plan.jww  # the fields of the title block
 ```
@@ -249,7 +251,7 @@ cargo run --release -p zumen-cli -- title plan.jww  # the fields of the title bl
 | [`zumen-dxf`](crates/zumen-dxf) | `parse_dxf` (the AutoCAD drawing model, shared with DWG), `dxf_to_scene`, the `DXF` reader |
 | [`zumen-dwg`](crates/zumen-dwg) | `read_dwg` (DWG 2000 to 2018 into the AutoCAD drawing model of `zumen-dxf`), the `DWG` reader |
 | [`zumen`](crates/zumen) | `read` and `detect` over every reader |
-| [`zumen-render`](crates/zumen-render) | PNG rendering with the rules of the browser renderer, and the pixel box of every entity drawn; BIZ UDGothic is bundled for Japanese text |
+| [`zumen-render`](crates/zumen-render) | PNG, SVG and PDF rendering with the rules of the browser renderer, and the pixel box of every entity drawn; BIZ UDGothic is bundled for Japanese text |
 | [`zumen-cli`](crates/zumen-cli) | The `zumen` command: `detect`, `scene` (JSON), `texts` and `entities` (JSON lines), `title`, `render` (PNG) and `compare` |
 
 Reading and rendering release the GIL in Python.
@@ -272,7 +274,7 @@ sending them anywhere.
 
 1. Split into readers, the drawing engine and React (done).
 2. DXF, with an AutoCAD object model shared with DWG (done, including MULTILEADER and MLINE).
-3. Rust readers with Python and WebAssembly bindings, and PNG rendering on servers (JWW, SXF and DXF done).
+3. Rust readers with Python and WebAssembly bindings, and PNG, SVG and PDF rendering on servers (JWW, SXF and DXF done).
 4. DWG, read into the same AutoCAD object model (2000 to 2018 done in Rust and in the browser through WebAssembly;
    R13 and R14 are next).
 5. Writing and converting drawings, analysis (tables, rooms and areas; the comparison of revisions is done), markup and PDF drawings.

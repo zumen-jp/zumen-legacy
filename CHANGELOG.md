@@ -14,6 +14,11 @@ All packages share one version during 0.x.
   below, from a label and value in one text (`縮尺 1/100`), from the sheet name and from the metadata (the title
   block attributes of SXF). `zumen_core::title`, `Scene.title_block` in Python, `zumen title`, and `open_drawing` in the
   MCP server.
+- Rust and Python: SVG and PDF output of a scene, the sheet (or a region) at its real size, with the colors, line
+  weights, fills, clipping and text placement of the PNG renderer. PDF embeds the glyphs of the bundled BIZ UDGothic
+  that the page uses, so its text can be searched and copied, and SVG keeps text as `<text>`.
+  `zumen_render::render_svg` and `render_pdf`, `Scene.render_svg` and `Scene.render_pdf` in Python, and
+  `zumen render -o plan.svg` or `plan.pdf`.
 - `@zumenjs/viewer`: the 2D engine that applications embed in their own interface
   ([decision 0005](docs/decisions/0005-browser-packages-for-embedding.md)). The Canvas renderer, hit testing and
   `DrawingViewer` move here from `@zumenjs/core`. `DrawingViewer` sets and reads the view (`jumpTo`, `fitBounds`,
