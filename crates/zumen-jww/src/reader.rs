@@ -352,7 +352,7 @@ pub(crate) fn read_entity_body(reader: &mut Reader<'_>, class_name: &str, versio
 }
 
 /// 図形の一覧を読む。途中で失敗しても、それまでに読んだ図形は out に残る
-fn read_entity_list(
+pub(crate) fn read_entity_list(
     reader: &mut Reader<'_>,
     version: u32,
     table: &mut ReadTable,
@@ -435,9 +435,12 @@ fn read_sxf_line_types(reader: &mut Reader<'_>, line_types: &mut BTreeMap<u32, V
     Ok(())
 }
 
-/// レイヤ名の後の、画面色・線幅・線種の設定（版 300 以上）
+/// レイヤ名の後の、画面色・線幅・線種の設定。版 300 より前は天空図（16 バイト）、マークジャンプ 5〜8 とジャンプの
+/// レイヤグループ（ジャンプは 24 バイトが 4 つ）、文字の描画状態（56 バイト）がない（jwdatafmt.txt の注記）
 fn read_display_settings(reader: &mut Reader<'_>, version: u32, max_draw_width: i32) -> Result<DisplaySettings> {
-    reader.skip(28 + 16 + 4 + 24 + 24 + 224 + 56 + 80 + 8)?;
+    // 日影、天空図、2.5D の単位、画面と範囲記憶の倍率・原点、マークジャンプ、文字の描画状態、複線の間隔と留線出
+    let (sky, jumps, text) = if version >= 300 { (16, 8 * 28, 56) } else { (0, 4 * 24, 0) };
+    reader.skip(28 + sky + 4 + 24 + 24 + jumps + text + 80 + 8)?;
     let mut pen_colors = Vec::with_capacity(10);
     for _ in 0..10 {
         pen_colors.push(colorref(reader.u32()?));
@@ -523,7 +526,7 @@ pub fn is_jww(bytes: &[u8]) -> bool {
     bytes.starts_with(b"JwwData.")
 }
 
-fn read_blocks(
+pub(crate) fn read_blocks(
     body: &mut Reader<'_>,
     version: u32,
     table: &mut ReadTable,
@@ -573,7 +576,7 @@ pub fn read_jww(bytes: &[u8]) -> Result<JwwDocument> {
         }
         groups.push(JwwLayerGroup { name: String::new(), state, scale, layers });
     }
-    let settings = if version >= 300 { read_names_and_settings(&mut reader, version, &mut groups).ok() } else { None };
+    let settings = read_names_and_settings(&mut reader, version, &mut groups).ok();
     for (g, group) in groups.iter_mut().enumerate() {
         if group.name.is_empty() {
             group.name = format!("グループ {g:X}");

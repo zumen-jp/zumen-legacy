@@ -11,17 +11,20 @@ use crate::header::{
     JwwTextSettings, JwwTextStyle,
 };
 use crate::reader::{
-    JwwBase, JwwBlockDefinition, JwwDocument, JwwEntity, JwwLayer, JwwLayerGroup, WidthUnit, pattern_segments, read_jww,
+    JwwBase, JwwBlockDefinition, JwwCircleSolid, JwwDocument, JwwEntity, JwwLayer, JwwLayerGroup, JwwPoint, JwwSolid,
+    WidthUnit, pattern_segments, read_jww,
 };
 use crate::sxf_tables::{SXF_COLORS, SXF_LINE_PITCHES};
 use std::collections::{BTreeMap, BTreeSet};
+use std::f64::consts::{PI, TAU};
 use zumen_core::{NoticeLevel, NoticeList};
 
-/// 新しい図面を書く版。Jw_cad 7.02 以降の版（文字列は UTF-16LE、同梱画像を持てる）で、Jw_cad 8 以降が開ける
+/// 新しい図面を書く版。Jw_cad 7.02 以降の版（同梱画像を持てる）で、Jw_cad 8 以降が開ける。文字列は、Jw_cad 10.01
+/// 以降と同じく UTF-16LE で書く
 pub const JWW_VERSION: u32 = UNICODE_VERSION;
 
-/// 書ける版（形式説明が版ごとの違いを示す 300 以降）
-const WRITABLE_VERSIONS: std::ops::RangeInclusive<u32> = 300..=700;
+/// 書ける版。版ごとの欄の違いは形式説明（jwdatafmt.txt）の注記のとおりで、300 より前の版はその注記だけに拠る
+const WRITABLE_VERSIONS: std::ops::RangeInclusive<u32> = 200..=700;
 
 /// 線色 0〜9 の画面表示色（COLORREF）。0 は背景
 const PEN_COLORS: [u32; 10] =
@@ -152,7 +155,8 @@ fn dpi_flag(dpi: Option<f64>) -> u32 {
 }
 
 impl JwwHeader {
-    /// Jw_cad の新しい図面の既定の設定のヘッダ（A3、すべてのレイヤグループが 1/1、グループ 0 のレイヤ 0 に書込み）
+    /// Jw_cad の新しい図面の既定の設定のヘッダ（A3、すべてのレイヤグループが 1/1、グループ 0 のレイヤ 0 に書込み）。
+    /// その版にない欄は書かない
     pub fn new(version: u32) -> Self {
         let groups = (0..16)
             .map(|group| {
@@ -161,7 +165,7 @@ impl JwwHeader {
                 JwwGroupState { state: if group == 0 { 3 } else { 2 }, write_layer: 0, scale: 1.0, protect: 0, layers }
             })
             .collect();
-        let settings = (version >= 300).then(|| JwwSettings {
+        let settings = Some(JwwSettings {
             general: general_settings(),
             layer_names: vec![String::new(); 256],
             group_names: vec![String::new(); 16],
@@ -204,7 +208,8 @@ fn display_settings(version: u32) -> JwwDisplaySettings {
         view_origin: [0.0, 0.0],
         range_scale: 1.0,
         range_origin: [0.0, 0.0],
-        jumps: [JwwMarkJump { scale: 1.0, origin: [0.0, 0.0], group: u32::MAX }; 8],
+        jumps: [JwwMarkJump { scale: 1.0, origin: [0.0, 0.0], group: u32::MAX }; 4],
+        more_jumps: [JwwMarkJump { scale: 1.0, origin: [0.0, 0.0], group: u32::MAX }; 4],
         text_dummy: [0.0; 3],
         text_dummy_int: 0,
         text_dummy2: [0.0; 2],
@@ -408,19 +413,152 @@ pub(crate) fn file_from_document(doc: &JwwDocument, notices: &mut NoticeList) ->
         }
     }
     let mut file = JwwFile::new(version, header);
-    file.entities = doc.entities.iter().cloned().map(JwwRecord::new).collect();
+    let mut older = Older::default();
+    file.entities = older.fit(doc, &doc.entities, version).into_iter().map(JwwRecord::new).collect();
     let referenced = referenced_blocks(doc);
     file.blocks = doc
         .blocks
         .iter()
         .map(|block: &JwwBlockDefinition| {
-            let entities = block.entities.iter().cloned().map(JwwRecord::new).collect();
-            let mut record = JwwBlockRecord::new(block.number, block.name.clone(), entities);
+            let entities = older.fit(doc, &block.entities, version).into_iter().map(JwwRecord::new).collect();
+            // 版 410 より前のブロック名は、後ろに複合図形の種別（"@@SfigorgFlag@@" と番号）を持たない
+            let name = match block.name.split_once("@@SfigorgFlag@@") {
+                Some((name, _)) if version < 410 => {
+                    older.block_names += 1;
+                    name.to_string()
+                }
+                _ => block.name.clone(),
+            };
+            let mut record = JwwBlockRecord::new(block.number, name, entities);
             record.referenced = referenced.contains(&block.number);
             record
         })
         .collect();
+    older.report(notices);
     file
+}
+
+/// 古い版が持たないもの（形式説明の版ごとの注記）を、その版で書ける形にする。数は notices にする
+#[derive(Default)]
+struct Older {
+    /// 版 351 より前: 図形ごとの線幅
+    widths: u64,
+    /// 版 252 より前: 点の記号（矢印・ポイントマーカー）
+    symbols: u64,
+    /// 版 230 より前: 円のソリッド（多角形のソリッドにする）
+    circle_solids: u64,
+    /// 版 230 より前: ソリッドの任意色（線色 10。画面色が最も近い線色にする）
+    solid_colors: u64,
+    /// 版 410 より前: ブロック名の複合図形の種別
+    block_names: u64,
+    /// 同梱画像の配置（画像のファイルは図面の内容が持たない）
+    images: u64,
+}
+
+impl Older {
+    fn fit(&mut self, doc: &JwwDocument, entities: &[JwwEntity], version: u32) -> Vec<JwwEntity> {
+        let mut out = Vec::with_capacity(entities.len());
+        for entity in entities {
+            if let JwwEntity::Text(text) = entity
+                && text.content.starts_with("^@BM%temp%")
+            {
+                self.images += 1;
+            }
+            if version < 351 && !matches!(entity, JwwEntity::Text(_)) && entity.base().pen_width != 0 {
+                self.widths += 1;
+            }
+            match entity {
+                JwwEntity::Point(point) if version < 252 && point.base.pen_style == 100 => {
+                    self.symbols += 1;
+                    let base = JwwBase { pen_style: 1, ..point.base };
+                    out.push(JwwEntity::Point(JwwPoint { base, code: 0, angle: 0.0, scale: 0.0, ..point.clone() }));
+                }
+                JwwEntity::CircleSolid(solid) if version < 230 => {
+                    self.circle_solids += 1;
+                    for part in circle_solid_parts(solid) {
+                        out.push(self.solid_color(doc, part));
+                    }
+                }
+                JwwEntity::Solid(_) if version < 230 => out.push(self.solid_color(doc, entity.clone())),
+                other => out.push(other.clone()),
+            }
+        }
+        out
+    }
+
+    /// 版 230 より前のソリッドの任意色（線色 10）を、画面色が最も近い線色 1〜9 にする
+    fn solid_color(&mut self, doc: &JwwDocument, entity: JwwEntity) -> JwwEntity {
+        match entity {
+            JwwEntity::Solid(solid) if solid.base.pen_color == 10 => {
+                self.solid_colors += 1;
+                let custom = doc.pen_color(&solid.base, solid.color);
+                let pen_color = doc.nearest_pen_color(custom.as_deref());
+                JwwEntity::Solid(JwwSolid { base: JwwBase { pen_color, ..solid.base }, color: None, ..solid })
+            }
+            other => other,
+        }
+    }
+
+    fn report(&self, notices: &mut NoticeList) {
+        let reports = [
+            (self.widths, "entity-width", "版 351 より前の JWW は図形ごとの線幅を持たないため、線色の線幅になります"),
+            (self.symbols, "point-symbol", "版 252 より前の JWW は点の記号を持たないため、ふつうの点にしました"),
+            (
+                self.circle_solids,
+                "circle-solid",
+                "版 230 より前の JWW は円のソリッドを持たないため、三角形のソリッドに分けました",
+            ),
+            (
+                self.solid_colors,
+                "solid-color",
+                "版 230 より前の JWW はソリッドの任意色を持たないため、画面色が最も近い線色にしました",
+            ),
+            (
+                self.block_names,
+                "block-name",
+                "版 410 より前の JWW のブロック名は複合図形の種別を持たないため、除きました",
+            ),
+            (
+                self.images,
+                "embedded-image",
+                "同梱画像のファイルは図面の内容にないため、画像の配置の文字だけを書きました",
+            ),
+        ];
+        for (count, code, message) in reports {
+            if count > 0 {
+                notices.add_count(NoticeLevel::Warning, code, message, count);
+            }
+        }
+    }
+}
+
+/// 円のソリッドを、表示と同じ多角形（扇形は中心から、全円・弓形は弧だけ）の三角形のソリッドに分ける
+fn circle_solid_parts(solid: &JwwCircleSolid) -> Vec<JwwEntity> {
+    let full = solid.mode == 100.0 || (solid.sweep.abs() - TAU).abs() < 1e-6;
+    let flatness = if solid.flatness == 0.0 || solid.flatness.is_nan() { 1.0 } else { solid.flatness };
+    let (start, sweep) = if full { (0.0, TAU) } else { (solid.start, solid.sweep) };
+    let segments = ((sweep.abs() / (PI / 16.0)).ceil() as usize).clamp(4, 64);
+    let (cos, sin) = (solid.tilt.cos(), solid.tilt.sin());
+    let radius = solid.radius.abs();
+    let mut ring: Vec<(f64, f64)> = (0..=segments)
+        .map(|i| {
+            let t = start + sweep * i as f64 / segments as f64;
+            let (x, y) = (radius * t.cos(), radius * flatness * t.sin());
+            (solid.cx + x * cos - y * sin, solid.cy + x * sin + y * cos)
+        })
+        .collect();
+    if full {
+        ring.pop();
+    } else if solid.mode != -1.0 && solid.mode != 5.0 {
+        ring.insert(0, (solid.cx, solid.cy));
+    }
+    let base = JwwBase { pen_style: 1, ..solid.base };
+    (1..ring.len().saturating_sub(1))
+        .map(|i| {
+            let (a, b, c) = (ring[0], ring[i], ring[i + 1]);
+            JwwEntity::Solid(JwwSolid { base, points: [a.0, a.1, b.0, b.1, c.0, c.1, c.0, c.1], color: solid.color })
+        })
+        .collect()
 }
 
 /// レイヤグループ・レイヤの状態と縮尺。Jw_cad と同じく、書込みレイヤグループと各グループの書込みレイヤだけを
