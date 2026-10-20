@@ -505,11 +505,15 @@ its cell. A page that is the sheet itself has no sheet frame.
 a Japanese gothic close to the MS Gothic that SXF and Jw_cad drawings assume. Characters without a glyph are reported
 (`RenderReport.missing_glyphs`, a Python warning).
 
+Release packages include source files for source maps. `scripts/notices.mjs` records the license texts of normal Rust
+dependencies linked into the Python extension and WebAssembly reader; `pnpm run check` verifies these files against
+Cargo.lock.
+
 ## Development setup
 
 - Each package's `exports` has an `@zumenjs/source` condition that points at `src`. The type checker
   (`customConditions` in `tsconfig.json`), Vitest and the Vite playground resolve it, so changes apply without a build.
-  `publishConfig.exports` leaves it out of the published packages, which contain only `dist` (and `wasm` in
+  `publishConfig.exports` leaves it out of the published packages, which contain `dist` and `src` (and `wasm` in
   `@zumenjs/reader`).
 - `scripts/wasm.mjs` builds the WebAssembly reader into `packages/reader/wasm`, which is not in Git, with cargo and
   `wasm-bindgen-cli`. `pnpm dev` and `pnpm run check` run it first; `pnpm test`, the type checker and the builds need
@@ -524,7 +528,5 @@ a Japanese gothic close to the MS Gothic that SXF and Jw_cad drawings assume. Ch
   runs the type checker, the unit tests, `pnpm audit` and all builds, then the Rust checks (`check:rust`: rustfmt,
   Clippy, tests and the wasm32 build) and the Python checks (`check:python`: Ruff, maturin, pytest).
 - The Rust toolchain is pinned in `rust-toolchain.toml`, Python in `bindings/python/.python-version` (installed by uv).
-
-Release packages include source files for source maps. `scripts/notices.mjs` records the license texts of normal Rust dependencies linked into the Python extension and WebAssembly reader; `pnpm run check` verifies these files against Cargo.lock.
 
 Legacy DWG REPEAT copies have generated `#n` ids after the original record ordinals, so each copy can be selected independently.
