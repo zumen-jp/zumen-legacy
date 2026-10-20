@@ -6,6 +6,7 @@ import type {
   DxfDimension,
   DxfDimStyle,
   DxfDocument,
+  DxfEmbeddedMText,
   DxfEntity,
   DxfEntityBase,
   DxfHatch,
@@ -25,6 +26,7 @@ import type {
   DxfMLine,
   DxfMLineStyle,
   DxfMText,
+  DxfMTextContent,
   DxfPatternLine,
   DxfPolyline,
   DxfSpace,
@@ -902,11 +904,49 @@ class Parser {
     base.text_generation_flag = this.number(this.subclassBody(body, "AcDbText"), 71, 0);
     const tag = this.text(body, 2);
     const flags = this.number(body, 70, 0);
-    const entity =
+    const entity: DxfAttrib | DxfAttdef =
       type === "ATTDEF"
         ? { ...base, type: "ATTDEF" as const, tag, prompt: this.text(body, 3), attribute_flags: flags }
         : { ...base, type: "ATTRIB" as const, tag, attribute_flags: flags };
+    // 複数行の属性（AutoCAD 2018 以降）の文字は、AcDbAttribute の後の「101 Embedded Object」に続く MTEXT の値
+    // （10 の配置点から。Open Design Specification for .dwg files 5.4.1 の 20.4.4）にあり、1 行の文字（AcDbText の 1）は空
+    const embedded = this.embedded(start + 1, end);
+    if (embedded) {
+      const mtext: DxfEmbeddedMText = this.mtextContent(embedded);
+      const extrusion = this.extrusion(embedded);
+      if (extrusion) mtext.extrusion = extrusion;
+      entity.mtext = mtext;
+    }
     return entity as T extends "ATTRIB" ? DxfAttrib : DxfAttdef;
+  }
+
+  /** 押し出し方向（210・220・230）。(0, 0, 1) のときと、ないときは undefined */
+  private extrusion(body: Body): Vec3 | undefined {
+    let extrusion: Vec3 | undefined;
+    for (const k of body) {
+      const code = this.code(k);
+      if (code !== 210 && code !== 220 && code !== 230) continue;
+      extrusion ??= [0, 0, 1];
+      extrusion[code === 210 ? 0 : code === 220 ? 1 : 2] = this.num(k);
+    }
+    return extrusion && !(extrusion[0] === 0 && extrusion[1] === 0 && extrusion[2] === 1) ? extrusion : undefined;
+  }
+
+  /** 埋め込みの図形（101）のタグ。拡張データ（1000 以降）か次の埋め込みの図形の手前まで。ないときは null */
+  private embedded(start: number, end: number): Body | null {
+    let k = start;
+    while (k < end && this.code(k) !== 101) {
+      if (this.code(k) >= 1000) return null;
+      k++;
+    }
+    if (k >= end) return null;
+    const out: Body = [];
+    for (k++; k < end; k++) {
+      const code = this.code(k);
+      if (code >= 1000 || code === 101) break;
+      out.push(k);
+    }
+    return out;
   }
 
   private lwpolyline(body: Body, owner: Owner | null): DxfEntity {
@@ -1061,6 +1101,11 @@ class Parser {
   }
 
   private mtext(body: Body, owner: Owner | null): DxfMText {
+    return { ...this.base("MTEXT", body, owner), ...this.mtextContent(body) };
+  }
+
+  /** MTEXT の文字の値（MTEXT と、複数行の属性の埋め込みの MTEXT） */
+  private mtextContent(body: Body): DxfMTextContent {
     // 250 文字を超える文字列は 3 に分けて書き、最後の 1 が残り（DXF Reference「MTEXT」）
     let raw = "";
     let tail = "";
@@ -1069,8 +1114,7 @@ class Parser {
       else if (this.code(k) === 1) tail = this.raw(k);
     }
     raw += tail;
-    const entity: DxfMText = {
-      ...this.base("MTEXT", body, owner),
+    const content: DxfMTextContent = {
       text: mtextPlainText(raw),
       raw_text: raw,
       insert: this.point(body, 10),
@@ -1084,11 +1128,11 @@ class Parser {
       line_spacing_factor: this.number(body, 44, 1),
       background_flags: this.number(body, 90, 0),
     };
-    if (this.has(body, 11)) entity.text_direction = this.point(body, 11);
-    if (this.has(body, 63)) entity.background_color_index = this.number(body, 63, 0);
-    if (this.has(body, 421)) entity.background_true_color = this.number(body, 421, 0) & 0xffffff;
-    if (this.has(body, 45)) entity.background_scale = this.number(body, 45, 1.5);
-    return entity;
+    if (this.has(body, 11)) content.text_direction = this.point(body, 11);
+    if (this.has(body, 63)) content.background_color_index = this.number(body, 63, 0);
+    if (this.has(body, 421)) content.background_true_color = this.number(body, 421, 0) & 0xffffff;
+    if (this.has(body, 45)) content.background_scale = this.number(body, 45, 1.5);
+    return content;
   }
 
   /** INSERT と、66 が 1 なら続く ATTRIB を SEQEND まで読む */

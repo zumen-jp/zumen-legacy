@@ -165,6 +165,11 @@ export interface DxfAttrib extends DxfEntityBase, DxfTextBase {
   tag: string;
   /** 1 は非表示、2 は定数、4 は確認、8 は既定値 */
   attribute_flags: number;
+  /**
+   * 複数行の属性（AutoCAD 2018 以降）の文字。DXF では AcDbAttribute の後の「101 Embedded Object」に続く MTEXT の値、
+   * DWG では埋め込みの MTEXT。AutoCAD は 1 行の文字（text）を空にする
+   */
+  mtext?: DxfEmbeddedMText;
 }
 
 export interface DxfAttdef extends DxfEntityBase, DxfTextBase {
@@ -172,10 +177,22 @@ export interface DxfAttdef extends DxfEntityBase, DxfTextBase {
   tag: string;
   prompt: string;
   attribute_flags: number;
+  /** 複数行の属性定義（AutoCAD 2018 以降）の既定値。DxfAttrib の mtext と同じ */
+  mtext?: DxfEmbeddedMText;
 }
 
-export interface DxfMText extends DxfEntityBase {
+/** 複数行の属性の埋め込みの MTEXT。色・レイヤ・線種などは属性のものを使い、押し出し方向は MTEXT のもの */
+export interface DxfEmbeddedMText extends DxfMTextContent {
+  /** 押し出し方向（210）。省略は (0, 0, 1) */
+  extrusion?: Vec3;
+}
+
+export interface DxfMText extends DxfEntityBase, DxfMTextContent {
   type: "MTEXT";
+}
+
+/** MTEXT の文字の値。MTEXT と、複数行の属性（ATTRIB・ATTDEF）の埋め込みの MTEXT が持つ */
+export interface DxfMTextContent {
   /** 書式コードを除いた文字列（\P は改行） */
   text: string;
   /** 書式コードを含む元の文字列。改行の文字はテキストの DXF と同じく ^J */

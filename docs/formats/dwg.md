@@ -53,6 +53,13 @@ its source was not read.
   decoded as DXF decodes that name. An unknown code page is read as Windows-1252 and reported (`unknown-codepage`).
 - Control characters are written in caret notation, as AutoCAD writes them in DXF (`^J` for a line feed, `^ ` for a
   caret), so that TEXT and MTEXT read the same as from the DXF of the drawing (*inferred*).
+- R2018 MTEXT ends with the bit that the specification calls "Is NOT annotative" (20.4.46). When it is set, as in every
+  MTEXT of the samples, the redundant fields and the column data follow, and they are read so that the values after an
+  embedded MTEXT stay in step.
+- **Multi-line attributes** (R2018): an ATTRIB or ATTDEF of attribute type 2 or 4 holds an embedded MTEXT from the
+  entity mode (20.4.4), read like an MTEXT into `mtext` with its own extrusion, then the annotative data and the tag,
+  field length and flags of a single-line attribute. Its own layer, color and line type are not used; the attribute's
+  are, as ezdxf draws it from DXF. The attribute's own text is empty.
 
 ## What is read
 
@@ -120,14 +127,12 @@ Compared with the DXF that AutoCAD wrote for the same drawing (see [verification
   DWG does not store; a layer with a true color gets index 7. The true color is drawn in both.
 - MULTILEADER background colors in R2000 are indexes only.
 - AutoCAD writes some layers, anonymous blocks and their entities with new handles in DXF, so entity ids differ.
-- Multi-line ATTRIB and ATTDEF of R2018: their attribute flags (70) differ from DXF (28 and 235 against 0 in the
-  ACadSharp sample), probably because the values after the embedded MTEXT are read out of step. Their tags and
-  generation flags are the same as in DXF.
 
 The DXF reader used to differ in three more places, now read as DWG has them (see [How DXF is handled](dxf.md#reading)):
 the dimension style values that DXF leaves out at their defaults, the attribute type of R2018 multi-line attributes
-(71 in `AcDbAttribute`), and the line feeds of MTEXT in binary DXF of R2004 and later.
+(71 in `AcDbAttribute`), and the line feeds of MTEXT in binary DXF of R2004 and later. The attribute flags (70) of R2018
+multi-line attributes differed too (28 and 235 against 0 in the ACadSharp sample), because the DWG reader took the
+"Is NOT annotative" bit of MTEXT the wrong way round and read the values after the embedded MTEXT out of step.
 
 Not supported yet: R13 and R14, the fit points of splines without end tangents, HELIX, MPOLYGON, the content of
-ACAD_TABLE beyond its block, the text of R2018 multi-line attributes (their embedded MTEXT, not read from DXF either),
-proxy graphics, and DWG files over the section limit.
+ACAD_TABLE beyond its block, proxy graphics, and DWG files over the section limit.
