@@ -206,7 +206,7 @@ export class DrawingViewer {
   private readonly options: DrawingViewerOptions;
   private state: ViewerState;
   private index: HitIndex;
-  private camera: InternalCamera = { cx: 0, cy: 0, zoom: 1 };
+  private camera: InternalCamera;
   private size = { width: 0, height: 0, dpr: 1 };
   /** 大きさが変わるたびに合わせる範囲。利用者やメソッドが表示範囲を変えるまで続く */
   private fitTarget: { box: Box; padding: number | undefined } | null = null;
@@ -546,6 +546,9 @@ export class DrawingViewer {
   refreshStyle(): void {
     this.readStyle();
     this.schedule(true);
+    // 余白（fitPadding）が変わったら、fitBounds の範囲を収め直す
+    const camera = this.fitCamera();
+    if (camera) this.setCamera(camera, true, null);
   }
 
   // ---- 重ね描き・その他
