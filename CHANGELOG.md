@@ -173,6 +173,11 @@ All packages share one version during 0.x.
   MLINESTYLE and every entity that DXF draws except HELIX and MPOLYGON. What is not read is reported. `zumen.read`, the
   `zumen` command, the Python bindings, the MCP server and the WebAssembly build read DWG. There is no TypeScript DWG
   reader ([decision 0003](docs/decisions/0003-dwg-in-rust.md)).
+- Rust: `zumen-dwg` also reads DWG of AutoCAD R13 and R14 (AC1012, AC1014), which have the container of R2000 and
+  forms of their own ([R13 and R14](docs/formats/dwg.md#r13-and-r14)), and of AutoCAD 1.0 to Release 12 (`MC0.0` to
+  `AC1009`), which the Open Design Specification does not cover
+  ([R12 and earlier](docs/formats/dwg.md#r12-and-earlier)). Their paper space becomes one layout, `Layout1`, and
+  entities without a handle (DWG before R10) get the ids `#n` ([Entity ids](docs/architecture.md#entity-ids)).
 - `@zumenjs/dxf` and `zumen-dxf`: a scene of a DWG document is labeled DWG (format `dwg`, version `DWG AC1032`,
   `DWG AutoCAD 2018（AC1032）`), and UTF-16 text `UTF-16`.
 - `@zumenjs/dxf`: a hatch whose pattern lines are numbered beyond 2⁵³ (a base point far from the boundary, where adding 1
