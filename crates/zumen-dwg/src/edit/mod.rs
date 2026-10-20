@@ -4,7 +4,9 @@
 //! 版・文字コードも元のまま。値のキーと決まりは DXF の編集（zumen-dxf の edit）と同じ。
 //!
 //! - 足す図形と消す図形は、持ち主のブロック（BLOCK_HEADER、20.4.52）の図形の並び（R2004 以降）か、前後の図形の
-//!   つながりと最初・最後の図形（R2000、20.4.1 の Nolinks）を直す
+//!   つながりと最初・最後の図形（R13〜R2000、20.4.1 の Nolinks）を直す
+//! - R13・R14 は線の太さとレイヤを印刷しない設定を持たない（指定は書かずに知らせる）。R14 の LWPOLYLINE はクラスの型
+//!   （図面のクラスになければ足す）、R13 には LWPOLYLINE がないので折線は足せない（DXF の R13 の編集と同じ）
 //! - 新しいオブジェクトのハンドルは $HANDSEED（大きいハンドルがあればその次）から振り、$HANDSEED と AcDb:AuxHeader の
 //!   値（27）を次のハンドルにする
 //! - 消す図形は、従う図形（頂点・属性と SEQEND）、拡張辞書とその中のオブジェクトも消し、描く順（SORTENTSTABLE）と
@@ -20,10 +22,11 @@ use crate::codec::objects::{Dictionary, Group, Layout, SortEntsTable};
 use crate::codec::tables::{BlockHeader, Control, EntryName, Layer, Linetype, TextStyle};
 use crate::codec::{CmColor, In, RawText};
 use crate::file::Version;
+use crate::write::classes::{classes_bits, classes_data, read_class_defs};
 use crate::write::database::has_extra;
 use crate::write::object::ObjectWriter;
 use crate::write::rewrite::Source;
-use crate::write::sections::{Framed, HEADER_END, HEADER_SENTINEL};
+use crate::write::sections::{CLASSES_END, CLASSES_SENTINEL, Framed, HEADER_END, HEADER_SENTINEL};
 use encoding_rs::Encoding;
 use std::collections::{HashMap, HashSet};
 use zumen_core::edit::{
@@ -75,9 +78,6 @@ mod kind {
 pub fn edit_dwg(bytes: &[u8], operations: &[EditOperation]) -> Result<Edited, EditError> {
     if !crate::is_dwg(bytes) {
         return Err(EditError::new("unreadable", "DWG として読めません"));
-    }
-    if matches!(&bytes[..6], b"AC1012" | b"AC1014") {
-        return Err(EditError::new("unreadable", "AutoCAD R13・R14 の DWG はまだ編集できません"));
     }
     if crate::r12::Old::from_magic(bytes).is_some() {
         return Err(EditError::new("unreadable", "AutoCAD Release 12 以前の DWG はまだ編集できません"));
@@ -457,7 +457,23 @@ impl Editor {
                 self.blocks.entry(upper(&name)).or_insert(handle);
             }
         }
-        let layouts = self.tables.layouts;
+        // LAYOUT は R2000 から。AutoCAD 2000 以降が R13・R14 に保存した図面は、名前付きオブジェクトの辞書の
+        // ACAD_LAYOUT に持つ（読み取りと同じ）
+        let layouts = if self.version >= Version::R2000 {
+            self.tables.layouts
+        } else {
+            let named = self.tables.named_objects;
+            self.read(named, |s, _| Dictionary::read(s, false))
+                .and_then(|dictionary| {
+                    dictionary
+                        .value
+                        .entries
+                        .iter()
+                        .find(|(name, _)| upper(&self.text_of(name)) == "ACAD_LAYOUT")
+                        .map(|(_, entry)| entry.resolve(named))
+                })
+                .unwrap_or(0)
+        };
         if let Some(dictionary) = self.read(layouts, |s, _| Dictionary::read(s, false)) {
             for (_, entry) in &dictionary.value.entries {
                 let handle = entry.resolve(layouts);
@@ -469,9 +485,16 @@ impl Editor {
         }
     }
 
+    /// 図形の線種（R2000 以降の BB と、3 のときのハンドル）。R13・R14 は BYLAYER のビットだけを持つので、BYBLOCK は
+    /// 線種の表の BYBLOCK の項目を指す（AutoCAD の R14 の図面と同じ）
     fn line_type(&self, index: usize, name: &str) -> Result<(u8, Option<HandleRef>), EditError> {
         match upper(name).as_str() {
             "BYLAYER" => Ok((0, None)),
+            "BYBLOCK" if self.version < Version::R2000 => self
+                .linetypes
+                .get("BYBLOCK")
+                .map(|handle| (3, Some(href(5, *handle))))
+                .ok_or_else(|| EditError::at(index, "missing-definition", "線種 BYBLOCK は図面にありません")),
             "BYBLOCK" => Ok((1, None)),
             key => {
                 self.linetypes.get(key).map(|handle| (3, Some(href(5, *handle)))).ok_or_else(|| {
@@ -512,6 +535,14 @@ impl Editor {
     }
 
     // ---- 値の書き方 ----
+
+    fn no_lineweight(&mut self) {
+        self.notices.add(
+            NoticeLevel::Info,
+            "edit-no-lineweight",
+            "AutoCAD 2000 より前の DWG には線の太さがないため、書きませんでした",
+        );
+    }
 
     /// 線の太さの番号（R2000 以降の RC。29 BYLAYER、30 BYBLOCK、31 既定）
     fn lineweight(&mut self, width: EditLineWidth) -> u8 {
@@ -617,7 +648,17 @@ impl Editor {
             Some(color) => Some(self.entity_color(index, color, transparency)?),
             None => None,
         };
-        let lineweight = reader.line_width("lineWidth")?.map(|width| self.lineweight(width));
+        let lineweight = match reader.line_width("lineWidth")? {
+            // R13・R14 の図形の線の太さは BYLAYER だけ
+            Some(width) if self.version < Version::R2000 => {
+                if width != EditLineWidth::ByLayer {
+                    self.no_lineweight();
+                }
+                None
+            }
+            Some(width) => Some(self.lineweight(width)),
+            None => None,
+        };
         Ok(Common { layer, color, linetype, lineweight })
     }
 
@@ -659,6 +700,10 @@ impl Editor {
         if let Some(name) = container.strip_prefix("layout:") {
             if name.eq_ignore_ascii_case("model") {
                 return Ok(block_place(self.model));
+            }
+            // LAYOUT のない R13・R14 の図面の紙空間は 1 つ（DXF の R12 の編集と同じく、どの名前もその紙空間）
+            if self.layouts.is_empty() && self.version < Version::R2000 {
+                return Ok(block_place(self.paper));
             }
             return self.layouts.get(&upper(name)).map(|block| block_place(*block)).ok_or_else(|| {
                 EditError::at(index, "missing-definition", format!("レイアウト {name} は図面にありません"))
@@ -778,6 +823,56 @@ impl Editor {
         Ok(())
     }
 
+    /// 足す LWPOLYLINE の型。R2000 以降は決まった型 77、R14 はクラスの型（図面のクラスになければ足す）。R13 には
+    /// LWPOLYLINE がない
+    fn lwpolyline_kind(&mut self, index: usize) -> Result<u16, EditError> {
+        match self.version {
+            Version::R13 => Err(EditError::at(
+                index,
+                "unsupported-kind",
+                "AutoCAD R13 の DWG には LWPOLYLINE がないため、折線は足せません",
+            )),
+            Version::R14 => self.class_number(index, "LWPOLYLINE"),
+            _ => Ok(kind::LWPOLYLINE),
+        }
+    }
+
+    /// クラスの番号。図面のクラス（AcDb:Classes）になければ、最後の番号の次の番号で足す。クラスの節を読み直して同じ
+    /// ビットに書けるときだけ書き換える（書けなければ足さずにエラー）
+    fn class_number(&mut self, index: usize, name: &str) -> Result<u16, EditError> {
+        if let Some((&number, _)) = self.classes.iter().find(|(_, (dxf, _))| dxf.eq_ignore_ascii_case(name)) {
+            return Ok(number);
+        }
+        let unreadable = || {
+            EditError::at(index, "unreadable", format!("DWG のクラスの節が読めないため、{name} のクラスを足せません"))
+        };
+        let extra = has_extra(self.version, self.source.maintenance);
+        let framed =
+            Framed::parse(&self.source.classes, &CLASSES_SENTINEL, &CLASSES_END, extra).ok_or_else(unreadable)?;
+        let codec = crate::bits::TextCodec::Bytes(self.encoding);
+        let mut defs = read_class_defs(&framed.data, self.version, codec);
+        // 読んだクラスを書いたビットが元の節と同じ（終わりの埋めを除く）か
+        let bits = classes_bits(self.version, self.encoding, &defs);
+        let length = bits.bit_len();
+        let written = bits.into_bytes();
+        let bit = |bytes: &[u8], at: u64| bytes.get((at / 8) as usize).map(|byte| byte & (0x80 >> (at % 8)) != 0);
+        let same = (0..length).all(|at| bit(&written, at) == bit(&framed.data, at));
+        if defs.len() != self.classes.len() || !same || framed.data.len() as u64 * 8 - length >= 8 {
+            return Err(unreadable());
+        }
+        let number = defs.iter().map(|class| class.number).max().unwrap_or(499).max(499) + 1;
+        let class = crate::write::drawing::class_def(name, number, 0).ok_or_else(unreadable)?;
+        let entity = class.item_class == 0x1f2;
+        defs.push(class);
+        let data = classes_data(self.version, self.encoding, &defs);
+        // R2004 以降のクラスの節は、終わりの区切りの後に 8 バイトの 0 が続く（10.1）
+        let trailing = if self.version >= Version::R2004 { 8 } else { 0 };
+        self.source.classes =
+            Framed { extra: framed.extra, data, crc_ok: true }.bytes(&CLASSES_SENTINEL, &CLASSES_END, trailing);
+        self.classes.insert(number, (name.to_string(), entity));
+        Ok(number)
+    }
+
     fn add(&mut self, index: usize, kind: &str, container: Option<&str>, values: &EditValues) -> Result<(), EditError> {
         if !ADDABLE.contains(&kind) {
             return Err(EditError::at(
@@ -853,7 +948,7 @@ impl Editor {
                 }
                 let closed = reader.bool("closed")?.unwrap_or(false);
                 let width = reader.number("width")?;
-                (kind::LWPOLYLINE, build::lwpolyline(&vertices, &bulges, closed, width))
+                (self.lwpolyline_kind(index)?, build::lwpolyline(&vertices, &bulges, closed, width))
             }
             "text" => {
                 reader.allow(&keys(&["position", "text", "height", "rotation", "textStyle", "wrapWidth"]), "文字")?;
@@ -964,7 +1059,9 @@ impl Editor {
     fn update(&mut self, index: usize, id: &str, set: &EditValues) -> Result<(), EditError> {
         let Target { handle, entity: mut decoded, name } = self.target(index, id)?;
         let reader = ValueReader::new(set, index);
-        let own: &[&'static str] = match decoded.kind {
+        // R14 の LWPOLYLINE はクラスの型
+        let fixed = if name == "LWPOLYLINE" { kind::LWPOLYLINE } else { decoded.kind };
+        let own: &[&'static str] = match fixed {
             kind::LINE => &["start", "end"],
             kind::CIRCLE => &["center", "radius"],
             kind::ARC => &["center", "radius", "angle"],
@@ -1462,9 +1559,16 @@ impl Editor {
             }
             None => {}
         }
+        let before_2000 = self.version < Version::R2000;
         match reader.line_width("lineWidth")? {
             Some(EditLineWidth::ByLayer | EditLineWidth::ByBlock) => {
                 return Err(EditError::at(index, "invalid-value", "レイヤの線の太さに bylayer・byblock は使えません"));
+            }
+            // R13・R14 のレイヤは線の太さを持たない（既定の太さ）
+            Some(width) if before_2000 => {
+                if width != EditLineWidth::Default {
+                    self.no_lineweight();
+                }
             }
             Some(width) => {
                 let weight = self.lineweight(width);
@@ -1481,7 +1585,16 @@ impl Editor {
         set(&mut flags, 1, reader.bool("frozen")?);
         set(&mut flags, 2, reader.bool("visible")?.map(|visible| !visible));
         set(&mut flags, 8, reader.bool("locked")?);
-        set(&mut flags, 16, reader.bool("plot")?);
+        match reader.bool("plot")? {
+            // R13・R14 のレイヤはどれも印刷する
+            Some(false) if before_2000 => self.notices.add(
+                NoticeLevel::Info,
+                "edit-no-layer-plot",
+                "AutoCAD 2000 より前の DWG にはレイヤを印刷しない設定がないため、書きませんでした",
+            ),
+            Some(_) if before_2000 => {}
+            plot => set(&mut flags, 16, plot),
+        }
         layer.values = flags;
         // R2000 の非表示のレイヤは色の番号を負にもする（DXF の 62 と同じ）
         if self.version < Version::R2004 {

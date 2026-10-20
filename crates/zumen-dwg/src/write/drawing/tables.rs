@@ -218,6 +218,15 @@ impl Writer<'_> {
             if transparency_app.is_none() && plan.transparency.is_some() {
                 self.version_transparency.set(self.version_transparency.get() + 1);
             }
+            if self.before_2000() {
+                // R13・R14 のレイヤは印刷する印と線の太さを持たない
+                if !plan.plot {
+                    self.version_plot.set(self.version_plot.get() + 1);
+                }
+                if plan.lineweight >= 0.0 {
+                    self.version_lineweights.set(self.version_lineweights.get() + 1);
+                }
+            }
             let layer = Layer {
                 common: entry(fixed.layer_control),
                 name: self.name(&plan.name),

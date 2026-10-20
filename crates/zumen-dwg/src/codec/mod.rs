@@ -73,9 +73,44 @@ pub(crate) struct In<'a> {
     /// ハンドルの並び。None なら値の並びの中（R2007 より前のヘッダ変数）
     pub handles: Option<Bits<'a>>,
     pub version: Version,
+    /// オブジェクトの型の始まりのビットの位置（R13・R14 の値の並びの大きさ RL の基準）
+    pub start: u64,
 }
 
 impl In<'_> {
+    pub fn r2000(&self) -> bool {
+        self.version >= Version::R2000
+    }
+
+    /// R13・R14 のオブジェクトは値の並びの大きさ（RL、型の始まりからのビット数）を、図形でないものは拡張データの後、
+    /// 図形は代わりの表示の後に持ち、そこからハンドルの並びが始まる（20.1、20.4.1）。R2000 以降は何もしない
+    pub fn split_handles(&mut self) -> Read<()> {
+        if self.r2000() {
+            return Ok(());
+        }
+        let size = u64::from(self.data.rl()?);
+        let at = self.start.checked_add(size).ok_or(crate::bits::Eof)?;
+        let Some(handles) = &mut self.handles else { return Err(crate::bits::Eof) };
+        if at < self.data.pos() || at > handles.end() {
+            return Err(crate::bits::Eof);
+        }
+        handles.set_pos(at);
+        self.data.set_end(at);
+        Ok(())
+    }
+
+    /// BT（2.10）。R13・R14 は BD
+    pub fn bt(&mut self) -> Read<f64> {
+        let r2000 = self.r2000();
+        self.data.bt(r2000)
+    }
+
+    /// BE（2.8）。R13・R14 は 3BD
+    pub fn be(&mut self) -> Read<[f64; 3]> {
+        let r2000 = self.r2000();
+        self.data.be(r2000)
+    }
+
     pub fn r2004(&self) -> bool {
         self.version >= Version::R2004
     }

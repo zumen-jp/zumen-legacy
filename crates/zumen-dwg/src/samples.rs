@@ -451,9 +451,6 @@ fn classes_of_real_drawings_are_written_back_unchanged() {
     use crate::write::classes::{classes_bits, read_class_defs};
     for (name, bytes) in samples() {
         let Some(version) = Version::from_magic(&bytes[..6]) else { continue };
-        if matches!(version, Version::R13 | Version::R14) {
-            continue;
-        }
         let section = section_of(&bytes, version, 1, "AcDb:Classes");
         let extra = crate::write::database::has_extra(version, bytes[0x0b]);
         let framed = Framed::parse(&section, &CLASSES_SENTINEL, &CLASSES_END, extra).unwrap();
@@ -472,7 +469,7 @@ fn classes_of_real_drawings_are_written_back_unchanged() {
 fn section_of(bytes: &[u8], version: Version, number: u8, name: &str) -> Vec<u8> {
     let mut notices = NoticeList::new();
     match version {
-        Version::R2000 => {
+        Version::R13 | Version::R14 | Version::R2000 => {
             let records = file::r2000_records(bytes).unwrap();
             file::r2000_slice(bytes, &records, number).unwrap().to_vec()
         }
@@ -495,9 +492,6 @@ fn header_variables_of_real_drawings_are_written_back_unchanged() {
     use crate::codec::header::{LEFTOVER, header_bits, read_header_vars};
     for (name, bytes) in samples() {
         let Some(version) = Version::from_magic(&bytes[..6]) else { continue };
-        if matches!(version, Version::R13 | Version::R14) {
-            continue;
-        }
         let framed = framed_section(&bytes, version, 0, "AcDb:Header");
         let vars = read_header_vars(&framed.data, version).unwrap_or_else(|_| panic!("{name}: read"));
         // 残りは終わりを埋めるビットだけ（AutoCAD は 1 バイトを足して埋めることもある）
@@ -573,7 +567,7 @@ fn entity_name(kind: u16, class: &str) -> &str {
 /// 図面のオブジェクトの節とオブジェクトの表
 fn objects_of(bytes: &[u8], version: Version) -> (Vec<u8>, std::collections::HashMap<u64, usize>) {
     match version {
-        Version::R2000 => {
+        Version::R13 | Version::R14 | Version::R2000 => {
             let records = file::r2000_records(bytes).unwrap();
             (bytes.to_vec(), read_object_map(file::r2000_slice(bytes, &records, 2).unwrap()))
         }
@@ -596,9 +590,6 @@ pub(crate) fn object_failures(name: &str, bytes: &[u8], counts: &mut ObjectCount
     use crate::codec::object::{open_raw, writer};
     let mut failures: Vec<String> = Vec::new();
     let Some(version) = Version::from_magic(&bytes[..6]) else { return failures };
-    if matches!(version, Version::R13 | Version::R14) {
-        return failures;
-    }
     let (objects, map) = objects_of(bytes, version);
     let codec_text = if version >= Version::R2007 {
         crate::bits::TextCodec::Utf16
