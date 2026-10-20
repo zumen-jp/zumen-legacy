@@ -11,7 +11,10 @@ mod p21_reader;
 mod p21_writer;
 mod scene;
 mod sfc;
+mod sfc_edit;
 mod sfc_reader;
+mod source;
+mod splice;
 mod step;
 mod style;
 mod symbols;
@@ -29,13 +32,33 @@ pub use header::SxfHeader;
 pub use p21::parse_p21;
 pub use scene::{SxfSceneOptions, sxf_to_scene, sxf_to_scene_with};
 pub use sfc::parse_sfc;
+pub use source::{SxfArchive, SxfSource};
 pub use style::DEFAULT_WIDTH;
 pub use symbols::{arrow_primitives, marker_primitives};
-pub use write::{SxfWritten, write_sfc, written_ids};
+pub use write::{SxfWritten, written_ids};
+
+/// SXF の図面を SFC ファイル（SXF Ver.3.1）に書く。SFC から読んだ図面（`source` があるもの）は、元のファイルを
+/// 書き換えて、変えたフィーチャだけを書き直す（変えていないフィーチャは元の文字列のまま）。ほかの図面は、
+/// フィーチャを定義の順に並べ、番号を 10 から振って新しく書く
+pub fn write_sfc(drawing: &SxfDrawing) -> SxfWritten {
+    match &drawing.source {
+        Some(source) if drawing.format == "sfc" => sfc_edit::write_sfc_edit(drawing, &source.bytes),
+        _ => write::write_sfc_new(drawing),
+    }
+}
 
 /// SXF の図面を P21 ファイル（SXF Ver.3.1、STEP AP202 のサブセット）に書く
 pub fn write_p21(drawing: &SxfDrawing) -> SxfWritten {
     p21_writer::write_p21_new(drawing)
+}
+
+/// SXF の図面を format（sfc・p21、圧縮した sfz・p2z）で書く
+pub fn write_sxf(drawing: &SxfDrawing, format: &str) -> Result<SxfWritten, ReadError> {
+    match format {
+        "sfc" => Ok(write_sfc(drawing)),
+        "p21" => Ok(write_p21(drawing)),
+        _ => Err(ReadError::new(format!("SXF は {format} に書けません（書けるのは SFC・P21・SFZ・P2Z）"))),
+    }
 }
 
 use zumen_core::{DrawingReader, Property, ReadError, ReadOptions, Scene};
@@ -89,8 +112,13 @@ pub fn parse_sxf(bytes: &[u8], format: &str) -> Result<SxfDrawing, ReadError> {
         "sfc" => parse_sfc(bytes),
         "p21" => parse_p21(bytes),
         "sfz" | "p2z" => {
-            let (content, inner, _) = unzip_sxf(bytes)?;
-            parse_sxf(&content, inner)
+            let (content, inner, name) = unzip_sxf(bytes)?;
+            let mut drawing = parse_sxf(&content, inner)?;
+            // 書き直すとき同じ書庫に入れ直せるよう、元の書庫を持つ
+            if let Some(source) = &mut drawing.source {
+                source.archive = Some(SxfArchive { bytes: std::sync::Arc::from(bytes), name });
+            }
+            Ok(drawing)
         }
         _ => Err(ReadError::new(format!("SXF の読み取りは {format} を読めません"))),
     }

@@ -8,6 +8,7 @@ use crate::features::{
 };
 use crate::p21_reader::{P21Entity, P21File, P21Value, read_p21};
 use crate::sfc::suffix_version;
+use crate::source::SxfSource;
 use crate::tables::{ARROW_NAMES, predefined_color_code, predefined_line_type_code, predefined_width_code};
 use std::collections::{HashMap, HashSet};
 use std::f64::consts::PI;
@@ -1134,5 +1135,12 @@ pub fn parse_p21(bytes: &[u8]) -> Result<SxfDrawing, ReadError> {
     }
     let version =
         suffix_version(&file.header.preprocessor).map_or("SXF".to_string(), |version| format!("SXF {version}"));
-    Ok(SxfDrawing { format: "p21", version, header: file.header.clone(), document: doc, notices: notices.into_vec() })
+    Ok(SxfDrawing {
+        format: "p21",
+        version,
+        header: file.header.clone(),
+        document: doc,
+        notices: notices.into_vec(),
+        source: Some(SxfSource::new(bytes)),
+    })
 }

@@ -1927,6 +1927,7 @@ impl<'a> Mapper<'a> {
             header: SxfHeader::default(),
             document,
             notices: Vec::new(),
+            source: None,
         };
         MappedSxf { drawing, notices: self.notices.into_vec(), sources: self.sources }
     }

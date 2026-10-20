@@ -7,6 +7,7 @@ use crate::features::{
     UserColour, UserLineType, WidthDefinition,
 };
 use crate::header::SxfHeader;
+use crate::source::SxfSource;
 use crate::tables::predefined_width_code;
 use std::collections::HashMap;
 use zumen_core::{Notice, NoticeLevel, NoticeList};
@@ -104,10 +105,13 @@ pub struct SxfDrawing {
     pub document: SxfDocument,
     /// 読み取りで省略・代替した内容
     pub notices: Vec<Notice>,
+    /// 読んだファイル。書き出し（`write_sxf`）は、同じ形式なら変えていないフィーチャを元の文字列のまま書く。
+    /// 新しく作った図面は None
+    pub source: Option<SxfSource>,
 }
 
 /// 複合曲線の構成要素にできる曲線（仕様は円弧・楕円弧・折線・スプライン。線分なども受け付ける）
-fn is_curve(kind: FeatureKind) -> bool {
+pub(crate) fn is_curve(kind: FeatureKind) -> bool {
     matches!(
         kind,
         FeatureKind::Arc

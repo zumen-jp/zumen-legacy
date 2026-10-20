@@ -9,7 +9,10 @@
 //! - SXF Ver.3.0 で加わった図面表題欄とクロソイドは /*SXF3 … SXF3*/ で囲む（公開されている SFC と同じ）。
 
 use crate::document::{SxfDocument, SxfDrawing};
-use crate::features::{Annotation, Arrow, ExtensionLine, Region, Styled, SxfFeature};
+use crate::features::{
+    Annotation, Arrow, CompositeCurveOrg, DrawingAttribute, DrawingSheet, ExtensionLine, LayerDefinition, Region,
+    SfigOrg, Styled, SxfFeature, TextFont, UserColour, UserLineType, WidthDefinition,
+};
 use crate::tables::{PREDEFINED_COLORS, PREDEFINED_LINE_TYPES};
 use encoding_rs::SHIFT_JIS;
 use std::collections::{HashMap, HashSet};
@@ -24,7 +27,7 @@ pub struct SxfWritten {
 }
 
 /// フィーチャの引数
-enum Param {
+pub(crate) enum Param {
     /// '…' の数値
     Num(f64),
     /// \'…\' の文字列
@@ -55,75 +58,85 @@ fn number(value: f64) -> String {
     format!("{value}")
 }
 
-impl Writer {
-    fn text(&mut self, value: &str) -> Vec<u8> {
-        let mut out = Vec::with_capacity(value.len());
-        let mut replaced = false;
-        for c in value.chars() {
-            if c == '\r' || c == '\n' || c.is_control() {
-                continue;
-            }
-            if c == '\\' {
-                out.extend_from_slice(b"\\\\");
-                continue;
-            }
-            let mut buffer = [0u8; 4];
-            let (bytes, _, unmappable) = SHIFT_JIS.encode(c.encode_utf8(&mut buffer));
-            if unmappable {
-                out.push(b'?');
-                replaced = true;
-            } else {
-                out.extend_from_slice(&bytes);
-            }
+/// 文字列を CP932 にする。CP932 にない文字は ? にして知らせる。\ は \\ にし、改行と制御文字は書かない
+pub(crate) fn encode_text(value: &str, notices: &mut NoticeList) -> Vec<u8> {
+    let mut out = Vec::with_capacity(value.len());
+    let mut replaced = false;
+    for c in value.chars() {
+        if c == '\r' || c == '\n' || c.is_control() {
+            continue;
         }
-        if replaced {
-            self.notices.add(NoticeLevel::Warning, "encoding", "CP932（Shift_JIS）にない文字を ? にしました");
+        if c == '\\' {
+            out.extend_from_slice(b"\\\\");
+            continue;
         }
-        out
+        let mut buffer = [0u8; 4];
+        let (bytes, _, unmappable) = SHIFT_JIS.encode(c.encode_utf8(&mut buffer));
+        if unmappable {
+            out.push(b'?');
+            replaced = true;
+        } else {
+            out.extend_from_slice(&bytes);
+        }
     }
+    if replaced {
+        notices.add(NoticeLevel::Warning, "encoding", "CP932（Shift_JIS）にない文字を ? にしました");
+    }
+    out
+}
 
+/// フィーチャを 1 つ、囲み（/*SXF{version} … SXF{version}*/）ごと書く。最後の改行を含む
+pub(crate) fn record(id: f64, name: &str, version: &str, params: Vec<Param>, notices: &mut NoticeList) -> Vec<u8> {
+    let mut line = format!("/*SXF{version}\n#{} = {name}(", number(id)).into_bytes();
+    let mut width = line.len() - 6 - version.len();
+    for (index, param) in params.into_iter().enumerate() {
+        let value = match param {
+            Num(value) => format!("'{}'", number(value)).into_bytes(),
+            List(values) => {
+                format!("'({})'", values.iter().map(|value| number(*value)).collect::<Vec<_>>().join(",")).into_bytes()
+            }
+            Text(value) => {
+                let mut bytes = b"\\'".to_vec();
+                bytes.extend(encode_text(&value, notices));
+                bytes.extend_from_slice(b"\\'");
+                bytes
+            }
+            Param::Quoted(value) => {
+                let mut bytes = b"'".to_vec();
+                bytes.extend(encode_text(&value.replace('\'', ""), notices));
+                bytes.push(b'\'');
+                bytes
+            }
+        };
+        if index > 0 {
+            line.push(b',');
+            width += 1;
+            // 長い行は引数の区切りで折り返す（読み取りは引数の間の改行を空白とみなす）
+            if width + value.len() > 80 {
+                line.push(b'\n');
+                width = 0;
+            }
+        }
+        width += value.len();
+        line.extend(value);
+    }
+    line.extend_from_slice(format!(")\nSXF{version}*/\n").as_bytes());
+    line
+}
+
+impl Writer {
     /// フィーチャを 1 つ書き、書いたインスタンス番号を返す
     fn feature(&mut self, id: f64, name: &str, version: &str, params: Vec<Param>) -> f64 {
         let written = self.next;
         self.next += 10.0;
         self.ids.push((id, written));
-        let mut line = format!("/*SXF{version}\n#{} = {name}(", number(written)).into_bytes();
-        let mut width = line.len() - 6 - version.len();
-        for (index, param) in params.into_iter().enumerate() {
-            let value = match param {
-                Num(value) => format!("'{}'", number(value)).into_bytes(),
-                List(values) => {
-                    format!("'({})'", values.iter().map(|value| number(*value)).collect::<Vec<_>>().join(","))
-                        .into_bytes()
-                }
-                Text(value) => {
-                    let mut bytes = b"\\'".to_vec();
-                    bytes.extend(self.text(&value));
-                    bytes.extend_from_slice(b"\\'");
-                    bytes
-                }
-                Param::Quoted(value) => {
-                    let mut bytes = b"'".to_vec();
-                    bytes.extend(self.text(&value.replace('\'', "")));
-                    bytes.push(b'\'');
-                    bytes
-                }
-            };
-            if index > 0 {
-                line.push(b',');
-                width += 1;
-                // 長い行は引数の区切りで折り返す（読み取りは引数の間の改行を空白とみなす）
-                if width + value.len() > 80 {
-                    line.push(b'\n');
-                    width = 0;
-                }
-            }
-            width += value.len();
-            line.extend(value);
-        }
-        line.extend_from_slice(format!(")\nSXF{version}*/\n").as_bytes());
-        self.out.extend(line);
+        let bytes = record(written, name, version, params, &mut self.notices);
+        self.out.extend(bytes);
         written
+    }
+
+    fn text(&mut self, value: &str) -> Vec<u8> {
+        encode_text(value, &mut self.notices)
     }
 }
 
@@ -199,8 +212,67 @@ fn points(params: &mut Vec<Param>, xs: &[f64], ys: &[f64]) {
     params.extend([Num(xs.len() as f64), List(xs.to_vec()), List(ys.to_vec())]);
 }
 
+/// 定義のフィーチャ（表の項目、複合曲線定義・複合図形定義、図面表題欄、用紙）
+#[derive(Clone, Copy)]
+pub(crate) enum Definition<'a> {
+    Layer(&'a LayerDefinition),
+    Colour(&'a UserColour),
+    LineType(&'a UserLineType),
+    Width(&'a WidthDefinition),
+    Font(&'a TextFont),
+    Composite(&'a CompositeCurveOrg),
+    SubFigure(&'a SfigOrg),
+    Title(&'a DrawingAttribute),
+    Sheet(&'a DrawingSheet),
+}
+
+/// 定義のフィーチャのフィーチャ名と引数（附属書 SFC 編 1-2）
+pub(crate) fn definition(item: Definition<'_>) -> (&'static str, &'static str, Vec<Param>) {
+    let flag = |value: bool| Num(if value { 1.0 } else { 0.0 });
+    match item {
+        Definition::Layer(layer) => ("layer_feature", "", vec![Text(layer.name.clone()), flag(layer.visible)]),
+        Definition::Colour(color) => {
+            ("user_defined_colour_feature", "", vec![Num(color.r), Num(color.g), Num(color.b)])
+        }
+        Definition::LineType(line_type) => (
+            "user_defined_font_feature",
+            "",
+            vec![Text(line_type.name.clone()), Num(line_type.pitch.len() as f64), List(line_type.pitch.clone())],
+        ),
+        Definition::Width(width) => ("width_feature", "", vec![Num(width.width)]),
+        Definition::Font(font) => ("text_font_feature", "", vec![Text(font.name.clone())]),
+        Definition::Composite(feature) => (
+            "composite_curve_org_feature",
+            "",
+            vec![Num(feature.color), Num(feature.line_type), Num(feature.line_width), flag(feature.visible)],
+        ),
+        Definition::SubFigure(figure) => ("sfig_org_feature", "", vec![Text(figure.name.clone()), Num(figure.flag)]),
+        Definition::Title(title) => {
+            // 作成年・月・日（8〜10 番目）は数値、ほかは文字列（附属書 SFC 編 1-2 の drawing_attribute_feature）
+            let params = title
+                .values
+                .iter()
+                .enumerate()
+                .map(|(index, value)| {
+                    if (7..=9).contains(&index) {
+                        Param::Quoted(if value.value.is_empty() { "0".into() } else { value.value.clone() })
+                    } else {
+                        Text(value.value.clone())
+                    }
+                })
+                .collect();
+            ("drawing_attribute_feature", "3", params)
+        }
+        Definition::Sheet(sheet) => (
+            "drawing_sheet_feature",
+            "",
+            vec![Text(sheet.name.clone()), Num(sheet.sheet_type), Num(sheet.orient), Num(sheet.x), Num(sheet.y)],
+        ),
+    }
+}
+
 /// 要素のフィーチャ名と引数（附属書 SFC 編 1-2）。定義のフィーチャ（レイヤなど）は None
-fn drawable(feature: &SxfFeature) -> Option<(&'static str, &'static str, Vec<Param>)> {
+pub(crate) fn drawable(feature: &SxfFeature) -> Option<(&'static str, &'static str, Vec<Param>)> {
     let bool_flag = |value: bool| Num(if value { 0.0 } else { 1.0 });
     Some(match feature {
         SxfFeature::PointMarker { layer, color, x, y, code, angle, scale, .. } => (
@@ -486,8 +558,8 @@ pub(crate) fn sub_figure_order(doc: &SxfDocument) -> Vec<String> {
     out
 }
 
-/// SXF の図面を SFC ファイル（SXF Ver.3.1）に書く
-pub fn write_sfc(drawing: &SxfDrawing) -> SxfWritten {
+/// SXF の図面を SFC ファイル（SXF Ver.3.1）に新しく書く（番号を 10 から振り直す）
+pub(crate) fn write_sfc_new(drawing: &SxfDrawing) -> SxfWritten {
     let doc = &drawing.document;
     let mut writer = Writer { out: Vec::new(), notices: NoticeList::new(), next: 10.0, ids: Vec::new() };
     let header = &drawing.header;
@@ -538,30 +610,24 @@ pub fn write_sfc(drawing: &SxfDrawing) -> SxfWritten {
             writer.feature(0.0, "pre_defined_font_feature", "", vec![Text(line_type.name.into())]);
         }
     }
+    let define = |writer: &mut Writer, id: f64, item: Definition<'_>| {
+        let (name, version, params) = definition(item);
+        writer.feature(id, name, version, params);
+    };
     for color in &doc.user_colors {
-        writer.feature(color.id, "user_defined_colour_feature", "", vec![Num(color.r), Num(color.g), Num(color.b)]);
+        define(&mut writer, color.id, Definition::Colour(color));
     }
     for line_type in &doc.user_line_types {
-        writer.feature(
-            line_type.id,
-            "user_defined_font_feature",
-            "",
-            vec![Text(line_type.name.clone()), Num(line_type.pitch.len() as f64), List(line_type.pitch.clone())],
-        );
+        define(&mut writer, line_type.id, Definition::LineType(line_type));
     }
     for width in &doc.user_widths {
-        writer.feature(width.id, "width_feature", "", vec![Num(width.width)]);
+        define(&mut writer, width.id, Definition::Width(width));
     }
     for font in &doc.fonts {
-        writer.feature(font.id, "text_font_feature", "", vec![Text(font.name.clone())]);
+        define(&mut writer, font.id, Definition::Font(font));
     }
     for layer in &doc.layers {
-        writer.feature(
-            layer.id,
-            "layer_feature",
-            "",
-            vec![Text(layer.name.clone()), Num(if layer.visible { 1.0 } else { 0.0 })],
-        );
+        define(&mut writer, layer.id, Definition::Layer(layer));
     }
     let mut skipped = 0;
     let mut members = |writer: &mut Writer, list: &[SxfFeature]| {
@@ -576,28 +642,12 @@ pub fn write_sfc(drawing: &SxfDrawing) -> SxfWritten {
     };
     for curve in &doc.composite_curves {
         members(&mut writer, &curve.members);
-        let feature = &curve.feature;
-        writer.feature(
-            feature.id,
-            "composite_curve_org_feature",
-            "",
-            vec![
-                Num(feature.color),
-                Num(feature.line_type),
-                Num(feature.line_width),
-                Num(if feature.visible { 1.0 } else { 0.0 }),
-            ],
-        );
+        define(&mut writer, curve.feature.id, Definition::Composite(&curve.feature));
     }
     for name in sub_figure_order(doc) {
         let figure = doc.sub_figures.get(&name).expect("並べた複合図形");
         members(&mut writer, &figure.members);
-        writer.feature(
-            figure.feature.id,
-            "sfig_org_feature",
-            "",
-            vec![Text(figure.feature.name.clone()), Num(figure.feature.flag)],
-        );
+        define(&mut writer, figure.feature.id, Definition::SubFigure(&figure.feature));
     }
     members(&mut writer, &doc.sheet_members);
     if skipped > 0 {
@@ -609,28 +659,10 @@ pub fn write_sfc(drawing: &SxfDrawing) -> SxfWritten {
         );
     }
     if let Some(title) = &doc.title {
-        // 作成年・月・日（8〜10 番目）は数値、ほかは文字列（附属書 SFC 編 1-2 の drawing_attribute_feature）
-        let params = title
-            .values
-            .iter()
-            .enumerate()
-            .map(|(index, value)| {
-                if (7..=9).contains(&index) {
-                    Param::Quoted(if value.value.is_empty() { "0".into() } else { value.value.clone() })
-                } else {
-                    Text(value.value.clone())
-                }
-            })
-            .collect();
-        writer.feature(title.id, "drawing_attribute_feature", "3", params);
+        define(&mut writer, title.id, Definition::Title(title));
     }
     if let Some(sheet) = &doc.sheet {
-        writer.feature(
-            sheet.id,
-            "drawing_sheet_feature",
-            "",
-            vec![Text(sheet.name.clone()), Num(sheet.sheet_type), Num(sheet.orient), Num(sheet.x), Num(sheet.y)],
-        );
+        define(&mut writer, sheet.id, Definition::Sheet(sheet));
     }
     writer.out.extend_from_slice(b"ENDSEC;\nEND-ISO-10303-21;\n");
     SxfWritten { bytes: writer.out, notices: writer.notices.into_vec(), ids: writer.ids }
