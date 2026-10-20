@@ -20,6 +20,12 @@ All packages share one version during 0.x.
   operation. DXF is done (R12 to 2018, ASCII and binary): `zumen_dxf::edit_dxf` keeps every tag that no operation
   changes byte for byte, so extended data, objects and unread entities stay. `zumen::edit` and `zumen::create`,
   `zumen.edit`, `zumen.create`, `Edited` and `EditError` in Python, and `zumen edit` and `zumen create`.
+- Rust, Python and the command line: write DXF in a chosen version, AutoCAD 2000, 2004, 2007, 2010, 2013 or 2018
+  (`zumen_dxf::write_dxf_as`, `zumen::convert_with` with `WriteOptions`, `zumen.convert(..., version=...)`,
+  `zumen convert --target-version`). Versions before 2007 are written in the drawing's code page, or in the one that
+  holds most of its texts, with `\U+XXXX` for what it cannot hold. True colors, transparency, gradients, MTEXT
+  backgrounds and the newer dimension types that a version lacks are written in another form and reported in the
+  notices.
 - ST-Bridge left zumen: `@zumenjs/stb` and its notes moved to a private repository, because publishing an
   implementation of ST-Bridge needs a license from buildingSMART Japan. zumen keeps to formats that need no third
   party's permission and to dependencies with permissive licenses
