@@ -405,7 +405,8 @@ stay, and an edit without operations gives the same bytes.
   ATTRIB or ATTDEF that is aligned (72 or 73, 74 for attributes, not 0) moves the alignment point (11) by the same
   amount, as it is the point that places the text. Setting `rotation` of MTEXT removes its direction vector (11),
   which would override it. Changing the layer of a POLYLINE also changes its VERTEX and SEQEND. LWPOLYLINE vertices are
-  written again with their bulges; other entities, such as hatches and dimensions, take the common keys only.
+  written again with their bulges; changing only bulges preserves per-vertex widths (40/41) and identifiers (91).
+  Other entities, such as hatches and dimensions, take the common keys only.
 - **What `delete` removes**: the entity with what follows it (VERTEX and SEQEND, ATTRIB and SEQEND), the objects it
   owns (330), such as its extension dictionary, and its handle in SORTENTSTABLE (with its sort handle), GROUP (340) and
   reactors (330 in `{ACAD_REACTORS`). An attribute alone cannot be deleted.

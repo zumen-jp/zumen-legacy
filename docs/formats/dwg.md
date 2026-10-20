@@ -489,3 +489,5 @@ drawing with `write_dwg` (`$INSUNITS` and `$MEASUREMENT` from the units), which 
   makes the files to check.
 
 Review constraints: R2004 and R2007 section page sizes are rejected above `MAX_SECTION_BYTES` before allocating or padding pages, including empty sections. Model writing reports `linetype-limit` and `mline-style-limit` when more than 255 dashes or MLINE style elements cannot fit.
+
+Editing refuses a new handle when the unsigned 64-bit handle space is exhausted. Updating only LWPOLYLINE bulges or closure preserves vertex widths and IDs, including their serialization flags. Replacing the vertices resets their widths and IDs.

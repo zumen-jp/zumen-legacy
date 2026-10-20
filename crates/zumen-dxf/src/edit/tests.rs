@@ -429,3 +429,17 @@ fn exhausted_handles_are_an_error_without_overflow() {
     let error = edit(&bytes, r#"[{"op":"add","kind":"point","position":[1,2]}]"#).unwrap_err();
     assert_eq!((error.code, error.operation), ("handle-exhausted", Some(0)));
 }
+
+#[test]
+fn changing_only_bulges_preserves_vertex_widths_and_ids() {
+    let bytes = with_raw(
+        &drawing(""),
+        "0\r\nLWPOLYLINE\r\n5\r\nFACE\r\n100\r\nAcDbEntity\r\n8\r\n0\r\n100\r\nAcDbPolyline\r\n90\r\n2\r\n70\r\n0\r\n10\r\n0\r\n20\r\n0\r\n40\r\n1\r\n41\r\n2\r\n91\r\n10\r\n10\r\n1\r\n20\r\n1\r\n40\r\n3\r\n41\r\n4\r\n91\r\n20\r\n",
+    );
+    let written = edit(&bytes, r#"[{"op":"update","id":"FACE","set":{"bulges":[0.5,0]}}]"#).unwrap();
+    let kept: Vec<_> =
+        entity_tags(&written.bytes, "FACE").into_iter().filter(|(code, _)| [40, 41, 91].contains(code)).collect();
+    let before: Vec<_> =
+        entity_tags(&bytes, "FACE").into_iter().filter(|(code, _)| [40, 41, 91].contains(code)).collect();
+    assert_eq!(kept, before);
+}

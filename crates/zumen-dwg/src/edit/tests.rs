@@ -429,3 +429,37 @@ fn edits_of_real_drawings_keep_their_structure() {
         assert_eq!(again.entities.len(), doc.entities.len() + edited.created.len() - 1 - deleted.len(), "{name}");
     }
 }
+
+#[test]
+fn exhausted_handles_fail_without_overflowing_or_reusing_an_id() {
+    let bytes = new_dwg("mm").unwrap();
+    let mut source = Source::open(&bytes, &mut NoticeList::new()).unwrap();
+    source.objects.handles.push((u64::MAX, 0));
+    let mut editor = Editor::new(source, NoticeList::new()).unwrap();
+    let error = editor.next_handle(0).unwrap_err();
+    assert_eq!(error.code, "handle-exhausted");
+    assert_eq!(editor.seed, u64::MAX);
+    assert!(!editor.seed_used);
+}
+
+#[test]
+fn changing_bulges_or_closed_keeps_vertex_widths_and_ids() {
+    for json in [
+        r#"[{"op":"update","id":"1","set":{"bulges":[0.5,0]}}]"#,
+        r#"[{"op":"update","id":"1","set":{"closed":true}}]"#,
+    ] {
+        let Body::LwPolyline(mut polyline) = build::lwpolyline(&[[0.0; 3], [1.0, 1.0, 0.0]], &[0.0; 2], false, None)
+        else {
+            panic!()
+        };
+        polyline.widths = vec![[1.0, 2.0], [3.0, 4.0]];
+        polyline.ids = vec![10, 20];
+        polyline.flags |= 32 | 1024;
+        let operations = parse_operations(json).unwrap();
+        let EditOperation::Update { set, .. } = &operations[0] else { panic!() };
+        build::update_lwpolyline(0, &mut polyline, &ValueReader::new(set, 0)).unwrap();
+        assert_eq!(polyline.widths, [[1.0, 2.0], [3.0, 4.0]]);
+        assert_eq!(polyline.ids, [10, 20]);
+        assert_eq!(polyline.flags & (32 | 1024), 32 | 1024);
+    }
+}
