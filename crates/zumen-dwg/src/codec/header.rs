@@ -10,7 +10,7 @@ use crate::objects::string_stream;
 
 /// 値の形
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Kind {
+pub(crate) enum Kind {
     B,
     Bs,
     Bl,
@@ -27,6 +27,9 @@ enum Kind {
     Seed,
     /// 終わりの 4 つの BS（9 の「R14+: unknown short」）。R2007 以降はハンドルの並びの後ろにある（実物の図面で確かめた）
     TailBs,
+    /// R2004 以降の BS の後の BL・BL・B（仕様にない。実物の図面で確かめた。ACadSharp も書く）
+    TailBl,
+    TailB,
 }
 
 /// 値がある版
@@ -365,6 +368,9 @@ const FIELDS: &[(&str, Kind, When)] = &[
     ("UNKNOWN_BS2", TailBs, All),
     ("UNKNOWN_BS3", TailBs, All),
     ("UNKNOWN_BS4", TailBs, All),
+    ("UNKNOWN_BL11", TailBl, From2004),
+    ("UNKNOWN_BL12", TailBl, From2004),
+    ("UNKNOWN_B3", TailB, From2004),
 ];
 
 /// 1 つの値
@@ -390,7 +396,22 @@ pub(crate) struct HeaderVars {
     pub values: Vec<(&'static str, Value)>,
 }
 
+/// 名前のヘッダ変数の形
+pub(crate) fn field_kind(name: &str) -> Option<Kind> {
+    FIELDS.iter().find(|(key, _, _)| *key == name).map(|(_, kind, _)| *kind)
+}
+
 impl HeaderVars {
+    /// 版にあるすべての値を、default の値（なければその形の 0）で作る
+    pub fn with_defaults(version: Version, default: impl Fn(&str) -> Option<Value>) -> Self {
+        let values = FIELDS
+            .iter()
+            .filter(|(_, _, when)| when.holds(version))
+            .map(|&(name, kind, _)| (name, default(name).unwrap_or_else(|| zero(kind, version))))
+            .collect();
+        Self { version, values }
+    }
+
     pub fn get(&self, name: &str) -> Option<&Value> {
         self.values.iter().find(|(key, _)| *key == name).map(|(_, value)| value)
     }
@@ -436,6 +457,14 @@ fn read_value(s: &mut In<'_>, kind: Kind) -> Read<Value> {
             Some(handles) => handles.bs()?,
             None => s.data.bs()?,
         }),
+        TailBl => Value::Long(match &mut s.handles {
+            Some(handles) => handles.bl()?,
+            None => s.data.bl()?,
+        }),
+        TailB => Value::Bit(match &mut s.handles {
+            Some(handles) => handles.bit()?,
+            None => s.data.bit()?,
+        }),
     })
 }
 
@@ -460,6 +489,20 @@ fn write_value(out: &mut Out, kind: Kind, value: &Value) {
                 out.handles.bs(*value)
             }
         }
+        (TailBl, Value::Long(value)) => {
+            if out.inline_handles {
+                out.data.bl(*value)
+            } else {
+                out.handles.bl(*value)
+            }
+        }
+        (TailB, Value::Bit(value)) => {
+            if out.inline_handles {
+                out.data.bit(*value)
+            } else {
+                out.handles.bit(*value)
+            }
+        }
         // 形の合わない値は既定の値（0）で書く
         (kind, _) => write_value(out, kind, &zero(kind, out.version)),
     }
@@ -481,6 +524,8 @@ fn zero(kind: Kind, version: Version) -> Value {
         H => Value::Handle(HandleRef { code: 5, value: 0 }),
         Seed => Value::Handle(HandleRef { code: 0, value: 0 }),
         TailBs => Value::Short(0),
+        TailBl => Value::Long(0),
+        TailB => Value::Bit(false),
     }
 }
 

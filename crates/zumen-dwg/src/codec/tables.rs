@@ -130,7 +130,8 @@ impl BlockHeader {
         let xref = s.data.bit()?;
         let overlaid = s.data.bit()?;
         let loaded = s.data.bit()?;
-        let owned = if s.r2004() { s.data.bl()? } else { 0 };
+        // 仕様は R2004 以降につねに持つと書くが、外部参照のブロックは数を持たない（ACadSharp・読み取りと同じ）
+        let owned = if s.r2004() && !xref && !overlaid { s.data.bl()? } else { 0 };
         let base = s.data.bd3()?;
         let xref_path = s.text()?;
         let mut insert_count = Vec::new();
@@ -201,7 +202,7 @@ impl BlockHeader {
         o.data.bit(self.xref);
         o.data.bit(self.overlaid);
         o.data.bit(self.loaded);
-        if o.r2004() {
+        if o.r2004() && !self.xref && !self.overlaid {
             o.data.bl(self.entities.len() as i32);
         }
         o.data.bd3(self.base);
@@ -221,8 +222,10 @@ impl BlockHeader {
         o.href(self.null);
         o.href(self.block);
         if o.r2004() {
-            for entity in &self.entities {
-                o.href(*entity);
+            if !self.xref && !self.overlaid {
+                for entity in &self.entities {
+                    o.href(*entity);
+                }
             }
         } else if let Some((first, last)) = self.first_last {
             o.href(first);
@@ -783,6 +786,11 @@ pub(crate) struct DimStyle {
 }
 
 impl DimStyle {
+    /// 版にある値の名前と形（b・s・d・t・c）
+    pub fn fields(version: Version) -> impl Iterator<Item = (&'static str, char)> {
+        DIM_FIELDS.iter().filter(move |(_, _, since)| dim_holds(*since, version)).map(|(name, kind, _)| (*name, *kind))
+    }
+
     pub fn get(&self, name: &str) -> Option<&DimValue> {
         self.values.iter().find(|(key, _)| *key == name).map(|(_, value)| value)
     }

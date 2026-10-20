@@ -583,3 +583,244 @@ fn dump_splines() {
         println!("{key:?}: {count}");
     }
 }
+
+#[test]
+#[ignore]
+fn dump_sections() {
+    let wanted = std::env::var("ZUMEN_DUMP").unwrap_or_default();
+    for (name, bytes) in samples() {
+        if !wanted.split(',').any(|w| w == name) {
+            continue;
+        }
+        let container = R2004Container::open(&bytes).unwrap();
+        println!("{name}");
+        let mut notices = NoticeList::new();
+        for info in &container.sections {
+            let data = container.data(info, &mut notices);
+            println!(
+                "  {:24} size {:7} max {:#7x} compressed {} encrypted {} pages {:?} first {:?} head {:02x?}",
+                info.name,
+                info.size,
+                info.max_size,
+                info.compressed,
+                info.encrypted,
+                info.pages.iter().map(|page| page.0).collect::<Vec<_>>(),
+                container.address(info),
+                &data[..data.len().min(std::env::var("ZUMEN_BYTES").ok().and_then(|v| v.parse().ok()).unwrap_or(48))]
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore]
+fn dump_dictionaries() {
+    use crate::codec::object::open_raw;
+    use crate::codec::objects::Dictionary;
+    let wanted = std::env::var("ZUMEN_DUMP").unwrap_or_default();
+    for (name, bytes) in samples() {
+        if !wanted.split(',').any(|w| w == name) {
+            continue;
+        }
+        let version = Version::from_magic(&bytes[..6]).unwrap();
+        let (objects, map) = objects_of(&bytes, version);
+        let text = if version >= Version::R2007 {
+            crate::bits::TextCodec::Utf16
+        } else {
+            crate::bits::TextCodec::Bytes(encoding_rs::WINDOWS_1252)
+        };
+        let classes = crate::write::classes::read_class_defs(
+            &framed_section(&bytes, version, 1, "AcDb:Classes").data,
+            version,
+            text,
+        );
+        let header = framed_section(&bytes, version, 0, "AcDb:Header");
+        let vars = crate::codec::header::read_header_vars(&header.data, version).unwrap();
+        let kind_name = |kind: u16| -> String {
+            crate::codec::entities::fixed_name(kind).map(str::to_string).unwrap_or_else(|| {
+                classes
+                    .iter()
+                    .find(|class| class.number == kind)
+                    .map_or(kind.to_string(), |class| class.dxf_name.clone())
+            })
+        };
+        let show = |handle: u64, depth: usize, label: &str, recurse: &dyn Fn(u64, usize, &str)| {
+            let Some(&offset) = map.get(&handle) else {
+                println!("{:indent$}{label} {handle:X} missing", "", indent = depth * 2);
+                return;
+            };
+            let Ok(mut raw) = open_raw(&objects, offset, version) else { return };
+            let kind = raw.kind;
+            let kname = kind_name(kind);
+            println!("{:indent$}{label} {handle:X} {kname}", "", indent = depth * 2);
+            if (kind == 42 || kname == "ACDBDICTIONARYWDFLT") && depth < 2 {
+                if let Ok(dict) = Dictionary::read(&mut raw.input, kname == "ACDBDICTIONARYWDFLT") {
+                    println!(
+                        "{:indent$}  (cloning {} hard_owner {} owner {:X} reactors {:?} xdict {:?})",
+                        "",
+                        dict.cloning,
+                        dict.hard_owner,
+                        dict.common.owner.value,
+                        dict.common.reactors.iter().map(|r| r.value).collect::<Vec<_>>(),
+                        dict.common.xdictionary.map(|x| x.value),
+                        indent = depth * 2
+                    );
+                    for (entry_name, entry) in &dict.entries {
+                        let label = entry_name.text(encoding_rs::WINDOWS_1252);
+                        recurse(entry.value, depth + 1, &label);
+                    }
+                }
+            }
+        };
+        fn walk(f: &dyn Fn(u64, usize, &str, &dyn Fn(u64, usize, &str)), handle: u64, depth: usize, label: &str) {
+            f(handle, depth, label, &|h, d, l| walk(f, h, d, l));
+        }
+        println!("{name} ({version:?})");
+        for (key, value) in &vars.values {
+            if let crate::codec::header::Value::Handle(handle) = value {
+                println!(
+                    "  header {key} = {:X} ({})",
+                    handle.value,
+                    map.get(&handle.value)
+                        .and_then(|&o| open_raw(&objects, o, version).ok())
+                        .map_or("-".into(), |raw| kind_name(raw.kind))
+                );
+            }
+        }
+        let root = vars.handle("DICTIONARY_NAMED_OBJECTS").unwrap();
+        walk(&show, root, 0, "ROOT");
+    }
+}
+
+/// 種類ごとに最初のいくつかのオブジェクトの値を表示する（新しい図面の既定の値を決めるため）
+#[test]
+#[ignore]
+fn dump_objects() {
+    use crate::codec::entities::{Entity, fixed_name};
+    use crate::codec::object::open_raw;
+    use crate::codec::objects::*;
+    use crate::codec::tables::*;
+    let wanted = std::env::var("ZUMEN_DUMP").unwrap_or_default();
+    let kinds: Vec<String> = std::env::var("ZUMEN_KINDS").unwrap_or_default().split(',').map(str::to_string).collect();
+    let limit: usize = std::env::var("ZUMEN_LIMIT").ok().and_then(|v| v.parse().ok()).unwrap_or(1);
+    for (name, bytes) in samples() {
+        if !wanted.split(',').any(|w| w == name) {
+            continue;
+        }
+        let version = Version::from_magic(&bytes[..6]).unwrap();
+        let (objects, map) = objects_of(&bytes, version);
+        let text = if version >= Version::R2007 {
+            crate::bits::TextCodec::Utf16
+        } else {
+            crate::bits::TextCodec::Bytes(encoding_rs::WINDOWS_1252)
+        };
+        let classes = crate::write::classes::read_class_defs(
+            &framed_section(&bytes, version, 1, "AcDb:Classes").data,
+            version,
+            text,
+        );
+        let mut handles: Vec<(&u64, &usize)> = map.iter().collect();
+        handles.sort();
+        let mut seen: std::collections::HashMap<String, usize> = Default::default();
+        for (handle, &offset) in handles {
+            let Ok(mut raw) = open_raw(&objects, offset, version) else { continue };
+            let class =
+                classes.iter().find(|class| class.number == raw.kind).map_or("", |class| class.dxf_name.as_str());
+            let kname = fixed_name(raw.kind)
+                .map(str::to_string)
+                .unwrap_or_else(|| if class.is_empty() { raw.kind.to_string() } else { class.to_string() });
+            if !kinds.iter().any(|k| *k == kname) {
+                continue;
+            }
+            let count = seen.entry(kname.clone()).or_default();
+            if *count >= limit {
+                continue;
+            }
+            *count += 1;
+            let s = &mut raw.input;
+            let value: String = match (raw.kind, class) {
+                (48 | 50 | 52 | 56 | 60 | 62 | 64 | 66 | 68 | 70, _) => format!("{:?}", Control::read(s, raw.kind)),
+                (49, _) => format!("{:?}", BlockHeader::read(s)),
+                (51, _) => format!("{:?}", Layer::read(s)),
+                (53, _) => format!("{:?}", TextStyle::read(s)),
+                (57, _) => format!("{:?}", Linetype::read(s)),
+                (65, _) => format!("{:?}", Vport::read(s)),
+                (67, _) => format!("{:?}", Appid::read(s)),
+                (69, _) => format!("{:?}", DimStyle::read(s)),
+                (42, _) => format!("{:?}", Dictionary::read(s, false)),
+                (72, _) => format!("{:?}", Group::read(s)),
+                (73, _) => format!("{:?}", MLineStyle::read(s)),
+                (79, _) | (_, "XRECORD") => format!("{:?}", XRecord::read(s)),
+                (80, _) | (_, "ACDBPLACEHOLDER") => format!("{:?}", Placeholder::read(s)),
+                (82, _) | (_, "LAYOUT") => format!("{:?}", Layout::read(s)),
+                (_, "ACDBDICTIONARYWDFLT") => format!("{:?}", Dictionary::read(s, true)),
+                (_, "DICTIONARYVAR") => format!("{:?}", DictionaryVar::read(s)),
+                (_, "SCALE") => format!("{:?}", Scale::read(s)),
+                (_, "SORTENTSTABLE") => format!("{:?}", SortEntsTable::read(s)),
+                (_, "MLEADERSTYLE") => format!("{:?}", MLeaderStyle::read(s)),
+                (_, "MATERIAL") => format!("{:?}", Material::read(s)),
+                _ => format!("{:?}", Entity::read(s, &kname)),
+            };
+            println!("{name} {handle:X} {kname} eed {:?}\n  {value}", raw.eed);
+        }
+    }
+}
+
+#[test]
+#[ignore]
+fn dump_header() {
+    let wanted = std::env::var("ZUMEN_DUMP").unwrap_or_default();
+    for (name, bytes) in samples() {
+        if !wanted.split(',').any(|w| w == name) {
+            continue;
+        }
+        let version = Version::from_magic(&bytes[..6]).unwrap();
+        let header = framed_section(&bytes, version, 0, "AcDb:Header");
+        let vars = crate::codec::header::read_header_vars(&header.data, version).unwrap();
+        for (key, value) in &vars.values {
+            println!("{key} = {value:?}");
+        }
+    }
+}
+
+#[test]
+#[ignore]
+fn dump_header_tails() {
+    use crate::codec::header::{header_bits, read_header_vars};
+    for (name, bytes) in samples() {
+        let Some(version) = Version::from_magic(&bytes[..6]) else { continue };
+        if !matches!(version, Version::R2000 | Version::R2004 | Version::R2010 | Version::R2013 | Version::R2018) {
+            continue;
+        }
+        let framed = framed_section(&bytes, version, 0, "AcDb:Header");
+        let vars = read_header_vars(&framed.data, version).unwrap();
+        let written = header_bits(&vars).bit_len();
+        let total = framed.data.len() as u64 * 8;
+        let tail: String = (written..total)
+            .map(|bit| if framed.data[(bit / 8) as usize] & (0x80 >> (bit % 8)) != 0 { '1' } else { '0' })
+            .collect();
+        println!("{name} {version:?} maintenance {} tail {tail}", bytes[0x0b]);
+    }
+}
+
+#[test]
+#[ignore]
+fn dump_classes() {
+    let wanted = std::env::var("ZUMEN_DUMP").unwrap_or_default();
+    for (name, bytes) in samples() {
+        if !wanted.split(',').any(|w| w == name) {
+            continue;
+        }
+        let version = Version::from_magic(&bytes[..6]).unwrap();
+        let text = if version >= Version::R2007 {
+            crate::bits::TextCodec::Utf16
+        } else {
+            crate::bits::TextCodec::Bytes(encoding_rs::WINDOWS_1252)
+        };
+        let framed = framed_section(&bytes, version, 1, "AcDb:Classes");
+        println!("{name} extra {:?}", framed.extra);
+        for class in crate::write::classes::read_class_defs(&framed.data, version, text) {
+            println!("  {class:?}");
+        }
+    }
+}

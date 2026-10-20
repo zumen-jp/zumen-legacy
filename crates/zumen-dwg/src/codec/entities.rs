@@ -1697,9 +1697,9 @@ impl Spline {
             knot_parameter = s.data.bl()?;
         }
         let degree = s.data.bl()?;
-        // R2013 以降は、節点の取り方が任意（15）か当てはめ点を持たない（印の 1 がない）とき制御点
+        // R2013 以降は、節点の取り方が任意（15）か節点の取り方を使わない（印の 8 がない）とき制御点（読み取り・ACadSharp と同じ）
         let fit_data =
-            if s.version >= Version::R2013 { knot_parameter != 15 && flags1 & 1 != 0 } else { scenario == 2 };
+            if s.version >= Version::R2013 { knot_parameter != 15 && flags1 & 8 != 0 } else { scenario == 2 };
         let (mut fit, mut control) = (None, None);
         if fit_data {
             let tolerance = s.data.bd()?;

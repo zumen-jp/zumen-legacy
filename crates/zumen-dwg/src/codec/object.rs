@@ -85,16 +85,6 @@ pub(crate) struct ObjectCommon {
 }
 
 impl ObjectCommon {
-    /// 持ち主だけの値（リアクタなし、拡張辞書なし）
-    pub fn owned_by(owner: u64, version: Version) -> Self {
-        Self {
-            owner: HandleRef { code: 4, value: owner },
-            reactors: Vec::new(),
-            xdictionary: (version < Version::R2004).then_some(HandleRef { code: 3, value: 0 }),
-            ds_binary: false,
-        }
-    }
-
     pub fn read(s: &mut In<'_>) -> Read<Self> {
         let reactors = s.data.bl()?;
         let missing = s.r2004() && s.data.bit()?;
