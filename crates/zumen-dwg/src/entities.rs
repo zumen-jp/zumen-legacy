@@ -1336,6 +1336,15 @@ fn mview(eed: &crate::objects::Eed, viewport: &mut DxfViewport) {
         }) else {
             continue;
         };
+        // DXF Reference, VIEWPORT (R12): frozen layers are 1003 values in
+        // MVIEW's nested list. DWG EED stores their handles (ODA section 28).
+        viewport.frozen_layer_handles = values[start + 1..]
+            .iter()
+            .filter_map(|(code, value)| match (code, value) {
+                (1003, EedValue::Handle(handle)) => Some(hex(*handle)),
+                _ => None,
+            })
+            .collect();
         let mut points = Vec::new();
         let mut reals = Vec::new();
         for (code, value) in &values[start + 1..] {
@@ -1461,4 +1470,41 @@ fn mline(s: &mut Streams<'_>, names: &Names) -> Read<(DxfMLine, [f64; 3])> {
 
 fn js_int(value: f64) -> i32 {
     zumen_core::js::to_int32(value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::bits::{Bits, TextCodec};
+    use crate::file::Version;
+    use crate::objects::{Eed, EedValue, Format};
+
+    #[test]
+    fn r14_mview_preserves_frozen_layers_after_the_view_parameters() {
+        let format =
+            Format { version: Version::R14, maintenance: 0, codec: TextCodec::Bytes(encoding_rs::WINDOWS_1252) };
+        // Five BD zeros: three center coordinates, width and height.
+        let mut streams = Streams::inline(Bits::new(&[0xaa, 0x80]), format);
+        let mut view = viewport(&mut streams).unwrap();
+        let eed = Eed {
+            apps: vec![(
+                1,
+                vec![
+                    (1000, EedValue::Text("MVIEW".into())),
+                    (1002, EedValue::Control(false)),
+                    (1040, EedValue::Number(15.0)),
+                    (1040, EedValue::Number(100.0)),
+                    (1002, EedValue::Control(false)),
+                    (1003, EedValue::Handle(0x102)),
+                    (1003, EedValue::Handle(0xabcdef)),
+                    (1002, EedValue::Control(true)),
+                    (1002, EedValue::Control(true)),
+                ],
+            )],
+        };
+        mview(&eed, &mut view);
+        assert_eq!(view.frozen_layer_handles, ["102", "ABCDEF"]);
+        assert_eq!(view.view_height, 100.0);
+        assert_eq!(view.view_twist_angle, 15.0);
+    }
 }

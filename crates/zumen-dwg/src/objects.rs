@@ -313,6 +313,7 @@ pub(crate) enum EedValue {
     Text(String),
     Number(f64),
     Point([f64; 3]),
+    Handle(u64),
     /// 1002 の { （false）と }（true）
     Control(bool),
     Other,
@@ -418,8 +419,13 @@ fn eed_values(bytes: &[u8], format: Format) -> Vec<(i32, EedValue)> {
                 }
                 2 => EedValue::Control(reader.rc()? != 0),
                 3 | 5 => {
-                    reader.skip(64)?;
-                    EedValue::Other
+                    // Open Design Specification, section 28: eight handle bytes,
+                    // most significant first, without the usual length prefix.
+                    let mut handle = 0_u64;
+                    for _ in 0..8 {
+                        handle = (handle << 8) | u64::from(reader.rc()?);
+                    }
+                    EedValue::Handle(handle)
                 }
                 4 => {
                     let length = u64::from(reader.rc()?);
@@ -632,6 +638,14 @@ fn entity_color(s: &mut Streams<'_>) -> Read<(Color, Option<f64>, bool)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn eed_layer_handles_keep_all_eight_bytes() {
+        let format =
+            Format { version: Version::R14, maintenance: 0, codec: TextCodec::Bytes(encoding_rs::WINDOWS_1252) };
+        let values = eed_values(&[3, 0, 0, 0, 0, 1, 2, 3, 4], format);
+        assert_eq!(values, [(1003, EedValue::Handle(0x0102_0304))]);
+    }
 
     #[test]
     fn the_object_map_accumulates_handles_and_locations_per_section() {

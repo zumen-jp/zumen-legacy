@@ -293,7 +293,7 @@ TypeScript DWG reader, so each DWG is compared with the DXF that AutoCAD wrote f
   - The three layouts give the same scenes in every version. Model space differs only in the ids of the three entities
     with new handles. Against binary DXF of 2004 and later, four MTEXT also differed, because the DXF reader kept their
     line feeds instead of breaking paragraphs (fixed since).
-  - The AC1014 (R14) file is refused with a message.
+  - At this stage AC1014 (R14) was refused; see the later R13/R14 verification below.
 - The Yokosuka City survey plan as DWG 2018 (0.4 MB, read locally), against the DXF of the same drawing used in
   [DXF](#dxf): all 9,260 entities equal those of the DXF value for value, including the Japanese layer names and texts,
   and so do the tables, except the index that DXF adds to two layers with a true color and the dimension style defaults
@@ -336,7 +336,7 @@ Chromium 152. Times are medians of seven runs after a warm-up.
   R2000 in `ANSI_932` and as R2018 in UTF-16, 3.3 and 3.7 KB) give the same scenes in model space and in `Layout1`
   through `@zumenjs/dwg` in Node.js (the golden files), natively (`crates/zumen/tests/golden.rs`) and in
   `scripts/wasm-check.mjs` with the other 31 fixtures. Reading before `initDwg` throws an error that names it, a failed
-  load is retried, `isDwg` agrees with the WebAssembly `detect` on every fixture and 11 short inputs, an R14 file
+  load is retried, `isDwg` agrees with the WebAssembly `detect` on every fixture and 11 short inputs, an unsupported version
   throws the reader's message, and point lists are `Float64Array`.
 - Size: the module (`packages/dwg/wasm/zumen_wasm_bg.wasm`, all four readers, no `wasm-opt`) is 1,560,473 bytes
   (gzip −9: 630,299, brotli −11: 493,835), and the JavaScript glue 8,483 bytes. `pnpm pack` of `@zumenjs/dwg` is
@@ -359,8 +359,8 @@ Chromium 152. Times are medians of seven runs after a warm-up.
 - In the playground: `sample_AC1032.dwg` in model space and in its three layouts, from the view menu and from
   `?view=Layout1`. In the `Layout1` viewport (1:1.442, inches), a line measures 57.6 mm on paper and 83.1 mm in real
   units, the same as in `sample_AC1032_ascii.dxf` at the same points. The Yokosuka plan (UTF-16, 15 layers with
-  Japanese names) in model space, where the left sheet frame measures 574.0 mm, as in its DXF. `sample_AC1014.dwg`
-  shows 「対応していない DWG の版です（AC1014、AutoCAD R13・R14）。R2000 以降の DWG を読めます」. A JWW opened after a
+  Japanese names) in model space, where the left sheet frame measures 574.0 mm, as in its DXF. At this stage `sample_AC1014.dwg`
+  showed 「対応していない DWG の版です（AC1014、AutoCAD R13・R14）。R2000 以降の DWG を読めます」. A JWW opened after a
   DWG reads as before.
 - The packed `@zumenjs/core` and `@zumenjs/dwg`, installed in a separate Vite app: `initDwg()` without an argument
   loads the module in the development server (from `node_modules`, after dependency pre-bundling) and in a build
@@ -639,3 +639,10 @@ Checked on 2026-10-18 on macOS (Apple Silicon) with Rust 1.99.0, Node.js 24.21.0
   solids and hatches are drawn in the same places.
 - Not checked: Windows and Linux builds of the Python wheel (CI builds on Linux), free-threaded Python, fonts other
   than the bundled BIZ UDGothic (Mincho text is drawn in Gothic), and rendering of SXF and DXF scenes (not ported yet).
+
+## R13/R14 DWG review (2026-10-20)
+
+Generated R13 and R14 drawings match the equivalent R2000 model after excluding fields those versions do not store.
+Tests cover eight-byte EED layer handles, frozen layers in MVIEW and conversion of imperial paper limits to millimeters.
+The external DWG sample tests pass in release mode. In the `pnpm dev` playground, `sample_AC1014.dwg` displays 208 model
+entities on 9 layers and 15 entities in Layout1, with no browser console errors. Native R13 files remain unverified.

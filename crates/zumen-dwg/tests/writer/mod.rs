@@ -776,10 +776,10 @@ pub fn dictionary(version: Version, handle: u64, owner: u64, entries: &[(&str, u
     let mut o = obj(version, 42, handle);
     o.non_entity(owner);
     o.data.bl(entries.len() as i32);
-    if r14(version) {
+    if version == Version::R14 {
         // R14 だけの不明の RC（つねに 0）
         o.data.rc(0);
-    } else {
+    } else if version >= Version::R2000 {
         o.data.bs(0);
         o.data.rc(1);
     }
@@ -1217,7 +1217,9 @@ pub fn leader(
     o.data.bd3([0.0, 0.0, 1.0]);
     o.data.bd3([1.0, 0.0, 0.0]);
     o.data.bd3([0.0; 3]);
-    o.data.bd3([0.0; 3]);
+    if version >= Version::R14 {
+        o.data.bd3([0.0; 3]);
+    }
     if r14(version) {
         // R13・R14 は作ったときの DIMGAP
         o.data.bd(0.0);

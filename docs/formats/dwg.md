@@ -77,7 +77,8 @@ those that R2000 added. The differences read are:
 - **Viewports**: a VIEWPORT has only its center and size. Its view (target, direction, twist, height and center) is read
   from the `MVIEW` extended data of the `ACAD` application, as the DXF reader reads an R12 viewport.
 - **Layouts**: there is no LAYOUT. When paper space has entities, the drawing gets one layout, `Layout1`, on the paper
-  space block with the paper space limits, as the DXF reader does for R12.
+  space block with the paper space limits. Inferred: template `$MEASUREMENT = 0` makes those limits inches;
+  metric limits are millimeters. The sheet and paper-space entities use the same conversion to millimeters.
 - **Text alignment**: TEXT always stores the alignment point; it is kept only for an alignment other than left on the
   baseline, as AutoCAD leaves it out of DXF and of R2000 drawings (*inferred*).
 
@@ -86,7 +87,8 @@ same entity by entity, table by table and in every header variable they share, e
 weights, plot flags, block descriptions, `$INSUNITS`, dimension measurements, MTEXT line spacing) and what AutoCAD changed
 when it saved the drawing as R14 (table names in capitals, names with characters R14 does not allow, one fraction of
 MTEXT, the last digits of some coordinates). ezdwg reads the same coordinates and strings from the eight drawings. R13
-follows the specification only: no R13 drawing was available to check.
+is covered by generated drawings checked against the equivalent R2000 model; no native R13 drawing was available to check.
+MVIEW extended data also preserves frozen-layer handles, so those layers stay hidden in the viewport.
 
 ## Text
 
