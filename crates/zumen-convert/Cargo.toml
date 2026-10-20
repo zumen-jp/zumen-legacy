@@ -12,5 +12,8 @@ zumen-dxf.workspace = true
 zumen-jww.workspace = true
 zumen-sxf.workspace = true
 
+[dev-dependencies]
+zumen-dwg.workspace = true
+
 [lints]
 workspace = true
