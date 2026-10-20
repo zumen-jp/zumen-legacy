@@ -11,7 +11,7 @@ use zumen_core::{NoticeLevel, NoticeList};
 
 /// DWG の版（3.2.1）
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum Version {
+pub enum Version {
     R13,
     R14,
     R2000,
@@ -105,24 +105,35 @@ pub(crate) fn open<'a>(bytes: &'a [u8], notices: &mut NoticeList) -> Result<DwgF
 
 // --- R13〜R2000 ---------------------------------------------------------------
 
-/// 3.2.6 の節の位置（番号・位置・大きさ）。0 ヘッダ変数、1 クラス、2 オブジェクトの表、4 MEASUREMENT
-fn r2000_sections(bytes: &[u8]) -> Result<Sections<'_>, String> {
+/// 3.2.6 の節の位置の記録（番号, 位置, 大きさ）。同じ番号が重なれば最初のもの
+pub(crate) fn r2000_records(bytes: &[u8]) -> Result<Vec<(u8, usize, usize)>, String> {
     let mut reader = Bits::at(bytes, 0x15);
     let count = reader.rl().map_err(|_| "DWG の節の位置が読めません".to_string())?;
-    let mut records: HashMap<u8, (usize, usize)> = HashMap::new();
+    let mut records: Vec<(u8, usize, usize)> = Vec::new();
     for _ in 0..count.min(16) {
         let Ok((number, seeker, size)) =
             (|| -> Read<(u8, u32, u32)> { Ok((reader.rc()?, reader.rl()?, reader.rl()?)) })()
         else {
             break;
         };
-        records.entry(number).or_insert((seeker as usize, size as usize));
+        if !records.iter().any(|record| record.0 == number) {
+            records.push((number, seeker as usize, size as usize));
+        }
     }
-    let slice = |number: u8| -> Option<Cow<'_, [u8]>> {
-        let &(seeker, size) = records.get(&number)?;
-        let end = seeker.checked_add(size)?.min(bytes.len());
-        (seeker < end).then(|| Cow::Borrowed(&bytes[seeker..end]))
-    };
+    Ok(records)
+}
+
+/// R2000 の節の記録の範囲のバイト列。範囲がファイルの外なら None
+pub(crate) fn r2000_slice<'a>(bytes: &'a [u8], records: &[(u8, usize, usize)], number: u8) -> Option<&'a [u8]> {
+    let &(_, seeker, size) = records.iter().find(|record| record.0 == number)?;
+    let end = seeker.checked_add(size)?.min(bytes.len());
+    (seeker < end).then(|| &bytes[seeker..end])
+}
+
+/// 3.2.6 の節の位置（番号・位置・大きさ）。0 ヘッダ変数、1 クラス、2 オブジェクトの表、4 MEASUREMENT
+fn r2000_sections(bytes: &[u8]) -> Result<Sections<'_>, String> {
+    let records = r2000_records(bytes)?;
+    let slice = |number: u8| r2000_slice(bytes, &records, number).map(Cow::Borrowed);
     let missing = |name: &str| format!("DWG の節（{name}）が見つかりません");
     Ok(Sections {
         header: slice(0).ok_or_else(|| missing("ヘッダ変数"))?,
@@ -135,8 +146,9 @@ fn r2000_sections(bytes: &[u8]) -> Result<Sections<'_>, String> {
 
 // --- R2004・R2010〜R2018 ------------------------------------------------------
 
-/// 4.1 の 0x80 からの 0x6C バイトを解く数の並び（randseed = randseed * 0x343fd + 0x269ec3）
-fn magic_sequence(length: usize) -> Vec<u8> {
+/// 4.1 の 0x80 からの 0x6C バイトを解く数の並び（randseed = randseed * 0x343fd + 0x269ec3）。
+/// ページの後ろの詰め物（4.3、4.6）も、この並びの始まりから取る
+pub(crate) fn magic_sequence(length: usize) -> Vec<u8> {
     let mut seed: u32 = 1;
     (0..length)
         .map(|_| {
@@ -147,12 +159,26 @@ fn magic_sequence(length: usize) -> Vec<u8> {
 }
 
 /// 4.5 のデータの節の説明
-struct SectionInfo {
-    size: u64,
-    max_size: usize,
-    compressed: bool,
+#[derive(Debug, Clone)]
+pub(crate) struct SectionInfo {
+    pub name: String,
+    pub size: u64,
+    /// ページの大きさ（伸長した後、Max Decompressed Size）
+    pub max_size: usize,
+    pub compressed: bool,
+    /// 0 は暗号化なし、1 はあり、2 は不明（AcDb:FileDepList など）
+    pub encrypted: u32,
     /// (ページの番号, データの大きさ, 伸長した節の中の位置)
-    pages: Vec<(i32, usize, u64)>,
+    pub pages: Vec<(i32, usize, u64)>,
+}
+
+/// R2004 以降の入れ物を開いたところ。ページの表（4.4）と節の表（4.5）
+pub(crate) struct R2004Container<'a> {
+    bytes: &'a [u8],
+    /// ページの番号 → ファイルの中の位置
+    pages: HashMap<i32, usize>,
+    /// 節の表に並ぶ順の節
+    pub sections: Vec<SectionInfo>,
 }
 
 /// システムの節のページ（4.3）。0x14 バイトの頭と圧縮したデータ
@@ -167,69 +193,103 @@ fn r18_system_page(bytes: &[u8], address: usize) -> Option<Vec<u8>> {
     Some(decompress_r18(data, decompressed.min(MAX_SECTION_BYTES)))
 }
 
-fn r2004_sections<'a>(bytes: &'a [u8], notices: &mut NoticeList) -> Result<Sections<'a>, String> {
-    let broken = || "DWG のページの表が読めません".to_string();
-    let mut header: Vec<u8> = bytes[0x80..0x80 + 0x6c].to_vec();
-    for (byte, mask) in header.iter_mut().zip(magic_sequence(0x6c)) {
-        *byte ^= mask;
+impl<'a> R2004Container<'a> {
+    pub fn open(bytes: &'a [u8]) -> Result<Self, String> {
+        let broken = || "DWG のページの表が読めません".to_string();
+        let header = r2004_file_header(bytes)?;
+        let field = |at: usize| u32::from_le_bytes([header[at], header[at + 1], header[at + 2], header[at + 3]]);
+        let field64 = |at: usize| u64::from(field(at)) | (u64::from(field(at + 4)) << 32);
+        let page_map_address = usize::try_from(field64(0x54).saturating_add(0x100)).map_err(|_| broken())?;
+        let section_map_id = field(0x5c) as i32;
+
+        // ページの表（4.4）: ページの番号と大きさ。番号が負なら空き
+        let page_map = r18_system_page(bytes, page_map_address).ok_or_else(broken)?;
+        let mut pages: HashMap<i32, usize> = HashMap::new();
+        let mut reader = Bits::new(&page_map);
+        let mut address: usize = 0x100;
+        while reader.remaining() >= 64 {
+            let (Ok(number), Ok(size)) = (reader.rl(), reader.rl()) else { break };
+            let number = number as i32;
+            if number >= 0 {
+                pages.entry(number).or_insert(address);
+            } else if reader.skip(128).is_err() {
+                break;
+            }
+            address = address.saturating_add(size as usize);
+        }
+
+        // データの節の表（4.5）
+        let section_map_address = *pages.get(&section_map_id).ok_or_else(broken)?;
+        let section_map = r18_system_page(bytes, section_map_address).ok_or_else(broken)?;
+        let mut sections: Vec<SectionInfo> = Vec::new();
+        let mut reader = Bits::new(&section_map);
+        let descriptions = reader.rl().map_err(|_| broken())?;
+        reader.skip(4 * 32).map_err(|_| broken())?;
+        for _ in 0..descriptions.min(1024) {
+            let Ok(info) = (|| -> Read<SectionInfo> {
+                let size = reader.rll()?;
+                let page_count = reader.rl()?;
+                let max_size = reader.rl()? as usize;
+                let _unknown = reader.rl()?;
+                let compressed = reader.rl()? == 2;
+                let _id = reader.rl()?;
+                let encrypted = reader.rl()?;
+                let name_bytes = reader.bytes(64)?;
+                let name: String =
+                    name_bytes.iter().take_while(|byte| **byte != 0).map(|byte| char::from(*byte)).collect();
+                let mut pages = Vec::new();
+                for _ in 0..page_count {
+                    pages.push((reader.rl()? as i32, reader.rl()? as usize, reader.rll()?));
+                }
+                Ok(SectionInfo { name, size, max_size, compressed, encrypted, pages })
+            })() else {
+                break;
+            };
+            if !sections.iter().any(|section| section.name == info.name) {
+                sections.push(info);
+            }
+        }
+        Ok(Self { bytes, pages, sections })
     }
+
+    pub fn info(&self, name: &str) -> Option<&SectionInfo> {
+        self.sections.iter().find(|section| section.name == name)
+    }
+
+    /// 名前の節を伸長する。ないなら None
+    pub fn section(&self, name: &str, notices: &mut NoticeList) -> Option<Vec<u8>> {
+        Some(self.data(self.info(name)?, notices))
+    }
+
+    /// 節を、ページを順に伸長してつなげる（4.5、4.6）
+    pub fn data(&self, info: &SectionInfo, notices: &mut NoticeList) -> Vec<u8> {
+        r18_section(self.bytes, &self.pages, info, &info.name, notices)
+    }
+
+    /// 節の最初のページのファイルの中の位置（ファイルの中の節の順に使う）。ページがなければ None
+    pub fn address(&self, info: &SectionInfo) -> Option<usize> {
+        info.pages.first().and_then(|(number, ..)| self.page_address(*number))
+    }
+
+    /// ページの番号のページのファイルの中の位置
+    pub fn page_address(&self, number: i32) -> Option<usize> {
+        self.pages.get(&number).copied()
+    }
+}
+
+/// 0x80 からの 0x6C バイトのファイルの頭のデータ（4.1）を解く
+pub(crate) fn r2004_file_header(bytes: &[u8]) -> Result<Vec<u8>, String> {
+    let encrypted = bytes.get(0x80..0x80 + 0x6c).ok_or_else(|| "DWG のファイルの頭が途中で切れています".to_string())?;
+    let header: Vec<u8> = encrypted.iter().zip(magic_sequence(0x6c)).map(|(byte, mask)| byte ^ mask).collect();
     if !header.starts_with(b"AcFssFcAJMB") {
         return Err("DWG のファイルの頭（AcFssFcAJMB）が読めません".into());
     }
-    let field = |at: usize| u32::from_le_bytes([header[at], header[at + 1], header[at + 2], header[at + 3]]);
-    let field64 = |at: usize| u64::from(field(at)) | (u64::from(field(at + 4)) << 32);
-    let page_map_address = usize::try_from(field64(0x54).saturating_add(0x100)).map_err(|_| broken())?;
-    let section_map_id = field(0x5c) as i32;
+    Ok(header)
+}
 
-    // ページの表（4.4）: ページの番号と大きさ。番号が負なら空き
-    let page_map = r18_system_page(bytes, page_map_address).ok_or_else(broken)?;
-    let mut pages: HashMap<i32, usize> = HashMap::new();
-    let mut reader = Bits::new(&page_map);
-    let mut address: usize = 0x100;
-    while reader.remaining() >= 64 {
-        let (Ok(number), Ok(size)) = (reader.rl(), reader.rl()) else { break };
-        let number = number as i32;
-        if number >= 0 {
-            pages.entry(number).or_insert(address);
-        } else if reader.skip(128).is_err() {
-            break;
-        }
-        address = address.saturating_add(size as usize);
-    }
-
-    // データの節の表（4.5）
-    let section_map_address = *pages.get(&section_map_id).ok_or_else(broken)?;
-    let section_map = r18_system_page(bytes, section_map_address).ok_or_else(broken)?;
-    let mut infos: HashMap<String, SectionInfo> = HashMap::new();
-    let mut reader = Bits::new(&section_map);
-    let descriptions = reader.rl().map_err(|_| broken())?;
-    reader.skip(4 * 32).map_err(|_| broken())?;
-    for _ in 0..descriptions.min(1024) {
-        let Ok(info) = (|| -> Read<(String, SectionInfo)> {
-            let size = reader.rll()?;
-            let page_count = reader.rl()?;
-            let max_size = reader.rl()? as usize;
-            let _unknown = reader.rl()?;
-            let compressed = reader.rl()? == 2;
-            let _id = reader.rl()?;
-            let _encrypted = reader.rl()?;
-            let name_bytes = reader.bytes(64)?;
-            let name: String = name_bytes.iter().take_while(|byte| **byte != 0).map(|byte| char::from(*byte)).collect();
-            let mut pages = Vec::new();
-            for _ in 0..page_count {
-                pages.push((reader.rl()? as i32, reader.rl()? as usize, reader.rll()?));
-            }
-            Ok((name, SectionInfo { size, max_size, compressed, pages }))
-        })() else {
-            break;
-        };
-        infos.entry(info.0).or_insert(info.1);
-    }
-
-    let mut section = |name: &str| -> Option<Vec<u8>> {
-        let info = infos.get(name)?;
-        Some(r18_section(bytes, &pages, info, name, notices))
-    };
+fn r2004_sections<'a>(bytes: &'a [u8], notices: &mut NoticeList) -> Result<Sections<'a>, String> {
+    let container = R2004Container::open(bytes)?;
+    let mut section = |name: &str| container.section(name, notices);
     let missing = |name: &str| format!("DWG の節（{name}）が見つかりません");
     Ok(Sections {
         header: Cow::Owned(section("AcDb:Header").ok_or_else(|| missing("AcDb:Header"))?),
