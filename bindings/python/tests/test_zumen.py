@@ -243,6 +243,7 @@ def test_reads_compressed_sxf_and_stops_unpacking_at_the_limit(tmp_path):
     scene = zumen.read(archive)
     assert json.loads(scene.to_json())["entities"] == json.loads(zumen.read(p21).to_json())["entities"]
     assert ("圧縮", "P2Z（DRAWING/SAMPLE.P21）") in scene.metadata
+    assert zumen.convert(archive).data == zumen.convert(p21).data
 
     bomb = tmp_path / "bomb.sfz"
     with zipfile.ZipFile(bomb, "w", compression=zipfile.ZIP_DEFLATED) as zipped:
