@@ -414,3 +414,230 @@ fn samples_written_as_sxf_draw_the_same() {
     }
     assert!(failures.is_empty(), "{failures:#?}");
 }
+
+// --- 写し方の規則（小さな図面） ----------------------------------------------------------------------------
+
+/// グループコードと値の組を、テキストの DXF の行にする
+fn tags(pairs: &[(i32, &str)]) -> String {
+    pairs.iter().map(|(code, value)| format!("{code}\n{value}\n")).collect()
+}
+
+/// ブロックと図形だけの DXF（表とレイアウトのない図面はモデル空間を開く）
+fn dxf(blocks: &str, entities: &str) -> DxfDocument {
+    let text = format!(
+        "0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nBLOCKS\n{blocks}0\nENDSEC\n0\nSECTION\n2\nENTITIES\n{entities}0\nENDSEC\n0\nEOF\n"
+    );
+    zumen::dxf::parse_dxf(text.as_bytes())
+}
+
+fn written_sxf(doc: &DxfDocument) -> (zumen::sxf::SxfDrawing, zumen::mapping::MappedSxf, Vec<u8>) {
+    let mapped = zumen::mapping::dxf_to_sxf(doc);
+    let (written, _) = mapped.write();
+    (zumen::sxf::parse_sfc(&written.bytes).unwrap(), mapped, written.bytes)
+}
+
+fn codes(notices: &[zumen::Notice]) -> Vec<&str> {
+    notices.iter().map(|notice| notice.code.as_str()).collect()
+}
+
+#[test]
+fn writes_model_space_as_a_one_to_one_sub_figure_on_a_sheet_of_its_size() {
+    let doc = dxf(
+        "",
+        &tags(&[(0, "LINE"), (5, "A1"), (8, "WALL"), (62, "1"), (10, "100"), (20, "100"), (11, "300"), (21, "200")]),
+    );
+    let (drawing, mapped, _) = written_sxf(&doc);
+    let document = &drawing.document;
+    // 用紙は図形の範囲の大きさ（自由）
+    let sheet = document.sheet.as_ref().unwrap();
+    assert_eq!((sheet.sheet_type, sheet.x, sheet.y), (9.0, 200.0, 100.0));
+    // モデル空間は 1:1 の部分図。図形は実寸のまま、配置で用紙の原点へ寄せる
+    let figure = document.sub_figures.values().next().unwrap();
+    assert_eq!((figure.feature.name.as_str(), figure.feature.flag), ("モデル空間", 1.0));
+    let zumen::sxf::SxfFeature::Line { style, x1, y1, .. } = &figure.members[0] else { panic!("line") };
+    assert_eq!((*x1, *y1), (100.0, 100.0));
+    assert_eq!(style.color, 2.0, "ACI 1 は既定義色の赤");
+    assert_eq!(document.layers[style.layer as usize - 1].name, "WALL");
+    let zumen::sxf::SxfFeature::SfigLocate { x, y, ratio_x, ratio_y, layer, .. } = &document.sheet_members[0] else {
+        panic!("locate")
+    };
+    assert_eq!((*x, *y, *ratio_x, *ratio_y, *layer), (-100.0, -100.0, 1.0, 1.0, 0.0));
+    assert!(codes(&mapped.notices).contains(&"model-sheet"));
+}
+
+#[test]
+fn writes_blocks_as_drawing_parts_and_a_copy_for_each_inherited_color() {
+    let block = tags(&[(0, "BLOCK"), (2, "MARK"), (70, "0"), (10, "5"), (20, "0")])
+        + &tags(&[(0, "LINE"), (5, "B1"), (8, "0"), (62, "0"), (10, "5"), (20, "0"), (11, "15"), (21, "0")])
+        + &tags(&[(0, "ENDBLK")]);
+    let insert = |handle: &str, color: &str, x: &str| {
+        tags(&[(0, "INSERT"), (5, handle), (8, "SYMBOL"), (62, color), (2, "MARK"), (10, x), (20, "0")])
+    };
+    let rotated = tags(&[
+        (0, "INSERT"),
+        (5, "I3"),
+        (8, "SYMBOL"),
+        (62, "1"),
+        (2, "MARK"),
+        (10, "0"),
+        (20, "50"),
+        (41, "2"),
+        (42, "2"),
+        (50, "90"),
+    ]);
+    let doc = dxf(&block, &(insert("I1", "1", "0") + &insert("I2", "5", "40") + &rotated));
+    let (drawing, mapped, _) = written_sxf(&doc);
+    let document = &drawing.document;
+    let model = document.sub_figures.get("モデル空間").unwrap();
+    let locates: Vec<(&str, f64, f64, f64)> = model
+        .members
+        .iter()
+        .filter_map(|member| match member {
+            zumen::sxf::SxfFeature::SfigLocate { name, x, angle, ratio_x, .. } => {
+                Some((name.as_str(), *x, *angle, *ratio_x))
+            }
+            _ => None,
+        })
+        .collect();
+    // BYBLOCK の色を赤で継ぐ配置と青で継ぐ配置は、別の作図部品。同じ色で継ぐ配置（回転・2 倍）は同じ作図部品
+    assert_eq!(locates, [("MARK", 0.0, 0.0, 1.0), ("MARK (2)", 40.0, 0.0, 1.0), ("MARK", 0.0, 90.0, 2.0)]);
+    let part = document.sub_figures.get("MARK").unwrap();
+    assert_eq!(part.feature.flag, 4.0, "作図部品");
+    let zumen::sxf::SxfFeature::Line { style, x1, x2, .. } = &part.members[0] else { panic!("line") };
+    // 作図部品の座標は基点を原点にする。レイヤ 0 の図形は配置のレイヤ、BYBLOCK の色は配置の色
+    assert_eq!((*x1, *x2), (0.0, 10.0));
+    assert_eq!((style.color, document.layers[style.layer as usize - 1].name.as_str()), (2.0, "SYMBOL"));
+    let blue = document.sub_figures.get("MARK (2)").unwrap();
+    let zumen::sxf::SxfFeature::Line { style, .. } = &blue.members[0] else { panic!("line") };
+    assert_eq!(style.color, 4.0);
+    // 元の図形の id: 配置の中の要素は、配置の id から順につなぐ
+    let (_, sources) = mapped.write();
+    let again = zumen::sxf::sxf_to_scene(&drawing);
+    let ids: Vec<String> = again
+        .entities
+        .iter()
+        .map(|entity| {
+            let mut id = String::new();
+            for part in entity.id.split('>') {
+                let source = &sources[part];
+                if !id.is_empty() && !id.ends_with(':') && !id.ends_with('>') {
+                    id.push('>');
+                }
+                id.push_str(source);
+            }
+            id
+        })
+        .collect();
+    assert_eq!(ids, ["I1>B1", "I2>B1", "I3>B1"]);
+}
+
+#[test]
+fn writes_codes_and_text_in_cp932_and_reports_what_it_replaced() {
+    let doc = dxf(
+        "",
+        &(tags(&[(0, "TEXT"), (5, "T1"), (8, "0"), (10, "0"), (20, "0"), (40, "2.5"), (1, "直径 Ø50")])
+            + &tags(&[
+                (0, "LINE"),
+                (5, "L1"),
+                (8, "0"),
+                (420, "1193046"),
+                (370, "50"),
+                (10, "0"),
+                (20, "10"),
+                (11, "50"),
+                (21, "10"),
+            ])),
+    );
+    let (drawing, mapped, bytes) = written_sxf(&doc);
+    let members = &drawing.document.sub_figures.get("モデル空間").unwrap().members;
+    let zumen::sxf::SxfFeature::TextString { color, text, .. } = &members[0] else { panic!("text") };
+    // ACI 7（前景色）は SXF の黒。CP932 にない文字は ?
+    assert_eq!((*color, text.text.as_str()), (1.0, "直径 ?50"));
+    let zumen::sxf::SxfFeature::Line { style, .. } = &members[1] else { panic!("line") };
+    // トゥルーカラーはユーザ定義色（17 から）、0.5 mm は既定義線幅 5
+    assert_eq!((style.color, style.line_width), (17.0, 5.0));
+    assert_eq!(drawing.document.user_colors[0].r, 18.0);
+    let (written, _) = mapped.write();
+    assert!(codes(&written.notices).contains(&"encoding"));
+    // SFC のヘッダと、フィーチャの書き方（附属書 SFC 編 1-1）
+    let text = encoding_rs::SHIFT_JIS.decode(&bytes).0.into_owned();
+    assert!(
+        text.starts_with("ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('SCADEC level2 feature_mode'),'2;1');"),
+        "{text}"
+    );
+    assert!(text.contains("'zumen$$3.1'"));
+    assert!(text.contains("/*SXF\n#10 = pre_defined_colour_feature(\\'black\\')\nSXF*/\n"), "{text}");
+    assert_eq!(drawing.version, "SXF 3.1");
+}
+
+#[test]
+fn writes_viewports_as_sub_figures_placed_at_their_scale_and_twist() {
+    let doc = zumen::dxf::parse_dxf(&fs::read(fixtures().join("dxf/viewports.dxf")).unwrap());
+    let (drawing, _, _) = written_sxf(&doc);
+    let document = &drawing.document;
+    let sheet = document.sheet.as_ref().unwrap();
+    // 用紙は表示と同じ大きさ（このレイアウトは 90° 回して印刷するので A4 縦）
+    let shown = zumen::dxf::dxf_to_scene(&doc, None).sheet.unwrap();
+    assert_eq!((sheet.sheet_type, sheet.orient, shown.width, shown.height), (4.0, 0.0, 210.0, 297.0));
+    let mut scales: Vec<(f64, f64)> = document
+        .sheet_members
+        .iter()
+        .filter_map(|member| match member {
+            zumen::sxf::SxfFeature::SfigLocate { name, angle, ratio_x, ratio_y, .. } => {
+                assert_eq!(document.sub_figures.get(name).unwrap().feature.flag, 1.0, "部分図");
+                assert_eq!(ratio_x, ratio_y);
+                Some((*ratio_x, *angle))
+            }
+            _ => None,
+        })
+        .collect();
+    scales.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let mut expected: Vec<(f64, f64)> = doc
+        .entities
+        .iter()
+        .filter_map(|entity| match &entity.data {
+            zumen::dxf::DxfEntityData::Viewport(viewport)
+                // 上から見たビューポート（3D の表示は書かない）
+                if viewport.id != 1.0
+                    && viewport.status > 0.0
+                    && (viewport.status_flags as i32) & 0x20000 == 0
+                    && viewport.view_direction[0] == 0.0
+                    && viewport.view_direction[1] == 0.0 =>
+            {
+                // 部分図は実寸の mm（この図面の単位は m）、用紙は mm
+                Some((viewport.height / viewport.view_height / zumen::dxf::drawing_unit(&doc), viewport.view_twist_angle))
+            }
+            _ => None,
+        })
+        .collect();
+    expected.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    assert_eq!(scales.len(), expected.len());
+    for ((scale, angle), (expected_scale, expected_angle)) in scales.iter().zip(&expected) {
+        assert!(
+            (scale - expected_scale).abs() < 1e-15 && (angle - expected_angle).abs() < 1e-9,
+            "{scales:?} {expected:?}"
+        );
+    }
+}
+
+#[test]
+fn converts_every_format_to_sfc() {
+    for path in ["sfc/features.sfc", "p21/features.p21", "jww/minimal-v700.jww", "dxf/features.dxf", "dwg/r2018.dwg"] {
+        let bytes = fs::read(fixtures().join(path)).unwrap();
+        let converted = zumen::convert(&bytes, "sfc", &ReadDrawingOptions::default()).unwrap();
+        assert_eq!(zumen::detect(&converted.bytes), Some("sfc"), "{path}");
+        let scene = zumen::read(&converted.bytes, &ReadDrawingOptions::default()).unwrap();
+        assert!(!scene.entities.is_empty(), "{path}");
+        assert!(
+            scene.notices.iter().all(|notice| notice.level != zumen::NoticeLevel::Warning),
+            "{path}: {:?}",
+            scene.notices
+        );
+    }
+    // 写すときの知らせ（寸法を図形にした、など）を返す
+    let bytes = fs::read(fixtures().join("dxf/features.dxf")).unwrap();
+    let converted = zumen::convert(&bytes, "sfc", &ReadDrawingOptions::default()).unwrap();
+    for code in ["dimension", "drawn-shapes", "image", "text-mirror"] {
+        assert!(codes(&converted.notices).contains(&code), "{code} not in {:?}", codes(&converted.notices));
+    }
+}
