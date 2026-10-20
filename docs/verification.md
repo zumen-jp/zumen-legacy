@@ -371,6 +371,51 @@ the first step of [decision 0005](decisions/0005-browser-packages-for-embedding.
 - Not checked: Firefox and Safari, real touch devices (pinching only with synthetic touch pointers), screen readers,
   and the 3D view, which keeps its current interface until the next step.
 
+## The 3D engine to embed
+
+Checked on 2026-10-20 on macOS (Apple M2 Pro), Node.js 24.21.0 and Chromium 156 (Playwright 1.64.0, headless, WebGL on
+the GPU), for the second step of [decision 0005](decisions/0005-browser-packages-for-embedding.md): `StructureViewer` of
+`@zumenjs/stb/three`, the hooks of `@zumenjs/stb/react` and the 3D sample of the playground.
+
+- 24 tests in Chromium (`packages/stb/tests/*.browser.test.*`, on a model of two columns, a girder and a brace drawn as
+  a line, built in code). The state: a new object only on change, the visible count after hiding kinds, members hidden
+  by a filter leaving the selection with a `select` event, focusing a story (orthographic, from above) and an axis
+  (from the side, only the members on it), `{ camera: false }`, and `setModel` resetting the filters but keeping the
+  colors and guides. The camera: `getView` → `jumpTo` gives back the same position and target, events only on change,
+  `span` in orthographic projection kept across a projection change, and `project`. The input handlers: dragging
+  rotates with `move` carrying the pointer event and one `moveend` on release and no click; `rotate` off; the three
+  zoom modes (the page scroll is left alone when the wheel does not zoom) and `moveend` after the wheel stops; `0`,
+  Escape and the arrow keys, also with `keyboard` off. The tools: `memberAt` for solids and line members and not for
+  hidden ones, clicks with Shift to add and remove, hover with its event and drawn only with a hover color, an
+  application tool with `orbit: false` that gets drags and clicks instead of rotating, and `orbit` that does not
+  select. The style: background and member colors from CSS custom properties and `setStyle`, the dark theme and colors
+  by structure kind on canvas pixels, and the names of axes and stories readable with no stylesheet, with their border
+  color from `--zumen-axis-light`. The hooks: `useStructureState` re-renders only for its part (also with an array
+  selector and `isEqual`), `useStructureEvent`, and `useStructureViewer` replacing the model and destroying the
+  engine. Each of eleven deliberate mistakes in the engine and two in the hooks made a test fail.
+- The same 25 steps in the playground before the change (`main` at a9f47ec, with `StbViewer`) and after it, with the
+  real mouse and keyboard of Playwright in a 1400 × 900 window at device pixel ratios 1 and 2: the first view, a
+  rotation, a right-button pan, the wheel, the arrow keys, `0`, three clicks to select, Escape, a click, the plan,
+  front and side views, 3D and orthographic, the wheel in orthographic projection, perspective, colors by structure
+  kind, edges, translucency and nodes, names, axes and stories off and on, hiding the first kind, a story, a click in
+  it, all stories, an axis, hiding and showing all kinds, and fit. On HoaryFox `SampleBuilding.stb` (ver.2.0.2),
+  STB-DiffChecker `Mini210_FileA.stb` (ver.2.1.0), STBDotNet `ver2/Sample1.stb` (ver.2.0.1) and SEPIKA `model.stb`
+  (ver.2.0.2), screenshots of the model (the WebGL canvas and the names on it) were compared. The status bar and the
+  heading of the properties were the same at every step, and so were the positions of the names (the `transform` that
+  three.js writes, which follows the camera to full precision). At ratio 2 all 100 images were the same. At ratio 1, 25
+  to 29 of 100 differed by at most 2 levels in at most 108 pixels, at the edges of the names; two runs of `main` alone
+  differed in 7 and 34 of 100 images by up to 3 levels in up to 234 pixels, at the same places. With the names hidden,
+  93 of the 100 images at ratio 1 were the same and 7 differed in one background pixel by one level. The pages logged
+  no errors.
+- A synthetic model of 48,020 members (7.3 MB): picking with a click takes 1 ms (5 ms before, when the list of members
+  to test was rebuilt on every click), and moving the pointer over the model keeps 60 frames per second (16.6 ms, as
+  before) because the model is redrawn for the hovered member only when a hover color is set.
+- In the playground (built-in browser of the Claude desktop app): the dark theme follows the system, Shift adds a
+  girder to a selected slab and both are highlighted, and at 375 px the panels start closed and the page does not
+  scroll sideways.
+- Not checked: Firefox and Safari, real touch devices, screen readers, and arc, radial and drawing axes (none of the
+  samples have them).
+
 ## DXF writing
 
 Checked on 2026-10-20 on macOS 27 (Apple Silicon) with Rust 1.99.0, Python 3.14.8 and ezdxf 1.4.5.

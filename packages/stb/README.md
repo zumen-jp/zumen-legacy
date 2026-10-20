@@ -67,7 +67,7 @@ properties and a status bar with this API only.
 | --- | --- | --- |
 | `--zumen-background-dark`, `-light` | `#1b1c1f`, `#f4f5f7` | Background |
 | `--zumen-selection-dark`, `-light` | `#ffc94a`, `#ffb000` | Selected members |
-| `--zumen-hover-dark`, `-light` | `none` | The hovered member |
+| `--zumen-hover-dark`, `-light` | `none` | The hovered member (the model is redrawn whenever it changes) |
 | `--zumen-edge-dark`, `-light` | `#0c0d0f`, `#2b2f36` | Member edges |
 | `--zumen-member-line-dark`, `-light` | `#ff6fbf`, `#c0187a` | Members drawn as lines (no section) |
 | `--zumen-axis-dark`, `-light` | `#e08a8a`, `#7a2e2e` | Grid axes and the border of their names |

@@ -85,8 +85,10 @@ All packages share one version during 0.x.
   and pick members with `memberAt`; colors come from `--zumen-*` CSS custom properties and `setStyle`, and the theme
   follows the system unless set. The names of axes and stories are styled on their elements and need no CSS.
   `StructureView` and the color tables (`KIND_COLORS`, `THEMES` …) are no longer exported; `DEFAULT_STRUCTURE_STYLE`
-  holds the colors. Models look as before: in the playground, the same rotation, panning, wheel, key, selection,
-  viewpoint, projection, color, guide and filter steps on four ST-Bridge models give the same WebGL pixels.
+  holds the colors. Models look and respond as before: in the playground, the same rotation, panning, wheel, key,
+  selection, viewpoint, projection, color, guide and filter steps on four ST-Bridge models give the same images at
+  device pixel ratio 2, and differ at ratio 1 only by the rasterization noise that `main` shows between two runs.
+  Picking no longer rebuilds its list on every click (1 ms instead of 5 ms on a model of 48,020 members).
 - `@zumenjs/stb/react` has hooks only: `useStructureViewer`, `useStructureState(viewer, selector)`,
   `useStructureEvent` and `useStbFile`. `StbViewer` and its CSS become the 3D sample of the playground, with the
   Japanese text.

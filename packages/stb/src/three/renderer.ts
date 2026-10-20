@@ -774,8 +774,10 @@ export class StructureRenderer {
 
   /** ポインターの下の部材。色（RenderColors.hover）が null なら描かない */
   setHover(key: string | null): void {
-    this.hover = this.removeHighlight(this.hover);
     this.hoveredKey = key;
+    // 何も描かないときは描き直さない（大きなモデルでは 1 回の描画が重い）
+    if (!this.hover && (key === null || this.colors.hover === null)) return;
+    this.hover = this.removeHighlight(this.hover);
     if (key !== null && this.colors.hover !== null)
       this.hover = this.buildHighlight([key], this.materials.hover, this.materials.hoverEdge, 6);
     this.requestRender();
