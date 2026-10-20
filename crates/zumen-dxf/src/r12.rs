@@ -151,6 +151,7 @@ struct Converter<'a> {
     /// 崩した図形をまとめる無名のブロック
     blocks: Vec<DxfBlock>,
     next_block: u64,
+    block_names: HashSet<String>,
     /// 書式コードの書体のために足す文字スタイル
     styles: Vec<DxfTextStyle>,
     doc: &'a DxfDocument,
@@ -168,13 +169,15 @@ impl<'a> Converter<'a> {
                 (digits.len() < name.len()).then(|| digits.parse::<u64>().ok()).flatten()
             })
             .max()
-            .map_or(1, |max| max + 1);
+            .and_then(|max| max.checked_add(1))
+            .unwrap_or(1);
         Self {
             exploder: Exploder::new(doc),
             scales: block_scales(doc),
             notices: NoticeList::new(),
             blocks: Vec::new(),
             next_block,
+            block_names: doc.blocks.iter().map(|block| block.name.to_uppercase()).collect(),
             styles: Vec::new(),
             doc,
         }
@@ -236,6 +239,15 @@ impl<'a> Converter<'a> {
             ),
             DxfEntityData::Attrib { .. } | DxfEntityData::Attdef { .. } => out.push(self.single_line(entity)),
             DxfEntityData::Insert(insert) => {
+                let invisible = insert.attribs.iter().filter(|attrib| attrib.base.invisible).count() as u64;
+                if invisible > 0 {
+                    self.notices.add_count(
+                        NoticeLevel::Info,
+                        "version-invisible",
+                        "非表示の図形は、AutoCAD R12 で非表示にできないため、省きました",
+                        invisible,
+                    );
+                }
                 let attribs = insert
                     .attribs
                     .iter()
@@ -338,8 +350,13 @@ impl<'a> Converter<'a> {
             }
             Err(parts) if parts.is_empty() => {}
             Err(parts) => {
-                let name = format!("*U{}", self.next_block);
-                self.next_block += 1;
+                let name = loop {
+                    let name = format!("*U{}", self.next_block);
+                    self.next_block = self.next_block.checked_add(1).unwrap_or(1);
+                    if self.block_names.insert(name.clone()) {
+                        break name;
+                    }
+                };
                 // ブロックの基点と参照の位置は、元の図形の代表点（部品は元の座標のまま。表示が原点を寄せる位置も変わらない）
                 let [x, y] = anchor_of(entity).filter(|[x, y]| x.is_finite() && y.is_finite()).unwrap_or([0.0, 0.0]);
                 self.blocks.push(DxfBlock {
@@ -445,7 +462,7 @@ impl<'a> Converter<'a> {
                 }
                 Primitive::Clipped(clipped) => {
                     for stroke in &clipped.strokes {
-                        for [start, end] in clip_pattern(stroke, &clipped.rings) {
+                        for [start, end] in clip_pattern(stroke, &clipped.rings, &mut self.notices) {
                             parts.push(Part {
                                 kind: "LINE",
                                 data: DxfEntityData::Line {
@@ -710,9 +727,11 @@ fn trapezoids(rings: &[Vec<f64>]) -> Vec<[Point; 4]> {
 }
 
 /// ハッチングの模様の線（2 点ずつの線分。破線は各線分の始点から）を、偶奇規則の境界の中の線・点の線分にする
-fn clip_pattern(stroke: &StrokePrimitive, rings: &[Vec<f64>]) -> Vec<[Point; 2]> {
+fn clip_pattern(stroke: &StrokePrimitive, rings: &[Vec<f64>], notices: &mut NoticeList) -> Vec<[Point; 2]> {
     let mut out = Vec::new();
     let period: f64 = stroke.dashes.iter().sum();
+    let mut remaining = 100_000usize;
+    let mut simplified = false;
     for [x0, y0, x1, y1] in stroke.points.as_chunks::<4>().0 {
         let (start, end) = ([*x0, *y0], [*x1, *y1]);
         let length = (end[0] - start[0]).hypot(end[1] - start[1]);
@@ -730,10 +749,28 @@ fn clip_pattern(stroke: &StrokePrimitive, rings: &[Vec<f64>]) -> Vec<[Point; 2]>
                 out.push([at(u0), at(u1)]);
                 continue;
             }
+            // 極端に密な模様や、加算しても進まない座標は実線にし、処理量を制限する。
+            let steps = ((u1 - u0) / period + 2.0) * stroke.dashes.len() as f64;
+            if !period.is_finite()
+                || steps > remaining as f64
+                || u0 + period <= u0
+                || stroke.dashes.iter().any(|dash| !dash.is_finite() || *dash < 0.0)
+            {
+                out.push([at(u0), at(u1)]);
+                simplified = true;
+                continue;
+            }
             // 破線の線（偶数番目）の区間と重なるところ。長さ 0 の線は点
             let mut u = (u0 / period).floor() * period;
             'periods: while u <= u1 {
+                let previous = u;
                 for (index, dash) in stroke.dashes.iter().enumerate() {
+                    if remaining == 0 {
+                        out.push([at(u.max(u0)), at(u1)]);
+                        simplified = true;
+                        break 'periods;
+                    }
+                    remaining -= 1;
                     if index % 2 == 0 {
                         let (a, b) = (u.max(u0), (u + dash).min(u1));
                         if a <= b && (u + dash >= u0) && u <= u1 {
@@ -745,8 +782,20 @@ fn clip_pattern(stroke: &StrokePrimitive, rings: &[Vec<f64>]) -> Vec<[Point; 2]>
                         break 'periods;
                     }
                 }
+                if u <= previous {
+                    out.push([at(u.max(u0)), at(u1)]);
+                    simplified = true;
+                    break;
+                }
             }
         }
+    }
+    if simplified {
+        notices.add(
+            NoticeLevel::Warning,
+            "version-hatch-density",
+            "極端に密なハッチングの破線を、処理の上限を超えないよう実線にしました",
+        );
     }
     out
 }
@@ -788,6 +837,31 @@ mod tests {
     }
 
     #[test]
+    fn excessively_dense_hatch_dashes_are_bounded_and_reported() {
+        let stroke = StrokePrimitive {
+            points: vec![-1.0, 0.5, 2.0, 0.5],
+            closed: false,
+            segments: Some(true),
+            color: "#ffffff".into(),
+            width: 0.0,
+            dashes: vec![1e-30, 1e-30],
+        };
+        let mut notices = NoticeList::new();
+        let pieces = clip_pattern(&stroke, &[vec![0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0]], &mut notices);
+        assert_eq!(pieces, vec![[[0.0, 0.5], [1.0, 0.5]]]);
+        assert_eq!(notices.into_vec()[0].code, "version-hatch-density");
+    }
+
+    #[test]
+    fn maximum_anonymous_block_number_does_not_overflow() {
+        let doc = crate::parse_dxf(b"0\nSECTION\n2\nBLOCKS\n0\nBLOCK\n2\n*U18446744073709551615\n0\nENDBLK\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nMTEXT\n10\n0\n20\n0\n40\n1\n1\none\\Ptwo\n0\nENDSEC\n0\nEOF\n");
+        let prepared = prepare(&doc);
+        let names: HashSet<_> = prepared.doc.blocks.iter().map(|block| block.name.to_uppercase()).collect();
+        assert_eq!(names.len(), prepared.doc.blocks.len());
+        assert!(prepared.doc.blocks.len() > doc.blocks.len());
+    }
+
+    #[test]
     fn splits_fills_with_holes_into_trapezoids() {
         // 10 × 10 の四角から 4 × 4 の穴を抜く（偶奇規則）
         let outer = vec![0.0, 0.0, 10.0, 0.0, 10.0, 10.0, 0.0, 10.0];
@@ -824,17 +898,26 @@ mod tests {
             dashes,
         };
         // 実線は穴の前後の 2 本になる
-        let pieces = clip_pattern(&line(vec![-5.0, 5.0, 15.0, 5.0], Vec::new()), &[outer.clone(), hole.clone()]);
+        let pieces = clip_pattern(
+            &line(vec![-5.0, 5.0, 15.0, 5.0], Vec::new()),
+            &[outer.clone(), hole.clone()],
+            &mut NoticeList::new(),
+        );
         let close = |a: Point, b: Point| (a[0] - b[0]).abs() < 1e-9 && (a[1] - b[1]).abs() < 1e-9;
         assert_eq!(pieces.len(), 2, "{pieces:?}");
         assert!(close(pieces[0][0], [0.0, 5.0]) && close(pieces[0][1], [3.0, 5.0]));
         assert!(close(pieces[1][0], [7.0, 5.0]) && close(pieces[1][1], [10.0, 5.0]));
         // 頂点を通る線（対角線）も、境界の中だけになる
-        let pieces = clip_pattern(&line(vec![-1.0, -1.0, 11.0, 11.0], Vec::new()), &[outer.clone(), hole]);
+        let pieces = clip_pattern(
+            &line(vec![-1.0, -1.0, 11.0, 11.0], Vec::new()),
+            &[outer.clone(), hole],
+            &mut NoticeList::new(),
+        );
         assert_eq!(pieces.len(), 2, "{pieces:?}");
         assert!(close(pieces[0][0], [0.0, 0.0]) && close(pieces[0][1], [3.0, 3.0]));
         // 破線（長さ 2 の線、1 の空白）は線分の始点から数え、点（長さ 0）も残す
-        let pieces = clip_pattern(&line(vec![-1.0, 1.0, 11.0, 1.0], vec![2.0, 1.0, 0.0, 1.0]), &[outer]);
+        let pieces =
+            clip_pattern(&line(vec![-1.0, 1.0, 11.0, 1.0], vec![2.0, 1.0, 0.0, 1.0]), &[outer], &mut NoticeList::new());
         let starts: Vec<f64> = pieces.iter().map(|piece| piece[0][0]).collect();
         // 区間 [-1, 11) の線 [-1, 1)・点 2・線 [3, 5)・点 6・線 [7, 9)・点 10 のうち、境界 [0, 10] の中
         assert_eq!(starts, [0.0, 2.0, 3.0, 6.0, 7.0, 10.0], "{pieces:?}");

@@ -1008,6 +1008,7 @@ impl<'a> Writer<'a> {
         }
         self.table("LAYER", ids[2], layers.len());
         let mut lineweights = 0;
+        let mut nonplotting = 0;
         for layer in &layers {
             let handle = match &layer.handle {
                 Some(original) => self.keep(original),
@@ -1036,6 +1037,7 @@ impl<'a> Writer<'a> {
             out.str(6, &layer.linetype);
             // 印刷するか（290）・線の太さ（370）・印刷スタイル（390）は 2000 から。R12 は線の太さを持たない
             if out.r12 {
+                nonplotting += u64::from(!layer.plot);
                 if layer.lineweight >= 0.0 {
                     lineweights += 1;
                 }
@@ -1054,6 +1056,14 @@ impl<'a> Writer<'a> {
         }
         if lineweights > 0 {
             self.version_lineweight(lineweights);
+        }
+        if nonplotting > 0 {
+            self.notices.add_count(
+                NoticeLevel::Info,
+                "version-layer-plot",
+                "レイヤを印刷しない設定は、AutoCAD R12 にないため、書きませんでした",
+                nonplotting,
+            );
         }
         self.out.tag(0, "ENDTAB");
 
@@ -2205,6 +2215,13 @@ impl<'a> Writer<'a> {
     /// R12 のビューポート。表示の値は拡張データ ACAD の MVIEW に持つ（ezdxf の viewport.py の R12 と同じ並び。
     /// 読み取りの viewport_r12 が読み戻す）。このビューポートだけで凍結したレイヤは、名前（1003）で書く
     fn viewport_r12(&mut self, base: &DxfEntityBase, viewport: &DxfViewport, owner: u64, paper: bool) {
+        if viewport.clipping_boundary_handle.is_some() {
+            self.notices.add(
+                NoticeLevel::Info,
+                "version-viewport-clip",
+                "ビューポートの非矩形の切り抜きは、AutoCAD R12 にないため、矩形の表示範囲にしました",
+            );
+        }
         self.common("VIEWPORT", base, owner, paper);
         let frozen: Vec<&str> = viewport
             .frozen_layer_handles
@@ -3089,6 +3106,30 @@ mod tests {
         assert_eq!(first.frozen_layer_names, ["壁"]);
         // 表示しないビューポート（90 の 0x20000）は、R12 では状態 0
         assert_eq!(viewports[1].status, 0.0);
+    }
+
+    #[test]
+    fn r12_reports_layer_plot_and_viewport_clip_loss() {
+        let mut doc = parse_dxf(&section(
+            "ENTITIES",
+            &[(0, "VIEWPORT"), (8, "A"), (10, "0"), (20, "0"), (40, "10"), (41, "10"), (340, "AB")],
+        ));
+        doc.layers.push(crate::model::DxfLayer {
+            handle: "AA".into(),
+            name: "A".into(),
+            color_index: 7.0,
+            true_color: None,
+            lineweight: -1.0,
+            linetype: "CONTINUOUS".into(),
+            off: false,
+            frozen: false,
+            locked: false,
+            plot: false,
+            transparency: None,
+        });
+        let written = write_dxf_as(&doc, DxfVersion::R12);
+        assert!(codes(&written).contains(&"version-layer-plot"));
+        assert!(codes(&written).contains(&"version-viewport-clip"));
     }
 
     #[test]

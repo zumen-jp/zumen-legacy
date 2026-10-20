@@ -421,3 +421,5 @@ stay, and an edit without operations gives the same bytes.
 See [verification.md](../verification.md#dxf), [DXF writing](../verification.md#dxf-writing) and
 [DXF versions](../verification.md#dxf-versions). The parser was compared with ezdxf 1.4.5 on public Japanese drawings
 (Yokosuka City and Imizu City), the ACadSharp samples (R12 to 2018, ASCII and binary) and generated drawings.
+
+R12 export limits dashed hatch expansion to 100,000 dash steps per source stroke. Denser patterns or floating-point steps that cannot advance are written as continuous clipped lines and reported as `version-hatch-density`. Anonymous block names wrap to unused positive numbers when the source contains the maximum integer suffix.
