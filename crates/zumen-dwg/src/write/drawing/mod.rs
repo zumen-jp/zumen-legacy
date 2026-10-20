@@ -317,7 +317,7 @@ fn neighbors(radians: f64, count: usize) -> Vec<f64> {
 
 /// 度をラジアンに。読み取り（r × 180 / π）で同じ度に戻るラジアンを近くのラジアンから選び、なければいちばん近く戻る
 /// もの（二重の丸めのため、戻らない度がある）
-pub(super) fn rad(degrees: f64) -> f64 {
+pub(crate) fn rad(degrees: f64) -> f64 {
     let first = degrees * std::f64::consts::PI / 180.0;
     if !first.is_finite() || degrees_of(first) == degrees {
         return first;
@@ -328,7 +328,7 @@ pub(super) fn rad(degrees: f64) -> f64 {
 
 /// 始めと終わりの角度（度）をラジアンに。表示の分割の数は掃引角（終わり − 始め）で決まるので、読み取りで戻した度の差が
 /// 元の差と同じになる組を選ぶ（ちょうど 180° の円弧で 1 ulp ずれると分割の数が変わる）
-pub(super) fn rad_pair(start: f64, end: f64) -> (f64, f64) {
+pub(crate) fn rad_pair(start: f64, end: f64) -> (f64, f64) {
     let (first_start, first_end) = (rad(start), rad(end));
     let sweep = end - start;
     if !sweep.is_finite() || degrees_of(first_end) - degrees_of(first_start) == sweep {

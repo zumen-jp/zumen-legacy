@@ -9,6 +9,7 @@ mod codec;
 mod compress;
 mod crc;
 mod document;
+mod edit;
 mod entities;
 mod file;
 mod header;
@@ -19,6 +20,7 @@ mod samples;
 mod write;
 
 pub use document::read_dwg;
+pub use edit::{edit_dwg, new_dwg};
 pub use file::is_dwg;
 pub use write::{DwgWritten, rewrite_dwg, write_dwg};
 

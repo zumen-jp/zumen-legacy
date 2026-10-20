@@ -12,7 +12,7 @@ use crate::write::sections::{CLASSES_END, CLASSES_SENTINEL, Framed, HEADER_END, 
 use std::path::PathBuf;
 use zumen_core::NoticeList;
 
-fn samples() -> Vec<(String, Vec<u8>)> {
+pub(crate) fn samples() -> Vec<(String, Vec<u8>)> {
     let Some(folder) = std::env::var_os("ZUMEN_SAMPLES") else { return Vec::new() };
     let Ok(entries) = std::fs::read_dir(PathBuf::from(folder)) else { return Vec::new() };
     let mut out: Vec<(String, Vec<u8>)> = entries
@@ -66,7 +66,7 @@ fn check_framed(name: &str, section: &[u8], start: &[u8; 16], end: &[u8; 16], ex
     assert!(framed.crc_ok, "{name}: CRC");
 }
 
-fn check_r2000(name: &str, bytes: &[u8]) {
+pub(crate) fn check_r2000(name: &str, bytes: &[u8]) {
     let records = file::r2000_records(bytes).unwrap();
     // ファイルの頭の CRC: 0 から始めて節の数ごとの値と排他的論理和をとる（3.2.6）のと、0xC0C1 から始めるのが同じ
     let crc_at = 0x19 + records.len() * 9;
@@ -93,7 +93,7 @@ fn check_r2000(name: &str, bytes: &[u8]) {
     assert_eq!(crc8(CRC8_SEED, &bytes[at + 16..crc_at]), stored, "{name}: second header CRC");
 }
 
-fn check_r2004(name: &str, bytes: &[u8], version: Version) {
+pub(crate) fn check_r2004(name: &str, bytes: &[u8], version: Version) {
     let magic = magic_sequence(0x100);
     // ファイルの頭（4.1）: CRC32 は CRC の欄を 0 にした 0x6C バイトから、初めの値 0
     let mut header = file::r2004_file_header(bytes).unwrap();
@@ -151,7 +151,7 @@ fn check_r2004(name: &str, bytes: &[u8], version: Version) {
 
 /// R2007 の図面の検査の値（5.2〜5.4、5.12、5.13）と、ヘッダ変数・クラスの節とオブジェクトの CRC。確かめたデータの
 /// ページの数を返す
-fn check_r2007(name: &str, bytes: &[u8]) -> usize {
+pub(crate) fn check_r2007(name: &str, bytes: &[u8]) -> usize {
     let pages = check_r2007_container(name, bytes);
     let container = crate::file::R2007Container::open(bytes).unwrap();
     let mut notices = NoticeList::new();

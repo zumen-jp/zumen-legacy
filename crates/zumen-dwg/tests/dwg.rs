@@ -576,3 +576,69 @@ fn the_fixtures_are_the_test_drawing() {
         }
     }
 }
+
+/// その場の編集（edit_dwg）: 配置の属性は配置の id を前に付けた id（40>41）で変えられ、配置を消すと属性と SEQEND も
+/// 消える。属性だけは消せず、ほかの配置の中の id は inside-block
+#[test]
+fn edits_block_references_with_attributes() {
+    let operations = |json: &str| zumen_core::edit::parse_operations(json).unwrap();
+    for v in [Version::R2000, Version::R2018] {
+        let attribute = |tag, text, [x, y]: [f64; 2]| Attribute {
+            tag,
+            prompt: None,
+            flags: 0,
+            text,
+            insert: [x, y],
+            height: 2.5,
+            mtext: None,
+        };
+        let mut extra = vec![
+            (BOX, block_header(v, BOX, "LABEL", false, 0x31, 0x32, &[], 0)),
+            (0x31, block_entity(v, 0x31, BOX, "LABEL")),
+            (0x32, endblk(v, 0x32, BOX)),
+            (
+                0x40,
+                insert_with_attributes(
+                    v,
+                    0x40,
+                    &place(LAYER_0, 256, None),
+                    BOX,
+                    [100.0, 0.0, 0.0],
+                    [1.0, 1.0, 1.0],
+                    0.0,
+                    &[0x41, 0x42],
+                    0x43,
+                ),
+            ),
+            (0x43, seqend(v, 0x43, &place(LAYER_0, 256, Some(0x40)))),
+            (0x44, line(v, 0x44, &place(LAYER_0, 256, None), [0.0, 0.0, 0.0], [1.0, 1.0, 0.0])),
+        ];
+        for (handle, a) in [(0x41, attribute("NAME", "A", [100.0, 0.0])), (0x42, attribute("SIZE", "B", [100.0, -5.0]))]
+        {
+            extra.push((handle, writer::attribute(v, handle, &place(LAYER_0, 256, Some(0x40)), &a, STANDARD)));
+        }
+        let bytes = small(v, extra, &[0x40, 0x44], &[BOX]);
+        let edited = zumen_dwg::edit_dwg(
+            &bytes,
+            &operations(r#"[{"op": "update", "id": "40>41", "set": {"text": "新しい値", "color": 2}}]"#),
+        )
+        .unwrap();
+        let doc = zumen_dwg::read_dwg(&edited.bytes).unwrap();
+        let DxfEntityData::Insert(insert) = &doc.entities[0].data else { panic!("{v:?}: INSERT") };
+        let DxfEntityData::Attrib { text, .. } = &insert.attribs[0].data else { panic!("{v:?}: ATTRIB") };
+        assert_eq!((text.text.as_str(), insert.attribs[0].base.color_index), ("新しい値", 2.0), "{v:?}");
+        let error = |json: &str| zumen_dwg::edit_dwg(&bytes, &operations(json)).unwrap_err().code;
+        assert_eq!(error(r#"[{"op": "update", "id": "44>41", "set": {"color": 1}}]"#), "inside-block", "{v:?}");
+        assert_eq!(error(r#"[{"op": "delete", "id": "40>41"}]"#), "unsupported-kind", "{v:?}");
+        let deleted = zumen_dwg::edit_dwg(&bytes, &operations(r#"[{"op": "delete", "id": "40"}]"#)).unwrap();
+        let doc = zumen_dwg::read_dwg(&deleted.bytes).unwrap();
+        let handles: Vec<&str> = doc.entities.iter().map(|entity| entity.base.handle.as_str()).collect();
+        assert_eq!(handles, ["44"], "{v:?}");
+        // 属性と SEQEND もない（足して読めば、消したハンドルは使われていない）
+        let again = zumen_dwg::edit_dwg(
+            &deleted.bytes,
+            &operations(r#"[{"op": "update", "id": "41", "set": {"color": 1}}, {"op": "delete", "id": "43"}]"#),
+        );
+        assert_eq!(again.unwrap_err().code, "not-found", "{v:?}");
+    }
+}
