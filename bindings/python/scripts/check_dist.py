@@ -82,7 +82,10 @@ def main() -> int:
     parser.add_argument("folder", type=Path, help="the folder with the wheels and the sdist")
     parser.add_argument("--any-platform", action="store_true", help="accept any platform tag in the name of a wheel")
     args = parser.parse_args()
-    for copy, original in [(ROOT / "bindings/python/LICENSE", LICENSE), (ROOT / "bindings/python/licenses/BIZUDGothic-OFL.txt", FONT_LICENSE)]:
+    for copy, original in [
+        (ROOT / "bindings/python/LICENSE", LICENSE),
+        (ROOT / "bindings/python/licenses/BIZUDGothic-OFL.txt", FONT_LICENSE),
+    ]:
         if copy.read_bytes() != original:
             print(f"FAIL {copy.name} differs from the original license")
             return 1

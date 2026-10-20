@@ -23,7 +23,12 @@ const outputs = [
     manifest: "bindings/python/Cargo.toml",
     package: "zumen-python",
     // The platforms of the wheels (.github/workflows/python-wheels.yml)
-    targets: ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "aarch64-apple-darwin", "x86_64-pc-windows-msvc"],
+    targets: [
+      "x86_64-unknown-linux-gnu",
+      "aarch64-unknown-linux-gnu",
+      "aarch64-apple-darwin",
+      "x86_64-pc-windows-msvc",
+    ],
   },
   {
     file: "packages/reader/THIRD_PARTY_LICENSES.txt",

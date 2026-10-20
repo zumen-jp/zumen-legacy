@@ -1,6 +1,6 @@
 # Releasing
 
-zumen is released under the [MIT license](../LICENSE). It is not public yet. This is the checklist for the first public
+zumen is released under the [MIT license](../LICENSE). The repository is public; registry releases remain gated. This is the checklist for the first public
 release and the routine for later ones.
 
 A release is a tag `vX.Y.Z`. Two workflows react to a pushed tag and nothing else publishes: `python-wheels.yml` for the
@@ -9,21 +9,19 @@ variable `PUBLISH_TO_PYPI` or `PUBLISH_TO_NPM` is `true`, and the packages still
 (step 9 below), so a tag cannot publish to either until then. (`python-wheels.yml` also attaches the wheels to a GitHub
 Release for every tag.)
 
-## Before going public
+## Before the first package release
 
 1. **Rights.** Done. The copyright holder is the author of the repository, Yusuke Hayashi.
 2. **License.** Done. `LICENSE` is MIT, and the root `package.json`, every `packages/*/package.json`, `Cargo.toml` and
    `bindings/python/pyproject.toml` say so. The wheels carry the text of `LICENSE` and of the license of the bundled
    font. The licenses of the Rust crates that are compiled into the wheels and into the WebAssembly reader of
-   `@zumenjs/dwg` are in `THIRD_PARTY_LICENSES.txt` next to them (`pnpm run notices` writes them from `Cargo.lock`, and
+   `@zumenjs/reader` are in `THIRD_PARTY_LICENSES.txt` next to them (`pnpm run notices` writes them from `Cargo.lock`, and
    `pnpm run check` fails when they are out of date).
-3. **Code of conduct.** Written in [CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md). Replace `[INSERT CONTACT METHOD]` with
-   the way to reach the person who handles reports. If you prefer one for every repository of the organization, move the
-   file to its `.github` repository.
+3. **Code of conduct.** [CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md) identifies the maintainer who handles reports.
 4. **Source maps.** Done. The packages ship `src` next to `dist`, so the source maps and the declaration maps point at
-   files that are in the package (all 140 references resolve in the packed tarballs). The first job of `npm-release.yml`
+   files that are in the package (the release check verifies every listed source directory). The first job of `npm-release.yml`
    fails when an entry of `files` is missing.
-5. **GitHub.** Make the repository public, enable private vulnerability reporting, protect `main` with the CI check,
+5. **GitHub.** The repository is public. Before registry publishing, enable private vulnerability reporting and protect `main` with the CI checks;
    choose "GitHub Actions" as the Pages source, and set the repository variable `DEPLOY_DEMO` to `true`. Create the
    environments `pypi` and `npm` and add yourself as a required reviewer of each, so that a tag alone does not publish.
    Set the repository variables `PUBLISH_TO_PYPI` and `PUBLISH_TO_NPM` to `true` when a tag should publish.
@@ -32,15 +30,12 @@ Release for every tag.)
 7. **PyPI.** Sign in with two-factor authentication and add a pending trusted publisher: project `zumen`, owner
    `zumenjs`, repository `zumen`, workflow `python-wheels.yml`, environment `pypi`. A pending publisher lets the first
    upload from the workflow create the project, so the first PyPI release needs no hand work.
-8. **ST-Bridge.** Confirm with buildingSMART Japan the terms for publishing an implementation of the ST-Bridge
-   specification, which its web page does not state ([decision 0001](decisions/0001-st-bridge-in-zumen.md)).
-9. **Lift the two guards.** In the commit that you tag first, remove `"private": true` from every
-   `packages/*/package.json` (the workspace root stays private) and replace the classifier `Private :: Do Not Upload` in
+8. **Third-party rights.** Keep third-party license texts with distributed binaries. ST-Bridge is outside this repository ([decision 0013](decisions/0013-st-bridge-out-of-zumen.md)).
+9. **Lift the two guards.** In the commit that you tag first, remove `"private": true` from `packages/core`, `packages/viewer`, `packages/reader` and `packages/react` only (the workspace root and TypeScript reference readers stay private) and replace the classifier `Private :: Do Not Upload` in
    `bindings/python/pyproject.toml` with `License :: OSI Approved :: MIT License`. They are what stops `pnpm publish`
    and PyPI today. Do this when you have read the audit of the repository and decided to publish.
 
-Steps 1 to 4 and 9 are changes to the repository; 5 to 8 are settings, accounts and a message that only you can change
-or send.
+Steps 1 to 4 and 9 are changes to the repository; 5 to 8 cover account settings and third-party rights.
 
 ## What the workflows do
 
@@ -53,7 +48,7 @@ or send.
 | Publish the packages to npm with provenance, in dependency order | `npm-release.yml`, on a tag | The packages on npm with a trusted publisher each (see [First release](#first-release)), the `npm` environment, step 9 |
 
 `npm-release.yml` stops before it builds when a version differs from the tag, when the tag is not a commit of `main`, or
-when the `check` job of CI has not passed on that commit. Its first job has no permission to publish; the second job
+when the complete `ci.yml` workflow (including Linux and Windows) has not passed on that commit. Its first job has no permission to publish; the second job
 publishes the tarballs that the first one checked and has `id-token: write` only. A package that npm already has is
 skipped, so the job can run again after a failure half way. `python-wheels.yml` checks the tag against the version of
 the files before it creates the release, and uploads to PyPI only after that.
@@ -71,12 +66,11 @@ first release by hand; if it does, add the trusted publishers first (step 3) and
 
 1. Run `pnpm install --frozen-lockfile` and `pnpm run check` on a clean checkout of `main`, at the commit with step 9.
 2. Publish in dependency order with two-factor authentication:
-   `pnpm --filter @zumenjs/core publish`, then `@zumenjs/viewer`, `@zumenjs/sxf`, `@zumenjs/jww`, `@zumenjs/dxf` and
-   `@zumenjs/dwg`, then `@zumenjs/react` and `@zumenjs/stb`. `@zumenjs/dwg` publishes the WebAssembly reader in
-   `packages/dwg/wasm`, which `pnpm run check` has just built from the same commit. pnpm replaces `workspace:*` with the
+   `pnpm --filter @zumenjs/core publish`, then `@zumenjs/viewer` and `@zumenjs/reader`, then `@zumenjs/react`. `@zumenjs/reader` publishes the WebAssembly reader in
+   `packages/reader/wasm`, which `pnpm run check` has just built from the same commit. pnpm replaces `workspace:*` with the
    version, and `publishConfig.exports` drops the development-only condition. Add `--no-provenance` to each command:
    provenance needs a CI that npm knows, not a laptop.
-3. On npm, add a trusted publisher to each of the eight packages: GitHub Actions, organization `zumenjs`, repository
+3. On npm, add a trusted publisher to each of the four public packages: GitHub Actions, organization `zumenjs`, repository
    `zumen`, workflow `npm-release.yml`, environment `npm`. npm expires a new trusted publisher that has not completed a
    publish within two days, so tag the next release right after this.
 4. From then on, `npm-release.yml` publishes with provenance (it is automatic for a public repository and public
@@ -107,13 +101,13 @@ it without a Rust toolchain, and uploads it to PyPI when the variable `PUBLISH_T
   `bindings/python/scripts/check_dist.py` checks every file: the extension module holds the bundled font (BIZ UDGothic),
   and `dist-info/licenses` holds the text of the license of zumen, the text of the license of the font (SIL OFL 1.1) and
   the licenses of the linked Rust crates, as the licenses ask of every copy. `bindings/python/LICENSE` is a copy of the
-  `LICENSE` of the repository root, and `bindings/python/licenses/` has a link to the `OFL.txt` next to the font and the
+  `LICENSE` of the repository root, and `bindings/python/licenses/` has a copy of the `OFL.txt` next to the font and the
   generated `THIRD_PARTY_LICENSES.txt`, because `license-files` cannot reach outside the project folder; the check fails
   when they differ.
 - **Tags.** Pushing `vX.Y.Z` runs the same jobs, then attaches the wheels and the sdist to a GitHub Release of the tag,
   and with `PUBLISH_TO_PYPI` uploads them to PyPI. The files carry the `version` of `[workspace.package]` in
   `Cargo.toml`; the release job stops before it creates anything when the tag is another version.
-- **Installing a release.** While the repository is private, a release is downloaded with `gh` or a token. Install the
+- **Installing a release.** Download a release with `gh` or from its public GitHub release page. Install the
   file of the platform:
 
   ```bash
