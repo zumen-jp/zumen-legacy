@@ -160,7 +160,7 @@ Notices when writing:
 
 ## Editing (`edit_jww`)
 
-`zumen_jww::edit_jww` (through `zumen::edit`) changes a JWW drawing in place with the operations of
+`zumen_jww::edit_jww` changes a JWW drawing in place with the operations of
 [decision 0012](../decisions/0012-edit-in-place-and-write-every-format.md). It reads the file as a `JwwFile`, changes,
 adds and deletes records of the entity list, and writes every record that no operation changes from its bytes. The
 version, the header settings, the block definitions and the embedded images stay, and an edit without operations gives
