@@ -128,11 +128,12 @@ pub fn jww_width(width: f64) -> f64 {
     (width * 100.0).round().max(1.0) / 100.0
 }
 
-/// 線種の点（長さ 0 の線分）は、JWW には 0.25 mm の線分にして書く（zumen-convert の pitch と同じ）
+/// 線種の点（長さ 0 の線分）は、JWW には 0.25 mm の線分にして書く（zumen-convert の pitch と同じ）。用紙で周期が
+/// 0.05 mm に満たない破線は実線
 pub fn jww_dashes(dashes: &[f64]) -> Vec<f64> {
     let mut out = dashes.to_vec();
-    if out.is_empty() {
-        return out;
+    if out.is_empty() || dashes.iter().map(|value| value.abs()).sum::<f64>() < 0.05 {
+        return Vec::new();
     }
     if out.len() % 2 == 1 {
         out.push(0.0);
@@ -300,7 +301,8 @@ fn compare_text(a: &TextPrimitive, b: &TextPrimitive) -> Option<String> {
         let m = &text.matrix;
         (m[2] * text.height).hypot(m[3] * text.height).min((m[0] * text.height).hypot(m[1] * text.height))
     };
-    let tolerance = glyph(a).max(glyph(b)) * 0.25;
+    // 字の大きさの 1/4 まで。DXF を経た文字は文字間隔を文字の幅に含めるので、間隔の半分まで
+    let tolerance = (glyph(a).max(glyph(b)) * 0.25).max(gap_allowance(a) + 1e-6);
     let place = |text: &TextPrimitive, x: f64, y: f64| {
         let m = &text.matrix;
         [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]]
@@ -314,13 +316,27 @@ fn compare_text(a: &TextPrimitive, b: &TextPrimitive) -> Option<String> {
     None
 }
 
+/// 文字間隔（文字範囲の長さから字の並びの長さを引いた分）の半分（用紙の mm）。間隔を文字の幅に含めると、
+/// 1 文字ずつの位置がこれだけずれる
+fn gap_allowance(text: &TextPrimitive) -> f64 {
+    let (Some(first), Some(second)) = (text.cells.first(), text.cells.get(1)) else {
+        return 0.0;
+    };
+    let units: f64 = text.text.chars().map(|c| if zumen_core::text::is_half_width(c) { 0.5 } else { 1.0 }).sum();
+    let m = &text.matrix;
+    let vertical = (second.y - first.y).abs() > (second.x - first.x).abs();
+    let (length, unit, scale) = if vertical {
+        (text.box_height, text.height, m[2].hypot(m[3]))
+    } else {
+        (text.box_width, text.scale_x * text.height, m[0].hypot(m[1]))
+    };
+    ((length - units * unit) / 2.0).max(0.0) * scale
+}
+
 /// 描いても見えない要素（透明な線、点が 1 つの線、空白だけの文字、面積のない塗り）
 fn invisible(primitive: &Primitive) -> bool {
-    let flat = |ring: &Vec<f64>| {
-        let mut bbox = zumen_core::geometry::empty_box();
-        zumen_core::geometry::extend_box_with_points(&mut bbox, ring);
-        !(bbox.min_x < bbox.max_x && bbox.min_y < bbox.max_y)
-    };
+    // 偶奇規則の面積（蝶ネクタイの四角形は符号つきの面積が 0 でも塗る）
+    let flat = |ring: &Vec<f64>| scan_area(&[ring]) <= 1e-12;
     match primitive {
         Primitive::Stroke(stroke) => stroke.color == "transparent" || stroke.points.len() < 4,
         Primitive::Fill(fill) => fill.rings.iter().all(flat),
@@ -330,8 +346,38 @@ fn invisible(primitive: &Primitive) -> bool {
     }
 }
 
+/// 比べ方の規則: 元の線の太さ → JWW の線の太さと、破線を比べないか（ユーザー定義の線種に入らない線種を、近い線種に
+/// したとき）
+#[derive(Clone, Copy)]
+pub struct Rules {
+    pub width: fn(f64) -> f64,
+    pub any_dashes: bool,
+}
+
+impl Default for Rules {
+    fn default() -> Self {
+        Rules { width: jww_width, any_dashes: false }
+    }
+}
+
+/// DXF で使える線の太さ（mm）
+pub fn dxf_lineweight(width: f64) -> f64 {
+    const WEIGHTS: [f64; 24] = [
+        0.0, 5.0, 9.0, 13.0, 15.0, 18.0, 20.0, 25.0, 30.0, 35.0, 40.0, 50.0, 53.0, 60.0, 70.0, 80.0, 90.0, 100.0,
+        106.0, 120.0, 140.0, 158.0, 200.0, 211.0,
+    ];
+    let hundredths = width * 100.0;
+    WEIGHTS.iter().copied().min_by(|a, b| (a - hundredths).abs().total_cmp(&(b - hundredths).abs())).unwrap_or(25.0)
+        / 100.0
+}
+
+/// DXF を経て JWW に書いた線の太さ（DXF の線の太さに丸め、JWW の 1/100 mm にする）
+pub fn width_through_dxf(width: f64) -> f64 {
+    jww_width(dxf_lineweight(width))
+}
+
 /// 元の図形の要素と、そこから写した JWW の図形の要素を比べる
-pub fn compare(expected: &[&Primitive], actual: &[&Primitive], tolerance: f64) -> Vec<String> {
+pub fn compare(expected: &[&Primitive], actual: &[&Primitive], tolerance: f64, rules: Rules) -> Vec<String> {
     let mut out = Vec::new();
     let strokes = |list: &[&Primitive]| -> Vec<StrokePrimitive> {
         list.iter()
@@ -396,9 +442,9 @@ pub fn compare(expected: &[&Primitive], actual: &[&Primitive], tolerance: f64) -
         let style = |stroke: &StrokePrimitive| (stroke.color.clone(), jww_dashes(&stroke.dashes));
         let styles: Vec<_> = clipped.iter().flat_map(|clip| clip.strokes.iter().map(style)).collect();
         if let Some(stroke) = hatch.iter().find(|stroke| {
-            !styles
-                .iter()
-                .any(|(color, dashes)| same_color(color, &stroke.color) && same_dashes(dashes, &stroke.dashes))
+            !styles.iter().any(|(color, dashes)| {
+                same_color(color, &stroke.color) && (rules.any_dashes || same_dashes(dashes, &stroke.dashes))
+            })
         }) {
             out.push(format!("hatch line style {} {:?} not in {styles:?}", stroke.color, stroke.dashes));
         }
@@ -407,13 +453,13 @@ pub fn compare(expected: &[&Primitive], actual: &[&Primitive], tolerance: f64) -
         out.push(format!("{} strokes → {}", expected_strokes.len(), actual_strokes.len()));
     } else if !expected_strokes.is_empty() {
         let style =
-            |stroke: &StrokePrimitive| (stroke.color.clone(), jww_width(stroke.width), jww_dashes(&stroke.dashes));
+            |stroke: &StrokePrimitive| (stroke.color.clone(), (rules.width)(stroke.width), jww_dashes(&stroke.dashes));
         for stroke in &actual_strokes {
             let found = expected_strokes.iter().any(|other| {
                 let (color, width, dashes) = style(other);
                 same_color(&color, &stroke.color)
                     && (width - stroke.width).abs() < 1e-9
-                    && same_dashes(&dashes, &stroke.dashes)
+                    && (rules.any_dashes || same_dashes(&dashes, &stroke.dashes))
             });
             if !found {
                 out.push(format!(
@@ -510,7 +556,12 @@ pub fn group<'a>(scene: &'a Scene, source: &dyn Fn(&str) -> Option<String>) -> H
 }
 
 /// 元の図面（JWW の用紙の座標に移したもの）と、写した JWW の図面の違い
-pub fn differences(original: &Scene, again: &Scene, source: &dyn Fn(&str) -> Option<String>) -> Vec<String> {
+pub fn differences(
+    original: &Scene,
+    again: &Scene,
+    source: &dyn Fn(&str) -> Option<String>,
+    rules: Rules,
+) -> Vec<String> {
     let groups = group(again, source);
     let mut out = Vec::new();
     let mut matched = 0;
@@ -549,7 +600,7 @@ pub fn differences(original: &Scene, again: &Scene, source: &dyn Fn(&str) -> Opt
                 entity.type_name, b.min_x, b.min_y, b.max_x, b.max_y, bbox.min_x, bbox.min_y, bbox.max_x, bbox.max_y
             ));
         }
-        for difference in compare(&expected, &actual, tolerance) {
+        for difference in compare(&expected, &actual, tolerance, rules) {
             out.push(format!("{id} ({}): {difference}", entity.type_name));
         }
     }

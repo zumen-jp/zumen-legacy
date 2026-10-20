@@ -53,6 +53,8 @@ const USER_COLORS: std::ops::RangeInclusive<u16> = 117..=355;
 const USER_LINE_TYPES: std::ops::RangeInclusive<u8> = 47..=62;
 /// SXF 対応線種の線分・空白の数の上限
 const MAX_SEGMENTS: usize = 10;
+/// 実線にする破線の周期（用紙の mm）
+const MIN_PERIOD: f64 = 0.05;
 /// 文字のフォントが分からない・SHX のときのフォント（Jw_cad の既定）と、明朝体の代わりのフォント
 const DEFAULT_FONT: &str = "ＭＳ ゴシック";
 const SERIF_FONT: &str = "ＭＳ 明朝";
@@ -1061,7 +1063,8 @@ impl<'a> Mapper<'a> {
 
     /// 線種（線分・空白の長さは用紙の mm）
     fn pen_style(&mut self, dashes: &[f64]) -> u8 {
-        if dashes.is_empty() {
+        // 用紙で周期のごく短い破線は、実線と見分けがつかないので実線にする
+        if dashes.iter().map(|value| value.abs()).sum::<f64>() < MIN_PERIOD {
             return 1;
         }
         let mut pitch = self.pitch(dashes);
@@ -1093,9 +1096,22 @@ impl<'a> Mapper<'a> {
         self.notices.add(
             NoticeLevel::Warning,
             "linetype-count",
-            "SXF 対応線種のユーザー定義（16 種）に入らない線種は、実線にしました",
+            "SXF 対応線種のユーザー定義（16 種）に入らない線種は、周期と線の割合のいちばん近い線種にしました",
         );
-        1
+        // 周期の比・線の割合・線分の数の近いもの
+        let signature = |segments: &[f64]| {
+            let period: f64 = segments.iter().sum();
+            let on: f64 = segments.iter().step_by(2).sum();
+            (period, on / period, segments.len() as f64)
+        };
+        let (period, duty, count) = signature(&pitch);
+        let distance = |segments: &[f64]| {
+            let (other, other_duty, other_count) = signature(segments);
+            (other / period).ln().abs() + (other_duty - duty).abs() * 2.0 + (other_count - count).abs() * 0.1
+        };
+        let users = self.line_types.iter().map(|(style, segments)| (*style as u8, segments));
+        let candidates = self.default_line_types.iter().map(|(style, segments)| (*style, segments)).chain(users);
+        candidates.min_by(|a, b| distance(a.1).total_cmp(&distance(b.1))).map_or(1, |(style, _)| style)
     }
 
     /// 表示の線分・空白の並び（dash_array）を、正の線分と空白の組にする。長さ 0 の線分（点）は 0.25 mm の線分にし、

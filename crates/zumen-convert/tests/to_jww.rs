@@ -33,6 +33,13 @@ fn files(folder: &Path, extensions: &[&str]) -> Vec<PathBuf> {
     files
 }
 
+/// 比べ方の規則。ユーザー定義の線種に入らない線種を近い線種にした図面は、破線を比べない
+fn rules(mapped: &MappedJww, width: fn(f64) -> f64) -> common::Rules {
+    let any_dashes =
+        mapped.notices.iter().any(|notice| matches!(notice.code.as_str(), "linetype-count" | "linetype-long"));
+    common::Rules { width, any_dashes }
+}
+
 /// AutoCAD の図面のモデルを JWW に書いて読み直した図面と表示
 fn to_jww(doc: &DxfDocument) -> (MappedJww, JwwDocument, Scene) {
     let mapped = dxf_to_jww(doc);
@@ -191,14 +198,14 @@ fn check_dxf(name: &str, doc: &DxfDocument) -> (usize, Vec<String>) {
         })
         .map(|entity| entity.base.handle.as_str())
         .collect();
-    let mut differences = common::differences(&original, &scene, &source);
+    let mut differences = common::differences(&original, &scene, &source, rules(&mapped, common::jww_width));
     differences.extend(layer_differences(&original, &scene, &source));
     let differences = differences
         .into_iter()
         .filter(|line| {
             let id = line.split(' ').next().unwrap_or("").trim_end_matches(':');
             // 寸法の定義点（DEFPOINTS）は、表示では寸法の図形にまとめ、JWW では DEFPOINTS（非表示）のレイヤに書く
-            let defpoints = line.contains(": layer DEFPOINTS not in");
+            let defpoints = line.to_uppercase().contains(": LAYER DEFPOINTS NOT IN");
             !skip.contains(id) && !defpoints && !id.split(['>', ':']).any(|part| recursive.contains(part))
         })
         .map(|line| format!("{name}: {line}"))
@@ -225,7 +232,7 @@ fn check_round_trip(name: &str, bytes: &[u8]) -> (usize, Vec<String>) {
     let source = |id: &str| {
         common::jww_source(id, &again, &mapped.sources).map(|dxf_id| common::through_handles(&dxf_id, &dxf_sources))
     };
-    out.extend(common::differences(&original, &scene, &source));
+    out.extend(common::differences(&original, &scene, &source, rules(&mapped, common::width_through_dxf)));
     // 図形のレイヤ（レイヤグループ × 16 + レイヤ + 1）と縮尺は元と同じ
     let layers: HashMap<&str, (Option<u32>, Option<f64>)> = original
         .entities
@@ -265,7 +272,7 @@ fn check_sxf(name: &str, bytes: &[u8], format: &str) -> (usize, Vec<String>) {
         common::jww_source(id, &again, &mapped.sources)
             .map(|dxf_id| common::through_handles(&dxf_id, &mapped_dxf.sources))
     };
-    let differences = common::differences(&original, &scene, &source)
+    let differences = common::differences(&original, &scene, &source, rules(&mapped, common::width_through_dxf))
         .into_iter()
         .filter(|line| !skip.contains(line.split(' ').next().unwrap_or("")))
         .map(|line| format!("{name}: {line}"))
