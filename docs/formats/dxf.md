@@ -312,9 +312,12 @@ ezdxf 1.4.5 writes for each version.
 
 - **Text encoding**: 2007 and later are UTF-8. Earlier versions are written in a code page (DXF Reference "Storage of
   String Values"): the drawing's `$DWGCODEPAGE` when it is not western, else the code page of the encoding it was read
-  in, else the one its texts need (ANSI_932 for kana and kanji, ANSI_949 for Hangul, ANSI_1251, ANSI_1253), else
-  ANSI_1252. A character the code page cannot hold is written as `\U+XXXX`, which AutoCAD and zumen read back as
-  the character.
+  in when that is not western, else the ANSI code page that holds the most characters of its texts. On a tie the
+  single-byte code pages come first (ANSI_1252, 1250, 1251, 1253, 1254, 1257, 1258, 1255, 1256 and 874), then
+  ANSI_932, 936, 949 and 950: kana and kanji give ANSI_932, simplified Chinese ANSI_936, Hangul ANSI_949, and
+  Cyrillic ANSI_1251 although Shift_JIS has it too. A character the code page cannot hold is written as `\U+XXXX`,
+  which AutoCAD and zumen read back as the character; one outside the Basic Multilingual Plane is written as the two
+  escapes of its UTF-16 surrogates, which zumen reads back as one character.
 - **What a version cannot hold** is left out or written in another form, following the versions of ezdxf's attributes,
   and reported:
 
@@ -324,10 +327,11 @@ ezdxf 1.4.5 writes for each version.
 | `version-transparency` | 2000 | Transparency (440, and the `AcCmTransparency` data of layers) is left out |
 | `version-gradient` | 2000 | A gradient hatch is filled with its first color |
 | `version-dimension` | 2000 | ARC_DIMENSION and LARGE_RADIAL_DIMENSION are written as the INSERT of their block |
-| `version-background` | 2000, 2004 | The background fill of MTEXT (90, 63, 421, 45, 441) is left out |
+| `version-background` | 2000, 2004 | The background fill of MTEXT (90, 63, 421, 45, 441) is left out, also in blocks: the text fill of a dimension (DIMTFILL, 2007 and later) is the MTEXT in its block |
 | `version-mleader` | 2000, 2004 | MULTILEADER is written as it is, as ezdxf writes it; AutoCAD before 2008 does not know it |
 
 ## Verification
 
-See [verification.md](../verification.md#dxf) and [DXF writing](../verification.md#dxf-writing). The parser was compared with ezdxf 1.4.5 on public Japanese drawings
+See [verification.md](../verification.md#dxf), [DXF writing](../verification.md#dxf-writing) and
+[DXF versions](../verification.md#dxf-versions). The parser was compared with ezdxf 1.4.5 on public Japanese drawings
 (Yokosuka City and Imizu City), the ACadSharp samples (R12 to 2018, ASCII and binary) and generated drawings.

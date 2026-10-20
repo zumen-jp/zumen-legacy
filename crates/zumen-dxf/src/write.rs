@@ -1,7 +1,8 @@
 //! AutoCAD の図面のモデル（`DxfDocument`）を DXF（ASCII、既定は AutoCAD 2013 形式の AC1027、UTF-8）に書く。
-//! `write_dxf_as` で AutoCAD 2000〜2018 の版を選べる。版にない値（2004 より前のトゥルーカラー・透過度・グラデーション、
-//! 2007 より前の MTEXT の背景）は書かずに notices で知らせ、2007 より前の版は文字列を図面のコードページで書く
-//! （表せない文字は \U+XXXX。DXF Reference「Storage of String Values」）。
+//! `write_dxf_as` で AutoCAD 2000〜2018 の版を選べる。版にない値（2004 より前のトゥルーカラー・透過度・グラデーション・
+//! 新しい寸法、2007 より前の MTEXT の背景）は別の形で書くか省き、notices で知らせる。2007 より前の版は文字列を図面の
+//! コードページ（西欧のものなら、文字列を最も多く表せるもの）で書く（表せない文字は \U+XXXX。DXF Reference
+//! 「Storage of String Values」）。
 //! DXF・DWG から読んだ図面を DXF にする変換に使う（DXF Reference の各節・各図形のグループコードに従う）。
 //!
 //! 書くもの: 見出しの主な変数、クラス、表（VPORT・LTYPE・LAYER・STYLE・VIEW・UCS・APPID・DIMSTYLE・
@@ -124,43 +125,54 @@ pub fn write_dxf_as(doc: &DxfDocument, version: DxfVersion) -> Result<DxfWritten
     Ok(DxfWritten { bytes, notices: writer.notices.into_vec() })
 }
 
-/// AutoCAD 2007 より前の版の $DWGCODEPAGE と文字コード。元の図面の指定（西欧以外）、元の文字コード、文字の種類の順に決める
+/// AutoCAD 2007 より前の版の $DWGCODEPAGE と文字コード。元の図面のコードページ（西欧以外）、読んだときの文字コード
+/// （西欧以外）の順に決め、どちらもなければ文字列の文字を最も多く表せるものにする。同じ数なら PAGES の順で、1 バイトの
+/// ものを先にする（キリル文字・ギリシャ文字は 932 にもあるが、1251・1253 にする）
 fn codepage_for(doc: &DxfDocument, text: &str) -> (&'static str, &'static encoding_rs::Encoding) {
-    const PAGES: [(&str, &str); 6] = [
+    const PAGES: [(&str, &str); 14] = [
+        ("ANSI_1252", "windows-1252"),
+        ("ANSI_1250", "windows-1250"),
+        ("ANSI_1251", "windows-1251"),
+        ("ANSI_1253", "windows-1253"),
+        ("ANSI_1254", "windows-1254"),
+        ("ANSI_1257", "windows-1257"),
+        ("ANSI_1258", "windows-1258"),
+        ("ANSI_1255", "windows-1255"),
+        ("ANSI_1256", "windows-1256"),
+        ("ANSI_874", "windows-874"),
         ("ANSI_932", "shift_jis"),
         ("ANSI_936", "gbk"),
         ("ANSI_949", "euc-kr"),
         ("ANSI_950", "big5"),
-        ("ANSI_1251", "windows-1251"),
-        ("ANSI_1253", "windows-1253"),
     ];
-    let page = |name: &str| PAGES.iter().find(|(page, _)| *page == name).copied();
-    let declared = doc.header.codepage.as_deref().map(|codepage| codepage.trim().to_ascii_uppercase());
-    let chosen = declared
-        .as_deref()
-        .and_then(page)
-        .or_else(|| PAGES.iter().find(|(_, label)| *label == doc.encoding).copied())
-        .or_else(|| {
-            let has = |range: std::ops::RangeInclusive<char>| text.chars().any(|c| range.contains(&c));
-            if has('\u{3041}'..='\u{30ff}') || has('\u{4e00}'..='\u{9fff}') {
-                page("ANSI_932")
-            } else if has('\u{ac00}'..='\u{d7a3}') {
-                page("ANSI_949")
-            } else if has('\u{0400}'..='\u{04ff}') {
-                page("ANSI_1251")
-            } else if has('\u{0370}'..='\u{03ff}') {
-                page("ANSI_1253")
-            } else {
-                None
+    let declared = doc.header.codepage.as_deref().and_then(crate::tags::codepage_encoding);
+    let (name, label) = PAGES[1..]
+        .iter()
+        .find(|(_, label)| declared == Some(*label))
+        .or_else(|| PAGES[1..].iter().find(|(_, label)| *label == doc.encoding))
+        .copied()
+        .unwrap_or_else(|| {
+            let mut counts: HashMap<char, usize> = HashMap::new();
+            for c in text.chars().filter(|c| !c.is_ascii()) {
+                *counts.entry(c).or_default() += 1;
             }
+            let unmappable = |label: &str| {
+                let encoding = crate::tags::encoding(label);
+                let mut buffer = [0u8; 4];
+                counts
+                    .iter()
+                    .filter(|(c, _)| encoding.encode(c.encode_utf8(&mut buffer)).2)
+                    .map(|(_, count)| count)
+                    .sum::<usize>()
+            };
+            // 最も少ないもののうち最初のもの
+            PAGES.into_iter().min_by_key(|(_, label)| unmappable(label)).unwrap_or(PAGES[0])
         });
-    match chosen {
-        Some((name, label)) => (name, crate::tags::encoding(label)),
-        None => ("ANSI_1252", encoding_rs::WINDOWS_1252),
-    }
+    (name, crate::tags::encoding(label))
 }
 
-/// 文字コードにする。表せない文字は \U+XXXX（基本多言語面の外は ?）にする
+/// 文字コードにする。表せない文字は \U+XXXX にする（基本多言語面の外は UTF-16 のサロゲートの 2 つ。zumen の読み取りは
+/// UTF-16 の単位で戻すので、元の文字になる）
 fn encode_with_escapes(text: &str, encoding: &'static encoding_rs::Encoding) -> Vec<u8> {
     let mut encoder = encoding.new_encoder();
     let mut out = Vec::with_capacity(text.len() + 64);
@@ -172,11 +184,8 @@ fn encode_with_escapes(text: &str, encoding: &'static encoding_rs::Encoding) -> 
             encoding_rs::EncoderResult::InputEmpty => break,
             encoding_rs::EncoderResult::OutputFull => out.reserve(rest.len() + 64),
             encoding_rs::EncoderResult::Unmappable(c) => {
-                let code = u32::from(c);
-                if code <= 0xffff {
-                    out.extend_from_slice(format!("\\U+{code:04X}").as_bytes());
-                } else {
-                    out.push(b'?');
+                for unit in c.encode_utf16(&mut [0u16; 2]) {
+                    out.extend_from_slice(format!("\\U+{unit:04X}").as_bytes());
                 }
             }
         }
@@ -2641,17 +2650,48 @@ mod tests {
 
     #[test]
     fn writes_characters_the_code_page_lacks_as_unicode_escapes() {
+        // 基本多言語面の外の文字は UTF-16 のサロゲートの 2 つにし、読み取りで元の文字に戻る
         let bytes = encode_with_escapes("壁 Ā 😀", encoding_rs::SHIFT_JIS);
-        let (expected, _, _) = encoding_rs::SHIFT_JIS.encode("壁 \\U+0100 ?");
+        let (expected, _, _) = encoding_rs::SHIFT_JIS.encode("壁 \\U+0100 \\U+D83D\\U+DE00");
         assert_eq!(bytes, expected.into_owned());
-        // 2007 より前の版は、図面の文字に合うコードページで書く
-        let doc = parse_dxf(
-            b"0\nSECTION\n2\nENTITIES\n0\nTEXT\n8\n0\n10\n0\n20\n0\n40\n1\n1\n\xe5\xa3\x81\n0\nENDSEC\n0\nEOF\n",
-        );
-        let written = write_dxf_as(&doc, DxfVersion::R2000).unwrap();
-        let (text, _, _) = encoding_rs::SHIFT_JIS.decode(&written.bytes);
-        assert!(text.contains("$DWGCODEPAGE\r\n  3\r\nANSI_932") && text.contains("\r\n  1\r\n壁\r\n"), "{text}");
-        assert!(write_dxf_as(&doc, DxfVersion::R12).is_err());
+        assert_eq!(crate::tags::decode_escapes("\\U+0100 \\U+D83D\\U+DE00"), "Ā 😀");
+        assert!(write_dxf_as(&parse_dxf(b"0\nEOF\n"), DxfVersion::R12).is_err());
+    }
+
+    #[test]
+    fn writes_old_versions_in_the_code_page_that_holds_the_texts() {
+        // AutoCAD 2000 の DXF。文字列はそのコードページで書き、ない文字は \U+XXXX にする
+        let text = |content: &str, codepage: &str| {
+            let mut dxf =
+                format!("0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n9\n$DWGCODEPAGE\n3\n{codepage}\n").into_bytes();
+            dxf.extend_from_slice(b"0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nTEXT\n8\n0\n10\n0\n20\n0\n40\n1\n1\n");
+            let encoding = crate::tags::encoding(crate::tags::codepage_encoding(codepage).unwrap());
+            dxf.extend_from_slice(&encode_with_escapes(content, encoding));
+            dxf.extend_from_slice(b"\n0\nENDSEC\n0\nEOF\n");
+            parse_dxf(&dxf)
+        };
+        // 西欧のコードページの図面は、文字を最も多く表せるもの（同じならキリル文字・ギリシャ文字は 1 バイトのもの）で書く。
+        // 西欧以外のコードページの図面は、そのコードページで書く
+        for (content, codepage, page, label) in [
+            ("Wall", "ANSI_1252", "ANSI_1252", "windows-1252"),
+            ("Café 25°", "ANSI_1252", "ANSI_1252", "windows-1252"),
+            ("壁 φ25", "ANSI_1252", "ANSI_932", "shift_jis"),
+            ("图层", "ANSI_1252", "ANSI_936", "gbk"),
+            ("벽 漢字", "ANSI_1252", "ANSI_949", "euc-kr"),
+            ("Стена", "ANSI_1252", "ANSI_1251", "windows-1251"),
+            ("Τοίχος", "ANSI_1252", "ANSI_1253", "windows-1253"),
+            ("Ściana", "ANSI_1252", "ANSI_1250", "windows-1250"),
+            ("Wall", "ANSI_932", "ANSI_932", "shift_jis"),
+            ("壁", "GB2312", "ANSI_936", "gbk"),
+        ] {
+            let written = write_dxf_as(&text(content, codepage), DxfVersion::R2000).unwrap();
+            let decoded = crate::tags::decode(&written.bytes, label);
+            assert!(decoded.contains(&format!("$DWGCODEPAGE\r\n  3\r\n{page}\r\n")), "{content}: {decoded}");
+            assert!(decoded.contains(&format!("\r\n  1\r\n{content}\r\n")), "{content}: {decoded}");
+            let again = parse_dxf(&written.bytes);
+            let DxfEntityData::Text(text) = &again.entities[0].data else { panic!("{content}") };
+            assert_eq!(text.text, content);
+        }
     }
 
     #[test]

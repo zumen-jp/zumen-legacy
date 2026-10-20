@@ -66,10 +66,10 @@ fn strip_colors(value: &mut Value) {
     }
 }
 
-/// 元の図形ごとに、書き直した図面の同じ図形（同じ id、なければ同じ順の図形）と比べる
-/// 元の図形ごとに、書き直した図面の同じ図形と比べる。version は書いた版（None は既定の 2013）。版にない値は notices で
-/// 知らせて書かないので、比べない: 2004 より前の色（トゥルーカラー・透過度）、2007 より前の複数行の文字の背景の塗り、
-/// 2004 より前の円弧の長さ・大きい半径の寸法（寸法のブロックの参照として、その中の図形が描かれる）
+/// 元の図形ごとに、書き直した図面の同じ図形（同じ id、なければ同じ順の図形）と比べる。version は書いた版（None は既定の
+/// 2013）。版にない値は notices で知らせて書かないので、比べない: 2004 より前の色（トゥルーカラー・透過度）、2007 より前の
+/// 文字の背景の塗り（複数行の文字と、寸法などのブロックの中の複数行の文字）、2004 より前の円弧の長さ・大きい半径の寸法
+/// （寸法のブロックの参照として、その中の図形が描かれる）
 fn differences_with(original: &Scene, again: &Scene, version: Option<&str>) -> Vec<String> {
     let before_2004 = matches!(version, Some("2000"));
     let before_2007 = matches!(version, Some("2000" | "2004"));
@@ -94,43 +94,42 @@ fn differences_with(original: &Scene, again: &Scene, version: Option<&str>) -> V
             }
             continue;
         }
-        let mut entity = entity.clone();
-        let mut other_fills = None;
-        if before_2007 && source == "MTEXT" {
-            // 背景の塗り（fill）と、それを含む外接矩形を除いて比べる
-            let without_fills = |value: &mut Value| {
-                if let Some(primitives) = value["primitives"].as_array_mut() {
-                    primitives.retain(|primitive| primitive["kind"] != "fill");
-                }
-                value["bbox"] = Value::Null;
-            };
-            without_fills(&mut entity);
-            other_fills = Some(without_fills);
-        }
-        let entity = &entity;
         // 読めないハンドル（ない、16 進でない、重なる）は書き直すときに振り直す
+        let Some(other) = same_id.or_else(|| after.get(index)) else {
+            out.push(format!("{id}: missing"));
+            continue;
+        };
+        let (mut entity, mut other) = (entity.clone(), other.clone());
+        if before_2007 {
+            without_backgrounds(&mut entity, &mut other);
+        }
         let changed = matches!(source, "HELIX" | "MPOLYGON" | "ATTRIB");
-        let other = same_id.or_else(|| after.get(index)).map(|other| {
-            let mut other = other.clone();
-            if let Some(without_fills) = other_fills {
-                without_fills(&mut other);
-            }
-            other
-        });
-        match other.as_ref() {
-            None => out.push(format!("{id}: missing")),
-            Some(other)
-                if !close(
-                    &shape_with(original, entity, changed, colors),
-                    &shape_with(again, other, changed, colors),
-                ) =>
-            {
-                out.push(format!("{id} ({}): differs", entity["type"]))
-            }
-            _ => {}
+        if !close(&shape_with(original, &entity, changed, colors), &shape_with(again, &other, changed, colors)) {
+            out.push(format!("{id} ({}): differs", entity["type"]));
         }
     }
     out
+}
+
+/// 2007 より前の版は複数行の文字の背景を書かない。元の描く要素から、文字のすぐ前の塗り（ビューポート越しには切り取られた
+/// 四角）のうち書き直した図形にないものを除き、背景を含む外接矩形は比べない
+fn without_backgrounds(entity: &mut Value, other: &mut Value) {
+    let before = entity["primitives"].as_array().cloned().unwrap_or_default();
+    let after = other["primitives"].as_array().cloned().unwrap_or_default();
+    let mut kept = Vec::new();
+    for (index, primitive) in before.iter().enumerate() {
+        let background =
+            primitive["kind"] == "fill" && before.get(index + 1).is_some_and(|next| next["kind"] == "text");
+        if background && after.get(kept.len()).is_none_or(|next| next["kind"] != "fill") {
+            continue;
+        }
+        kept.push(primitive.clone());
+    }
+    if kept.len() < before.len() {
+        entity["primitives"] = Value::Array(kept);
+        entity["bbox"] = Value::Null;
+        other["bbox"] = Value::Null;
+    }
 }
 
 /// 図面を DXF に書き直し、すべての表示で元と比べる。比べた表示の数と、違いを返す（読めない図面は比べない）
