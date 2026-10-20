@@ -19,7 +19,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::f64::consts::{PI, TAU};
 use zumen_core::{NoticeLevel, NoticeList};
 
-/// 新しい図面を書く版。Jw_cad 7.02 以降の版（文字列は UTF-16LE、同梱画像を持てる）で、Jw_cad 8 以降が開ける
+/// 新しい図面を書く版。Jw_cad 7.02 以降の版（同梱画像を持てる）で、Jw_cad 8 以降が開ける。文字列は、Jw_cad 10.01
+/// 以降と同じく UTF-16LE で書く
 pub const JWW_VERSION: u32 = UNICODE_VERSION;
 
 /// 書ける版。版ごとの欄の違いは形式説明（jwdatafmt.txt）の注記のとおりで、300 より前の版はその注記だけに拠る

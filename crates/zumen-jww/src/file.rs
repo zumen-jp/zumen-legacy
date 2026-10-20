@@ -191,7 +191,7 @@ impl JwwFile {
             notices.add_count(
                 NoticeLevel::Warning,
                 "text-encoding",
-                "Shift_JIS で表せない文字を ? にしました（版 700 より前の JWW）",
+                "Shift_JIS で表せない文字を ? にしました（版 700 より前の JWW と、文字列が Shift_JIS の読んだファイル）",
                 out.replaced as u64,
             );
         }
@@ -603,7 +603,7 @@ mod tests {
         let original = crate::read_jww(&bytes).unwrap();
         assert_eq!((read.version, &read.entities, &read.blocks), (700, &original.entities, &original.blocks));
         assert_eq!((read.memo.as_str(), &read.groups), (original.memo.as_str(), &original.groups));
-        // 文字列は UTF-16LE で書く
+        // 版を 700 に変えた図面の文字列は、新しい図面と同じく UTF-16LE で書く
         assert_eq!(&written.bytes[12..15], [0xff, 0xfe, 0xff]);
     }
 

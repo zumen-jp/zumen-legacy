@@ -290,6 +290,35 @@ fn keeps_header_fields_and_text_bytes_it_does_not_use() {
 }
 
 #[test]
+fn keeps_unused_temporary_slots_and_write_layer_bits() {
+    let doc = drawing(vec![point(base(0, 0, 2, 1), 0.0, 0.0, true), point(base(0, 1, 2, 1), 10.0, 0.0, true)]);
+    let mut bytes = write_jwc(&doc).bytes;
+    // 使っていない仮点の番号（0 と 5）に残った値と、書込みレイヤの上位 4 ビットがグループの番号でないもの
+    bytes[TEMPORARY_X..TEMPORARY_X + 4].copy_from_slice(&1.5f32.to_le_bytes());
+    bytes[TEMPORARY_X + 20..TEMPORARY_X + 24].copy_from_slice(&2.5f32.to_le_bytes());
+    bytes[TEMPORARY_LAYER + 5] = 0x23;
+    let write_layers = JwcFile::write_layers(true);
+    assert_eq!(bytes[write_layers + 3], 0x30);
+    bytes[write_layers + 3] = 0x50;
+    let file = JwcFile::read(&bytes).unwrap();
+    assert_eq!(file.write().bytes, bytes);
+    // 仮点を 1 つ減らすと、空いた番号 2 だけを 0 にする
+    let mut fewer = file.clone();
+    fewer.temporary_points.pop();
+    let written = fewer.write().bytes;
+    assert_eq!(&written[TEMPORARY_X + 8..TEMPORARY_X + 12], &[0; 4]);
+    assert_eq!(&written[TEMPORARY_X..TEMPORARY_X + 4], &1.5f32.to_le_bytes());
+    assert_eq!(&written[TEMPORARY_X + 20..TEMPORARY_X + 24], &2.5f32.to_le_bytes());
+    assert_eq!(written[TEMPORARY_LAYER + 5], 0x23);
+    assert_eq!(JwcFile::read(&written).unwrap().temporary_points, fewer.temporary_points);
+    // 書込みレイヤを変えたグループだけ、上位 4 ビットをグループの番号にして書き直す
+    let mut moved = file.clone();
+    moved.groups[3].write_layer = 4;
+    let written = moved.write().bytes;
+    assert_eq!((written[write_layers + 2], written[write_layers + 3]), (0x20, 0x34));
+}
+
+#[test]
 fn reads_jwc_as_a_scene() {
     let bytes = write_jwc(&drawing(vec![line(base(0, 0, 2, 1), -100.0, 0.0, 0.0, 0.0)])).bytes;
     assert_eq!(JWW.detect(&bytes), Some("jwc"));

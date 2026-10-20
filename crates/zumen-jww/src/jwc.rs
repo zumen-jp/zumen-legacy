@@ -512,6 +512,11 @@ impl JwcFile {
             fixed[start + CSV_LENGTH] = b'\n';
         }
         fixed[199] = b'\n';
+        // 各グループの書込みレイヤ（上位 4 ビットはグループの番号）
+        let write_layers = Self::write_layers(true);
+        for g in 0..16 {
+            fixed[write_layers + g] = (g as u8) << 4;
+        }
         let text_styles = [
             (0, 0, 0),
             (1, 20, 0),
@@ -560,8 +565,9 @@ impl JwcFile {
         let float_scales = self.float_scales;
         let length = Self::header_length(float_scales);
         let mut fixed = self.fixed.clone();
-        if fixed.len() != length {
-            // 縮尺の書き方を変えたときは、縮尺から後ろの欄をこの書き方で作り直す
+        // 縮尺の書き方を変えたときは、縮尺から後ろの欄をこの書き方で作り直す
+        let relayout = fixed.len() != length;
+        if relayout {
             fixed.resize(length, 0);
         }
         fixed[VARIANT] = if float_scales { b'f' } else { b'.' };
@@ -631,9 +637,13 @@ impl JwcFile {
         }
         patch_csv(&mut fixed, 0, &csv0);
         patch_csv(&mut fixed, 2, &[(1, far_pointer_text(pool_start.wrapping_add(pool.len() as u32)))]);
-        // 仮点の表（使わない番号は 0）
-        for i in 0..TEMPORARY_SLOTS {
-            let point = i.checked_sub(1).and_then(|n| self.temporary_points.get(n)).filter(|_| i <= temporary);
+        // 仮点の表（番号 1〜100）。使う番号を書き、読んだときより減った番号は 0 にする。ほかの番号は元のまま
+        let before = csv_fields(&self.fixed, 0)
+            .get(4)
+            .and_then(|field| field.parse::<usize>().ok())
+            .map_or(0, |count| count.min(TEMPORARY_SLOTS - 1));
+        for i in 1..=temporary.max(before) {
+            let point = self.temporary_points.get(i - 1).filter(|_| i <= temporary);
             let (x, y, layer) =
                 point.map_or((0.0, 0.0, 0), |point| (point.position[0], point.position[1], point.layer));
             put_f32(&mut fixed, TEMPORARY_X + 4 * i, x, point.is_some());
@@ -660,7 +670,11 @@ impl JwcFile {
             }
             fixed[edit + g] = group.edit;
             fixed[visible + g] = group.visible;
-            fixed[write_layers + g] = ((g as u8) << 4) | (group.write_layer & 0x0f);
+            // 書込みレイヤ（上位 4 ビットはグループの番号）は、レイヤが変わったときだけ書き直す
+            let byte = &mut fixed[write_layers + g];
+            if relayout || *byte & 0x0f != group.write_layer & 0x0f {
+                *byte = ((g as u8) << 4) | (group.write_layer & 0x0f);
+            }
             let (name, lossy) = group.name.slot(GROUP_NAME);
             lossy_names += u64::from(lossy);
             let at = LAYER_NAME * 256 + GROUP_NAME * g;
@@ -1240,8 +1254,9 @@ impl Converter<'_> {
         let tenths = |mm: f64| (mm * scale * 10.0).round().clamp(0.0, f64::from(u16::MAX)) as u16;
         let wanted = JwcTextStyle {
             color: u16::from(self.color(e.base.pen_color)),
-            width: tenths(e.size_x),
-            height: tenths(if e.size_y > 0.0 { e.size_y } else { 2.5 }),
+            // 負の大きさ（Jw_cad 10.03 以降の反転した文字）は、JWC では反転しない文字にする
+            width: tenths(e.size_x.abs()),
+            height: tenths(if e.size_y != 0.0 { e.size_y.abs() } else { 2.5 }),
             spacing: tenths(e.spacing),
         };
         let style = self.style(wanted);

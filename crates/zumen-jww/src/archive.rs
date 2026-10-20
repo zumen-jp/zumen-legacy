@@ -78,7 +78,7 @@ impl<'a> Reader<'a> {
     }
 
     /// MFC の CString。長さは BYTE、0xFF なら WORD、0xFFFF なら DWORD。
-    /// WORD の 0xFFFE は Unicode の印で、その後に長さを改めて書き、本文は UTF-16LE（JWW 700）
+    /// WORD の 0xFFFE は Unicode の印で、その後に長さを改めて書き、本文は UTF-16LE（Jw_cad 10.01 以降の JWW 700）
     pub(crate) fn cstring(&mut self) -> Result<String> {
         self.cstring_span().map(|(text, _)| text)
     }

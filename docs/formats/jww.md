@@ -95,8 +95,8 @@ kept bytes and from the typed values alone.
   version, so the header model is the same for every version. The settings read are written again at once and must
   give back the same bytes; when they do not (a layout that differs from the notes, a string written differently),
   the settings stay as the bytes up to the entity list (`rest`), as do the parts that do not follow the order at all
-  (the fixtures end before the text styles). Versions before 3.00 follow the notes alone: no file of those versions
-  was at hand.
+  (the fixtures end before the text styles). Every file at hand was of version 6.00 or 7.00, so the older versions
+  follow the notes alone.
 - **Records** (`JwwRecord`, `JwwBlockRecord`): each entity keeps its values (`JwwEntity`, the same as `read_jww`) and the
   bytes of its body. A record whose entity has not changed is written from its bytes; a changed or added one is written
   from its values, in the order of the class's `Serialize` in jwdatafmt.txt. A changed dimension keeps its SXF mode
