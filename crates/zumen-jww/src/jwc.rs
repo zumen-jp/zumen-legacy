@@ -587,7 +587,7 @@ impl JwcFile {
         let mut lossy_text = 0u64;
         // 文字列の領域と、文字の文字列の場所
         let csv2 = csv_fields(&fixed, 2);
-        let pool_start = csv2.first().and_then(|text| far_pointer(text)).unwrap_or(0x4000_0000);
+        let mut pool_start = csv2.first().and_then(|text| far_pointer(text)).unwrap_or(0x4000_0000);
         let mut pool = Vec::new();
         let mut references = Vec::with_capacity(self.texts.len());
         let mut kept = 0usize;
@@ -608,6 +608,14 @@ impl JwcFile {
             references.push(pool_start.wrapping_add(pool.len() as u32));
             pool.extend_from_slice(&raw);
             kept += 1;
+        }
+        // 追加した文字列が元の DOS アドレスの範囲を超えたときだけ、領域と各文字の参照を移す。
+        if pool_start.checked_add(pool.len() as u32).is_none() {
+            for reference in &mut references {
+                *reference = 0x4000_0000 + reference.wrapping_sub(pool_start);
+            }
+            pool_start = 0x4000_0000;
+            patch_csv(&mut fixed, 2, &[(0, far_pointer_text(pool_start))]);
         }
         if kept < self.texts.len() {
             notices.add_count(
@@ -924,6 +932,7 @@ impl JwcFile {
 #[derive(Default)]
 struct Lost {
     blocks: u64,
+    arcs: u64,
     dimensions: u64,
     solids: u64,
     colors: u64,
@@ -1206,8 +1215,10 @@ impl Converter<'_> {
         let scale_x = m[0].hypot(m[1]);
         let scale_y = m[2].hypot(m[3]);
         let mirrored = m[0] * m[3] - m[1] * m[2] < 0.0;
-        let uniform = (scale_x - scale_y).abs() <= 1e-9 * scale_x.max(1.0);
+        let uniform = (scale_x - scale_y).abs() <= 1e-9 * scale_x.max(1.0)
+            && (m[0] * m[2] + m[1] * m[3]).abs() <= 1e-9 * (scale_x * scale_y).max(1.0);
         if !uniform {
+            self.lost.arcs += 1;
             // 縦横の倍率が違う配置の円弧は、表示と同じ点を結ぶ線にする
             let segments = 64usize;
             let sweep = if e.full { TAU } else { e.sweep };
@@ -1336,6 +1347,7 @@ impl Converter<'_> {
         let lost = &self.lost;
         let reports = [
             (lost.blocks, "jwc-block", "JWC はブロックを持たないため、ブロックの配置を図形に分解しました"),
+            (lost.arcs, "jwc-arc", "縦横の倍率が違う配置やせん断された配置の円弧を、線分で近似しました"),
             (lost.depth, "missing-block", "定義のないブロック・入れ子が深すぎるブロックの配置を省きました"),
             (lost.dimensions, "jwc-dimension", "JWC は寸法図形を持たないため、線・点・文字に分解しました"),
             (lost.solids, "jwc-solid", "JWC はソリッドを持たないため、輪郭の線・円弧にしました"),
