@@ -28,9 +28,9 @@ fn samples() -> Vec<(String, Vec<u8>)> {
     out
 }
 
-/// 書き直せる版（R2000、R2004、R2010〜R2018）
+/// 書き直せる版（R2000〜R2018）
 fn rewritable(bytes: &[u8]) -> bool {
-    matches!(&bytes[..6], b"AC1015" | b"AC1018" | b"AC1024" | b"AC1027" | b"AC1032")
+    matches!(&bytes[..6], b"AC1015" | b"AC1018" | b"AC1021" | b"AC1024" | b"AC1027" | b"AC1032")
 }
 
 /// 書き直した図面は、読むと元の図面と同じモデル（notices を含む）と、どの表示でも同じ図面になる

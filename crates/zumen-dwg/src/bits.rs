@@ -71,6 +71,10 @@ impl<'a> Bits<'a> {
         self.end = end.min(self.data.len() as u64 * 8);
     }
 
+    pub fn end(&self) -> u64 {
+        self.end
+    }
+
     pub fn remaining(&self) -> u64 {
         self.end.saturating_sub(self.pos)
     }
