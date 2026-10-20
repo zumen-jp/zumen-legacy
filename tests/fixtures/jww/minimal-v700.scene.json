@@ -36,6 +36,7 @@
   "entities": [
     {
       "id": "#1",
+      "kind": "line",
       "type": "線",
       "source": "CDataSen",
       "layers": [
@@ -77,41 +78,61 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "線"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#1"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
           "value": "平面 / 0-0 通り芯"
         },
         {
+          "key": "scale",
           "label": "縮尺",
-          "value": "1/100"
+          "value": "1/100",
+          "raw": 100
         },
         {
+          "key": "color",
           "label": "線色",
-          "value": "2"
+          "value": "2",
+          "raw": 2
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "1"
+          "value": "1",
+          "raw": 1
         },
         {
+          "key": "start",
           "label": "始点（実寸）",
-          "value": "-10,000, 0"
+          "value": "-10,000, 0",
+          "raw": [
+            -10000,
+            0
+          ]
         },
         {
+          "key": "end",
           "label": "終点（実寸）",
-          "value": "0, 0"
+          "value": "0, 0",
+          "raw": [
+            0,
+            0
+          ]
         }
       ]
     },
     {
       "id": "#2",
+      "kind": "line",
       "type": "線",
       "source": "CDataSen",
       "layers": [
@@ -156,41 +177,61 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "線"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#2"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
           "value": "平面 / 0-2"
         },
         {
+          "key": "scale",
           "label": "縮尺",
-          "value": "1/100"
+          "value": "1/100",
+          "raw": 100
         },
         {
+          "key": "color",
           "label": "線色",
-          "value": "2"
+          "value": "2",
+          "raw": 2
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "2"
+          "value": "2",
+          "raw": 2
         },
         {
+          "key": "start",
           "label": "始点（実寸）",
-          "value": "0, 2,000"
+          "value": "0, 2,000",
+          "raw": [
+            0,
+            2000
+          ]
         },
         {
+          "key": "end",
           "label": "終点（実寸）",
-          "value": "1,000, 2,000"
+          "value": "1,000, 2,000",
+          "raw": [
+            1000,
+            2000
+          ]
         }
       ]
     },
     {
       "id": "#3",
+      "kind": "text",
       "type": "文字",
       "source": "CDataMoji",
       "layers": [
@@ -259,45 +300,63 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "文字"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#3"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
           "value": "平面 / 0-1"
         },
         {
+          "key": "scale",
           "label": "縮尺",
-          "value": "1/100"
+          "value": "1/100",
+          "raw": 100
         },
         {
+          "key": "color",
           "label": "線色",
-          "value": "2"
+          "value": "2",
+          "raw": 2
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "1"
+          "value": "1",
+          "raw": 1
         },
         {
+          "key": "text",
           "label": "文字列",
           "value": "表示ソ能"
         },
         {
+          "key": "font",
           "label": "フォント",
           "value": "Century"
         },
         {
+          "key": "textSize",
           "label": "文字の大きさ",
-          "value": "幅 5・高さ 5・間隔 0（mm）"
+          "value": "幅 5・高さ 5・間隔 0（mm）",
+          "raw": [
+            5,
+            5,
+            0
+          ]
         }
       ]
     },
     {
       "id": "#4",
+      "kind": "arc",
       "type": "円弧",
       "source": "CDataEnko",
       "layers": [
@@ -363,41 +422,58 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "円弧"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#4"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
           "value": "平面 / 0-0 通り芯"
         },
         {
+          "key": "scale",
           "label": "縮尺",
-          "value": "1/100"
+          "value": "1/100",
+          "raw": 100
         },
         {
+          "key": "color",
           "label": "線色",
-          "value": "2"
+          "value": "2",
+          "raw": 2
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "1"
+          "value": "1",
+          "raw": 1
         },
         {
+          "key": "center",
           "label": "中心（実寸）",
-          "value": "0, 0"
+          "value": "0, 0",
+          "raw": [
+            0,
+            0
+          ]
         },
         {
+          "key": "radius",
           "label": "半径（実寸）",
-          "value": "1,000"
+          "value": "1,000",
+          "raw": 1000
         }
       ]
     },
     {
       "id": "#5>#1",
+      "kind": "line",
       "type": "線",
       "source": "CDataSen",
       "layers": [
@@ -440,36 +516,55 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "線"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#5>#1"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
           "value": "平面 / 0-0 通り芯"
         },
         {
+          "key": "scale",
           "label": "縮尺",
-          "value": "1/100"
+          "value": "1/100",
+          "raw": 100
         },
         {
+          "key": "color",
           "label": "線色",
-          "value": "2"
+          "value": "2",
+          "raw": 2
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "1"
+          "value": "1",
+          "raw": 1
         },
         {
+          "key": "start",
           "label": "始点（実寸）",
-          "value": "5,000, 0"
+          "value": "5,000, 0",
+          "raw": [
+            5000,
+            0
+          ]
         },
         {
+          "key": "end",
           "label": "終点（実寸）",
-          "value": "5,200, 0"
+          "value": "5,200, 0",
+          "raw": [
+            5200,
+            0
+          ]
         }
       ]
     }
@@ -477,26 +572,36 @@
   "notices": [],
   "metadata": [
     {
+      "key": "format",
       "label": "形式",
       "value": "JWW（版 700）"
     },
     {
+      "key": "sheet",
       "label": "用紙",
       "value": "A3（420×297mm）"
     },
     {
+      "key": "scale",
       "label": "縮尺",
-      "value": "1/100"
+      "value": "1/100",
+      "raw": [
+        100
+      ]
     },
     {
+      "key": "memo",
       "label": "メモ",
       "value": "メモ"
     },
     {
+      "key": "blockCount",
       "label": "ブロック",
-      "value": "1 件"
+      "value": "1 件",
+      "raw": 1
     },
     {
+      "key": "settings",
       "label": "Jw_cad の設定",
       "value": "View_Direct2d = 1"
     }

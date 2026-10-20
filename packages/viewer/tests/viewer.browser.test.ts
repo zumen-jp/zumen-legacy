@@ -19,6 +19,7 @@ function line(
   const ys = points.filter((_, index) => index % 2 === 1);
   return {
     id,
+    kind: "line",
     type: "線分",
     source: "line",
     layers: options.layers ?? [0],
