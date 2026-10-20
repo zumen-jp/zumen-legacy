@@ -162,19 +162,17 @@ pub fn closed_regions(scene: &Scene, options: &RegionOptions) -> Vec<ClosedRegio
     }
 
     // 文字は、その中心を含む領域に添える。領域は重ならないので、含むものは 1 つまで
+    let grid = BoxGrid::new(regions.iter().enumerate().map(|(index, region)| (index, region.bbox)).collect());
     for (entity, text) in &texts {
         let x = (text.bbox.min_x + text.bbox.max_x) / 2.0;
         let y = (text.bbox.min_y + text.bbox.max_y) / 2.0;
-        let found = regions.iter_mut().find(|region| {
-            x >= region.bbox.min_x
-                && x <= region.bbox.max_x
-                && y >= region.bbox.min_y
-                && y <= region.bbox.max_y
-                && inside_rings(x, y, std::slice::from_ref(&region.paper.outline))
+        let found = grid.at(x, y).filter(|&index| {
+            let region = &regions[index];
+            inside_rings(x, y, std::slice::from_ref(&region.paper.outline))
                 && !region.paper.holes.iter().any(|hole| inside_rings(x, y, std::slice::from_ref(hole)))
         });
-        if let Some(region) = found {
-            region.texts.push(RegionText { entity: entity.id.clone(), text: text.text.clone(), x, y });
+        if let Some(index) = found.min() {
+            regions[index].texts.push(RegionText { entity: entity.id.clone(), text: text.text.clone(), x, y });
         }
     }
 
