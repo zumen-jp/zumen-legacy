@@ -7,6 +7,7 @@ mod document;
 mod features;
 mod header;
 mod p21;
+mod p21_edit;
 mod p21_reader;
 mod p21_writer;
 mod scene;
@@ -47,9 +48,14 @@ pub fn write_sfc(drawing: &SxfDrawing) -> SxfWritten {
     }
 }
 
-/// SXF の図面を P21 ファイル（SXF Ver.3.1、STEP AP202 のサブセット）に書く
+/// SXF の図面を P21 ファイル（SXF Ver.3.1、STEP AP202 のサブセット）に書く。P21 から読んだ図面（`source` が
+/// あるもの）は、元のファイルを書き換えて、変えたフィーチャのインスタンスだけを書き直す。ほかの図面は、フィーチャ
+/// ごとのインスタンスを AP202 サブセット編のテンプレートで組み立てて新しく書く
 pub fn write_p21(drawing: &SxfDrawing) -> SxfWritten {
-    p21_writer::write_p21_new(drawing)
+    match &drawing.source {
+        Some(source) if drawing.format == "p21" => p21_edit::write_p21_edit(drawing, &source.bytes),
+        _ => p21_writer::write_p21_new(drawing),
+    }
 }
 
 /// SXF の図面を format（sfc・p21、圧縮した sfz・p2z）で書く

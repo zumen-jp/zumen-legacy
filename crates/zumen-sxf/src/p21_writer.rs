@@ -30,7 +30,7 @@ const AP202_COLOURS: usize = 8;
 pub(crate) const DUMMY_LAYER: &str = "$$SXF_dummy_layer_for_subfigure";
 
 /// 複合図形の種類（sfig_org_feature の flag）の接頭語
-fn sfig_prefix(flag: f64) -> &'static str {
+pub(crate) fn sfig_prefix(flag: f64) -> &'static str {
     match index(flag) {
         Some(1) => "$$SXF_FM_",
         Some(2) => "$$SXF_FG_",

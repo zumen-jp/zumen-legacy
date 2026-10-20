@@ -6,6 +6,7 @@
 //!   基本多言語面の外の文字を含めば `\X4\…\X0\`（UCS-4）で書く。制御文字は書けないので除く。
 //! - 複合インスタンスの部分は名前の順に並べる（ISO 10303-21 の外部写像）。
 
+use crate::p21_reader::P21Value;
 use std::fmt::Write;
 
 /// インスタンスの引数の値
@@ -136,6 +137,72 @@ impl StepWriter {
                 }
                 out.push(')');
             }
+        }
+        out.push(';');
+        out
+    }
+}
+
+impl StepWriter {
+    /// 読んだインスタンスの値を書く（元のインスタンスを書き換えるとき）。`$` と `*` は区別せず `$` にする
+    pub(crate) fn read_value(&mut self, value: &P21Value, out: &mut String) {
+        match value {
+            P21Value::Null => out.push('$'),
+            P21Value::Number(value) => self.real(*value, out),
+            P21Value::Text(text) => string(text, out),
+            P21Value::Ref(id) => {
+                let _ = write!(out, "#{id}");
+            }
+            P21Value::Enum(name) => {
+                let _ = write!(out, ".{name}.");
+            }
+            P21Value::Typed(name, inner) => {
+                out.push_str(name);
+                out.push('(');
+                // 読み取りは引数が 1 つでない型付きの値を集合にしている
+                match inner.as_ref() {
+                    P21Value::List(items) => self.read_items(items, out),
+                    inner => self.read_value(inner, out),
+                }
+                out.push(')');
+            }
+            P21Value::List(items) => {
+                out.push('(');
+                self.read_items(items, out);
+                out.push(')');
+            }
+        }
+    }
+
+    fn read_items(&mut self, items: &[P21Value], out: &mut String) {
+        for (index, item) in items.iter().enumerate() {
+            if index > 0 {
+                out.push(',');
+            }
+            self.read_value(item, out);
+        }
+    }
+
+    /// 読んだインスタンス（型ごとの引数）を `#id=…;` にする
+    pub(crate) fn read_instance(&mut self, id: u64, parts: &[(String, Vec<P21Value>)]) -> String {
+        let mut out = format!("#{id}=");
+        let part = |writer: &mut Self, (name, args): &(String, Vec<P21Value>), out: &mut String| {
+            out.push_str(name);
+            out.push('(');
+            writer.read_items(args, out);
+            out.push(')');
+        };
+        if let [single] = parts {
+            part(self, single, &mut out);
+        } else {
+            out.push('(');
+            for (index, value) in parts.iter().enumerate() {
+                if index > 0 {
+                    out.push(' ');
+                }
+                part(self, value, &mut out);
+            }
+            out.push(')');
         }
         out.push(';');
         out
