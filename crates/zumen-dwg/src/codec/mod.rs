@@ -4,6 +4,7 @@
 
 pub(crate) mod header;
 pub(crate) mod object;
+pub(crate) mod objects;
 pub(crate) mod tables;
 
 use crate::bits::{Bits, HandleRef, Read};

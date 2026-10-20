@@ -338,41 +338,48 @@ fn dump_object_types() {
 /// 読み書きできるオブジェクトの種類と、読んで書く関数
 type Codec = fn(&mut crate::codec::In<'_>, u16, &mut crate::write::object::ObjectWriter) -> crate::bits::Read<()>;
 
-fn codec(kind: u16) -> Option<Codec> {
+/// 型の番号とクラスの DXF の名前（500 から）から、読んで書く関数
+fn codec(kind: u16, class: &str) -> Option<Codec> {
+    use crate::codec::objects::*;
     use crate::codec::tables::*;
-    Some(match kind {
-        48 | 50 | 52 | 56 | 60 | 62 | 64 | 66 | 68 | 70 => |s, kind, o| {
+    macro_rules! with {
+        ($read:expr) => {
+            |s, _, o| {
+                $read(s)?.write(o);
+                Ok(())
+            }
+        };
+    }
+    Some(match (kind, class) {
+        (48 | 50 | 52 | 56 | 60 | 62 | 64 | 66 | 68 | 70, _) => |s, kind, o| {
             Control::read(s, kind)?.write(o, kind);
             Ok(())
         },
-        49 => |s, _, o| {
-            BlockHeader::read(s)?.write(o);
+        (49, _) => with!(BlockHeader::read),
+        (51, _) => with!(Layer::read),
+        (53, _) => with!(TextStyle::read),
+        (57, _) => with!(Linetype::read),
+        (65, _) => with!(Vport::read),
+        (67, _) => with!(Appid::read),
+        (69, _) => with!(DimStyle::read),
+        (42, _) => |s, _, o| {
+            Dictionary::read(s, false)?.write(o);
             Ok(())
         },
-        51 => |s, _, o| {
-            Layer::read(s)?.write(o);
+        (72, _) => with!(Group::read),
+        (73, _) => with!(MLineStyle::read),
+        (79, _) | (_, "XRECORD") => with!(XRecord::read),
+        (80, _) | (_, "ACDBPLACEHOLDER") => with!(Placeholder::read),
+        (82, _) | (_, "LAYOUT") => with!(Layout::read),
+        (_, "ACDBDICTIONARYWDFLT") => |s, _, o| {
+            Dictionary::read(s, true)?.write(o);
             Ok(())
         },
-        53 => |s, _, o| {
-            TextStyle::read(s)?.write(o);
-            Ok(())
-        },
-        57 => |s, _, o| {
-            Linetype::read(s)?.write(o);
-            Ok(())
-        },
-        65 => |s, _, o| {
-            Vport::read(s)?.write(o);
-            Ok(())
-        },
-        67 => |s, _, o| {
-            Appid::read(s)?.write(o);
-            Ok(())
-        },
-        69 => |s, _, o| {
-            DimStyle::read(s)?.write(o);
-            Ok(())
-        },
+        (_, "DICTIONARYVAR") => with!(DictionaryVar::read),
+        (_, "SCALE") => with!(Scale::read),
+        (_, "SORTENTSTABLE") => with!(SortEntsTable::read),
+        (_, "MLEADERSTYLE") => with!(MLeaderStyle::read),
+        (_, "MATERIAL") => with!(Material::read),
         _ => return None,
     })
 }
@@ -397,7 +404,7 @@ fn objects_of(bytes: &[u8], version: Version) -> (Vec<u8>, std::collections::Has
 #[test]
 fn objects_of_real_drawings_are_written_back_unchanged() {
     use crate::codec::object::{open_raw, writer};
-    let mut checked: std::collections::BTreeMap<u16, usize> = Default::default();
+    let mut checked: std::collections::BTreeMap<String, usize> = Default::default();
     let mut failures: Vec<String> = Vec::new();
     for (name, bytes) in samples() {
         let Some(version) = Version::from_magic(&bytes[..6]) else { continue };
@@ -405,15 +412,23 @@ fn objects_of_real_drawings_are_written_back_unchanged() {
             continue;
         }
         let (objects, map) = objects_of(&bytes, version);
+        let codec_text = if version >= Version::R2007 {
+            crate::bits::TextCodec::Utf16
+        } else {
+            crate::bits::TextCodec::Bytes(encoding_rs::WINDOWS_1252)
+        };
+        let classes =
+            crate::write::classes::read_class_defs(&framed_section(&bytes, version, 1, "AcDb:Classes").data, version, codec_text);
         let mut handles: Vec<(&u64, &usize)> = map.iter().collect();
         handles.sort();
         for (handle, &offset) in handles {
             let Ok(mut raw) = open_raw(&objects, offset, version) else { continue };
-            let Some(codec) = codec(raw.kind) else { continue };
+            let class = classes.iter().find(|class| class.number == raw.kind).map_or("", |class| class.dxf_name.as_str());
+            let Some(codec) = codec(raw.kind, class) else { continue };
             let kind = raw.kind;
             let mut out = writer(version, kind, raw.handle, &raw.eed);
             if codec(&mut raw.input, kind, &mut out).is_err() {
-                failures.push(format!("{name} {handle:X} type {kind}: read"));
+                failures.push(format!("{name} {handle:X} type {kind} {class}: read"));
                 continue;
             }
             let left = [
@@ -427,16 +442,16 @@ fn objects_of_real_drawings_are_written_back_unchanged() {
             let meaningful = (written.len() as u64 - 2) * 8 - padding;
             let same = written.len() == original.len() && same_bits(&written, original, meaningful).is_none();
             if left[0] != 0 || left[1] != 0 || left[2] >= 8 || !same {
-                if failures.iter().filter(|line| line.contains(&format!("type {kind}:"))).count() < 3 {
+                if failures.iter().filter(|line| line.contains(&format!("type {kind} {class}:"))).count() < 3 {
                     failures.push(format!(
-                        "{name} {handle:X} type {kind}: left {left:?}, length {} vs {}, first different bit {:?}",
+                        "{name} {handle:X} type {kind} {class}: left {left:?}, length {} vs {}, first different bit {:?}",
                         written.len(),
                         original.len(),
                         same_bits(&written, original, meaningful)
                     ));
                 }
             } else {
-                *checked.entry(kind).or_default() += 1;
+                *checked.entry(if class.is_empty() { kind.to_string() } else { class.to_string() }).or_default() += 1;
             }
         }
     }
