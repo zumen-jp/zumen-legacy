@@ -335,7 +335,11 @@ fn writes_new_text_in_the_code_page_of_older_drawings() {
     // ハンドルのない図面の id はファイルの中の位置（読み取りと同じ #番号）
     let scene = crate::dxf_to_scene(&parse_dxf(&edited.bytes), None);
     let ids: Vec<&str> = scene.entities.iter().map(|entity| entity.id.as_str()).collect();
-    assert!(edited.created.iter().all(|id| id.starts_with('#') && ids.contains(&id.as_str())), "{:?} {ids:?}", edited.created);
+    assert!(
+        edited.created.iter().all(|id| id.starts_with('#') && ids.contains(&id.as_str())),
+        "{:?} {ids:?}",
+        edited.created
+    );
     let (expected, _, _) = encoding_rs::SHIFT_JIS.encode("確認済み \\U+0100");
     assert!(edited.bytes.windows(expected.len()).any(|window| window == &*expected));
     // 改行は元の図面と同じ CRLF

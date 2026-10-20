@@ -153,7 +153,8 @@ fn check(name: &str, bytes: &[u8]) -> Vec<String> {
         }
         kept.push((id, entity));
     }
-    let remaining: Vec<&(String, Value)> = after_entities.iter().filter(|(id, _)| !added.contains(&id.as_str())).collect();
+    let remaining: Vec<&(String, Value)> =
+        after_entities.iter().filter(|(id, _)| !added.contains(&id.as_str())).collect();
     if kept.len() != remaining.len() {
         problems.push(format!("{name}: {} entities kept, {} after the edit", kept.len(), remaining.len()));
         return problems;
