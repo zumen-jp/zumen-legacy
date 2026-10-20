@@ -12,6 +12,9 @@ through that build with `@zumenjs/dwg` ([DWG in the browser](../architecture.md#
 bytes ─▶ file (container, pages, decompression) ─▶ objects (bit streams) ─▶ read_dwg ─▶ DxfDocument ─▶ dxf_to_scene ─▶ Scene
 ```
 
+It also writes DWG: `rewrite_dwg` writes a drawing back in its own version with every object copied as its bits, the
+base for editing a drawing in place ([Writing](#writing)).
+
 Where the specification is silent or does not match the files, the behavior was checked against the same drawing
 saved as DXF by AutoCAD and against the MIT implementations [ACadSharp](https://github.com/DomCR/ACadSharp) and
 [ezdwg](https://github.com/monozukuri-ai/ezdwg). Those rules are marked *inferred* below. LibreDWG (GPL) is not used and
@@ -136,3 +139,102 @@ multi-line attributes differed too (28 and 235 against 0 in the ACadSharp sample
 
 Not supported yet: R13 and R14, the fit points of splines without end tangents, HELIX, MPOLYGON, the content of
 ACAD_TABLE beyond its block, proxy graphics, and DWG files over the section limit.
+
+## Writing
+
+`zumen-dwg` writes DWG in Rust, following the same specification. `rewrite_dwg(bytes)` reads a DWG and writes it back
+in the same version: every object is copied as its bits, without decoding and encoding it again, into a new objects
+section in the order of the source, and the object map is written for the new positions. The header variables and the
+classes are copied with their CRCs computed again, and every other section (AcDb:AuxHeader, AcDb:SummaryInfo,
+AcDb:Preview, AcDb:AppInfo, AcDb:AppInfoHistory, AcDb:FileDepList, AcDb:RevHistory, AcDb:ObjFreeSpace, AcDb:Template,
+AcDb:AcDsPrototype_1b and any other) as it is. It returns the bytes and notices (`DwgWritten`), or a message for a file
+it cannot write. The writer (`src/write`) is shared by the tests, which build the smallest drawing that pins a rule with
+it (`tests/writer`).
+
+### Containers
+
+- **AC1015 (R2000)** is laid out as AutoCAD lays it out: the file header with six section locators (3.2.6, record 3
+  empty), AcDb:AuxHeader (record 5), the preview, the header variables, the classes, the RL 0x0DCA and the objects, the
+  object map, the second file header (26) and the template. A drawing that AutoCAD saved as R2000 is written back
+  identical byte for byte, except eight bytes at the end of the second file header that AutoCAD fills with varying
+  values (zumen writes zeros).
+- **AC1018, AC1024, AC1027, AC1032 (R2004, 2010, 2013, 2018)**: pages from 0x100, numbered from 1 in file order; the
+  section map and the page map are the last pages, and the copy of the encrypted file header follows (4.1–4.6). The
+  sections keep their order in the section map and in the file, their page size, compression and encryption flag. A
+  page that holds only zeros is not written, as AutoCAD does (4.5). Each page of a compressed section is padded with
+  zeros to the page size and compressed on its own; an uncompressed page is stored whole. The gap after a page up to the
+  next multiple of 0x20 is filled from the start of the magic sequence (4.3). The fields of the file header that point
+  at pages (0x0D preview, 0x20 summary info, 0x24 VBA project, 0x2C app info, 0x30 app info history) get the new
+  addresses; the other fields of the first 0x80 bytes are copied.
+- AC1021 (R2007) is not written yet, and R13 and R14 are not supported. A password-protected drawing (security flag 1 at
+  0x18) and a section over the section limit of reading are refused.
+
+### Checks
+
+- **CRC (2.14.1)**: the header variables and classes (from the size), every object (from the MS size), each chunk of the
+  object map (big-endian, from the size) and the R2000 second file header start from 0xC0C1. The R2000 file header
+  starts from 0 and is XORed with a value for the number of section locators (3.2.6), which gives the same CRC as
+  starting from 0xC0C1.
+- **CRC32 (2.14.2)** of the R2004 file header, from 0, over the 0x6C bytes with the CRC field set to zero.
+- **Page checksums (4.2)**, which are Adler-32 with a seed: the data checksum from 0 over the stored data; the page header
+  checksum seeded with the data checksum, over the 32 bytes of the header with its own field set to zero (4.6); a
+  system page from 0 over its 0x14-byte header with the checksum set to zero, then over its compressed data (4.3).
+- Every one of these values stored in the 17 sample drawings is computed again to the same value
+  (`src/samples.rs`, run with `ZUMEN_SAMPLES`).
+
+### Compression
+
+The compressor finds earlier copies of three-byte sequences through hash chains and takes the longest. It uses only the
+instructions that AutoCAD's files use (counted over the compressed pages of the samples): a Literal Length for the
+first literals, 0x20–0x3F for matches up to 0x4000 back, 0x40–0xFF for 3 to 14 bytes up to 1,024 back, 0x10 and 0x12–0x17
+for matches from 0x4001 to 0x7FFF back, and 0x11 0x00 0x00 at the end. Two forms are avoided because readers disagree on
+them: a first byte above 0x11 for a short first run of literals (LZO's form; the specification has no such byte, and
+ezdwg reads it as an instruction), so the first run is at least four bytes; and 0x18–0x1F, which the specification reads
+as lengths and ACadSharp as an offset bit. The rewritten R2004 to 2018 samples are 3 to 11% smaller than the files AutoCAD
+saved (`farmhouse.dwg`: 1.79 MB against 1.93 MB), and rewriting takes 75 ms for `farmhouse.dwg` (release build).
+
+### Inferred rules
+
+- **Second file header (R2000)**: the layout of the specification is that of R13 and R14. AutoCAD writes these
+  bit-coded values: the address of this header (BL), the version string and the bytes 0x06–0x0C of the file header
+  (RC), the bytes 0x11–0x14 of the file header (BL), the number of section locators (BL) and each locator (RC number, BL
+  address, BL size; record 4 is zero although the file header points at the template), the number of handle records
+  (BS 14) and each record (RC byte count, RC index, the handle's bytes high first), zero bits to the next byte, the CRC,
+  and eight more bytes. The size counts from the size field to the end sentinel. The handle records are HANDSEED and
+  the controls of blocks, layers, text styles, line types, views, UCSs, viewports, applications, dimension styles and
+  viewport entity headers, the named object dictionary, the multiline style dictionary and the group dictionary.
+- **Classes**: from R2004 on, the version and maintenance version of a class are BL, not BS as the specification says
+  (a class with a maintenance version over 255 reads wrong as BS). Before R2007, AutoCAD ends every class string with a
+  NUL byte that the length counts; other writers do not. The classes of every sample are written back to the same bits.
+- **Framed sections**: the RL after the size of the header variables and classes (R2010 and R2013 with a maintenance
+  version over 3, R2018) is zero in every sample, and from R2004 on the classes end with eight zero bytes after the end
+  sentinel. Some files keep bytes of an earlier save after the end sentinel of the header variables; they are not
+  copied. AutoCAD pads the last byte of these sections with varying bits.
+- **Objects**: in AutoCAD's files the objects follow each other without gaps in the order of their handles, and each
+  chunk of the object map holds at most 2,032 bytes; the map written for them is identical to AutoCAD's. Handles that
+  point at the same position keep pointing at one copy.
+- **Preview**: the positions of the header and image data in the preview (14.2) are file addresses in every version,
+  so they are moved with the preview.
+- **Page map**: AutoCAD records a size for the page map's own page that can differ from what it writes (an allocation
+  from an earlier save) and puts the copy of the file header right after the page map's trailer. zumen records the
+  written page rounded up to 0x20 and puts the copy at the same place. The pages are numbered without the gaps that
+  AutoCAD leaves before the section map.
+
+### Notices
+
+| Code | When | What is written |
+| --- | --- | --- |
+| `dwg-crc` | The CRC of the header variables or classes does not match | The CRC of the content |
+| `dwg-object-crc` | The CRC of an object does not match | The object as it is |
+| `dwg-broken-object` | The object map points outside the objects | Nothing for that handle |
+| `dwg-section-copied` | The sentinels of the header variables or classes cannot be read | The section as it is |
+| `dwg-broken-page` | A page is missing or cannot be decompressed (as reading) | Zeros |
+
+### Verification
+
+- Each rewritten sample (R2000 to R2018, 15 drawings) reads to the same `DxfDocument` and the same scene in every view
+  as the original, and rewriting it again gives the same bytes (`tests/write.rs`); damaged copies of the test drawings
+  are rewritten without panicking.
+- [ezdwg](https://github.com/monozukuri-ai/ezdwg) 0.16.3 reads every rewritten sample to the same entities, layers,
+  layouts and header variables as the original.
+- ODA File Converter (audit and conversion to DXF) and DWG TrueView: not run yet.
