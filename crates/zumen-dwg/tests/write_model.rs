@@ -272,6 +272,17 @@ fn written_samples_draw_the_same() {
     assert!(failures.is_empty(), "{failures:#?}");
 }
 
+#[test]
+fn oversized_linetype_patterns_are_reported() {
+    let mut doc = parse_dxf(b"0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLTYPE\n0\nLTYPE\n2\nLONG\n73\n1\n40\n1\n49\n1\n0\nENDTAB\n0\nENDSEC\n0\nEOF\n");
+    doc.linetypes[0].dashes = vec![1.0; 256];
+    doc.linetypes[0].pattern_length = 256.0;
+    let written = zumen_dwg::write_dwg(&doc);
+    assert!(written.notices.iter().any(|notice| notice.code == "linetype-limit" && notice.count == 1));
+    let again = zumen_dwg::read_dwg(&written.bytes).unwrap();
+    assert_eq!(again.linetypes.iter().find(|line| line.name == "LONG").unwrap().dashes.len(), 255);
+}
+
 /// 壊れた・途中で切れた図面から読んだモデルでも panic せずすぐに書け、書いた図面は読み取りが開ける
 #[test]
 fn models_of_damaged_drawings_are_written() {

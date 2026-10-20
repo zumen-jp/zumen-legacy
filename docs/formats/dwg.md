@@ -375,7 +375,7 @@ of an object and write it back; each of them gives the same bits for every objec
 
 #### Notices of new drawings
 
-The codes of the DXF writer, with the same messages, and two more:
+The codes of the DXF writer, with the same messages, and additional DWG limits:
 
 | Code | When | What is written |
 | --- | --- | --- |
@@ -390,6 +390,8 @@ The codes of the DXF writer, with the same messages, and two more:
 | `mleader-block` | A MULTILEADER whose block content is not defined | No content |
 | `multiline-attrib` | A multi-line attribute, which AutoCAD 2013 DWG cannot hold (the embedded MTEXT is R2018) | A single-line attribute with the text on one line |
 | `long-text` | A string longer than 32,767 UTF-16 units, the longest a DWG string can be | The string up to that length |
+| `linetype-limit` | A line type with more than 255 dash elements | The first 255 elements |
+| `mline-style-limit` | A multiline style with more than 255 elements | The first 255 elements |
 
 What the model does not hold is not written: entity types that the readers skip (counted in `skipped`), extended data
 and extension dictionaries, the handles of vertices, the lock position of attributes, the associativity of hatches and

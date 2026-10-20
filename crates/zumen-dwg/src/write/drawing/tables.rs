@@ -113,6 +113,14 @@ impl Writer<'_> {
         let mut extra = Vec::new();
         for index in 0..self.linetypes.len() {
             let plan = &self.linetypes[index];
+            // LTYPE (20.4.58) stores the dash count as an RC (one byte).
+            if plan.dashes.len() > 255 {
+                self.notices.add(
+                    zumen_core::NoticeLevel::Warning,
+                    "linetype-limit",
+                    "DWG の線種の要素数の上限（255）を超えるため、先頭の 255 要素だけを書きました",
+                );
+            }
             let (name, handle) = (plan.name.clone(), plan.handle);
             match upper(&name).as_str() {
                 "BYBLOCK" => extra.insert(0, handle),

@@ -1927,6 +1927,7 @@ impl<'a> Parser<'a> {
             view_twist_angle: self.number(body, 51, 0.0),
             status_flags: self.number(body, 90, 0.0),
             frozen_layer_handles: frozen,
+            frozen_layer_names: Vec::new(),
             clipping_boundary_handle: None,
         };
         let clip = self.text(body, 340, "");
@@ -1962,6 +1963,15 @@ impl<'a> Parser<'a> {
             } else if code == 1040 {
                 reals.push(self.num(k));
             } else if code == 1002 && js::trim(&self.raw(k)) == "{" && !reals.is_empty() {
+                // 凍結したレイヤの名前の並び（1003）
+                k += 1;
+                while k < end && !(self.code(k) == 1002 && js::trim(&self.raw(k)) == "}") {
+                    if self.code(k) == 1003 {
+                        // レイヤの名前と同じく \U+XXXX を文字にする
+                        viewport.frozen_layer_names.push(js::trim(&self.str(k)).to_uppercase());
+                    }
+                    k += 1;
+                }
                 break;
             }
             k += 1;
