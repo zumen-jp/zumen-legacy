@@ -321,11 +321,12 @@ sending them anywhere.
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). Please never attach confidential drawings to issues or pull requests.
+Everyone taking part follows the [code of conduct](CODE_OF_CONDUCT.md).
 Report security issues as described in [SECURITY.md](SECURITY.md).
 
 ## License
 
-To be decided before the first public release.
+[MIT](LICENSE), Copyright (c) 2026 Yusuke Hayashi.
 Third-party notices: [packages/jww/THIRD_PARTY_NOTICES.md](packages/jww/THIRD_PARTY_NOTICES.md),
 [packages/dxf/THIRD_PARTY_NOTICES.md](packages/dxf/THIRD_PARTY_NOTICES.md),
 [packages/stb/THIRD_PARTY_NOTICES.md](packages/stb/THIRD_PARTY_NOTICES.md).

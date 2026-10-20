@@ -275,6 +275,7 @@ Python では、読み取り・描画・書き出しの間 GIL を外す。
 - [検証の記録（英語）](docs/verification.md)
 - [設計の判断の記録（英語）](docs/decisions/README.md)
 - [開発への参加（英語）](CONTRIBUTING.md)
+- [行動規範（英語）](CODE_OF_CONDUCT.md)
 
 ## 開発
 
@@ -304,7 +305,7 @@ DWG も中身で見分け、初めて開いたときに WebAssembly の読み取
 
 ## ライセンス
 
-公開の前に決める。参照した第三者のソフトウェア・資料は [packages/jww/THIRD_PARTY_NOTICES.md](packages/jww/THIRD_PARTY_NOTICES.md)、
+[MIT](LICENSE)（Copyright (c) 2026 Yusuke Hayashi）。参照した第三者のソフトウェア・資料は [packages/jww/THIRD_PARTY_NOTICES.md](packages/jww/THIRD_PARTY_NOTICES.md)、
 [packages/dxf/THIRD_PARTY_NOTICES.md](packages/dxf/THIRD_PARTY_NOTICES.md)、
 [packages/stb/THIRD_PARTY_NOTICES.md](packages/stb/THIRD_PARTY_NOTICES.md) に記録した。
 `zumen-render` に同梱するフォントは BIZ UDゴシック（SIL Open Font License 1.1、[crates/zumen-render/fonts/OFL.txt](crates/zumen-render/fonts/OFL.txt)）。

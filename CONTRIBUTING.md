@@ -1,6 +1,7 @@
 # Contributing to zumen
 
 Thank you for helping. Please open an issue to discuss larger changes before you start.
+Everyone taking part follows the [code of conduct](CODE_OF_CONDUCT.md).
 
 ## Never share confidential drawings
 
@@ -81,4 +82,5 @@ Keep one purpose per pull request, and include the tests and documentation it ne
 
 ## License of contributions
 
-The project license will be announced before the first public release. Contributions will be accepted under it.
+zumen is released under the [MIT license](LICENSE). Contributions are accepted under it: by opening a pull request you
+agree that your contribution is licensed under the same terms.
