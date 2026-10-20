@@ -103,9 +103,7 @@ impl DxfVersion {
 
 /// DXF にする（AutoCAD 2013 形式）
 pub fn write_dxf(doc: &DxfDocument) -> DxfWritten {
-    let mut writer = Writer::new(doc, DxfVersion::R2013);
-    writer.write();
-    DxfWritten { bytes: writer.out.text.into_bytes(), notices: writer.notices.into_vec() }
+    write_dxf_as(doc, DxfVersion::R2013)
 }
 
 /// 版を選んで DXF にする。R12 は、R12 にない図形を R12 の図形にしてから書く（`r12::prepare`）
@@ -2820,6 +2818,15 @@ mod tests {
 
     fn codes(written: &DxfWritten) -> Vec<&str> {
         written.notices.iter().map(|notice| notice.code.as_str()).collect()
+    }
+
+    #[test]
+    fn the_default_writer_sets_a_real_code_page() {
+        let doc = parse_dxf(b"0\nEOF\n");
+        let default = write_dxf(&doc);
+        let explicit = write_dxf_as(&doc, DxfVersion::R2013);
+        assert_eq!(parse_dxf(&default.bytes).header.codepage.as_deref(), Some("ANSI_1252"));
+        assert_eq!(default, explicit);
     }
 
     #[test]
