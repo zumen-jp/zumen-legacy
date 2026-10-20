@@ -82,6 +82,13 @@ fn flags(polyline: &LwPolyline, closed: bool, const_width: bool) -> i16 {
     if !polyline.bulges.is_empty() {
         flags |= 16;
     }
+    // ODA 20.4.85: these flags control whether the retained arrays are written.
+    if !polyline.widths.is_empty() {
+        flags |= 32;
+    }
+    if !polyline.ids.is_empty() {
+        flags |= 1024;
+    }
     flags
 }
 
@@ -117,7 +124,11 @@ pub(super) fn update_lwpolyline(
         let current =
             if polyline.bulges.len() == points.len() { polyline.bulges.clone() } else { vec![0.0; points.len()] };
         let bulges = bulges.unwrap_or_else(|| if vertices.is_some() { vec![0.0; points.len()] } else { current });
-        set_vertices(polyline, points, bulges);
+        if vertices.is_some() {
+            set_vertices(polyline, points, bulges);
+        } else {
+            polyline.bulges = if bulges.iter().any(|bulge| *bulge != 0.0) { bulges } else { Vec::new() };
+        }
     }
     let closed = closed.unwrap_or(polyline.flags & 512 != 0);
     let const_width = width.is_some() || polyline.flags & 4 != 0;

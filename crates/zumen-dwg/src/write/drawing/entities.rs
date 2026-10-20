@@ -500,6 +500,12 @@ impl Writer<'_> {
                     .iter()
                     .filter_map(|frozen| self.mapped(frozen))
                     .filter(|handle| self.layer_handles.values().any(|known| known == handle))
+                    .chain(
+                        viewport
+                            .frozen_layer_names
+                            .iter()
+                            .filter_map(|name| self.layer_handles.get(&upper(name)).copied()),
+                    )
                     .map(|handle| href(5, handle))
                     .collect();
                 let clip = viewport.clipping_boundary_handle.as_deref().and_then(|clip| self.mapped(clip)).unwrap_or(0);
