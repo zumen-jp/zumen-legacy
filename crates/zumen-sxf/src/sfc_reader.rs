@@ -219,6 +219,10 @@ pub fn read_sfc(bytes: &[u8]) -> SfcReadResult {
     let mut skipped = 0;
     let mut pos = 0;
     while let Some(start) = index_of(bytes, b"/*SXF", pos) {
+        // 読み取りの上限（zumen_core::limits）
+        if zumen_core::limits::tick() {
+            break;
+        }
         let opener =
             OPENERS.iter().find(|candidate| starts_with(bytes, start, candidate.marker)).unwrap_or(&OPENERS[2]);
         let Some(close) = index_of(bytes, opener.closer, start + opener.marker.len()) else {

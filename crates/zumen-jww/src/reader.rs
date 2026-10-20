@@ -504,6 +504,10 @@ fn read_entity_list(
 ) -> Result<()> {
     let count = read_count(reader)?;
     for _ in 0..count {
+        // 読み取りの上限（zumen_core::limits）。途中でやめると後ろを読めないが、上限のエラーを返す
+        if zumen_core::limits::tick() {
+            break;
+        }
         let Some(class_name) = read_class(reader, table)? else {
             continue;
         };

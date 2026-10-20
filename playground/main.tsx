@@ -1,11 +1,12 @@
-import { dwg, initDwg, isDwg } from "@zumenjs/dwg";
+import { dwg } from "@zumenjs/dwg";
 import { dxf } from "@zumenjs/dxf";
 import { jww } from "@zumenjs/jww";
-import { CadViewer, useCadFile } from "@zumenjs/react";
+import { useDrawing } from "@zumenjs/react";
 import { isStb } from "@zumenjs/stb";
 import { sxf } from "@zumenjs/sxf";
 import { type DragEvent, lazy, StrictMode, Suspense, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { DrawingSample } from "./drawing-sample.js";
 import type { StructureStatus } from "./structure-view.js";
 
 const ACCEPT = ".sfc,.p21,.jww,.dxf,.dwg,.stb";
@@ -15,21 +16,20 @@ const StructureView = lazy(() => import("./structure-view.js").then((module) => 
 /** 図面・構造モデルを選ぶ・ドロップする・?sample=名前 で開く試用画面 */
 function App() {
   const [file, setFile] = useState<File | null>(null);
-  // ST-Bridge の構造モデルか図面かは、拡張子ではなく中身で決める。今のファイルについて決まるまでは null。
-  // DWG は読み取り（WebAssembly）を読み込んでから決まったことにし、読み込めなかったら error にする
-  const [detected, setDetected] = useState<{ file: File; structure: boolean; error: Error | null } | null>(null);
-  const decided = file && detected?.file === file ? detected : null;
-  const structure = decided && !decided.error ? decided.structure : null;
+  // ST-Bridge の構造モデルか図面かは、拡張子ではなく中身で決める。今のファイルについて決まるまでは null
+  const [detected, setDetected] = useState<{ file: File; structure: boolean } | null>(null);
+  const structure = file && detected?.file === file ? detected.structure : null;
   const [structureStatus, setStructureStatus] = useState<StructureStatus>({ loading: false, error: null });
   // DXF のモデル空間・レイアウトなど、図面の中の表示。ファイルを変えたら既定の表示に戻す
   const [view, setView] = useState<string | undefined>(
     () => new URLSearchParams(window.location.search).get("view") ?? undefined,
   );
   const [over, setOver] = useState(false);
-  const drawing = useCadFile(structure === false ? file : null, READERS, { view });
+  // DWG の読み取り（WebAssembly、約 1.6 MB）は、useDrawing が初めて DWG を開いたときに dwg.load で読み込む
+  const drawing = useDrawing(structure === false ? file : null, READERS, { view });
   const { error, loading } = structure
     ? structureStatus
-    : { error: decided?.error ?? drawing.error, loading: drawing.loading || (file !== null && decided === null) };
+    : { error: drawing.error, loading: drawing.loading || (file !== null && structure === null) };
   const open = (next: File | null) => {
     setView(undefined);
     setFile(next);
@@ -38,25 +38,14 @@ function App() {
   useEffect(() => {
     if (!file) return;
     let current = true;
-    const decide = async () => {
-      // 頭を読めないファイルは図面として渡し、useCadFile がエラーを伝える
-      const head = await file
-        .slice(0, 4096)
-        .arrayBuffer()
-        .catch(() => null);
-      if (!head || !isDwg(new Uint8Array(head))) return { structure: head !== null && isStb(head), error: null };
-      // DWG の読み取り（WebAssembly、約 1.6 MB）は、初めて DWG を開いたときに読み込む
-      return initDwg().then(
-        () => ({ structure: false, error: null }),
-        (reason: unknown) => ({
-          structure: false,
-          error: new Error(`DWG の読み取りを読み込めません（${reason instanceof Error ? reason.message : reason}）`),
-        }),
-      );
-    };
-    decide().then((result) => {
-      if (current) setDetected({ file, ...result });
-    });
+    // 頭を読めないファイルは図面として渡し、useDrawing がエラーを伝える
+    file
+      .slice(0, 4096)
+      .arrayBuffer()
+      .catch(() => null)
+      .then((head) => {
+        if (current) setDetected({ file, structure: head !== null && isStb(head) });
+      });
     return () => {
       current = false;
     };
@@ -120,7 +109,7 @@ function App() {
             <StructureView file={file} onStatus={setStructureStatus} />
           </Suspense>
         ) : drawing.scene ? (
-          <CadViewer scene={drawing.scene} label={file?.name} style={{ height: "100%" }} onViewChange={setView} />
+          <DrawingSample scene={drawing.scene} label={file?.name} onViewChange={setView} />
         ) : null}
       </div>
     </main>

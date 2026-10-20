@@ -745,6 +745,10 @@ impl<'a> Builder<'a> {
         ));
         common.push(Property::new("線の太さ", Self::lineweight_label(entity.lineweight)));
         common.extend(properties);
+        // 読み取りの上限（zumen_core::limits）。上限を超えたら図形を加えない
+        if !zumen_core::limits::admit() {
+            return;
+        }
         self.entities.push(SceneEntity {
             id,
             kind,
@@ -831,6 +835,10 @@ impl<'a> Builder<'a> {
     // --- 図形 -----------------------------------------------------------------
 
     fn emit(&mut self, entity: &DxfEntity, ctx: &Ctx) {
+        // 読み取りの上限（zumen_core::limits）を超えたら、残りの図形とブロックの中身を描かない
+        if zumen_core::limits::tick() {
+            return;
+        }
         let base = &entity.base;
         if base.invisible {
             return;
@@ -1867,6 +1875,7 @@ impl<'a> Builder<'a> {
     /// start 以降に加えた要素を取り除き、その描画の要素を返す（1 つの要素にまとめるため）。add が数えたレイヤの使用も戻す
     fn take_parts(&mut self, start: usize) -> Vec<Primitive> {
         let parts = self.entities.split_off(start);
+        zumen_core::limits::release(parts.len() as u64);
         for part in &parts {
             for id in &part.layers {
                 let count = self.used_layers.get(id).copied().unwrap_or(0);

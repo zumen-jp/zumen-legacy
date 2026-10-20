@@ -76,7 +76,7 @@ fn scenes_match_the_typescript_readers() {
             let bytes = fs::read(&file).unwrap();
             for (view, golden) in goldens {
                 let expected: Value = serde_json::from_str(&fs::read_to_string(format.join(&golden)).unwrap()).unwrap();
-                let options = zumen::ReadDrawingOptions { format: None, view };
+                let options = zumen::ReadDrawingOptions { view, ..zumen::ReadDrawingOptions::default() };
                 let scene = zumen::read(&bytes, &options).unwrap_or_else(|error| panic!("{golden}: {error}"));
                 let actual = serde_json::to_value(&scene).unwrap();
                 let mut differences = Vec::new();

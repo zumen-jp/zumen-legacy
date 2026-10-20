@@ -337,6 +337,40 @@ Chromium 152. Times are medians of seven runs after a warm-up.
 - Not checked: Firefox and Safari, webpack and other bundlers, Web Workers, slow networks and devices, and pages with a
   Content Security Policy.
 
+## The 2D engine to embed
+
+Checked on 2026-10-20 on macOS (Apple M2 Pro), Node.js 24.21.0 and Chromium 156 (Playwright 1.64.0, headless), for
+the first step of [decision 0005](decisions/0005-browser-packages-for-embedding.md): `@zumenjs/viewer`, the hooks of
+`@zumenjs/react` and the 2D sample of the playground.
+
+- 15 tests in Chromium (`packages/viewer/tests`, `packages/react/tests`). The view: `jumpTo` and `getView` give back
+  the same center and zoom, `move` and `moveend` come only when the view changes (so two views that follow each other
+  stop), `fitBounds` keeps its padding and fits again on resize until the view is moved, and `zoomBy` and the wheel
+  keep the paper point under the pointer. The input handlers: the three wheel modes (the page scroll is left alone
+  when the wheel does not zoom) and `moveend` after the wheel stops, dragging, pinching with two touch pointers, double
+  click and keys, each also turned off. The state and the tools: selection with Shift and Escape, no new state for an
+  unchanged selection, queries by point and box without hidden layers, measurement snapped to vertices with the
+  real-world distance of a 1/100 placement, and a tool of the application that receives clicks and drags in paper
+  millimeters and draws. The style: the background, the selection, a named highlight and the hover color from CSS
+  custom properties and `setStyle`, checked on canvas pixels, and near-white lines drawn black on a light color given
+  as the dark background. The hooks: `useViewerState` re-renders only when its part changes (also with a selector that
+  builds arrays), `useDrawingViewer` destroys the engine, and `useDrawing` loads only the reader that recognizes the
+  file and reports a failed load. Each of seven deliberate mistakes in the engine and two in the hooks made a test fail.
+- The same steps in the playground before the change (`main` at 75a227c, with `CadViewer`) and after it, with synthetic
+  events in headless Chromium at device pixel ratios 1 and 2 in a 1280 × 860 window: fit, wheel zoom with and without
+  Ctrl, a drag, the `+` and arrow keys, a double click and `-`, `0`, three clicks to select, line weights off, the light
+  background, hiding the first layer, two measurement clicks with snapping and the pointer moved on, and Escape. On
+  `D0LS004Z.SFC` (1,201 entities), the Jw_cad sample `サンプル.jww` (version 600, 695 entities, light background), the
+  Yokosuka survey plan as DXF (9,260 entities) and `farmhouse.dwg` (25,873 entities, read through WebAssembly), all 96
+  snapshots of the drawing canvas and of the overlay canvas were the same, pixel for pixel, and the pages logged no
+  errors.
+- In the playground (built-in browser of the Claude desktop app): switching an ACadSharp drawing to `MyLayout` and
+  measuring inside its viewport gives 57.9 mm on paper and 83.1 mm real, as before; Shift adds a second wall of the
+  Jw_cad sample to the selection and both are highlighted; the layer groups, the properties and the notices show as
+  before; at 375 px the panels start closed and the page does not scroll sideways; ST-Bridge models still open in 3D.
+- Not checked: Firefox and Safari, real touch devices (pinching only with synthetic touch pointers), screen readers,
+  and the 3D view, which keeps its current interface until the next step.
+
 ## Rust readers, rendering and bindings
 
 Checked on 2026-10-18 on macOS (Apple Silicon) with Rust 1.99.0, Node.js 24.21.0, Python 3.15.0, wasm-pack 0.15.0

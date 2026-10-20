@@ -1,12 +1,11 @@
 {
   "name": "@zumenjs/core",
   "version": "0.1.0",
-  "description": "Format-neutral 2D drawing scene model, Canvas renderer and viewer (zoom, pan, select, measure) for zumen",
+  "description": "Format-neutral 2D drawing scene model for zumen: the DrawingReader interface, geometry, text layout and measurement, without the DOM",
   "keywords": [
     "cad",
     "drawing",
-    "viewer",
-    "canvas",
+    "scene",
     "aec"
   ],
   "homepage": "https://github.com/zumenjs/zumen/tree/main/packages/core#readme",

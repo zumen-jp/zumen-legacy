@@ -9,16 +9,28 @@ format-neutral ``Scene`` in paper millimeters (Y up), the same model as the
 >>> png = scene.render_png(dpi=150)
 >>> texts = scene.texts()  # the texts with their positions, in paper millimeters
 >>> image = scene.render(size=(2000, 2000))  # a PNG and the pixel box of every entity drawn
+>>> changes = zumen.compare(zumen.read("plan-rev1.jww"), scene)  # removed, added and changed entities
 """
 
 from __future__ import annotations
 
 import os
 
-from ._zumen import ReadError, RenderError, Rendering, Scene, __version__, detect
+from ._zumen import Comparison, LimitError, ReadError, RenderError, Rendering, Scene, __version__, compare, detect
 from ._zumen import read as _read
 
-__all__ = ["ReadError", "RenderError", "Rendering", "Scene", "__version__", "detect", "read"]
+__all__ = [
+    "Comparison",
+    "LimitError",
+    "ReadError",
+    "RenderError",
+    "Rendering",
+    "Scene",
+    "__version__",
+    "compare",
+    "detect",
+    "read",
+]
 
 
 def read(
@@ -26,16 +38,27 @@ def read(
     *,
     format: str | None = None,
     view: str | None = None,
+    max_bytes: int | None = None,
+    max_entities: int | None = None,
+    timeout: float | None = None,
 ) -> Scene:
     """Read a drawing from bytes or a file path into a ``Scene``.
 
-    ``format`` forces a format (``"sfc"``, ``"p21"``, ``"jww"`` or ``"dxf"``) instead of detecting it from the contents.
-    ``view`` chooses a view such as a DXF layout (see ``Scene.views``).
+    ``format`` forces a format (``"sfc"``, ``"p21"``, ``"p2z"``, ``"sfz"``, ``"jww"``, ``"dxf"`` or ``"dwg"``) instead
+    of detecting it from the contents. ``view`` chooses a view such as a DXF layout (see ``Scene.views``).
     Raises ``ReadError`` when the drawing cannot be read.
+
+    For drawings received from others, ``max_bytes`` (the size after unpacking P2Z and SFZ), ``max_entities`` and
+    ``timeout`` (seconds) stop reading part way and raise ``LimitError``, whose ``limit`` is ``"bytes"``,
+    ``"entities"`` or ``"time"``. A file larger than ``max_bytes`` is not read into memory.
     """
     if isinstance(source, (str, os.PathLike)):
+        if max_bytes is not None and os.path.getsize(source) > max_bytes:
+            error = LimitError(f"図面が上限の {max_bytes:,} バイトより大きいため、読みませんでした")
+            error.limit = "bytes"
+            raise error
         with open(source, "rb") as file:
             data = file.read()
     else:
         data = bytes(source)
-    return _read(data, format=format, view=view)
+    return _read(data, format=format, view=view, max_bytes=max_bytes, max_entities=max_entities, timeout=timeout)

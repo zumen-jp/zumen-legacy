@@ -5,16 +5,20 @@
 //! implementations can be compared on the same drawings (`tests/fixtures`).
 #![forbid(unsafe_code)]
 
+pub mod compare;
 pub mod extract;
 pub mod geometry;
 pub mod js;
+pub mod limits;
 mod measure;
 mod notices;
 mod read;
 mod sort;
 pub mod text;
+pub mod title;
 mod types;
 
+pub use limits::{Limit, ReadLimits};
 pub use measure::{Distance, MeasurePoint, measure_distance, to_real};
 pub use notices::NoticeList;
 pub use read::{DrawingReader, ReadError, ReadOptions, detect_format, read_drawing};

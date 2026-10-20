@@ -305,6 +305,10 @@ fn ascii_tags(text: &str, notices: &mut NoticeList) -> DxfTags {
     };
     let mut bad = 0;
     while let Some(code_line) = next_line(&mut pos) {
+        // 読み取りの上限（zumen_core::limits）
+        if zumen_core::limits::tick() {
+            break;
+        }
         let value_start = pos;
         let Some(value_line) = next_line(&mut pos) else {
             if !js::trim(code_line).is_empty() {
@@ -350,6 +354,10 @@ impl BinaryTags<'_> {
         let mut codes = Vec::new();
         let mut values = Vec::new();
         while self.pos < self.bytes.len() {
+            // 読み取りの上限（zumen_core::limits）
+            if zumen_core::limits::tick() {
+                break;
+            }
             match self.tag() {
                 Ok((code, value)) => {
                     codes.push(code);

@@ -19,9 +19,12 @@ zumen-dwg = { path = "crates/zumen-dwg" }
 zumen-render = { path = "crates/zumen-render" }
 encoding_rs = "0.8.42"
 libm = "0.2.16"
+miniz_oxide = "0.8.9"
+pdf-writer = "0.15.0"
 pyo3 = "0.30.1"
 serde = { version = "1.0.229", features = ["derive", "rc"] }
 serde_json = "1.0.154"
+subsetter = { version = "0.2.6", default-features = false }
 tiny-skia = "0.12.0"
 ttf-parser = "0.25.1"
 unicode-normalization = "0.1.26"

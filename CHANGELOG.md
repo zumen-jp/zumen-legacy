@@ -4,6 +4,49 @@ All packages share one version during 0.x.
 
 ## Unreleased (0.1.0)
 
+- Rust and Python: compare two revisions of a drawing. `zumen_core::compare` matches entities by shape and text, not
+  by id, so revisions saved again or in another format compare too. It reports the removed, added and changed entities
+  and the regions that changed, aligns a revision that moved as a whole by its texts, and draws the result as a scene
+  (red before, blue after, gray unchanged). `zumen.compare` and `Comparison` in Python, `zumen compare` in the command
+  line, and `compare_drawings` in the MCP server.
+- Rust and Python: the fields of the title block (drawing number, revision, title, project, scale and date), guessed
+  from attribute tags (`DWGNO`, `REV`), from labels such as 図面番号 or 図　面　名 and the text to their right or
+  below, from a label and value in one text (`縮尺 1/100`), from the sheet name and from the metadata (the title
+  block attributes of SXF). `zumen_core::title`, `Scene.title_block` in Python, `zumen title`, and `open_drawing` in the
+  MCP server.
+- Rust and Python: SVG and PDF output of a scene, the sheet (or a region) at its real size, with the colors, line
+  weights, fills, clipping and text placement of the PNG renderer. PDF embeds the glyphs of the bundled BIZ UDGothic
+  that the page uses, so its text can be searched and copied, and SVG keeps text as `<text>`.
+  `zumen_render::render_svg` and `render_pdf`, `Scene.render_svg` and `Scene.render_pdf` in Python, and
+  `zumen render -o plan.svg` or `plan.pdf`.
+- Rust and Python: limits for drawings received from others. `ReadDrawingOptions::limits` (`max_bytes`,
+  `max_entities`, `max_duration`) stops reading part way and returns an error that names the limit
+  (`ReadError::exceeded`; `zumen.LimitError` with `limit` in Python). The readers count the entities they add and check
+  the clock in their heavy loops, and do nothing without limits, so results stay those of TypeScript.
+  `zumen.read(..., max_bytes=, max_entities=, timeout=)`, `--max-bytes`, `--max-entities` and `--timeout` on every
+  command that reads, and `zumen-mcp` now stops at 2,000,000 entities or 60 seconds by default.
+- Rust: compressed SXF (P2Z and SFZ, a ZIP archive with one P21 or SFC file) is unpacked and read, up to `max_bytes`
+  after unpacking, or 2 GiB without it, against ZIP bombs. The scene is that of the P21 or SFC, with the archive in
+  its metadata.
+- `@zumenjs/viewer`: the 2D engine that applications embed in their own interface
+  ([decision 0005](docs/decisions/0005-browser-packages-for-embedding.md)). The Canvas renderer, hit testing and
+  `DrawingViewer` move here from `@zumenjs/core`. `DrawingViewer` sets and reads the view (`jumpTo`, `fitBounds`,
+  `zoomBy`, `panBy`, `getView`) and sends `move`, `moveend` and `cursor` events; its state holds several selected
+  entities, the hovered entity, named highlights, the active tool and the measurement; dragging, the wheel (always,
+  with Ctrl or ⌘ only, or never), pinching, double click and keys can each be turned off; tools (`select`, `measure`,
+  `pan` and the application's own) receive pointer events in paper millimeters and draw on the overlay; colors come
+  from `--zumen-*` CSS custom properties and `setStyle`; and `entitiesAt`, `entitiesIn` and `snapAt` query the drawing.
+  It has no text, so the canvas gets no default label. Drawings look and respond as before: in the playground, the
+  same wheel, drag, key, selection, measurement, background, line weight and layer steps on SXF, JWW, DXF and DWG
+  drawings give the same canvas pixels.
+- `@zumenjs/core` keeps what `zumen-core` covers (the model and its JSON, geometry, text layout, measurement, notices,
+  `isEntityVisible` and `readDrawing`) and builds without the DOM types. `DrawingReader` gains an optional `load`, and
+  `dwg.load()` of `@zumenjs/dwg` calls `initDwg()`.
+- `@zumenjs/react` has hooks only: `useDrawingViewer`, `useViewerState(viewer, selector)`, `useViewerEvent` and
+  `useDrawing`, which replaces `useCadFile` and waits for the `load` of the reader that recognizes the file.
+  `CadViewer`, its layer list and its CSS become the 2D sample of the playground, with the Japanese text.
+- The engine and the hooks are tested in Chromium (Vitest browser mode with Playwright, `*.browser.test.*`); CI installs
+  the Chromium headless shell.
 - `@zumenjs/dwg`: read DWG in browsers and Node.js with the WebAssembly build of `zumen-dwg`. `initDwg` loads it, `dwg`
   is the reader for `readDrawing` (model space and layouts through `view`), and `isDwg` tells DWG apart without it. The
   playground opens DWG and loads the reader (1.6 MB, 494 KB with brotli) when the first DWG is opened.

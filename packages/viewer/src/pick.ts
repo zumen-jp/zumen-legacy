@@ -1,5 +1,5 @@
-import { distanceToSegmentSquared, insideRings } from "./geometry.js";
-import type { Box, Primitive, Scene, SceneEntity } from "./types.js";
+import type { Box, Primitive, Scene, SceneEntity } from "@zumenjs/core";
+import { distanceToSegmentSquared, insideRings } from "@zumenjs/core/geometry";
 
 export interface SnapPoint {
   x: number;
@@ -74,6 +74,34 @@ export class HitIndex {
     return best;
   }
 
+  /** (x, y) から tolerance 以内のすべての要素。近い順で、同じ距離なら後に描いたものが先（先頭は pick と同じ） */
+  pickAll(x: number, y: number, tolerance: number, visible: (entity: SceneEntity) => boolean): SceneEntity[] {
+    const found: { index: number; distance: number }[] = [];
+    const limit = tolerance * tolerance;
+    for (const index of this.candidates(x, y, tolerance)) {
+      const entity = this.scene.entities[index] as SceneEntity;
+      if (!visible(entity) || !near(entity.bbox, x, y, tolerance)) continue;
+      const distance = entityDistanceSquared(entity, x, y, tolerance);
+      if (distance <= limit) found.push({ index, distance });
+    }
+    found.sort((a, b) => a.distance - b.distance || b.index - a.index);
+    return found.map((hit) => this.scene.entities[hit.index] as SceneEntity);
+  }
+
+  /** 外接矩形が box と重なる要素を、描く順に返す */
+  query(box: Box, visible: (entity: SceneEntity) => boolean): SceneEntity[] {
+    const [c0, r0] = this.cell(box.minX, box.minY);
+    const [c1, r1] = this.cell(box.maxX, box.maxY);
+    const found = new Set<number>(this.large);
+    for (let c = c0; c <= c1; c++) {
+      for (let r = r0; r <= r1; r++) for (const index of this.cells.get(r * (GRID + 1) + c) ?? []) found.add(index);
+    }
+    return [...found]
+      .sort((a, b) => a - b)
+      .map((index) => this.scene.entities[index] as SceneEntity)
+      .filter((entity) => visible(entity) && overlaps(entity.bbox, box));
+  }
+
   /** 計測の吸着先。tolerance 以内の頂点、なければ線上の最も近い点 */
   snap(x: number, y: number, tolerance: number, visible: (entity: SceneEntity) => boolean): SnapPoint | null {
     let vertex: SnapPoint | null = null;
@@ -110,6 +138,11 @@ export class HitIndex {
     }
     return vertex ?? nearest;
   }
+}
+
+/** 2 つの矩形が重なるか。辺が接するだけでも重なるとみなす（zumen_core::extract::intersects と同じ） */
+function overlaps(a: Box, b: Box): boolean {
+  return !(a.maxX < b.minX || a.minX > b.maxX || a.maxY < b.minY || a.minY > b.maxY);
 }
 
 function near(box: Box, x: number, y: number, tolerance: number): boolean {
