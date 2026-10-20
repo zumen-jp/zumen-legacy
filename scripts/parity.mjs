@@ -12,18 +12,23 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
-import { readDrawing, sceneToJson } from "@zumenjs/core";
+import { detectFormat, readDrawing, sceneToJson } from "@zumenjs/core";
 import { dxf } from "@zumenjs/dxf";
 import { jww } from "@zumenjs/jww";
 import { sxf } from "@zumenjs/sxf";
+import { cliPath } from "./cli-path.mjs";
 import { compareScenes } from "./compare-scenes.mjs";
 
-const binary = new URL("../target/release/zumen", import.meta.url).pathname;
 const inputs = process.argv.slice(2);
 if (inputs.length === 0 && process.env.ZUMEN_SAMPLES) inputs.push(process.env.ZUMEN_SAMPLES);
 if (inputs.length === 0) {
   console.error("Usage: node scripts/parity.mjs <folder or files…> (or set ZUMEN_SAMPLES)");
   process.exit(2);
+}
+const binary = process.env.ZUMEN_BINARY || cliPath();
+if (!existsSync(binary)) {
+  console.error(`Rust CLI not found: ${binary}\nRun cargo build --release -p zumen-cli (or set ZUMEN_BINARY).`);
+  process.exit(1);
 }
 const files = inputs.flatMap((input) =>
   statSync(input).isDirectory()
@@ -42,6 +47,7 @@ const withoutSource = (/** @type {Record<string, unknown>} */ scene) => {
 
 let failed = 0;
 let dwgDiffering = 0;
+let compared = 0;
 for (const file of files) {
   let bytes = readFileSync(file);
   let rust;
@@ -57,18 +63,27 @@ for (const file of files) {
       }
       bytes = readFileSync(twin);
     }
-    const start = performance.now();
     rust = JSON.parse(execFileSync(binary, ["scene", file], { maxBuffer: 1 << 30, stdio: ["ignore", "pipe", "pipe"] }));
-    rust.time = performance.now() - start;
-  } catch {
-    console.log(`skip  ${file} (Rust does not read this format yet)`);
+  } catch (error) {
+    // Only an explicit unknown format may be skipped, and never if TypeScript recognises the drawing.
+    // Spawn errors, crashes, parse failures and invalid JSON must fail verification.
+    if (
+      error.status === 1 &&
+      error.stderr?.toString().trim() === "unknown format" &&
+      !detectFormat(bytes, [sxf, jww, dxf])
+    ) {
+      console.log(`skip  ${file} (unknown format)`);
+    } else {
+      console.error(`ERROR ${file}: ${error.stderr?.toString().trim() || error.message}`);
+      failed++;
+    }
     continue;
   }
   const start = performance.now();
   const scene = readDrawing(bytes, [sxf, jww, dxf]);
   const time = performance.now() - start;
   const ts = JSON.parse(sceneToJson(scene));
-  delete rust.time;
+  compared++;
   const compare = (/** @type {Record<string, unknown>} */ a, /** @type {Record<string, unknown>} */ b) =>
     twin ? compareScenes(withoutSource(a), withoutSource(b)) : compareScenes(a, b);
   const fail = () => {
@@ -96,4 +111,5 @@ for (const file of files) {
   }
 }
 if (dwgDiffering > 0) console.log(`${dwgDiffering} DWG scenes differ from the DXF of the same drawing (not a failure)`);
-process.exit(failed > 0 ? 1 : 0);
+if (compared === 0) console.error("No drawings were compared.");
+process.exit(failed > 0 || compared === 0 ? 1 : 0);

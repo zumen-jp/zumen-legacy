@@ -399,9 +399,9 @@ fn read_entity_body(reader: &mut Reader<'_>, class_name: &str, version: u32) -> 
                     color,
                 }));
             }
-            // 値の並びは 始点・終点・第 2 点・第 3 点。四角形の順は 始点 → 第 2 点 → 第 3 点 → 終点
-            let [x1, y1, x4, y4, x2, y2, x3, y3] = values;
-            Ok(JwwEntity::Solid(JwwSolid { base, points: [x1, y1, x2, y2, x3, y3, x4, y4], color }))
+            // JWW 形式説明「ソリッドデータ」CDataSolid::Serialize の格納順で輪郭をたどる。
+            // メンバー名の点番号で並べ替えると矩形が交差する（Jw_cad で照合。docs/formats/jww.md）。
+            Ok(JwwEntity::Solid(JwwSolid { base, points: values, color }))
         }
         "CDataBlock" => {
             let base = read_base(reader, version)?;
