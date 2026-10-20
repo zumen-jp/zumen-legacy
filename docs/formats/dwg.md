@@ -413,3 +413,6 @@ of leaders to their annotation (a leader keeps the hook vertex that the reader a
   LARGE_RADIAL_DIMENSION class that it does not know. For the samples that are DWG, it finds the same entities of each
   type as in the original, apart from the types that the model does not hold.
 - ODA File Converter and DWG TrueView: not run yet.
+
+When rewriting R2007 containers, the declared maximum page size is bounded by `MAX_SECTION_BYTES` before conversion
+to the platform's `usize` and before padding encoding-1 pages. An oversized declaration is rejected even for an empty section.

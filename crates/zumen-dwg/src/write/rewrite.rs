@@ -282,6 +282,10 @@ fn rewrite_r2007(bytes: &[u8], notices: &mut NoticeList) -> Result<Vec<u8>, Stri
         if info.encryption == 1 {
             return Err(format!("DWG の節 {} は暗号化されているため、書き直せません", info.name));
         }
+        // 5.2 Section Map: MaxSize is untrusted and encoding-1 pages are padded to this size.
+        if info.max_size > MAX_SECTION_BYTES as u64 {
+            return Err(format!("DWG の節 {} のページが大きすぎるため、書き直せません", info.name));
+        }
         let mut data = container.data(info, notices);
         data.resize(info.size as usize, 0);
         let data = match info.name.as_str() {
@@ -431,6 +435,28 @@ mod tests {
             assert!(start.elapsed().as_secs() < 5, "round {round} took too long");
         }
     }
+    #[test]
+    fn an_unbounded_r2007_page_size_is_refused_before_rewriting() {
+        let mut head = [0; 0x80];
+        head[..6].copy_from_slice(b"AC1021");
+        let bytes = write_r2007(&R2007 {
+            head,
+            sections: vec![DataSection21 {
+                name: "AcDb:Header".into(),
+                data: Vec::new(),
+                max_size: usize::MAX,
+                encryption: 0,
+                hash: 0,
+                encoding: 4,
+                preview_base: None,
+            }],
+            stream_order: vec![0],
+            random_seed: 0,
+        });
+        let error = rewrite_dwg(&bytes).unwrap_err();
+        assert!(error.contains("ページが大きすぎる"), "{error}");
+    }
+
     #[test]
     fn an_unbounded_page_size_is_refused_before_rewriting() {
         let mut head = [0; 0x80];
