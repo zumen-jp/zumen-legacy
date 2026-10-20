@@ -242,8 +242,8 @@ bytes ─▶ zumen-sxf, zumen-jww, zumen-dxf, zumen-dwg ─▶ Scene (zumen-core
 | `zumen-jww` | JWW parsing into the JWW document model (`read_jww`), conversion to a scene (`jww_to_scene`), and the `JWW` reader. The rules for pen colors, line types, widths, layer names and text (`JwwDocument::pen_color` …) are public, for the conversion. |
 | `zumen-dxf` | DXF parsing (ASCII and binary) into the AutoCAD drawing model (`parse_dxf` → `DxfDocument`), conversion of model space or a layout to a scene (`dxf_to_scene`), the `DXF` reader, and writing the model as DXF (`write_dxf`, and `write_dxf_as` for R12 to 2018). The draw order of each space (`draw_order`) and the drawing unit (`drawing_unit`) are public, for the conversion to SXF. |
 | `zumen-dwg` | DWG decoding (AutoCAD 2000 to 2018) into the AutoCAD drawing model of `zumen-dxf` (`read_dwg` → `DxfDocument`), drawn with `dxf_to_scene`, and the `DWG` reader. |
-| `zumen-convert` | Maps SXF and JWW into the AutoCAD drawing model (`sxf_to_dxf`, `jww_to_dxf` → `Mapped`: the `DxfDocument`, the notices, and the source of each entity), so that they can be written as DXF ([decision 0007](decisions/0007-mapping-crate-between-formats.md)), and maps the AutoCAD drawing model into the SXF feature model (`dxf_to_sxf` → `MappedSxf`), so that it can be written as SFC ([decision 0010](decisions/0010-write-sxf-from-the-autocad-model.md)). |
-| `zumen` | `read` and `detect` over every reader, with limits for untrusted drawings (`ReadDrawingOptions::limits`), and `convert` (every format to DXF and SFC through the AutoCAD model; `mapping` re-exports `zumen-convert`). The entry point for applications. |
+| `zumen-convert` | Maps SXF and JWW into the AutoCAD drawing model (`sxf_to_dxf`, `jww_to_dxf` → `Mapped`: the `DxfDocument`, the notices, and the source of each entity), so that they can be written as DXF ([decision 0007](decisions/0007-mapping-crate-between-formats.md)), and maps the AutoCAD drawing model into the SXF feature model (`dxf_to_sxf` → `MappedSxf`), so that it can be written as SXF ([decision 0010](decisions/0010-write-sxf-from-the-autocad-model.md)), and into the JWW document model (`dxf_to_jww` → `MappedJww`). |
+| `zumen` | `read` and `detect` over every reader, with limits for untrusted drawings (`ReadDrawingOptions::limits`), `convert` (every format to DXF, DWG, JWW and SXF through the AutoCAD model; `mapping` re-exports `zumen-convert`), and `edit` and `create` (DXF, DWG, JWW and SXF). The entry point for applications. |
 | `zumen-render` | Draws a scene to PNG with the rules of `render.ts` in `@zumenjs/viewer` (color inversion, line weights with a 1 px minimum, dash rules, even-odd fills, clipping, per-character text, small text as a line), and reports which entities it drew and where (`render_image`, `drawn_entities`, `View::pixel_box`). It also writes SVG (`render_svg`) and one-page PDF (`render_pdf`) with the same colors, fills, clipping and text placement. |
 | `zumen-cli` | The `zumen` command (`detect`, `scene`, `texts`, `entities`, `title`, `render`, `compare`, `convert`). |
 | `bindings/python` | PyO3 bindings, built with maturin as an abi3 wheel for Python 3.12 and later. The GIL is released while reading, rendering and converting. `Scene.to_arrow` needs pyarrow (Apache-2.0, `zumen[arrow]`), and the MCP server `zumen.mcp` needs the MCP SDK (MIT, `zumen[mcp]`); both are optional dependencies. `zumen.tools`, the functions behind the MCP tools, needs neither. |
@@ -351,9 +351,20 @@ folding and removing spaces and punctuation; a bare 番号 or `NO` is not taken 
 has several title blocks, the one nearest the bottom right of the sheet comes first. Every candidate is kept with
 its source, label and entities, so an application can show where a value came from.
 
+`zumen_core::regions` finds the regions that drawn lines close, such as rooms, with their areas
+([decision 0015](decisions/0015-analysis-in-zumen-core.md)). The lines of lines, polylines, arcs, circles, splines
+and solids (not dimensions, texts, leaders or hatches) are split where they cross and where an end lies on another
+line, ends closer than the tolerance (0.01 paper millimeters by default) become one point, and lines that end
+nowhere are removed. Every bounded face of what is left is a region, found by walking the half-edges around each
+point in angle order; a closed shape that touches no other line is a hole of the smallest face around it. Lines of
+placements at different scales are never joined, and a region inside a placement also has its outline, area and
+perimeter in real-world millimeters. Each region names the entities that bound it and the texts whose box center lies
+inside it. Which regions are rooms is left to the caller, with filters by layer, text and area.
+
 `zumen.tools` gives them to AI agents as functions with JSON results: summarize a drawing (with its placements and
 their conversion to real-world millimeters), render a region, find texts and entities, show one entity with its
-shapes, measure in real-world millimeters through the scale of a placement and compare two revisions. The results
+shapes, measure in real-world millimeters through the scale of a placement, find the closed regions with their
+real-world areas and compare two revisions. The results
 follow `TypedDict` classes that are part of the API, are bounded by the arguments (items, characters of a text, points
 of shapes, pixels), and take regions in paper millimeters or as fractions of the frame (the scene's `bounds`, origin at
 the top left) ([decision 0011](decisions/0011-tool-functions-for-agents.md)). `zumen.mcp` serves the same functions as
@@ -379,9 +390,10 @@ Drawings are written through the AutoCAD drawing model ([decision 0006](decision
 `zumen::convert` reads a DXF or DWG drawing into a `DxfDocument`, or maps an SXF or JWW drawing into one with
 `zumen-convert`, and `zumen_dxf::write_dxf` writes it as DXF of AutoCAD 2013 in UTF-8 (`write_dxf_as` writes R12 to
 2018; R12 first reduces the model to what R12 holds, `r12::prepare`). For SFC, `dxf_to_sxf` maps the
-model into the SXF feature model (`SxfDrawing`) and `zumen_sxf::write_sfc` writes it
-([decision 0010](decisions/0010-write-sxf-from-the-autocad-model.md)). Writers of P21 and JWW will start from the same
-model.
+model into the SXF feature model (`SxfDrawing`) and `zumen_sxf::write_sxf_version` writes it as SFC, P21, SFZ or P2Z
+([decision 0010](decisions/0010-write-sxf-from-the-autocad-model.md)). For JWW, `dxf_to_jww` maps the model into the
+JWW document model and `zumen_jww::write_jww` writes it, and for DWG, `zumen_dwg::write_dwg` writes the model as
+AutoCAD 2013.
 
 ```text
 DXF, DWG ──────────────────────────▶ DxfDocument (zumen-dxf) ─┬▶ write_dxf ─▶ DXF (AutoCAD 2013, UTF-8)
@@ -416,7 +428,9 @@ Editing does not go through the model, which would lose what it does not hold
 ([decision 0012](decisions/0012-edit-in-place-and-write-every-format.md)). `zumen_core::edit` has the operations, the
 same for every format (`parse_operations` reads them from JSON, `ValueReader` checks their keys and values), and each
 format edits its own file: `zumen_dxf::edit_dxf` keeps the tags of a DXF with their bytes and changes, adds and removes
-only what the operations name ([How DXF is handled: Editing](formats/dxf.md#editing-edit_dxf)). `zumen::edit` detects
+only what the operations name ([How DXF is handled: Editing](formats/dxf.md#editing-edit_dxf)), and `edit_dwg`,
+`edit_jww` and `edit_sxf` do the same for the objects of a DWG, the records of a JWW and the instances of an SXF.
+`zumen::edit` detects
 the format and calls its editor, and `zumen::create` writes an empty drawing of the format and edits it, so the code
 that adds entities is the same for new and existing drawings.
 

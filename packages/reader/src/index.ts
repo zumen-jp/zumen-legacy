@@ -103,7 +103,7 @@ export function createReader(options: { limits?: ReadLimits } = {}): DrawingRead
 }
 
 /**
- * readDrawing・useDrawing に渡す、どの形式（SXF の SFC・P21・P2Z・SFZ、JWW、DXF、DWG）も読む読み取り。上限はない。
+ * readDrawing・useDrawing に渡す、どの形式（SXF の SFC・P21・P2Z・SFZ、JWW・JWC・JWS、DXF、DWG）も読む読み取り。上限はない。
  * options.view は DXF・DWG のモデル空間（Model）かレイアウトの名前
  */
 export const reader: DrawingReader = createReader();

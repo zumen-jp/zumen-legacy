@@ -97,13 +97,18 @@ for it, and read again, the SFC draws the same:
 
 ```python
 zumen.convert("plan.dwg", "sfc").save("plan.sfc")
+zumen.convert("plan.dxf", "p21", version="2.0").save("plan.p21")  # SXF Ver.2.0 as P21 (also "sfz" and "p2z")
 ```
+
+DWG (AutoCAD 2013) and JWW (Jw_cad 8) are written from the same model: `zumen.convert("plan.sfc", "dwg")` and
+`zumen.convert("plan.dxf", "jww")`. In JWW, the layout is the sheet and the model space in each viewport is a layer
+group at the viewport's scale.
 
 ## Editing drawings
 
 `zumen.edit` changes a drawing in place: it applies a list of operations and keeps everything else as it was, in the
 same format, version and text encoding, including what zumen cannot read (extended data, objects, unread entities).
-DXF (R12 to 2018, ASCII and binary) can be edited so far; DWG, SXF and JWW follow.
+DXF (R12 to 2018, ASCII and binary), DWG (R2000 to 2018), JWW and SXF (SFC, P21, SFZ and P2Z) can be edited.
 
 ```python
 operations = [  # the operations may also be a JSON string
@@ -122,7 +127,8 @@ edited.save("plan.dxf")
   Coordinates are the drawing's own, the `raw` of properties (`Scene.entity(id)["values"]`), not paper millimeters.
   Every id in one edit names an entity of the drawing as it was read. Ids that are places in the file (`#12`, in DXF
   without handles) change when an edit adds or removes records before them, so read the edited drawing again.
-- `add` takes `container`: `"model"` (the default), `"layout:<name>"` or `"block:<name>"` in DXF.
+- `add` takes `container`: `"model"` (the default), `"layout:<name>"` or `"block:<name>"` in DXF and DWG,
+  `"group:<0-F or name>"` (a layer group) in JWW, and `"sheet"` (the default) or `"figure:<name>"` in SXF.
 - Kinds that can be added: `line`, `polyline` (`vertices`, `bulges`, `closed`), `arc`, `circle`, `ellipse`,
   `ellipse-arc`, `point`, `text` (MTEXT when it has line breaks) and `block-reference` (`block`, `position`, `scale`,
   `rotation`). Every kind takes `layer`, `color` (a color number, `"#rrggbb"`, `"bylayer"` or `"byblock"`),
@@ -134,6 +140,8 @@ edited.save("plan.dxf")
 - Checking that the file is the version that was read (a checksum) is left to the application.
 
 `zumen.create("dxf", operations, units="mm")` starts a new drawing (AutoCAD 2013 DXF) and applies the operations.
+`"dwg"` starts an AutoCAD 2013 DWG, `"jww"` an A3 JWW, and `"sfc"`, `"p21"`, `"sfz"` or `"p2z"` an A3 SXF sheet; JWW
+and SXF lengths are in millimeters, so they take only `units="mm"`.
 
 ## Comparing revisions
 
@@ -169,6 +177,24 @@ It reads attribute tags (`DWGNO`, `REV`, `TITLE`), labels such as 図面番号 o
 or below, labels with their value in the same text (`縮尺 1/100`), the sheet name and the metadata (the title block
 attributes of SXF). The values are guesses from the drawing's texts; check them before relying on them.
 
+## Rooms and areas
+
+`regions` finds the regions that drawn lines close, such as rooms, with their areas:
+
+```python
+for room in scene.regions(layers=[layer["id"] for layer in scene.layers if "壁" in layer["name"]]):
+    real = room["real"]  # None outside a placement drawn at a scale
+    print([text["text"] for text in room["texts"]], real and real["area"] / 1e6, "m²")
+```
+
+Lines, polylines, arcs, circles, splines and solids are split where they cross or meet, ends closer than `tolerance`
+(0.01 paper millimeters) are joined, and every face they close is a region: its `outline` (counterclockwise) and
+`holes`, `area` (without the holes), `outline_area` and `perimeter` on the sheet, the same in real-world millimeters
+in `real`, the `boundary` entities and the `texts` inside. Lines that end nowhere close nothing, and closed shapes
+that touch no other line (columns, furniture) are holes. `layers` keeps the lines on some layers (walls), `kinds`
+changes the kinds used, and `min_area` leaves out smaller regions. A room whose walls have an opening drawn as a gap
+joins the next one ([decision 0015](https://github.com/zumenjs/zumen/blob/main/docs/decisions/0015-analysis-in-zumen-core.md)).
+
 ## MCP server
 
 `zumen-mcp` lets AI applications that speak the Model Context Protocol open, render, search, measure and compare drawings
@@ -188,10 +214,11 @@ claude mcp add zumen -- zumen-mcp --root ~/drawings  # Claude Code; other client
 | `find_entities` | Entities in a region, by kind, type or layer, with counts by type and kind; with `geometry`, their shapes as `get_entity` gives them |
 | `get_entity` | One entity with its properties (key, label and value), its values by key, the scale of its placement and its geometry: the shapes drawn, in paper millimeters and, inside a placement, in real-world millimeters |
 | `measure_distance` | The distance between two points on the sheet and in real-world millimeters |
+| `find_regions` | The regions that the drawn lines close, such as rooms: areas in square meters, perimeters, outlines and holes, the entities that bound them and the texts inside, filtered by layer, text and area |
 | `compare_drawings` | What changed between two revisions: an image of the changes, the regions that changed and the changed entities with their texts |
 
-Geometry is the agent's to interpret: the server gives the shapes as drawn and their coordinates, and leaves deciding
-what is a wall or a room to the client. `real` is left out where it equals the coordinates on the sheet (DXF model
+Geometry is the agent's to interpret: the server gives the shapes as drawn and their coordinates, and the regions
+that lines close with the entities that bound them, and leaves deciding what is a wall or a room to the client. `real` is left out where it equals the coordinates on the sheet (DXF model
 space), and one call returns at most `max_points` points (1,000 by default, at most 10,000; a point with `real` counts
 twice), so that a page of entities stays well below what clients accept from a tool. A page of `find_entities` with
 `geometry` ends before an entity whose shapes would pass the budget; `next_offset` goes on from there.
@@ -218,6 +245,7 @@ page = tools.find_texts(scene, query="平面図", limit=50)  # texts with their 
 walls = tools.find_entities(scene, kind="polyline", layer="壁", geometry=True)  # with their shapes
 entity = tools.get_entity(scene, page["texts"][0]["id"])  # properties, values, placement and shapes
 tools.measure(scene, [10, 20], [110, 20])  # on the sheet, and in real-world millimeters through the scale
+rooms = tools.find_regions(scene, layer="壁", named=True)  # rooms with their areas in square meters
 ```
 
 | Function | Result | What it returns |
@@ -228,6 +256,7 @@ tools.measure(scene, [10, 20], [110, 20])  # on the sheet, and in real-world mil
 | `find_entities` | `EntityPage` | Entities in a region by kind, Japanese type or layer, with counts, and their shapes when asked |
 | `get_entity` | `EntityDetail` | One entity: properties (key, label, value), values by key, placement with its scale and `to_real`, and its shapes |
 | `measure` | `MeasurementInfo` | A distance on the sheet and in real-world millimeters |
+| `find_regions` | `RegionPage` | Closed regions (rooms) with their real-world areas in square meters, outlines, boundary entities and texts inside |
 | `compare_revisions` | `bytes`, `ComparisonInfo` | An image of the changes between two revisions, the regions that changed and the changed entities |
 
 - **Coordinates.** Paper millimeters with the Y axis up, rounded to 0.001: boxes `[min_x, min_y, max_x, max_y]`,

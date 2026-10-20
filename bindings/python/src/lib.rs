@@ -11,6 +11,7 @@ use zumen::compare::{CompareOptions, SceneDiff, compare_scenes, diff_scene};
 use zumen::extract::{
     EntityFilter, EntityText, Shape, entity_shapes, entity_text, layer_names, real_shapes, scene_texts, select_entities,
 };
+use zumen::regions::{ClosedRegion, RegionOptions, RegionShape, closed_regions};
 use zumen::title::{TitleKey, title_fields};
 use zumen::{BBox, Background, Property, PropertyRaw, ReadDrawingOptions, SceneEntity};
 use zumen_render::{ImageSize, RenderOptions, View};
@@ -198,6 +199,17 @@ fn property_values<'py>(py: Python<'py>, properties: &[Property]) -> PyResult<Bo
     Ok(dict)
 }
 
+/// 配置の dict（name、scale_x、scale_y、inverse）
+fn placement_dict<'py>(py: Python<'py>, placement: &zumen::Placement) -> PyResult<Bound<'py, PyDict>> {
+    let item = PyDict::new(py);
+    item.set_item("name", &placement.name)?;
+    item.set_item("scale_x", placement.scale_x)?;
+    item.set_item("scale_y", placement.scale_y)?;
+    let [a, b, c, d, e, f] = placement.inverse;
+    item.set_item("inverse", (a, b, c, d, e, f))?;
+    Ok(item)
+}
+
 /// 図形の dict（id、kind、type、source、layers、bbox、text、properties、values、placement、geometry を求めたときは geometry）
 fn entity_dict<'py>(
     py: Python<'py>,
@@ -217,22 +229,47 @@ fn entity_dict<'py>(
         entity.properties.iter().map(|property| (property.label.as_str(), property.value.as_str())).collect();
     dict.set_item("properties", properties)?;
     dict.set_item("values", property_values(py, &entity.properties)?)?;
-    let placement = match &entity.placement {
-        Some(placement) => {
-            let item = PyDict::new(py);
-            item.set_item("name", &placement.name)?;
-            item.set_item("scale_x", placement.scale_x)?;
-            item.set_item("scale_y", placement.scale_y)?;
-            let [a, b, c, d, e, f] = placement.inverse;
-            item.set_item("inverse", (a, b, c, d, e, f))?;
-            Some(item)
-        }
-        None => None,
-    };
-    dict.set_item("placement", placement)?;
+    dict.set_item(
+        "placement",
+        entity.placement.as_deref().map(|placement| placement_dict(py, placement)).transpose()?,
+    )?;
     if geometry {
         dict.set_item("geometry", geometry_list(py, entity)?)?;
     }
+    Ok(dict)
+}
+
+/// 領域の形と大きさの dict（area、outline_area、perimeter、outline、holes）
+fn region_shape_dict<'py>(py: Python<'py>, shape: &RegionShape) -> PyResult<Bound<'py, PyDict>> {
+    let dict = PyDict::new(py);
+    dict.set_item("area", shape.area)?;
+    dict.set_item("outline_area", shape.outline_area)?;
+    dict.set_item("perimeter", shape.perimeter)?;
+    dict.set_item("outline", pairs(&shape.outline))?;
+    dict.set_item("holes", shape.holes.iter().map(|hole| pairs(hole)).collect::<Vec<_>>())?;
+    Ok(dict)
+}
+
+/// 閉じた領域の dict（用紙の形と大きさに bbox、placement、real、boundary、texts を加える）
+fn region_dict<'py>(py: Python<'py>, region: &ClosedRegion) -> PyResult<Bound<'py, PyDict>> {
+    let dict = region_shape_dict(py, &region.paper)?;
+    dict.set_item("bbox", from_bbox(&region.bbox))?;
+    dict.set_item(
+        "placement",
+        region.placement.as_deref().map(|placement| placement_dict(py, placement)).transpose()?,
+    )?;
+    dict.set_item("real", region.real.as_ref().map(|real| region_shape_dict(py, real)).transpose()?)?;
+    dict.set_item("boundary", &region.boundary)?;
+    let texts = PyList::empty(py);
+    for text in &region.texts {
+        let item = PyDict::new(py);
+        item.set_item("id", &text.entity)?;
+        item.set_item("text", &text.text)?;
+        item.set_item("x", text.x)?;
+        item.set_item("y", text.y)?;
+        texts.append(item)?;
+    }
+    dict.set_item("texts", texts)?;
     Ok(dict)
 }
 
@@ -587,6 +624,59 @@ impl Scene {
         }
         dict.set_item("fields", list)?;
         Ok(dict)
+    }
+
+    /// 線で閉じた領域（部屋など）。描いた線を交点と端点で分けてつなぎ、閉じた面を求める（行き止まりの線は面を作らず、
+    /// ほかの線とつながらない内側の輪は穴になる）。縮尺の違う配置の線はつながない。dict は bbox、area（穴を除いた
+    /// 面積、用紙の mm²）、outline_area（外形の面積）、perimeter（外形の長さ、用紙の mm）、outline（反時計回りの点）、
+    /// holes（時計回りの点の輪）、placement（entities と同じ。配置の外なら None）、real（同じ形と大きさを配置の元の
+    /// 座標、実寸の mm と mm² で。配置の外なら None）、boundary（境界を描いた図形の id）、texts（中の文字の id、text、
+    /// 文字範囲の中心 x・y）。並びは配置ごとに上から下、左から右。
+    /// region と hidden_layers は texts と同じ。layers は境界にする図形のレイヤの id（None ならすべて）、kinds は境界に
+    /// する種類（None なら line、polyline、multiline、arc、circle、ellipse、ellipse-arc、spline、clothoid、solid）。
+    /// tolerance（用紙の mm）より近い端点は同じ点とし、min_area（用紙の mm²）より狭い領域は返さない
+    #[pyo3(signature = (*, region = None, hidden_layers = None, layers = None, kinds = None, tolerance = 0.01, min_area = 0.0))]
+    #[allow(clippy::too_many_arguments)]
+    fn regions<'py>(
+        &self,
+        py: Python<'py>,
+        region: Option<Region>,
+        hidden_layers: Option<Vec<u32>>,
+        layers: Option<Vec<u32>>,
+        kinds: Option<Vec<String>>,
+        tolerance: f64,
+        min_area: f64,
+    ) -> PyResult<Bound<'py, PyList>> {
+        if !(tolerance.is_finite() && tolerance > 0.0) {
+            return Err(PyValueError::new_err("tolerance は正の数（用紙の mm）にしてください"));
+        }
+        let kinds = kinds
+            .map(|names| {
+                names
+                    .iter()
+                    .map(|name| {
+                        zumen::EntityKind::ALL
+                            .into_iter()
+                            .find(|kind| kind.name() == name)
+                            .ok_or_else(|| PyValueError::new_err(format!("知らない図形の種類です: {name}")))
+                    })
+                    .collect::<PyResult<Vec<_>>>()
+            })
+            .transpose()?;
+        let options = RegionOptions {
+            filter: filter(region, hidden_layers),
+            kinds,
+            layers: layers.map(|ids| ids.into_iter().collect()),
+            tolerance,
+            min_area,
+        };
+        let scene = self.inner.clone();
+        let regions = py.detach(move || closed_regions(&scene, &options));
+        let list = PyList::empty(py);
+        for region in &regions {
+            list.append(region_dict(py, region)?)?;
+        }
+        Ok(list)
     }
 
     /// id の図形（entities と同じ dict で、geometry も entities と同じ）。ない id なら None
@@ -946,7 +1036,8 @@ fn edit(
     Ok(Edited { inner: edited })
 }
 
-/// 新しい図面を作り、操作を当てる。to は形式（dxf）、units は長さの単位（mm・cm・m・inch・foot・unitless）
+/// 新しい図面を作り、操作を当てる。to は形式（dxf・dwg・jww・sfc・p21・sfz・p2z）、units は長さの単位
+/// （mm・cm・m・inch・foot・unitless。JWW と SXF は mm だけ）
 #[pyfunction]
 #[pyo3(signature = (to, operations = None, *, units = "mm".to_string()))]
 fn create(py: Python<'_>, to: String, operations: Option<&Bound<'_, PyAny>>, units: String) -> PyResult<Edited> {
@@ -1115,7 +1206,7 @@ fn compare(
     Ok(Comparison { before: a, after: b, diff, overlay: OnceLock::new() })
 }
 
-/// 図面を読み、to の形式（dxf）に書き直す。どの形式の図面も書き直せる（SXF・JWW は AutoCAD の図面のモデルに写す）。
+/// 図面を読み、to の形式（dxf・dwg・jww・sfc・p21・sfz・p2z）に書き直す。どの形式の図面も書き直せる（SXF・JWW は AutoCAD の図面のモデルに写す）。
 /// format は分かっている場合の読む形式
 #[pyfunction]
 #[pyo3(signature = (data, to, *, format = None, version = None))]
