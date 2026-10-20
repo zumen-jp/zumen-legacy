@@ -93,13 +93,18 @@ for it, and read again, the SFC draws the same:
 
 ```python
 zumen.convert("plan.dwg", "sfc").save("plan.sfc")
+zumen.convert("plan.dxf", "p21", version="2.0").save("plan.p21")  # SXF Ver.2.0 as P21 (also "sfz" and "p2z")
 ```
+
+DWG (AutoCAD 2013) and JWW (Jw_cad 8) are written from the same model: `zumen.convert("plan.sfc", "dwg")` and
+`zumen.convert("plan.dxf", "jww")`. In JWW, the layout is the sheet and the model space in each viewport is a layer
+group at the viewport's scale.
 
 ## Editing drawings
 
 `zumen.edit` changes a drawing in place: it applies a list of operations and keeps everything else as it was, in the
 same format, version and text encoding, including what zumen cannot read (extended data, objects, unread entities).
-DXF (R12 to 2018, ASCII and binary) can be edited so far; DWG, SXF and JWW follow.
+DXF (R12 to 2018, ASCII and binary), DWG (R2000 to 2018), JWW and SXF (SFC, P21, SFZ and P2Z) can be edited.
 
 ```python
 operations = [  # the operations may also be a JSON string
@@ -118,7 +123,8 @@ edited.save("plan.dxf")
   Coordinates are the drawing's own, the `raw` of properties (`Scene.entity(id)["values"]`), not paper millimeters.
   Every id in one edit names an entity of the drawing as it was read. Ids that are places in the file (`#12`, in DXF
   without handles) change when an edit adds or removes records before them, so read the edited drawing again.
-- `add` takes `container`: `"model"` (the default), `"layout:<name>"` or `"block:<name>"` in DXF.
+- `add` takes `container`: `"model"` (the default), `"layout:<name>"` or `"block:<name>"` in DXF and DWG,
+  `"group:<0-F or name>"` (a layer group) in JWW, and `"sheet"` (the default) or `"figure:<name>"` in SXF.
 - Kinds that can be added: `line`, `polyline` (`vertices`, `bulges`, `closed`), `arc`, `circle`, `ellipse`,
   `ellipse-arc`, `point`, `text` (MTEXT when it has line breaks) and `block-reference` (`block`, `position`, `scale`,
   `rotation`). Every kind takes `layer`, `color` (a color number, `"#rrggbb"`, `"bylayer"` or `"byblock"`),
@@ -130,6 +136,8 @@ edited.save("plan.dxf")
 - Checking that the file is the version that was read (a checksum) is left to the application.
 
 `zumen.create("dxf", operations, units="mm")` starts a new drawing (AutoCAD 2013 DXF) and applies the operations.
+`"dwg"` starts an AutoCAD 2013 DWG, `"jww"` an A3 JWW, and `"sfc"`, `"p21"`, `"sfz"` or `"p2z"` an A3 SXF sheet; JWW
+and SXF lengths are in millimeters, so they take only `units="mm"`.
 
 ## Comparing revisions
 

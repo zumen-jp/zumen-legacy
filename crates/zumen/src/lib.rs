@@ -222,7 +222,9 @@ pub fn create(to: &str, units: &str, operations: &[edit::EditOperation]) -> Resu
         "dxf" => dxf::edit_dxf(&dxf::new_dxf(units)?, operations),
         "dwg" => dwg::edit_dwg(&dwg::new_dwg(units)?, operations),
         "jww" => jww::edit_jww(&jww::new_jww(), operations_in_mm(to, units, operations)?),
-        "sfc" | "p21" | "sfz" | "p2z" => sxf::edit_sxf(&sxf::new_sxf(to)?, to, operations_in_mm(to, units, operations)?),
+        "sfc" | "p21" | "sfz" | "p2z" => {
+            sxf::edit_sxf(&sxf::new_sxf(to)?, to, operations_in_mm(to, units, operations)?)
+        }
         other => Err(unsupported_edit(other)),
     }
 }

@@ -358,7 +358,7 @@ def test_converts_dxf_and_dwg_drawings_to_dxf(tmp_path):
     image = next(notice for notice in notices if notice["code"] == "image")
     assert (image["level"], image["count"]) == ("warning", 1)
     with pytest.raises(zumen.ReadError):
-        zumen.convert(FIXTURES / "dxf" / "r12.dxf", "p21")
+        zumen.convert(FIXTURES / "dxf" / "r12.dxf", "pdf")
 
 
 def test_converts_every_format_to_sfc(tmp_path):
@@ -380,6 +380,18 @@ def test_converts_every_format_to_sfc(tmp_path):
         assert characters(zumen.read(path)) == characters(zumen.read(source))
     codes = {notice["code"] for notice in zumen.convert(FIXTURES / "dxf" / "features.dxf", "sfc").notices}
     assert {"dimension", "drawn-shapes"} <= codes
+
+
+def test_converts_to_dwg_jww_and_every_sxf_container_and_version():
+    source = FIXTURES / "dxf" / "layout.dxf"
+    for to in ["dwg", "jww", "p21", "sfz", "p2z"]:
+        converted = zumen.convert(source, to)
+        assert (converted.format, zumen.detect(converted.data)) == (to, to)
+        assert len(zumen.read(converted.data)) > 0, to
+    converted = zumen.convert(source, "p21", version="2.0")
+    assert zumen.read(converted.data).version == "SXF 2.0"
+    with pytest.raises(zumen.ReadError):
+        zumen.convert(source, "dwg", version="2013")
 
 
 def test_converts_sxf_and_jww_drawings_to_dxf_through_the_autocad_model():
