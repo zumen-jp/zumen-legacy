@@ -1,10 +1,12 @@
 """Checks the wheels and the sdist that maturin built (CI: .github/workflows/python-wheels.yml).
 
-The bundled font (BIZ UDGothic, SIL Open Font License 1.1) is compiled into the extension module, and the license asks
-every copy of the font to carry its text. So a wheel must hold the bytes of the font in its module and the text of the
-license in dist-info/licenses, and the sdist the font and the license that building it needs. A wheel must also be an
-abi3 wheel (one file for every Python from 3.12) with a manylinux or macOS tag, never a bare linux_x86_64, unless
---any-platform accepts the tag of a wheel that was built on the machine itself.
+Every wheel and the sdist must carry the text of the license of zumen (LICENSE, MIT) as it is in the repository. The
+bundled font (BIZ UDGothic, SIL Open Font License 1.1) is compiled into the extension module, and its license asks
+every copy of the font to carry its text; so do the licenses of the Rust crates that are linked into the module, whose
+texts are in licenses/THIRD_PARTY_LICENSES.txt (scripts/notices.mjs writes it). So a wheel must hold the bytes of the
+font in its module and the three texts in dist-info/licenses, and the sdist the font and the licenses that building it
+needs. A wheel must also be an abi3 wheel (one file for every Python from 3.12) with a manylinux or macOS tag, never a
+bare linux_x86_64, unless --any-platform accepts the tag of a wheel that was built on the machine itself.
 """
 
 import argparse
@@ -16,7 +18,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 FONT = (ROOT / "crates/zumen-render/fonts/BIZUDGothic-Regular.ttf").read_bytes()
-LICENSE = (ROOT / "crates/zumen-render/fonts/OFL.txt").read_bytes()
+LICENSE = (ROOT / "LICENSE").read_bytes()
+FONT_LICENSE = (ROOT / "crates/zumen-render/fonts/OFL.txt").read_bytes()
+CRATE_LICENSES = (ROOT / "bindings/python/licenses/THIRD_PARTY_LICENSES.txt").read_bytes()
 WHEEL = re.compile(r"zumen-(?P<version>[^-]+)-cp312-abi3-(?P<platform>[\w.]+)\.whl")
 RELEASE_PLATFORM = re.compile(r"(?:manylinux|macosx)_[\w.]+")
 SDIST = re.compile(r"zumen-(?P<version>[^-]+)\.tar\.gz")
@@ -38,8 +42,13 @@ def check_wheel(path: Path, any_platform: bool) -> list[str]:
         if FONT not in wheel.read(modules[0]):
             errors.append(f"{modules[0]} does not contain the bytes of BIZUDGothic-Regular.ttf")
         licenses = f"zumen-{match['version']}.dist-info/licenses/"
-        if not any(name.startswith(licenses) and wheel.read(name) == LICENSE for name in names):
+        held = [wheel.read(name) for name in names if name.startswith(licenses)]
+        if LICENSE not in held:
+            errors.append(f"{licenses} does not hold the text of LICENSE, the license of zumen")
+        if FONT_LICENSE not in held:
             errors.append(f"{licenses} does not hold the text of OFL.txt, the license of the bundled font")
+        if CRATE_LICENSES not in held:
+            errors.append(f"{licenses} does not hold THIRD_PARTY_LICENSES.txt, the licenses of the linked Rust crates")
     return errors
 
 
@@ -50,9 +59,11 @@ def check_sdist(path: Path) -> list[str]:
         return [f"{path.name} is not named zumen-<version>.tar.gz"]
     top = f"zumen-{match['version']}/"
     wanted = {
+        f"{top}LICENSE": LICENSE,
         f"{top}crates/zumen-render/fonts/BIZUDGothic-Regular.ttf": FONT,
-        f"{top}crates/zumen-render/fonts/OFL.txt": LICENSE,
-        f"{top}licenses/BIZUDGothic-OFL.txt": LICENSE,
+        f"{top}crates/zumen-render/fonts/OFL.txt": FONT_LICENSE,
+        f"{top}licenses/BIZUDGothic-OFL.txt": FONT_LICENSE,
+        f"{top}licenses/THIRD_PARTY_LICENSES.txt": CRATE_LICENSES,
     }
     errors = []
     with tarfile.open(path) as sdist:
@@ -71,9 +82,13 @@ def main() -> int:
     parser.add_argument("folder", type=Path, help="the folder with the wheels and the sdist")
     parser.add_argument("--any-platform", action="store_true", help="accept any platform tag in the name of a wheel")
     args = parser.parse_args()
-    if (ROOT / "bindings/python/licenses/BIZUDGothic-OFL.txt").read_bytes() != LICENSE:
-        print("FAIL the bundled font license differs from crates/zumen-render/fonts/OFL.txt")
-        return 1
+    for copy, original in [
+        (ROOT / "bindings/python/LICENSE", LICENSE),
+        (ROOT / "bindings/python/licenses/BIZUDGothic-OFL.txt", FONT_LICENSE),
+    ]:
+        if copy.read_bytes() != original:
+            print(f"FAIL {copy.name} differs from the original license")
+            return 1
     wheels = sorted(args.folder.glob("*.whl"))
     sdists = sorted(args.folder.glob("*.tar.gz"))
     if not wheels and not sdists:

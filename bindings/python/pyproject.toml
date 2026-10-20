@@ -9,7 +9,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 keywords = ["cad", "drawing", "jww", "sxf", "dxf", "dwg", "aec"]
 classifiers = [
-  # 公開の前にライセンスを決める（docs/releasing.md）。それまで PyPI へ送らない
+  # PyPI への初回公開を決めるまで、この分類子を残す（docs/releasing.md）
   "Private :: Do Not Upload",
   "Programming Language :: Rust",
   "Programming Language :: Python :: 3",
@@ -17,8 +17,9 @@ classifiers = [
   "Topic :: Scientific/Engineering",
 ]
 # 同梱の BIZ UDGothic は拡張モジュールに埋め込まれるので、そのライセンス（SIL OFL 1.1、licenses/ はクレート側の
-# OFL.txt のコピー）の全文をホイールの dist-info に入れる。zumen 自身の LICENSE を決めたらここへ加える（docs/releasing.md）
-license-files = ["licenses/*"]
+# OFL.txt のコピー）の全文をホイールの dist-info に入れる。zumen の MIT とリンクするクレートのライセンスも同梱する
+license = "MIT"
+license-files = ["LICENSE", "licenses/*"]
 dynamic = ["version"]
 
 [project.optional-dependencies]

@@ -3,6 +3,7 @@ name = "zumen-convert"
 description = "Map SXF and JWW drawings into the AutoCAD drawing model of zumen-dxf, so that they can be written as DXF"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 repository.workspace = true
 publish.workspace = true
 

@@ -24,16 +24,18 @@
   },
   "private": true,
   "type": "module",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "sideEffects": [
     "./src/worker.ts",
     "./dist/worker.js"
   ],
   "files": [
     "dist",
+    "src",
     "wasm/zumen_wasm.js",
     "wasm/zumen_wasm.d.ts",
-    "wasm/zumen_wasm_bg.wasm"
+    "wasm/zumen_wasm_bg.wasm",
+    "THIRD_PARTY_LICENSES.txt"
   ],
   "exports": {
     ".": {

@@ -332,3 +332,7 @@ The bundled font of `zumen-render` is BIZ UDGothic under the SIL Open Font Licen
   Transport and Tourism of Japan, and the display requirements published by NILIM.
 - The DXF reader follows the Autodesk DXF Reference and was checked against [ezdxf](https://ezdxf.mozman.at/) (MIT);
   the code page table and some interpretations follow ezdxf.
+
+## License
+
+MIT — see [LICENSE](LICENSE). Contributions follow the [Code of Conduct](CODE_OF_CONDUCT.md).

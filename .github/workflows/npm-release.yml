@@ -1,0 +1,157 @@
+# Publishes the npm packages of packages/ with provenance when a tag v* is pushed, in dependency order. It does nothing
+# unless the repository variable PUBLISH_TO_NPM is "true", and it stops at a package that still has "private": true
+# (docs/releasing.md). npm accepts the upload by trusted publishing, so no token is stored: each package needs a trusted
+# publisher for this workflow file and the environment "npm" on npmjs.com.
+name: npm release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Builds and packs the packages without the permission to publish, so that the build cannot use the identity that npm
+  # trusts
+  pack:
+    if: vars.PUBLISH_TO_NPM == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      # To read whether CI passed on the commit of the tag
+      actions: read
+    steps:
+      # actions/checkout v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          # The whole history, to tell whether the tag is a commit of main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check the tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="${TAG#v}"
+          for file in package.json packages/*/package.json; do
+            actual="$(jq -r .version "$file")"
+            if [ "$actual" != "$version" ]; then
+              echo "::error::$file has version $actual, not $version of the tag $TAG. Change the version of every package, then tag again."
+              exit 1
+            fi
+          done
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::$TAG is not a commit of main."
+            exit 1
+          fi
+          conclusion="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&event=push&per_page=1" --jq '.workflow_runs[0].conclusion // "missing"')"
+          if [ "$conclusion" != "success" ]; then
+            echo "::error::The complete ci.yml workflow has not passed on $GITHUB_SHA: '$conclusion'."
+            exit 1
+          fi
+      # pnpm/action-setup v6.1.0 installs the version in package.json "packageManager"
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
+      # actions/setup-node v7.1.0 (without a cache, since this workflow publishes)
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      # The Rust toolchain and the wasm32 target come from rust-toolchain.toml. @zumenjs/reader ships the WebAssembly reader,
+      # which scripts/wasm.mjs builds with wasm-bindgen-cli of the version in Cargo.lock (see ci.yml)
+      - run: rustup toolchain install
+      - run: >-
+          cargo install wasm-bindgen-cli --locked --version
+          "$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n 's/^version = "\(.*\)"$/\1/p')"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run wasm
+      - run: pnpm run build
+      - name: Pack the packages in dependency order
+        # bash, not the default shell, for pipefail: a failed pnpm must not leave a short list
+        shell: bash
+        run: |
+          mkdir "$RUNNER_TEMP/tarballs"
+          for package in core viewer reader react; do
+            pnpm --filter "@zumenjs/$package" pack --pack-destination "$RUNNER_TEMP/tarballs" | grep '\.tgz$' | xargs -n1 basename >> "$RUNNER_TEMP/tarballs/order.txt"
+          done
+          cat "$RUNNER_TEMP/tarballs/order.txt"
+          expected=4
+          actual="$(wc -l < "$RUNNER_TEMP/tarballs/order.txt")"
+          if [ "$actual" -ne "$expected" ]; then
+            echo "::error::Packed $actual packages, but packages/ has $expected."
+            exit 1
+          fi
+      # What npm will serve must be what is meant: not private, the files that "files" lists (the build output and, for
+      # @zumenjs/reader, the WebAssembly reader, which a missing build would leave out without an error) and the license
+      - name: Check the tarballs
+        shell: bash
+        working-directory: ${{ runner.temp }}/tarballs
+        run: |
+          while read -r tarball; do
+            contents="$(tar -tzf "$tarball")"
+            manifest="$(tar -xzOf "$tarball" package/package.json)"
+            if [ "$(jq -r '.private // false' <<< "$manifest")" != "false" ]; then
+              echo "::error::$tarball is still private. Remove \"private\": true in the last step before the first release (docs/releasing.md)."
+              exit 1
+            fi
+            for entry in LICENSE $(jq -r '.files[]' <<< "$manifest"); do
+              if ! grep -q "^package/$entry" <<< "$contents"; then
+                echo "::error::$tarball has no $entry."
+                exit 1
+              fi
+            done
+          done < order.txt
+      # actions/upload-artifact v7.0.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: npm-tarballs
+          path: ${{ runner.temp }}/tarballs
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    needs: pack
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: npm
+    permissions:
+      contents: read
+      # Trusted publishing with npm, and the provenance of the packages
+      id-token: write
+    steps:
+      # actions/checkout v7.0.1 (only for the pnpm version of package.json)
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      # pnpm/action-setup v6.1.0 installs the version in package.json "packageManager"
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
+      # actions/setup-node v7.1.0 (without a cache, since this workflow publishes)
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      # actions/download-artifact v8.0.2
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: npm-tarballs
+          path: ${{ runner.temp }}/tarballs
+      # Outside the repository, so that pnpm uses nothing from the workspace. A package that npm has already is skipped,
+      # which lets the job run again after a failure half way
+      - name: Publish the packages that npm does not have yet
+        shell: bash
+        working-directory: ${{ runner.temp }}/tarballs
+        run: |
+          while read -r tarball; do
+            package="$(tar -xzOf "$tarball" package/package.json | jq -r '.name + "@" + .version')"
+            if npm view "$package" version > /dev/null 2>&1; then
+              echo "$package is on npm already."
+              continue
+            fi
+            pnpm publish "$tarball" --access public
+          done < order.txt

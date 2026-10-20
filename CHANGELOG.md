@@ -2,7 +2,9 @@
 
 All packages share one version during 0.x.
 
-## Unreleased (0.1.0)
+## Unreleased
+
+- Prepare MIT licensing, third-party license notices, a code of conduct, and gated npm/PyPI release workflows. (0.1.0)
 
 - `@zumenjs/reader` replaces `@zumenjs/dwg`: every format (SFC, P21, P2Z, SFZ, JWW, DXF and DWG) is read in browsers
   and Node.js by the Rust readers built to WebAssembly. `initReader` loads the module, `reader` is the
