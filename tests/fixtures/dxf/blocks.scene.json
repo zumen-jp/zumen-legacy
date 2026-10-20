@@ -25,6 +25,7 @@
   "entities": [
     {
       "id": "20>B2>B1",
+      "kind": "line",
       "type": "線分",
       "source": "LINE",
       "layers": [
@@ -53,44 +54,65 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "線分（LINE）"
         },
         {
+          "key": "id",
           "label": "ハンドル",
           "value": "20>B2>B1"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "A"
+          "value": "A",
+          "raw": 2
         },
         {
+          "key": "block",
           "label": "ブロック",
           "value": "OUTER › INNER"
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "BYBLOCK"
+          "value": "BYBLOCK",
+          "raw": 0
         },
         {
+          "key": "lineType",
           "label": "線種",
           "value": "BYLAYER（CONTINUOUS）"
         },
         {
+          "key": "lineWidth",
           "label": "線の太さ",
           "value": "BYLAYER"
         },
         {
+          "key": "start",
           "label": "始点",
-          "value": "10, 0"
+          "value": "10, 0",
+          "raw": [
+            10,
+            0
+          ]
         },
         {
+          "key": "end",
           "label": "終点",
-          "value": "10, 2"
+          "value": "10, 2",
+          "raw": [
+            10,
+            2
+          ]
         },
         {
+          "key": "length",
           "label": "長さ",
-          "value": "2"
+          "value": "2",
+          "raw": 2
         }
       ],
       "placement": {
@@ -111,24 +133,32 @@
   "notices": [],
   "metadata": [
     {
+      "key": "format",
       "label": "形式",
       "value": "DXF AutoCAD 2000（AC1015、テキスト）"
     },
     {
+      "key": "encoding",
       "label": "文字コード",
-      "value": "西欧（Windows-1252）（指定なし）"
+      "value": "西欧（Windows-1252）（指定なし）",
+      "raw": "windows-1252"
     },
     {
+      "key": "units",
       "label": "単位",
       "value": "m"
     },
     {
+      "key": "blockCount",
       "label": "ブロック",
-      "value": "2 件"
+      "value": "2 件",
+      "raw": 2
     },
     {
+      "key": "view",
       "label": "表示",
-      "value": "モデル空間"
+      "value": "モデル空間",
+      "raw": "Model"
     }
   ],
   "background": "dark"

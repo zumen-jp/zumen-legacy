@@ -69,7 +69,7 @@ export interface Region {
 export type SxfFeature =
   | (Base & {
       kind: "drawing_attribute";
-      values: { label: string; value: string }[];
+      values: { key: string; label: string; value: string }[];
     })
   | (Base & { kind: "drawing_sheet"; name: string; type: number; orient: number; x: number; y: number })
   | (Base & { kind: "layer"; name: string; visible: boolean })
@@ -402,20 +402,21 @@ function region(args: Args, at: number): Region {
   return { outId: args.int(at), inIds: args.nums(at + 2).map(Math.trunc) };
 }
 
+/** 図面表題欄の項目の名前と、形式によらないキー（docs/architecture.md の「Stable keys」） */
 const TITLE_LABELS = [
-  "事業名",
-  "工事名",
-  "契約区分",
-  "図面名",
-  "図面番号",
-  "図面種別",
-  "尺度",
-  "作成年",
-  "作成月",
-  "作成日",
-  "受注会社名",
-  "発注事業者名",
-];
+  ["businessName", "事業名"],
+  ["constructionName", "工事名"],
+  ["contractType", "契約区分"],
+  ["drawingName", "図面名"],
+  ["drawingNumber", "図面番号"],
+  ["drawingType", "図面種別"],
+  ["scale", "尺度"],
+  ["year", "作成年"],
+  ["month", "作成月"],
+  ["day", "作成日"],
+  ["contractor", "受注会社名"],
+  ["client", "発注事業者名"],
+] as const;
 
 /** SFC のレコードをフィーチャにする。未対応の名前は null、引数の不備は例外 */
 export function featureFromRecord(record: SfcRecord): SxfFeature | null {
@@ -437,7 +438,11 @@ function convert(kind: FeatureKind, a: Args, id: number): SxfFeature {
       return {
         id,
         kind,
-        values: TITLE_LABELS.map((label, index) => ({ label, value: index < a.length ? a.str(index).trim() : "" })),
+        values: TITLE_LABELS.map(([key, label], index) => ({
+          key,
+          label,
+          value: index < a.length ? a.str(index).trim() : "",
+        })),
       };
     case "drawing_sheet":
       return { id, kind, name: a.str(0), type: a.int(1), orient: a.intOr(2, 1), x: a.num(3), y: a.num(4) };

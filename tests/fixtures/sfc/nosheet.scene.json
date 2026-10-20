@@ -18,6 +18,7 @@
   "entities": [
     {
       "id": "#10",
+      "kind": "line",
       "type": "線分",
       "source": "line_feature",
       "layers": [
@@ -46,45 +47,68 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "線分"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#10"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "未定義（1）"
+          "value": "未定義（1）",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "黒（1）"
+          "value": "黒（1）",
+          "raw": 1
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "実線（1）"
+          "value": "実線（1）",
+          "raw": 1
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.13mm（1）"
+          "value": "0.13mm（1）",
+          "raw": 0.13
         },
         {
+          "key": "start",
           "label": "始点",
-          "value": "0, 0"
+          "value": "0, 0",
+          "raw": [
+            0,
+            0
+          ]
         },
         {
+          "key": "end",
           "label": "終点",
-          "value": "10, 0"
+          "value": "10, 0",
+          "raw": [
+            10,
+            0
+          ]
         },
         {
+          "key": "length",
           "label": "長さ",
-          "value": "10"
+          "value": "10",
+          "raw": 10
         }
       ]
     },
     {
       "id": "#20",
+      "kind": "circle",
       "type": "円",
       "source": "circle_feature",
       "layers": [
@@ -165,36 +189,53 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "円"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#20"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "未定義（1）"
+          "value": "未定義（1）",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "赤（2）"
+          "value": "赤（2）",
+          "raw": 2
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "実線（1）"
+          "value": "実線（1）",
+          "raw": 1
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.13mm（1）"
+          "value": "0.13mm（1）",
+          "raw": 0.13
         },
         {
+          "key": "center",
           "label": "中心",
-          "value": "5, 5"
+          "value": "5, 5",
+          "raw": [
+            5,
+            5
+          ]
         },
         {
+          "key": "radius",
           "label": "半径",
-          "value": "3"
+          "value": "3",
+          "raw": 3
         }
       ]
     }
@@ -215,14 +256,17 @@
   ],
   "metadata": [
     {
+      "key": "format",
       "label": "形式",
       "value": "SFC（SXF 3.0）"
     },
     {
+      "key": "software",
       "label": "作成ソフト",
       "value": "test"
     },
     {
+      "key": "library",
       "label": "出力ライブラリ",
       "value": "zumen"
     }

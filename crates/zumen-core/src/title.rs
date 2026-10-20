@@ -144,10 +144,10 @@ fn label_rank(key: TitleKey, label: &str) -> usize {
 
 /// SXF の作成年・作成月・作成日を 1 つの日付にする。年が 0 のもの（未設定）は使わない
 fn sxf_date(scene: &Scene) -> Option<String> {
-    let part = |label: &str| -> Option<u32> {
-        scene.metadata.iter().find(|property| property.label == label)?.value.trim().parse().ok()
+    let part = |key: &str| -> Option<u32> {
+        scene.metadata.iter().find(|property| property.key == key)?.value.trim().parse().ok()
     };
-    let (year, month, day) = (part("作成年")?, part("作成月")?, part("作成日")?);
+    let (year, month, day) = (part("year")?, part("month")?, part("day")?);
     (year > 0 && (1..=12).contains(&month) && (1..=31).contains(&day)).then(|| format!("{year}年{month}月{day}日"))
 }
 
@@ -273,7 +273,7 @@ pub fn title_fields(scene: &Scene) -> Vec<TitleField> {
     let mut fields = Vec::new();
     for text in &texts {
         // 1. 属性のタグ
-        if let Some(tag) = text.entity.properties.iter().find(|property| property.label == "タグ")
+        if let Some(tag) = text.entity.properties.iter().find(|property| property.key == "tag")
             && let Some(key) = label_key(&fold(&tag.value))
         {
             fields.push(TitleField {
@@ -348,7 +348,7 @@ pub fn title_fields(scene: &Scene) -> Vec<TitleField> {
         });
     }
     for property in &scene.metadata {
-        if matches!(property.label.as_str(), "作成年" | "作成月" | "作成日") {
+        if matches!(property.key, "year" | "month" | "day") {
             continue;
         }
         if let Some(key) = label_key(&fold(&property.label))
@@ -411,7 +411,8 @@ mod tests {
         }
         SceneEntity {
             id: id.into(),
-            kind: "文字".into(),
+            kind: crate::EntityKind::Text,
+            type_name: "文字".into(),
             source: "test".into(),
             layers: vec![0],
             primitives: vec![Primitive::Text(TextPrimitive {
@@ -491,12 +492,12 @@ mod tests {
     #[test]
     fn reads_attribute_tags_and_inline_labels() {
         let mut number = text("20>21", "A-101", 700.0, 20.0, 0.0);
-        number.properties.push(Property::new("タグ", "DWG_NO"));
+        number.properties.push(Property::new("tag", "タグ", "DWG_NO"));
         let mut revision = text("20>22", "3", 760.0, 20.0, 0.0);
-        revision.properties.push(Property::new("タグ", "REV"));
+        revision.properties.push(Property::new("tag", "タグ", "REV"));
         // 部品番号のタグ（NO）は図面番号ではない
         let mut part = text("30>31", "D-2", 100.0, 100.0, 0.0);
-        part.properties.push(Property::new("タグ", "NO"));
+        part.properties.push(Property::new("tag", "タグ", "NO"));
         let s = scene(
             vec![
                 number,
@@ -552,7 +553,7 @@ mod tests {
     #[test]
     fn falls_back_on_the_metadata_of_the_drawing() {
         let mut s = scene(Vec::new(), "");
-        s.metadata = vec![Property::new("形式", "JWW（版 600）"), Property::new("縮尺", "1/100")];
+        s.metadata = vec![Property::new("format", "形式", "JWW（版 600）"), Property::new("scale", "縮尺", "1/100")];
         let block = title_block(&s);
         assert_eq!(block.len(), 1);
         assert_eq!(
@@ -560,18 +561,26 @@ mod tests {
             (TitleKey::Scale, "1/100", TitleSource::Metadata)
         );
         // SXF の表題欄の属性。工事名を事業名より先にし、作成年・作成月・作成日は 1 つの日付にする
-        s.metadata = ["事業名", "工事名", "図面番号", "尺度", "作成年", "作成月", "作成日"]
-            .into_iter()
-            .zip(["道路改良事業", "工事", "No.1", "1:500", "2026", "10", "18"])
-            .map(|(label, value)| Property::new(label, value))
-            .collect();
+        s.metadata = [
+            ("businessName", "事業名"),
+            ("constructionName", "工事名"),
+            ("drawingNumber", "図面番号"),
+            ("scale", "尺度"),
+            ("year", "作成年"),
+            ("month", "作成月"),
+            ("day", "作成日"),
+        ]
+        .into_iter()
+        .zip(["道路改良事業", "工事", "No.1", "1:500", "2026", "10", "18"])
+        .map(|((key, label), value)| Property::new(key, label, value))
+        .collect();
         let block = title_block(&s);
         assert_eq!(value(&block, TitleKey::Project), Some("工事"));
         assert_eq!(value(&block, TitleKey::Number), Some("No.1"));
         assert_eq!(value(&block, TitleKey::Scale), Some("1:500"));
         assert_eq!(value(&block, TitleKey::Date), Some("2026年10月18日"));
         // 年が 0 なら日付はない
-        s.metadata[4] = Property::new("作成年", "0");
+        s.metadata[4] = Property::new("year", "作成年", "0");
         assert_eq!(value(&title_block(&s), TitleKey::Date), None);
     }
 }

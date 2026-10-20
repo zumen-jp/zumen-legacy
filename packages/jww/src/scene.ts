@@ -1,5 +1,6 @@
 import {
   type Box,
+  type EntityKind,
   NoticeList,
   type Placement,
   type Primitive,
@@ -182,16 +183,18 @@ class Builder {
     };
   }
 
-  private real(base: JwwBase, x: number, y: number, ctx: Context): string {
+  /** 実寸の座標の属性 */
+  private real(key: string, label: string, base: JwwBase, x: number, y: number, ctx: Context): Property {
     const [px, py] = apply(ctx.m, x, y);
     const [rx, ry] = apply(this.placement(base.layerGroup).inverse, px, py);
-    return `${number(rx)}, ${number(ry)}`;
+    return { key, label, value: `${number(rx)}, ${number(ry)}`, raw: [rx, ry] };
   }
 
   private add(
     ctx: Context,
     base: JwwBase,
     id: number,
+    kind: EntityKind,
     type: string,
     source: string,
     primitives: Primitive[],
@@ -206,8 +209,10 @@ class Builder {
     for (const code of layers) this.usedLayers.set(code, (this.usedLayers.get(code) ?? 0) + 1);
     const group = this.doc.groups[base.layerGroup & 0x0f];
     const placement = this.placement(base.layerGroup);
+    const scale = group && group.scale > 0 ? group.scale : 1;
     this.entities.push({
       id: `${ctx.path}#${id}`,
+      kind,
       type,
       source,
       layers,
@@ -215,15 +220,17 @@ class Builder {
       bbox,
       placement,
       properties: [
-        { label: "種類", value: type },
-        { label: "番号", value: `${ctx.path}#${id}` },
+        { key: "type", label: "種類", value: type },
+        { key: "id", label: "番号", value: `${ctx.path}#${id}` },
         {
+          key: "layer",
           label: "レイヤ",
           value: `${groupName(this.doc, base.layerGroup & 0x0f)} / ${layerName(this.doc, base.layerGroup & 0x0f, base.layer & 0x0f)}`,
+          raw: layer,
         },
-        { label: "縮尺", value: `1/${number(group && group.scale > 0 ? group.scale : 1)}` },
-        { label: "線色", value: String(base.penColor) },
-        { label: "線種", value: String(base.penStyle) },
+        { key: "scale", label: "縮尺", value: `1/${number(scale)}`, raw: scale },
+        { key: "color", label: "線色", value: String(base.penColor), raw: base.penColor },
+        { key: "lineType", label: "線種", value: String(base.penStyle), raw: base.penStyle },
         ...properties,
       ],
     });
@@ -236,12 +243,13 @@ class Builder {
           ctx,
           entity,
           id,
+          "line",
           "線",
           "CDataSen",
           [this.stroke(ctx, entity, [entity.x1, entity.y1, entity.x2, entity.y2], false)],
           [
-            { label: "始点（実寸）", value: this.real(entity, entity.x1, entity.y1, ctx) },
-            { label: "終点（実寸）", value: this.real(entity, entity.x2, entity.y2, ctx) },
+            this.real("start", "始点（実寸）", entity, entity.x1, entity.y1, ctx),
+            this.real("end", "終点（実寸）", entity, entity.x2, entity.y2, ctx),
           ],
         );
         return;
@@ -257,21 +265,21 @@ class Builder {
           entity.sweep,
           entity.full,
         );
-        const type =
-          entity.flatness !== 1 && Math.abs(entity.flatness - 1) > 1e-9 ? "楕円" : entity.full ? "円" : "円弧";
+        const ellipse = entity.flatness !== 1 && Math.abs(entity.flatness - 1) > 1e-9;
+        const type = ellipse ? "楕円" : entity.full ? "円" : "円弧";
+        const kind = ellipse ? (entity.full ? "ellipse" : "ellipse-arc") : entity.full ? "circle" : "arc";
+        const radius = entity.radius * (this.doc.groups[entity.layerGroup & 0x0f]?.scale || 1);
         this.add(
           ctx,
           entity,
           id,
+          kind,
           type,
           "CDataEnko",
           [this.stroke(ctx, entity, points, entity.full)],
           [
-            { label: "中心（実寸）", value: this.real(entity, entity.cx, entity.cy, ctx) },
-            {
-              label: "半径（実寸）",
-              value: number(entity.radius * (this.doc.groups[entity.layerGroup & 0x0f]?.scale || 1)),
-            },
+            this.real("center", "中心（実寸）", entity, entity.cx, entity.cy, ctx),
+            { key: "radius", label: "半径（実寸）", value: number(radius), raw: radius },
           ],
         );
         return;
@@ -286,10 +294,11 @@ class Builder {
           ctx,
           entity,
           id,
+          "point",
           "点",
           "CDataTen",
           [{ kind: "dot", x, y, color: this.color(entity) }],
-          [{ label: "位置（実寸）", value: this.real(entity, entity.x, entity.y, ctx) }],
+          [this.real("position", "位置（実寸）", entity, entity.x, entity.y, ctx)],
         );
         return;
       }
@@ -310,15 +319,18 @@ class Builder {
           ctx,
           entity,
           id,
+          "text",
           "文字",
           "CDataMoji",
           [text],
           [
-            { label: "文字列", value: entity.content },
-            { label: "フォント", value: entity.font },
+            { key: "text", label: "文字列", value: entity.content },
+            { key: "font", label: "フォント", value: entity.font },
             {
+              key: "textSize",
               label: "文字の大きさ",
               value: `幅 ${number(entity.sizeX)}・高さ ${number(entity.sizeY)}・間隔 ${number(entity.spacing)}（mm）`,
+              raw: [entity.sizeX, entity.sizeY, entity.spacing],
             },
           ],
         );
@@ -330,6 +342,7 @@ class Builder {
           ctx,
           entity,
           id,
+          "solid",
           "ソリッド",
           "CDataSolid",
           [{ kind: "fill", color: this.color(entity, entity.color), rings: [ring] }],
@@ -356,6 +369,7 @@ class Builder {
           ctx,
           entity,
           id,
+          "solid",
           "円ソリッド",
           "CDataSolid",
           [{ kind: "fill", color: this.color(entity, entity.color), rings: [ring] }],
@@ -407,7 +421,9 @@ class Builder {
         }
         const text = this.text(ctx, entity.text);
         if (text) primitives.push(text);
-        this.add(ctx, entity, id, "寸法", "CDataSunpou", primitives, [{ label: "寸法値", value: entity.text.content }]);
+        this.add(ctx, entity, id, "dimension", "寸法", "CDataSunpou", primitives, [
+          { key: "dimensionText", label: "寸法値", value: entity.text.content },
+        ]);
         return;
       }
     }
@@ -537,8 +553,8 @@ export function jwwToScene(doc: JwwDocument): Scene {
     });
   }
   const background = luminance(doc.penColors?.[0] ?? "#ffffff") < 0.5 ? "dark" : "light";
-  const metadata: Property[] = [{ label: "形式", value: `JWW（版 ${doc.version}）` }];
-  if (sheet) metadata.push({ label: "用紙", value: `${sheet.size}（${sheet.width}×${sheet.height}mm）` });
+  const metadata: Property[] = [{ key: "format", label: "形式", value: `JWW（版 ${doc.version}）` }];
+  if (sheet) metadata.push({ key: "sheet", label: "用紙", value: `${sheet.size}（${sheet.width}×${sheet.height}mm）` });
   // 図形のあるレイヤグループの縮尺だけを示す
   const usedGroups = new Set([...builder.usedLayers.keys()].map((id) => Math.floor((id - 1) / 16)));
   const scales = [
@@ -546,10 +562,17 @@ export function jwwToScene(doc: JwwDocument): Scene {
       doc.groups.filter((group, index) => usedGroups.has(index) && group.scale > 0).map((group) => group.scale),
     ),
   ];
-  metadata.push({ label: "縮尺", value: scales.map((scale) => `1/${number(scale)}`).join("・") });
-  if (doc.memo.trim()) metadata.push({ label: "メモ", value: doc.memo.trim() });
-  if (doc.blocks.length > 0) metadata.push({ label: "ブロック", value: `${doc.blocks.length} 件` });
-  if (builder.settings.length > 0) metadata.push({ label: "Jw_cad の設定", value: builder.settings.join("、") });
+  metadata.push({
+    key: "scale",
+    label: "縮尺",
+    value: scales.map((scale) => `1/${number(scale)}`).join("・"),
+    raw: scales,
+  });
+  if (doc.memo.trim()) metadata.push({ key: "memo", label: "メモ", value: doc.memo.trim() });
+  if (doc.blocks.length > 0)
+    metadata.push({ key: "blockCount", label: "ブロック", value: `${doc.blocks.length} 件`, raw: doc.blocks.length });
+  if (builder.settings.length > 0)
+    metadata.push({ key: "settings", label: "Jw_cad の設定", value: builder.settings.join("、") });
   return {
     format: "jww",
     version: `JWW ${doc.version}`,

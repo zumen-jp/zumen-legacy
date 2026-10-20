@@ -289,7 +289,7 @@ impl Key {
             quantize((entity.bbox.min_x - offset.0) / grid, 1.0),
             quantize((entity.bbox.min_y - offset.1) / grid, 1.0),
         );
-        Key { kind: entity.kind.clone(), parts, layers, corner }
+        Key { kind: entity.type_name.clone(), parts, layers, corner }
     }
 
     /// 丸めた座標の差がどれも 2 以内で、ほかが同じか（丸めの境目で分かれた同じ図形）
@@ -615,7 +615,7 @@ pub const AFTER_COLOR: &str = "#0050f0";
 pub fn diff_scene(before: &Scene, after: &Scene, diff: &SceneDiff) -> Scene {
     let (ox, oy) = diff.offset;
     let mut entities = Vec::with_capacity(diff.unchanged.len() + diff.removed.len() + diff.added.len());
-    let mut add = |source: &SceneEntity, from_after: bool, layer: u32, label: &str| {
+    let mut add = |source: &SceneEntity, from_after: bool, layer: u32, (label, key): (&str, &str)| {
         let mut entity = source.clone();
         let color = match layer {
             0 => UNCHANGED_COLOR,
@@ -640,23 +640,23 @@ pub fn diff_scene(before: &Scene, after: &Scene, diff: &SceneDiff) -> Scene {
         }
         entity.id = format!("{}:{}", if from_after { "B" } else { "A" }, source.id);
         entity.layers = vec![layer];
-        entity.properties.insert(0, Property::new("比較", label));
+        entity.properties.insert(0, Property::new("comparison", "比較", label).raw(key));
         entities.push(entity);
     };
     for &(_, b) in &diff.unchanged {
-        add(&after.entities[b], true, 0, "変更なし");
+        add(&after.entities[b], true, 0, ("変更なし", "unchanged"));
     }
     for &a in &diff.removed {
-        add(&before.entities[a], false, 1, "削除");
+        add(&before.entities[a], false, 1, ("削除", "removed"));
     }
     for &(a, _) in &diff.changed {
-        add(&before.entities[a], false, 1, "変更前");
+        add(&before.entities[a], false, 1, ("変更前", "changed-before"));
     }
     for &b in &diff.added {
-        add(&after.entities[b], true, 2, "追加");
+        add(&after.entities[b], true, 2, ("追加", "added"));
     }
     for &(_, b) in &diff.changed {
-        add(&after.entities[b], true, 2, "変更後");
+        add(&after.entities[b], true, 2, ("変更後", "changed-after"));
     }
     let mut bounds = empty_box();
     for entity in &entities {
@@ -668,9 +668,18 @@ pub fn diff_scene(before: &Scene, after: &Scene, diff: &SceneDiff) -> Scene {
     }
     let layer = |id: u32, name: &str| SceneLayer { id, name: name.into(), visible: true, group: None };
     let mut metadata = vec![
-        Property::new("前の版", format!("{} {}", before.version, before.view.as_deref().unwrap_or("")).trim_end()),
-        Property::new("後の版", format!("{} {}", after.version, after.view.as_deref().unwrap_or("")).trim_end()),
         Property::new(
+            "before",
+            "前の版",
+            format!("{} {}", before.version, before.view.as_deref().unwrap_or("")).trim_end(),
+        ),
+        Property::new(
+            "after",
+            "後の版",
+            format!("{} {}", after.version, after.view.as_deref().unwrap_or("")).trim_end(),
+        ),
+        Property::new(
+            "entityCounts",
             "図形",
             format!(
                 "変更なし {}・削除 {}・追加 {}・変更 {}",
@@ -679,13 +688,18 @@ pub fn diff_scene(before: &Scene, after: &Scene, diff: &SceneDiff) -> Scene {
                 diff.added.len(),
                 diff.changed.len()
             ),
-        ),
+        )
+        .raw([diff.unchanged.len(), diff.removed.len(), diff.added.len(), diff.changed.len()].map(|n| n as f64)),
     ];
     if ox != 0.0 || oy != 0.0 {
-        metadata.push(Property::new(
-            "後の版のずれ",
-            format!("{}, {}", crate::js::number_to_string(ox), crate::js::number_to_string(oy)),
-        ));
+        metadata.push(
+            Property::new(
+                "offset",
+                "後の版のずれ",
+                format!("{}, {}", crate::js::number_to_string(ox), crate::js::number_to_string(oy)),
+            )
+            .raw([ox, oy]),
+        );
     }
     Scene {
         format: "diff".into(),
@@ -794,7 +808,8 @@ mod tests {
         }
         SceneEntity {
             id: id.into(),
-            kind: kind.into(),
+            kind: crate::EntityKind::Line,
+            type_name: kind.into(),
             source: "test".into(),
             layers: vec![0],
             primitives,
@@ -929,7 +944,7 @@ mod tests {
         );
         let removed = overlay.entities.iter().find(|e| e.id == "A:1").unwrap();
         assert_eq!(removed.layers, [1]);
-        assert_eq!(removed.properties[0], Property::new("比較", "削除"));
+        assert_eq!(removed.properties[0], Property::new("comparison", "比較", "削除").raw("removed"));
         let Primitive::Stroke(line) = &removed.primitives[0] else { panic!() };
         assert_eq!(line.color, BEFORE_COLOR);
         // 後の版は前の版の座標に戻して描く

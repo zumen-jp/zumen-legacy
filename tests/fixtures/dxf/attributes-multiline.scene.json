@@ -25,6 +25,7 @@
   "entities": [
     {
       "id": "50>43",
+      "kind": "attribute-definition",
       "type": "属性定義",
       "source": "ATTDEF",
       "layers": [
@@ -130,46 +131,60 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "属性定義（ATTDEF）"
         },
         {
+          "key": "id",
           "label": "ハンドル",
           "value": "50>43"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "0"
+          "value": "0",
+          "raw": 1
         },
         {
+          "key": "block",
           "label": "ブロック",
           "value": "LABEL"
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "BYLAYER"
+          "value": "BYLAYER",
+          "raw": 256
         },
         {
+          "key": "lineType",
           "label": "線種",
           "value": "BYLAYER（CONTINUOUS）"
         },
         {
+          "key": "lineWidth",
           "label": "線の太さ",
           "value": "BYLAYER"
         },
         {
+          "key": "text",
           "label": "文字列",
           "value": "Fixed\nvalue"
         },
         {
+          "key": "tag",
           "label": "タグ",
           "value": "FIXED"
         },
         {
+          "key": "height",
           "label": "高さ",
-          "value": "2.5"
+          "value": "2.5",
+          "raw": 2.5
         },
         {
+          "key": "textStyle",
           "label": "文字スタイル",
           "value": "STANDARD"
         }
@@ -190,6 +205,7 @@
     },
     {
       "id": "50>51",
+      "kind": "attribute",
       "type": "属性",
       "source": "ATTRIB",
       "layers": [
@@ -350,46 +366,60 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "属性（ATTRIB）"
         },
         {
+          "key": "id",
           "label": "ハンドル",
           "value": "50>51"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "0"
+          "value": "0",
+          "raw": 1
         },
         {
+          "key": "block",
           "label": "ブロック",
           "value": "LABEL"
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "ACI 3"
+          "value": "ACI 3",
+          "raw": 3
         },
         {
+          "key": "lineType",
           "label": "線種",
           "value": "BYLAYER（CONTINUOUS）"
         },
         {
+          "key": "lineWidth",
           "label": "線の太さ",
           "value": "BYLAYER"
         },
         {
+          "key": "text",
           "label": "文字列",
           "value": "First line\nSecond line"
         },
         {
+          "key": "tag",
           "label": "タグ",
           "value": "NOTE"
         },
         {
+          "key": "height",
           "label": "高さ",
-          "value": "2.5"
+          "value": "2.5",
+          "raw": 2.5
         },
         {
+          "key": "textStyle",
           "label": "文字スタイル",
           "value": "STANDARD"
         }
@@ -410,6 +440,7 @@
     },
     {
       "id": "54",
+      "kind": "attribute-definition",
       "type": "属性定義",
       "source": "ATTDEF",
       "layers": [
@@ -470,42 +501,55 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "属性定義（ATTDEF）"
         },
         {
+          "key": "id",
           "label": "ハンドル",
           "value": "54"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "0"
+          "value": "0",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "BYLAYER"
+          "value": "BYLAYER",
+          "raw": 256
         },
         {
+          "key": "lineType",
           "label": "線種",
           "value": "BYLAYER（CONTINUOUS）"
         },
         {
+          "key": "lineWidth",
           "label": "線の太さ",
           "value": "BYLAYER"
         },
         {
+          "key": "text",
           "label": "文字列",
           "value": "TITLE"
         },
         {
+          "key": "tag",
           "label": "タグ",
           "value": "TITLE"
         },
         {
+          "key": "height",
           "label": "高さ",
-          "value": "2.5"
+          "value": "2.5",
+          "raw": 2.5
         },
         {
+          "key": "textStyle",
           "label": "文字スタイル",
           "value": "STANDARD"
         }
@@ -526,6 +570,7 @@
     },
     {
       "id": "60",
+      "kind": "leader",
       "type": "マルチ引出線",
       "source": "MULTILEADER",
       "layers": [
@@ -721,36 +766,47 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "マルチ引出線（MULTILEADER）"
         },
         {
+          "key": "id",
           "label": "ハンドル",
           "value": "60"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "0"
+          "value": "0",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "BYLAYER"
+          "value": "BYLAYER",
+          "raw": 256
         },
         {
+          "key": "lineType",
           "label": "線種",
           "value": "BYLAYER（CONTINUOUS）"
         },
         {
+          "key": "lineWidth",
           "label": "線の太さ",
           "value": "BYLAYER"
         },
         {
+          "key": "contentBlock",
           "label": "内容のブロック",
           "value": "LABEL"
         },
         {
+          "key": "leaderCount",
           "label": "引出線",
-          "value": "0 本"
+          "value": "0 本",
+          "raw": 0
         }
       ],
       "placement": {
@@ -778,24 +834,32 @@
   ],
   "metadata": [
     {
+      "key": "format",
       "label": "形式",
       "value": "DXF AutoCAD 2018（AC1032、テキスト）"
     },
     {
+      "key": "encoding",
       "label": "文字コード",
-      "value": "UTF-8（AutoCAD 2007 以降の DXF）"
+      "value": "UTF-8（AutoCAD 2007 以降の DXF）",
+      "raw": "utf-8"
     },
     {
+      "key": "units",
       "label": "単位",
       "value": "mm"
     },
     {
+      "key": "blockCount",
       "label": "ブロック",
-      "value": "1 件"
+      "value": "1 件",
+      "raw": 1
     },
     {
+      "key": "view",
       "label": "表示",
-      "value": "モデル空間"
+      "value": "モデル空間",
+      "raw": "Model"
     }
   ],
   "background": "dark"

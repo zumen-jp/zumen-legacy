@@ -10,7 +10,7 @@ use std::sync::{Arc, OnceLock};
 use zumen::compare::{CompareOptions, SceneDiff, compare_scenes, diff_scene};
 use zumen::extract::{EntityFilter, EntityText, entity_text, layer_names, scene_texts, select_entities};
 use zumen::title::{TitleKey, title_fields};
-use zumen::{BBox, Background, ReadDrawingOptions, SceneEntity};
+use zumen::{BBox, Background, Property, PropertyRaw, ReadDrawingOptions, SceneEntity};
 use zumen_render::{ImageSize, RenderOptions, View};
 
 pyo3::create_exception!(zumen, ReadError, PyValueError, "図面を読めなかった（形式が違う、壊れているなど）");
@@ -87,11 +87,32 @@ fn warn_missing_glyphs(py: Python<'_>, report: &zumen_render::RenderReport) -> P
     PyErr::warn(py, &py.get_type::<PyUserWarning>(), &std::ffi::CString::new(message)?, 1)
 }
 
-/// 図形の dict（id、type、source、layers、bbox、text、properties、placement）
+/// 属性の値。整形する前の値（数・座標など）があればそれ、なければ文字列の値
+fn property_value<'py>(py: Python<'py>, property: &Property) -> PyResult<Bound<'py, PyAny>> {
+    Ok(match &property.raw {
+        None => property.value.as_str().into_pyobject(py)?.into_any(),
+        Some(PropertyRaw::Number(value)) => value.into_pyobject(py)?.into_any(),
+        Some(PropertyRaw::Text(value)) => value.as_str().into_pyobject(py)?.into_any(),
+        Some(PropertyRaw::Bool(value)) => value.into_pyobject(py)?.to_owned().into_any(),
+        Some(PropertyRaw::Numbers(values)) => pyo3::types::PyTuple::new(py, values)?.into_any(),
+    })
+}
+
+/// 属性の key → 値の dict（property_value）
+fn property_values<'py>(py: Python<'py>, properties: &[Property]) -> PyResult<Bound<'py, PyDict>> {
+    let dict = PyDict::new(py);
+    for property in properties {
+        dict.set_item(property.key, property_value(py, property)?)?;
+    }
+    Ok(dict)
+}
+
+/// 図形の dict（id、kind、type、source、layers、bbox、text、properties、values、placement）
 fn entity_dict<'py>(py: Python<'py>, scene: &zumen::Scene, entity: &SceneEntity) -> PyResult<Bound<'py, PyDict>> {
     let dict = PyDict::new(py);
     dict.set_item("id", &entity.id)?;
-    dict.set_item("type", &entity.kind)?;
+    dict.set_item("kind", entity.kind.name())?;
+    dict.set_item("type", &entity.type_name)?;
     dict.set_item("source", &entity.source)?;
     dict.set_item("layers", layer_names(scene, entity))?;
     dict.set_item("bbox", from_bbox(&entity.bbox))?;
@@ -99,6 +120,7 @@ fn entity_dict<'py>(py: Python<'py>, scene: &zumen::Scene, entity: &SceneEntity)
     let properties: Vec<(&str, &str)> =
         entity.properties.iter().map(|property| (property.label.as_str(), property.value.as_str())).collect();
     dict.set_item("properties", properties)?;
+    dict.set_item("values", property_values(py, &entity.properties)?)?;
     let placement = match &entity.placement {
         Some(placement) => {
             let item = PyDict::new(py);
@@ -115,7 +137,7 @@ fn entity_dict<'py>(py: Python<'py>, scene: &zumen::Scene, entity: &SceneEntity)
     Ok(dict)
 }
 
-/// 文字の dict（id、type、text、x、y、height、angle、bbox、layers）
+/// 文字の dict（id、kind、type、text、x、y、height、angle、bbox、layers）
 fn text_dict<'py>(
     py: Python<'py>,
     scene: &zumen::Scene,
@@ -124,7 +146,8 @@ fn text_dict<'py>(
 ) -> PyResult<Bound<'py, PyDict>> {
     let dict = PyDict::new(py);
     dict.set_item("id", &entity.id)?;
-    dict.set_item("type", &entity.kind)?;
+    dict.set_item("kind", entity.kind.name())?;
+    dict.set_item("type", &entity.type_name)?;
     dict.set_item("text", &text.text)?;
     dict.set_item("x", text.x)?;
     dict.set_item("y", text.y)?;
@@ -208,6 +231,12 @@ impl Scene {
     #[getter]
     fn metadata(&self) -> Vec<(String, String)> {
         self.inner.metadata.iter().map(|property| (property.label.clone(), property.value.clone())).collect()
+    }
+
+    /// 表題欄・ファイルの情報の、形式によらない key → 値（整形する前の値があればそれ、なければ文字列の値）
+    #[getter]
+    fn metadata_values<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        property_values(py, &self.inner.metadata)
     }
 
     /// 選べる表示（DXF・DWG のモデル空間とレイアウトなど）。1 つしかない形式では None
@@ -462,8 +491,8 @@ impl Scene {
         ids.get(id).map(|&index| entity_dict(py, scene, &scene.entities[index])).transpose()
     }
 
-    /// 図形の表（pyarrow.Table）。列は id、type、source、layers、min_x・min_y・max_x・max_y（用紙の mm）、text、
-    /// properties（label と value の組の並び）、placement、scale_x、scale_y。region と hidden_layers は texts と同じ。
+    /// 図形の表（pyarrow.Table）。列は id、kind、type、source、layers、min_x・min_y・max_x・max_y（用紙の mm）、text、
+    /// properties（key と label と value の組の並び）、placement、scale_x、scale_y。region と hidden_layers は texts と同じ。
     /// pyarrow が要る（pip install "zumen[arrow]"）
     #[pyo3(signature = (*, region = None, hidden_layers = None))]
     fn to_arrow<'py>(
@@ -478,6 +507,7 @@ impl Scene {
         let scene = self.inner.as_ref();
         let entities = select_entities(scene, &filter(region, hidden_layers));
         let mut ids = Vec::with_capacity(entities.len());
+        let mut kinds = Vec::with_capacity(entities.len());
         let mut types = Vec::with_capacity(entities.len());
         let mut sources = Vec::with_capacity(entities.len());
         let mut layers = Vec::with_capacity(entities.len());
@@ -489,7 +519,8 @@ impl Scene {
         let mut scales_y = Vec::with_capacity(entities.len());
         for entity in &entities {
             ids.push(entity.id.as_str());
-            types.push(entity.kind.as_str());
+            kinds.push(entity.kind.name());
+            types.push(entity.type_name.as_str());
             sources.push(entity.source.as_str());
             layers.push(layer_names(scene, entity));
             let b = &entity.bbox;
@@ -500,6 +531,7 @@ impl Scene {
             let row = PyList::empty(py);
             for property in &entity.properties {
                 let item = PyDict::new(py);
+                item.set_item("key", property.key)?;
                 item.set_item("label", &property.label)?;
                 item.set_item("value", &property.value)?;
                 row.append(item)?;
@@ -511,9 +543,13 @@ impl Scene {
         }
         let string = pa.call_method0("string")?;
         let float64 = pa.call_method0("float64")?;
-        let property = pa.call_method1("struct", (vec![("label", string.clone()), ("value", string.clone())],))?;
+        let property = pa.call_method1(
+            "struct",
+            (vec![("key", string.clone()), ("label", string.clone()), ("value", string.clone())],),
+        )?;
         let fields = vec![
             ("id", string.clone()),
+            ("kind", string.clone()),
             ("type", string.clone()),
             ("source", string.clone()),
             ("layers", pa.call_method1("list_", (string.clone(),))?),
@@ -531,6 +567,7 @@ impl Scene {
         let [min_x, min_y, max_x, max_y] = boxes;
         let columns = PyDict::new(py);
         columns.set_item("id", ids)?;
+        columns.set_item("kind", kinds)?;
         columns.set_item("type", types)?;
         columns.set_item("source", sources)?;
         columns.set_item("layers", layers)?;
@@ -560,11 +597,12 @@ struct Rendering {
     options: RenderOptions,
 }
 
-/// 描いた図形の dict（id、type、box、text）。box は画像の px の (left, top, right, bottom)
+/// 描いた図形の dict（id、kind、type、box、text）。box は画像の px の (left, top, right, bottom)
 fn drawn_dict<'py>(py: Python<'py>, entity: &SceneEntity, b: &zumen_render::PixelBox) -> PyResult<Bound<'py, PyDict>> {
     let dict = PyDict::new(py);
     dict.set_item("id", &entity.id)?;
-    dict.set_item("type", &entity.kind)?;
+    dict.set_item("kind", entity.kind.name())?;
+    dict.set_item("type", &entity.type_name)?;
     dict.set_item("box", (b.left, b.top, b.right, b.bottom))?;
     dict.set_item("text", entity_text(entity).map(|text| text.text))?;
     Ok(dict)

@@ -1,6 +1,7 @@
 import {
   BACKGROUND_COLOR,
   type Box,
+  type EntityKind,
   NoticeList,
   type Placement,
   type Primitive,
@@ -169,7 +170,43 @@ const TYPE_NAMES: Readonly<Record<string, string>> = {
   WIPEOUT: "ワイプアウト",
 };
 
+/** 図形の、形式によらない種類（docs/architecture.md の「Stable keys」）。ない種類は描かない */
+const ENTITY_KINDS: Readonly<Record<string, EntityKind>> = {
+  LINE: "line",
+  CIRCLE: "circle",
+  ARC: "arc",
+  ELLIPSE: "ellipse",
+  POINT: "point",
+  LWPOLYLINE: "polyline",
+  POLYLINE: "polyline",
+  SPLINE: "spline",
+  HELIX: "helix",
+  TEXT: "text",
+  MTEXT: "text",
+  ATTRIB: "attribute",
+  ATTDEF: "attribute-definition",
+  DIMENSION: "dimension",
+  ARC_DIMENSION: "dimension",
+  LARGE_RADIAL_DIMENSION: "dimension",
+  HATCH: "hatch",
+  MPOLYGON: "hatch",
+  SOLID: "solid",
+  TRACE: "solid",
+  "3DFACE": "mesh",
+  LEADER: "leader",
+  MULTILEADER: "leader",
+  MLEADER: "leader",
+  MLINE: "multiline",
+  VIEWPORT: "viewport",
+  XLINE: "construction-line",
+  RAY: "construction-line",
+  IMAGE: "image",
+  WIPEOUT: "wipeout",
+};
+
 const DIMENSION_KINDS = ["長さ寸法", "平行寸法", "角度寸法", "直径寸法", "半径寸法", "3 点角度寸法", "座標寸法"];
+/** 寸法の種類の、形式によらないキー（70 の下位 3 ビット、ARC_DIMENSION、LARGE_RADIAL_DIMENSION） */
+const DIMENSION_TYPES = ["linear", "aligned", "angular", "diameter", "radius", "angular-3-point", "ordinate"];
 
 /** 弦と弧のずれの許容（表示用の図面の mm）。大きい円は半径に比例して粗くする */
 const TOLERANCE = 0.02;
@@ -242,6 +279,21 @@ const formatter = new Intl.NumberFormat("ja-JP", { maximumFractionDigits: 4 });
 
 function point2(x: number, y: number): string {
   return `${fmt(x)}, ${fmt(y)}`;
+}
+
+/** 座標の属性。raw は [x, y] */
+function pointProperty(key: string, label: string, x: number, y: number): Property {
+  return { key, label, value: point2(x, y), raw: [x, y] };
+}
+
+/** 数の属性 */
+function numberProperty(key: string, label: string, value: number): Property {
+  return { key, label, value: fmt(value), raw: value };
+}
+
+/** 「n 点」のように数える属性 */
+function countProperty(key: string, label: string, count: number, value: string): Property {
+  return { key, label, value, raw: count };
 }
 
 function translate(x: number, y: number): Matrix {
@@ -570,6 +622,7 @@ class Builder {
     primitives: Primitive[],
     properties: Property[],
     type = TYPE_NAMES[entity.type] ?? entity.type,
+    kind = ENTITY_KINDS[entity.type] as EntityKind,
   ): void {
     if (primitives.length === 0) return;
     let parts = primitives;
@@ -594,21 +647,32 @@ class Builder {
     const linetype = entity.linetype || "BYLAYER";
     const resolved = this.linetypeName(entity, ctx);
     const common: Property[] = [
-      { label: "種類", value: `${type}（${entity.type}）` },
-      { label: "ハンドル", value: id },
-      { label: "レイヤ", value: layer },
+      { key: "type", label: "種類", value: `${type}（${entity.type}）` },
+      { key: "id", label: "ハンドル", value: id },
+      { key: "layer", label: "レイヤ", value: layer, raw: own },
     ];
-    if (ctx.blocks.length > 0) common.push({ label: "ブロック", value: ctx.blocks.join(" › ") });
+    if (ctx.blocks.length > 0) common.push({ key: "block", label: "ブロック", value: ctx.blocks.join(" › ") });
     common.push(
-      { label: "色", value: this.colorLabel(entity) },
+      entity.true_color !== undefined
+        ? { key: "color", label: "色", value: this.colorLabel(entity) }
+        : { key: "color", label: "色", value: this.colorLabel(entity), raw: entity.color_index },
       {
+        key: "lineType",
         label: "線種",
         value: linetype.toUpperCase() === resolved.toUpperCase() ? linetype : `${linetype}（${resolved}）`,
       },
-      { label: "線の太さ", value: this.lineweightLabel(entity.lineweight) },
+      entity.lineweight >= 0
+        ? {
+            key: "lineWidth",
+            label: "線の太さ",
+            value: this.lineweightLabel(entity.lineweight),
+            raw: entity.lineweight / 100,
+          }
+        : { key: "lineWidth", label: "線の太さ", value: this.lineweightLabel(entity.lineweight) },
     );
     const sceneEntity: SceneEntity = {
       id,
+      kind,
       type,
       source: entity.type,
       layers,
@@ -690,9 +754,9 @@ class Builder {
           ctx,
           [this.stroke(entity, ctx, ctx.m, [entity.start[0], entity.start[1], entity.end[0], entity.end[1]], false)],
           [
-            { label: "始点", value: point2(x1, y1) },
-            { label: "終点", value: point2(x2, y2) },
-            { label: "長さ", value: fmt(Math.hypot(x2 - x1, y2 - y1)) },
+            pointProperty("start", "始点", x1, y1),
+            pointProperty("end", "終点", x2, y2),
+            numberProperty("length", "長さ", Math.hypot(x2 - x1, y2 - y1)),
           ],
         );
         return;
@@ -714,11 +778,16 @@ class Builder {
         if (full) points = points.slice(0, -2);
         const [wx, wy] = apply(multiply(ctx.local, ocs), cx, cy);
         const properties: Property[] = [
-          { label: "中心", value: point2(wx, wy) },
-          { label: "半径", value: fmt(entity.radius * meanScale(ctx.local)) },
+          pointProperty("center", "中心", wx, wy),
+          numberProperty("radius", "半径", entity.radius * meanScale(ctx.local)),
         ];
         if (entity.type === "ARC") {
-          properties.push({ label: "角度", value: `${fmt(entity.start_angle)}° → ${fmt(entity.end_angle)}°` });
+          properties.push({
+            key: "angle",
+            label: "角度",
+            value: `${fmt(entity.start_angle)}° → ${fmt(entity.end_angle)}°`,
+            raw: [entity.start_angle, entity.end_angle],
+          });
         }
         this.add(entity, ctx, [this.stroke(entity, ctx, m, points, full)], properties);
         return;
@@ -745,11 +814,12 @@ class Builder {
           ctx,
           [this.stroke(entity, ctx, ctx.m, points, full)],
           [
-            { label: "中心", value: point2(wx, wy) },
-            { label: "長軸の半径", value: fmt(radius * meanScale(ctx.local)) },
-            { label: "短軸 / 長軸", value: fmt(entity.ratio) },
+            pointProperty("center", "中心", wx, wy),
+            numberProperty("majorRadius", "長軸の半径", radius * meanScale(ctx.local)),
+            numberProperty("ratio", "短軸 / 長軸", entity.ratio),
           ],
           full ? "楕円" : "楕円弧",
+          full ? "ellipse" : "ellipse-arc",
         );
         return;
       }
@@ -760,7 +830,7 @@ class Builder {
           entity,
           ctx,
           [{ kind: "dot", x, y, color: this.color(entity, ctx) }],
-          [{ label: "位置", value: point2(wx, wy) }],
+          [pointProperty("position", "位置", wx, wy)],
         );
         return;
       }
@@ -787,8 +857,13 @@ class Builder {
           ctx,
           [this.stroke(entity, ctx, ctx.m, points, false)],
           [
-            { label: "次数", value: String(entity.degree) },
-            { label: "制御点", value: `${entity.control_points.length} 点` },
+            { key: "degree", label: "次数", value: String(entity.degree), raw: entity.degree },
+            countProperty(
+              "controlPointCount",
+              "制御点",
+              entity.control_points.length,
+              `${entity.control_points.length} 点`,
+            ),
           ],
         );
         return;
@@ -897,8 +972,10 @@ class Builder {
     if (wide) stroke.width = 0;
     primitives.push(stroke);
     this.add(entity, ctx, primitives, [
-      { label: "頂点", value: `${points.length} 点${closed ? "（閉じる）" : ""}` },
-      ...(wide ? [{ label: "幅", value: constant > 0 ? fmt(constant) : "頂点ごと" }] : []),
+      countProperty("vertexCount", "頂点", points.length, `${points.length} 点${closed ? "（閉じる）" : ""}`),
+      ...(wide
+        ? [constant > 0 ? numberProperty("width", "幅", constant) : { key: "width", label: "幅", value: "頂点ごと" }]
+        : []),
     ]);
   }
 
@@ -957,8 +1034,9 @@ class Builder {
           entity,
           ctx,
           [stroke],
-          [{ label: "面", value: `${entity.faces?.length ?? 0} 面` }],
+          [countProperty("faceCount", "面", entity.faces?.length ?? 0, `${entity.faces?.length ?? 0} 面`)],
           "ポリフェースメッシュ",
+          "mesh",
         );
       }
       return;
@@ -983,7 +1061,14 @@ class Builder {
       if (segments.length > 0) {
         const stroke = this.stroke(entity, ctx, ctx.m, segments, false);
         stroke.segments = true;
-        this.add(entity, ctx, [stroke], [{ label: "頂点", value: `${mCount} × ${nCount}` }], "ポリゴンメッシュ");
+        this.add(
+          entity,
+          ctx,
+          [stroke],
+          [{ key: "meshSize", label: "頂点", value: `${mCount} × ${nCount}`, raw: [mCount, nCount] }],
+          "ポリゴンメッシュ",
+          "mesh",
+        );
       }
       return;
     }
@@ -1000,7 +1085,7 @@ class Builder {
         entity,
         ctx,
         [this.stroke(entity, ctx, ctx.m, points, entity.closed)],
-        [{ label: "頂点", value: `${keep.length} 点${entity.closed ? "（閉じる）" : ""}` }],
+        [countProperty("vertexCount", "頂点", keep.length, `${keep.length} 点${entity.closed ? "（閉じる）" : ""}`)],
         "3D ポリライン",
       );
       return;
@@ -1234,15 +1319,13 @@ class Builder {
     if (primitives.length === 0) return;
     this.countShx(shx);
     const plain = runs.map((run) => run.text).join("");
-    const properties: Property[] = [{ label: "文字列", value: plain }];
-    if (entity.type !== "TEXT") properties.push({ label: "タグ", value: entity.tag });
-    properties.push(
-      { label: "高さ", value: fmt(height * meanScale(ctx.local)) },
-      {
-        label: "文字スタイル",
-        value: style ? `${style.name}（${style.font_family || style.font || "txt"}）` : entity.style,
-      },
-    );
+    const properties: Property[] = [{ key: "text", label: "文字列", value: plain }];
+    if (entity.type !== "TEXT") properties.push({ key: "tag", label: "タグ", value: entity.tag });
+    properties.push(numberProperty("height", "高さ", height * meanScale(ctx.local)), {
+      key: "textStyle",
+      label: "文字スタイル",
+      value: style ? `${style.name}（${style.font_family || style.font || "txt"}）` : entity.style,
+    });
     this.add(entity, ctx, primitives, properties);
   }
 
@@ -1408,14 +1491,15 @@ class Builder {
     });
     this.countShx(shx);
     this.add(attribute ?? entity, ctx, primitives, [
-      { label: "文字列", value: entity.text },
-      ...(attribute ? [{ label: "タグ", value: attribute.tag }] : []),
-      { label: "高さ", value: fmt(base * meanScale(ctx.local)) },
+      { key: "text", label: "文字列", value: entity.text },
+      ...(attribute ? [{ key: "tag", label: "タグ", value: attribute.tag }] : []),
+      numberProperty("height", "高さ", base * meanScale(ctx.local)),
       {
+        key: "textStyle",
         label: "文字スタイル",
         value: style ? `${style.name}（${style.font_family || style.font || "txt"}）` : entity.style,
       },
-      ...(wrap ? [{ label: "折り返しの幅", value: fmt(wrap * meanScale(ctx.local)) }] : []),
+      ...(wrap ? [numberProperty("wrapWidth", "折り返しの幅", wrap * meanScale(ctx.local))] : []),
     ]);
     return { frame, box: { minX: x0, minY: bottom + dy, maxX: x0 + blockWidth, maxY: top + dy } };
   }
@@ -1500,20 +1584,30 @@ class Builder {
     const primitives = this.takeParts(start);
     const kind =
       entity.type === "DIMENSION" ? (DIMENSION_KINDS[entity.dimtype & 7] ?? "寸法") : TYPE_NAMES[entity.type];
+    const dimensionType =
+      entity.type === "DIMENSION"
+        ? DIMENSION_TYPES[entity.dimtype & 7]
+        : entity.type === "ARC_DIMENSION"
+          ? "arc-length"
+          : "jogged-radius";
     const value =
       entity.text && entity.text !== "<>" && !entity.text.includes("<>")
         ? entity.text
         : entity.actual_measurement !== undefined
           ? fmt(entity.actual_measurement)
           : "";
+    const dimensionText: Property = { key: "dimensionText", label: "寸法値", value };
+    if (entity.actual_measurement !== undefined) dimensionText.raw = entity.actual_measurement;
     this.add(
       entity,
       ctx,
       primitives,
       [
-        { label: "寸法の種類", value: kind ?? "寸法" },
-        { label: "寸法値", value },
-        { label: "寸法スタイル", value: entity.dimstyle },
+        dimensionType
+          ? { key: "dimensionType", label: "寸法の種類", value: kind ?? "寸法", raw: dimensionType }
+          : { key: "dimensionType", label: "寸法の種類", value: kind ?? "寸法" },
+        dimensionText,
+        { key: "dimensionStyle", label: "寸法スタイル", value: entity.dimstyle },
       ],
       kind ?? "寸法",
     );
@@ -1558,7 +1652,9 @@ class Builder {
         });
       }
     }
-    this.add(entity, ctx, primitives, [{ label: "頂点", value: `${entity.points.length} 点` }]);
+    this.add(entity, ctx, primitives, [
+      countProperty("vertexCount", "頂点", entity.points.length, `${entity.points.length} 点`),
+    ]);
   }
 
   // --- マルチ引出線・マルチライン ---------------------------------------------
@@ -1580,12 +1676,12 @@ class Builder {
       textPart = partOf(entity, rawColor(context.mtext.color), "CONTINUOUS");
       text = this.mleaderText(context.mtext, context, textPart, child);
       properties.push(
-        { label: "文字列", value: mtextPlainText(context.mtext.default_content) },
-        { label: "高さ", value: fmt(context.char_height * meanScale(ctx.local)) },
+        { key: "text", label: "文字列", value: mtextPlainText(context.mtext.default_content) },
+        numberProperty("height", "高さ", context.char_height * meanScale(ctx.local)),
       );
     } else if (context.block) {
       const name = this.mleaderBlock(entity, context.block, child);
-      if (name) properties.push({ label: "内容のブロック", value: name });
+      if (name) properties.push({ key: "contentBlock", label: "内容のブロック", value: name });
     } else if (entity.content_type === 3) {
       this.notices.add("info", "mleader-tolerance", "公差を内容とするマルチ引出線は、引出線だけを描きました");
     }
@@ -1611,7 +1707,7 @@ class Builder {
       const frame = [minX, minY, maxX, minY, maxX, maxY, minX, maxY];
       lines.push(this.stroke(textPart, child, multiply(child.m, text.frame), frame, true));
     }
-    properties.push({ label: "引出線", value: `${count} 本` });
+    properties.push(countProperty("leaderCount", "引出線", count, `${count} 本`));
     this.add(entity, ctx, [...this.takeParts(start), ...lines], properties);
   }
 
@@ -2043,10 +2139,15 @@ class Builder {
       ctx,
       [...primitives, ...strokes],
       [
-        { label: "スタイル", value: style.name },
-        { label: "尺度", value: fmt(entity.scale * meanScale(ctx.local)) },
-        { label: "位置合わせ", value: ["上", "ゼロ", "下"][entity.justification] ?? String(entity.justification) },
-        { label: "頂点", value: `${n} 点${closed ? "（閉じる）" : ""}` },
+        { key: "style", label: "スタイル", value: style.name },
+        numberProperty("widthScale", "尺度", entity.scale * meanScale(ctx.local)),
+        {
+          key: "justification",
+          label: "位置合わせ",
+          value: ["上", "ゼロ", "下"][entity.justification] ?? String(entity.justification),
+          raw: ["top", "zero", "bottom"][entity.justification] ?? entity.justification,
+        },
+        countProperty("vertexCount", "頂点", n, `${n} 点${closed ? "（閉じる）" : ""}`),
       ],
     );
   }
@@ -2134,7 +2235,9 @@ class Builder {
     const rings = local.map((ring) => transformPoints(m, ring));
     const color = this.color(entity, ctx);
     const properties: Property[] = [
-      { label: "模様", value: entity.solid_fill ? "塗りつぶし" : entity.pattern_name || "（名前なし）" },
+      entity.solid_fill
+        ? { key: "pattern", label: "模様", value: "塗りつぶし", raw: "SOLID" }
+        : { key: "pattern", label: "模様", value: entity.pattern_name || "（名前なし）", raw: entity.pattern_name },
     ];
     if (entity.gradient !== undefined) {
       this.notices.add("info", "hatch-gradient", "グラデーションのハッチングは 1 色で塗りました");
@@ -2151,10 +2254,12 @@ class Builder {
       this.add(entity, ctx, [{ kind: "fill", color, rings }], properties);
       return;
     }
-    properties.push(
-      { label: "模様の尺度", value: fmt(entity.pattern_scale) },
-      { label: "模様の角度", value: `${fmt(entity.pattern_angle)}°` },
-    );
+    properties.push(numberProperty("patternScale", "模様の尺度", entity.pattern_scale), {
+      key: "patternAngle",
+      label: "模様の角度",
+      value: `${fmt(entity.pattern_angle)}°`,
+      raw: entity.pattern_angle,
+    });
     const box = emptyBox();
     for (const ring of local) extendBoxWithPoints(box, ring);
     const strokes = this.pattern(entity, box, m, color);
@@ -2263,7 +2368,7 @@ class Builder {
       entity,
       ctx,
       [{ kind: "stroke", points, closed: true, color: this.color(entity, ctx), width: 0, dashes: [] }],
-      [{ label: "画素", value: `${fmt(w)} × ${fmt(h)}` }],
+      [{ key: "imageSize", label: "画素", value: `${fmt(w)} × ${fmt(h)}`, raw: [w, h] }],
     );
   }
 
@@ -2496,19 +2601,20 @@ function metadataBase(doc: DxfDocument, unitName: string): Property[] {
   const blocks = doc.blocks.filter((block) => !block.layout && !block.anonymous).length;
   const metadata: Property[] = [
     {
+      key: "format",
       label: "形式",
       value:
         doc.format === "dwg"
           ? `DWG ${release ? `AutoCAD ${release}` : doc.version}（${doc.version}）`
           : `DXF ${release ? `AutoCAD ${release}` : doc.version}（${doc.version}、${doc.binary ? "バイナリ" : "テキスト"}）`,
     },
-    { label: "文字コード", value: `${encoding}（${source}）` },
-    { label: "単位", value: unitName },
+    { key: "encoding", label: "文字コード", value: `${encoding}（${source}）`, raw: doc.encoding },
+    { key: "units", label: "単位", value: unitName },
   ];
-  if (blocks > 0) metadata.push({ label: "ブロック", value: `${blocks} 件` });
+  if (blocks > 0) metadata.push(countProperty("blockCount", "ブロック", blocks, `${blocks} 件`));
   const layouts = doc.layouts.filter((layout) => !layout.model);
   if (layouts.length > 0)
-    metadata.push({ label: "レイアウト", value: layouts.map((layout) => layout.name).join("・") });
+    metadata.push({ key: "layouts", label: "レイアウト", value: layouts.map((layout) => layout.name).join("・") });
   return metadata;
 }
 
@@ -2563,9 +2669,14 @@ export function dxfToScene(doc: DxfDocument, options: DxfSceneOptions = {}): Sce
     };
     const root = rootCtx([unit, 0, 0, unit, -ox * unit, -oy * unit], [1, 0, 0, 1, 0, 0], placement);
     for (const entity of builder.model) builder.emit(entity, root);
-    metadata.push({ label: "表示", value: "モデル空間" });
+    metadata.push({ key: "view", label: "表示", value: "モデル空間", raw: "Model" });
     if (ox !== 0 || oy !== 0) {
-      metadata.push({ label: "表示の原点", value: `${point2(ox, oy)}（座標の大きい図面のため寄せた）` });
+      metadata.push({
+        key: "viewOrigin",
+        label: "表示の原点",
+        value: `${point2(ox, oy)}（座標の大きい図面のため寄せた）`,
+        raw: [ox, oy],
+      });
     }
     const paper = doc.entities.filter((entity) => entity.space === "paper" && entity.type !== "VIEWPORT").length;
     if (paper > 0) {
@@ -2616,9 +2727,17 @@ export function dxfToScene(doc: DxfDocument, options: DxfSceneOptions = {}): Sce
       const label = drawViewport(builder, doc, entity, root, paperMatrix, unit, paperUnit);
       if (label) scales.push(label);
     }
-    metadata.push({ label: "表示", value: `レイアウト ${layout.name}` });
-    if (sheet) metadata.push({ label: "用紙", value: `${sheet.size}（${fmt(sheet.width)}×${fmt(sheet.height)} mm）` });
-    if (scales.length > 0) metadata.push({ label: "ビューポートの縮尺", value: [...new Set(scales)].join("・") });
+    metadata.push({ key: "view", label: "表示", value: `レイアウト ${layout.name}`, raw: layout.name });
+    if (sheet) {
+      metadata.push({
+        key: "sheet",
+        label: "用紙",
+        value: `${sheet.size}（${fmt(sheet.width)}×${fmt(sheet.height)} mm）`,
+      });
+    }
+    if (scales.length > 0) {
+      metadata.push({ key: "viewportScales", label: "ビューポートの縮尺", value: [...new Set(scales)].join("・") });
+    }
   }
   const bounds = emptyBox();
   for (const entity of builder.entities) unionBox(bounds, entity.bbox);
@@ -2737,16 +2856,24 @@ function drawViewport(
       ),
     ],
     [
-      { label: "縮尺", value: label },
-      {
-        label: "表示の中心（モデル）",
-        value: point2(
-          viewport.view_target[0] + viewport.view_center[0],
-          viewport.view_target[1] + viewport.view_center[1],
-        ),
-      },
-      { label: "表示の高さ（モデル）", value: fmt(viewport.view_height) },
-      ...(viewport.view_twist_angle ? [{ label: "ねじれの角度", value: `${fmt(viewport.view_twist_angle)}°` }] : []),
+      { key: "scale", label: "縮尺", value: label, raw: 1 / paperPerReal },
+      pointProperty(
+        "viewCenter",
+        "表示の中心（モデル）",
+        viewport.view_target[0] + viewport.view_center[0],
+        viewport.view_target[1] + viewport.view_center[1],
+      ),
+      numberProperty("viewHeight", "表示の高さ（モデル）", viewport.view_height),
+      ...(viewport.view_twist_angle
+        ? [
+            {
+              key: "twistAngle",
+              label: "ねじれの角度",
+              value: `${fmt(viewport.view_twist_angle)}°`,
+              raw: viewport.view_twist_angle,
+            },
+          ]
+        : []),
     ],
   );
   return label;

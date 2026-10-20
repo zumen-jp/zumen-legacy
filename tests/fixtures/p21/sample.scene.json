@@ -28,6 +28,7 @@
   "entities": [
     {
       "id": "#77>#46",
+      "kind": "line",
       "type": "線分",
       "source": "line_feature",
       "layers": [
@@ -56,44 +57,67 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "線分"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#77>#46"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "線"
+          "value": "線",
+          "raw": 1
         },
         {
+          "key": "placement",
           "label": "配置",
           "value": "部分図（数学座標系） 平面図（縮尺 1/20）"
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "白（8）"
+          "value": "白（8）",
+          "raw": 8
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "実線（1）"
+          "value": "実線（1）",
+          "raw": 1
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.25mm（3）"
+          "value": "0.25mm（3）",
+          "raw": 0.25
         },
         {
+          "key": "start",
           "label": "始点",
-          "value": "0, 0"
+          "value": "0, 0",
+          "raw": [
+            0,
+            0
+          ]
         },
         {
+          "key": "end",
           "label": "終点",
-          "value": "1,000, 0"
+          "value": "1,000, 0",
+          "raw": [
+            1000,
+            0
+          ]
         },
         {
+          "key": "length",
           "label": "長さ",
-          "value": "1,000"
+          "value": "1,000",
+          "raw": 1000
         }
       ],
       "placement": {
@@ -112,6 +136,7 @@
     },
     {
       "id": "#77>#53",
+      "kind": "arc",
       "type": "円弧",
       "source": "arc_feature",
       "layers": [
@@ -162,44 +187,67 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "円弧"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#77>#53"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "線"
+          "value": "線",
+          "raw": 1
         },
         {
+          "key": "placement",
           "label": "配置",
           "value": "部分図（数学座標系） 平面図（縮尺 1/20）"
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "白（8）"
+          "value": "白（8）",
+          "raw": 8
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "実線（1）"
+          "value": "実線（1）",
+          "raw": 1
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.25mm（3）"
+          "value": "0.25mm（3）",
+          "raw": 0.25
         },
         {
+          "key": "center",
           "label": "中心",
-          "value": "0, 0"
+          "value": "0, 0",
+          "raw": [
+            0,
+            0
+          ]
         },
         {
+          "key": "radius",
           "label": "半径",
-          "value": "10"
+          "value": "10",
+          "raw": 10
         },
         {
+          "key": "angle",
           "label": "角度",
-          "value": "0° → 90°（時計回り）"
+          "value": "0° → 90°（時計回り）",
+          "raw": [
+            90.0000000000002,
+            0
+          ]
         }
       ],
       "placement": {
@@ -218,6 +266,7 @@
     },
     {
       "id": "#77>#69",
+      "kind": "text",
       "type": "文字",
       "source": "text_string_feature",
       "layers": [
@@ -263,44 +312,65 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "文字"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#77>#69"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "線"
+          "value": "線",
+          "raw": 1
         },
         {
+          "key": "placement",
           "label": "配置",
           "value": "部分図（数学座標系） 平面図（縮尺 1/20）"
         },
         {
+          "key": "text",
           "label": "文字列",
           "value": "表示"
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "ユーザ定義 RGB(0, 204, 255)（17）"
+          "value": "ユーザ定義 RGB(0, 204, 255)（17）",
+          "raw": 17
         },
         {
+          "key": "font",
           "label": "フォント",
           "value": "ＭＳ ゴシック"
         },
         {
+          "key": "textBox",
           "label": "文字範囲",
-          "value": "高さ 50・幅 300"
+          "value": "高さ 50・幅 300",
+          "raw": [
+            50,
+            300
+          ]
         },
         {
+          "key": "position",
           "label": "位置",
-          "value": "100, 200"
+          "value": "100, 200",
+          "raw": [
+            100,
+            200
+          ]
         },
         {
+          "key": "rotation",
           "label": "回転角",
-          "value": "0°"
+          "value": "0°",
+          "raw": 0
         }
       ],
       "placement": {
@@ -319,6 +389,7 @@
     },
     {
       "id": "#98",
+      "kind": "dimension",
       "type": "直線寸法",
       "source": "linear_dim_feature",
       "layers": [
@@ -375,34 +446,58 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "直線寸法"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#98"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "DIM"
+          "value": "DIM",
+          "raw": 2
         },
         {
+          "key": "dimensionType",
+          "label": "寸法の種類",
+          "value": "直線寸法",
+          "raw": "linear"
+        },
+        {
+          "key": "color",
           "label": "色",
-          "value": "白（8）"
+          "value": "白（8）",
+          "raw": 8
         },
         {
+          "key": "lineType",
           "label": "線種",
-          "value": "実線（1）"
+          "value": "実線（1）",
+          "raw": 1
         },
         {
+          "key": "lineWidth",
           "label": "線幅",
-          "value": "0.25mm（3）"
+          "value": "0.25mm（3）",
+          "raw": 0.25
         },
         {
+          "key": "dimensionLine",
           "label": "寸法線",
-          "value": "0, 0 → 60, 0"
+          "value": "0, 0 → 60, 0",
+          "raw": [
+            0,
+            0,
+            60,
+            0
+          ]
         },
         {
+          "key": "arrows",
           "label": "矢印",
           "value": "filled arrow（外向き）・filled arrow（内向き）"
         }
@@ -410,6 +505,7 @@
     },
     {
       "id": "#113",
+      "kind": "hatch",
       "type": "ハッチング（塗り）",
       "source": "fill_area_style_colour_feature",
       "layers": [
@@ -443,24 +539,32 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "ハッチング（塗り）"
         },
         {
+          "key": "id",
           "label": "番号",
           "value": "#113"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "DIM"
+          "value": "DIM",
+          "raw": 2
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "牡丹（9）"
+          "value": "牡丹（9）",
+          "raw": 9
         },
         {
+          "key": "holeCount",
           "label": "中抜き",
-          "value": "0 件"
+          "value": "0 件",
+          "raw": 0
         }
       ]
     }
@@ -468,24 +572,33 @@
   "notices": [],
   "metadata": [
     {
+      "key": "format",
       "label": "形式",
       "value": "P21（SXF 3.1）"
     },
     {
+      "key": "sheet",
       "label": "用紙",
       "value": "表示・A1 横（841×594mm）"
     },
     {
+      "key": "software",
       "label": "作成ソフト",
       "value": "test"
     },
     {
+      "key": "library",
       "label": "出力ライブラリ",
       "value": "SCADEC_API_Ver3.10$$3.1"
     },
     {
+      "key": "figureCount",
       "label": "複合図形",
-      "value": "1 件（部分図 1 件）"
+      "value": "1 件（部分図 1 件）",
+      "raw": [
+        1,
+        1
+      ]
     }
   ],
   "background": "dark"
