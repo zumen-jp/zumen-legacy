@@ -154,10 +154,10 @@ fn two_byte_offset(source: &mut Source<'_>) -> Read<(usize, u8)> {
 
 /// R2007 の文字の写し方（5.10.1）。32 バイトごとに 4 バイトの組の順を入れ替え、残りは長さごとの組み合わせで写す。
 /// (元の位置, 先の位置, 長さ)。長さ 2・3 の組はバイトの順を逆にする
-const BLOCK: [(usize, usize, usize); 8] =
+pub(crate) const BLOCK: [(usize, usize, usize); 8] =
     [(24, 0, 4), (28, 4, 4), (16, 8, 4), (20, 12, 4), (8, 16, 4), (12, 20, 4), (0, 24, 4), (4, 28, 4)];
 
-fn tail_pieces(n: usize) -> &'static [(usize, usize, usize)] {
+pub(crate) fn tail_pieces(n: usize) -> &'static [(usize, usize, usize)] {
     match n {
         1 => &[(0, 0, 1)],
         2 => &[(0, 0, 2)],

@@ -7,7 +7,9 @@
 pub(crate) mod bits;
 pub(crate) mod classes;
 pub(crate) mod compress;
+mod compress21;
 pub(crate) mod container;
+pub(crate) mod container21;
 pub(crate) mod database;
 mod drawing;
 pub(crate) mod object;
