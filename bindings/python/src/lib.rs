@@ -10,7 +10,7 @@ use std::sync::{Arc, OnceLock};
 use zumen::compare::{CompareOptions, SceneDiff, compare_scenes, diff_scene};
 use zumen::extract::{EntityFilter, EntityText, entity_text, layer_names, scene_texts, select_entities};
 use zumen::title::{TitleKey, title_fields};
-use zumen::{BBox, Background, Property, PropertyRaw, ReadDrawingOptions, SceneEntity};
+use zumen::{BBox, Background, Primitive, Property, PropertyRaw, ReadDrawingOptions, SceneEntity, StrokePrimitive};
 use zumen_render::{ImageSize, RenderOptions, View};
 
 pyo3::create_exception!(zumen, ReadError, PyValueError, "図面を読めなかった（形式が違う、壊れているなど）");
@@ -107,8 +107,97 @@ fn property_values<'py>(py: Python<'py>, properties: &[Property]) -> PyResult<Bo
     Ok(dict)
 }
 
-/// 図形の dict（id、kind、type、source、layers、bbox、text、properties、values、placement）
-fn entity_dict<'py>(py: Python<'py>, scene: &zumen::Scene, entity: &SceneEntity) -> PyResult<Bound<'py, PyDict>> {
+/// x, y を交互に並べた点列を (x, y) の list にする
+fn point_list<'py>(py: Python<'py>, points: &[f64]) -> PyResult<Bound<'py, PyList>> {
+    PyList::new(py, points.as_chunks::<2>().0.iter().map(|&[x, y]| (x, y)))
+}
+
+fn ring_list<'py>(py: Python<'py>, rings: &[Vec<f64>]) -> PyResult<Bound<'py, PyList>> {
+    let list = PyList::empty(py);
+    for ring in rings {
+        list.append(point_list(py, ring)?)?;
+    }
+    Ok(list)
+}
+
+/// 線の dict（kind、points、closed、segments、color、width、dashes）
+fn stroke_dict<'py>(py: Python<'py>, stroke: &StrokePrimitive) -> PyResult<Bound<'py, PyDict>> {
+    let dict = PyDict::new(py);
+    dict.set_item("kind", "stroke")?;
+    dict.set_item("points", point_list(py, &stroke.points)?)?;
+    dict.set_item("closed", stroke.closed)?;
+    dict.set_item("segments", stroke.segments.unwrap_or(false))?;
+    dict.set_item("color", &stroke.color)?;
+    dict.set_item("width", stroke.width)?;
+    dict.set_item("dashes", &stroke.dashes)?;
+    Ok(dict)
+}
+
+/// 描く要素の dict。座標は用紙の mm で、点は (x, y)。文字の matrix は文字の座標系から用紙への変換
+fn primitive_dict<'py>(py: Python<'py>, primitive: &Primitive) -> PyResult<Bound<'py, PyDict>> {
+    let dict = match primitive {
+        Primitive::Stroke(stroke) => return stroke_dict(py, stroke),
+        Primitive::Fill(fill) => {
+            let dict = PyDict::new(py);
+            dict.set_item("kind", "fill")?;
+            dict.set_item("color", &fill.color)?;
+            dict.set_item("rings", ring_list(py, &fill.rings)?)?;
+            dict
+        }
+        Primitive::Clipped(clipped) => {
+            let dict = PyDict::new(py);
+            dict.set_item("kind", "clipped")?;
+            dict.set_item("rings", ring_list(py, &clipped.rings)?)?;
+            let strokes = PyList::empty(py);
+            for stroke in &clipped.strokes {
+                strokes.append(stroke_dict(py, stroke)?)?;
+            }
+            dict.set_item("strokes", strokes)?;
+            dict
+        }
+        Primitive::Dot(dot) => {
+            let dict = PyDict::new(py);
+            dict.set_item("kind", "dot")?;
+            dict.set_item("x", dot.x)?;
+            dict.set_item("y", dot.y)?;
+            dict.set_item("color", &dot.color)?;
+            dict
+        }
+        Primitive::Text(text) => {
+            let dict = PyDict::new(py);
+            dict.set_item("kind", "text")?;
+            dict.set_item("text", &text.text)?;
+            dict.set_item("color", &text.color)?;
+            dict.set_item("font_family", &text.font_family)?;
+            dict.set_item("height", text.height)?;
+            dict.set_item("scale_x", text.scale_x)?;
+            dict.set_item("box_width", text.box_width)?;
+            dict.set_item("box_height", text.box_height)?;
+            let [a, b, c, d, e, f] = text.matrix;
+            dict.set_item("matrix", (a, b, c, d, e, f))?;
+            let cells = PyList::empty(py);
+            for cell in &text.cells {
+                let item = PyDict::new(py);
+                item.set_item("char", &cell.character)?;
+                item.set_item("x", cell.x)?;
+                item.set_item("y", cell.y)?;
+                cells.append(item)?;
+            }
+            dict.set_item("cells", cells)?;
+            dict
+        }
+    };
+    Ok(dict)
+}
+
+/// 図形の dict（id、kind、type、source、layers、bbox、text、properties、values、placement）。
+/// geometry なら描く要素（primitives）も入れる
+fn entity_dict<'py>(
+    py: Python<'py>,
+    scene: &zumen::Scene,
+    entity: &SceneEntity,
+    geometry: bool,
+) -> PyResult<Bound<'py, PyDict>> {
     let dict = PyDict::new(py);
     dict.set_item("id", &entity.id)?;
     dict.set_item("kind", entity.kind.name())?;
@@ -134,6 +223,13 @@ fn entity_dict<'py>(py: Python<'py>, scene: &zumen::Scene, entity: &SceneEntity)
         None => None,
     };
     dict.set_item("placement", placement)?;
+    if geometry {
+        let primitives = PyList::empty(py);
+        for primitive in &entity.primitives {
+            primitives.append(primitive_dict(py, primitive)?)?;
+        }
+        dict.set_item("primitives", primitives)?;
+    }
     Ok(dict)
 }
 
@@ -429,22 +525,24 @@ impl Scene {
         Ok(list)
     }
 
-    /// 図形（id、type、source、layers、bbox、text、properties、placement）を描く順に返す。
-    /// properties は図面の形式が持つ属性（項目名と値の組）、text は文字を持つ図形の文字（なければ None）、
-    /// placement は部分図・部品・ブロックの中の図形の配置（name、scale_x、scale_y、inverse）。scale_x・scale_y は元の座標
-    /// 1 mm が用紙で何 mm になるか、inverse は用紙の座標から元の座標（実寸の mm）への変換 (a, b, c, d, e, f)
-    /// （x' = a x + c y + e、y' = b x + d y + f）。region と hidden_layers は texts と同じ
-    #[pyo3(signature = (*, region = None, hidden_layers = None))]
+    /// 図形（id、kind、type、source、layers、bbox、text、properties、values、placement）を描く順に返す。
+    /// properties は図面の形式が持つ属性（項目名と値の組）、values は属性の key → 値、text は文字を持つ図形の文字
+    /// （なければ None）、placement は部分図・部品・ブロックの中の図形の配置（name、scale_x、scale_y、inverse）。
+    /// scale_x・scale_y は元の座標 1 mm が用紙で何 mm になるか、inverse は用紙の座標から元の座標（実寸の mm）への変換
+    /// (a, b, c, d, e, f)（x' = a x + c y + e、y' = b x + d y + f）。region と hidden_layers は texts と同じ。
+    /// geometry を真にすると、描く要素（primitives、用紙の mm）も入れる
+    #[pyo3(signature = (*, region = None, hidden_layers = None, geometry = false))]
     fn entities<'py>(
         &self,
         py: Python<'py>,
         region: Option<Region>,
         hidden_layers: Option<Vec<u32>>,
+        geometry: bool,
     ) -> PyResult<Bound<'py, PyList>> {
         let scene = self.inner.as_ref();
         let list = PyList::empty(py);
         for entity in select_entities(scene, &filter(region, hidden_layers)) {
-            list.append(entity_dict(py, scene, entity)?)?;
+            list.append(entity_dict(py, scene, entity, geometry)?)?;
         }
         Ok(list)
     }
@@ -478,7 +576,7 @@ impl Scene {
         Ok(dict)
     }
 
-    /// id の図形（entities と同じ dict）。ない id なら None
+    /// id の図形（entities(geometry=True) と同じ dict で、描く要素 primitives を持つ）。ない id なら None
     fn entity<'py>(&self, py: Python<'py>, id: &str) -> PyResult<Option<Bound<'py, PyDict>>> {
         let scene = self.inner.as_ref();
         let ids = self.ids.get_or_init(|| {
@@ -488,7 +586,7 @@ impl Scene {
             }
             ids
         });
-        ids.get(id).map(|&index| entity_dict(py, scene, &scene.entities[index])).transpose()
+        ids.get(id).map(|&index| entity_dict(py, scene, &scene.entities[index], true)).transpose()
     }
 
     /// 図形の表（pyarrow.Table）。列は id、kind、type、source、layers、min_x・min_y・max_x・max_y（用紙の mm）、text、
@@ -819,7 +917,7 @@ impl Comparison {
     fn removed<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
         let list = PyList::empty(py);
         for &i in &self.diff.removed {
-            list.append(entity_dict(py, &self.before, &self.before.entities[i])?)?;
+            list.append(entity_dict(py, &self.before, &self.before.entities[i], false)?)?;
         }
         Ok(list)
     }
@@ -829,7 +927,7 @@ impl Comparison {
     fn added<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
         let list = PyList::empty(py);
         for &i in &self.diff.added {
-            list.append(entity_dict(py, &self.after, &self.after.entities[i])?)?;
+            list.append(entity_dict(py, &self.after, &self.after.entities[i], false)?)?;
         }
         Ok(list)
     }
@@ -840,8 +938,8 @@ impl Comparison {
         let list = PyList::empty(py);
         for &(a, b) in &self.diff.changed {
             let pair = PyDict::new(py);
-            pair.set_item("before", entity_dict(py, &self.before, &self.before.entities[a])?)?;
-            pair.set_item("after", entity_dict(py, &self.after, &self.after.entities[b])?)?;
+            pair.set_item("before", entity_dict(py, &self.before, &self.before.entities[a], false)?)?;
+            pair.set_item("after", entity_dict(py, &self.after, &self.after.entities[b], false)?)?;
             list.append(pair)?;
         }
         Ok(list)

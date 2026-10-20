@@ -1,6 +1,8 @@
 import os
 from typing import Any, Literal, TypeAlias, TypedDict
 
+from typing_extensions import NotRequired
+
 __version__: str
 
 Box: TypeAlias = tuple[float, float, float, float]
@@ -15,12 +17,72 @@ class Placement(TypedDict):
 
 PropertyValue: TypeAlias = float | str | bool | tuple[float, ...]
 
+class StrokePrimitive(TypedDict):
+    """A line through ``points`` in paper millimeters; ``closed`` joins the last point to the first, and with
+    ``segments`` each two points are a separate segment. ``width`` and ``dashes`` are paper millimeters."""
+
+    kind: Literal["stroke"]
+    points: list[tuple[float, float]]
+    closed: bool
+    segments: bool
+    color: str
+    width: float
+    dashes: list[float]
+
+class FillPrimitive(TypedDict):
+    """An area filled by the even-odd rule: an outline and its holes, in paper millimeters."""
+
+    kind: Literal["fill"]
+    color: str
+    rings: list[list[tuple[float, float]]]
+
+class ClippedPrimitive(TypedDict):
+    """Lines drawn only inside ``rings`` (hatch patterns)."""
+
+    kind: Literal["clipped"]
+    rings: list[list[tuple[float, float]]]
+    strokes: list[StrokePrimitive]
+
+class DotPrimitive(TypedDict):
+    """A point marker drawn at the same size at every zoom."""
+
+    kind: Literal["dot"]
+    x: float
+    y: float
+    color: str
+
+class GlyphCell(TypedDict):
+    """The center of one character, in the text's own coordinates."""
+
+    char: str
+    x: float
+    y: float
+
+class TextPrimitive(TypedDict):
+    """A run of text. ``matrix`` (a, b, c, d, e, f) maps the text's own coordinates (x along the line, y up, the box
+    from (0, 0) to (box_width, box_height)) to paper millimeters: x' = a x + c y + e, y' = b x + d y + f."""
+
+    kind: Literal["text"]
+    text: str
+    color: str
+    font_family: str
+    height: float
+    scale_x: float
+    box_width: float
+    box_height: float
+    matrix: tuple[float, float, float, float, float, float]
+    cells: list[GlyphCell]
+
+Primitive: TypeAlias = StrokePrimitive | FillPrimitive | ClippedPrimitive | DotPrimitive | TextPrimitive
+
 class Entity(TypedDict):
     """An entity of ``Scene.entities`` and ``Scene.entity`` (type checking only).
 
     ``kind`` and the keys of ``values`` are the same for every format (see "Stable keys" in docs/architecture.md);
     ``type`` and the labels of ``properties`` are Japanese, for people. ``values`` maps each property's key to its
-    unformatted value (numbers, ``(x, y)``), or to the formatted text when it has none."""
+    unformatted value (numbers, ``(x, y)``), or to the formatted text when it has none. ``primitives`` are what is
+    drawn, in drawing order and paper millimeters: always from ``Scene.entity``, and from ``Scene.entities`` with
+    ``geometry=True``."""
 
     id: str
     kind: str
@@ -32,6 +94,7 @@ class Entity(TypedDict):
     properties: list[tuple[str, str]]
     values: dict[str, PropertyValue]
     placement: Placement | None
+    primitives: NotRequired[list[Primitive]]
 
 class Text(TypedDict):
     """A text of ``Scene.texts`` in paper millimeters (type checking only)."""
@@ -156,7 +219,9 @@ class Scene:
         sheet_frame: bool = True,
     ) -> Rendering: ...
     def texts(self, *, region: Box | None = None, hidden_layers: list[int] | None = None) -> list[Text]: ...
-    def entities(self, *, region: Box | None = None, hidden_layers: list[int] | None = None) -> list[Entity]: ...
+    def entities(
+        self, *, region: Box | None = None, hidden_layers: list[int] | None = None, geometry: bool = False
+    ) -> list[Entity]: ...
     def entity(self, id: str) -> Entity | None: ...
     def title_block(self) -> TitleBlock: ...
     def to_arrow(self, *, region: Box | None = None, hidden_layers: list[int] | None = None) -> Any:

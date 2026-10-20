@@ -97,7 +97,18 @@ def test_extracts_texts_and_entities_in_paper_millimeters():
     assert scene.metadata_values["format"] == scene.metadata[0][1]
     assert scene.entity("no such id") is None
     every = scene.entities(hidden_layers=[])
-    assert len(every) == len(scene) and every[0] == scene.entity(every[0]["id"])
+    assert len(every) == len(scene) and "primitives" not in every[0]
+    # entity(id) has what is drawn, in paper millimeters, as entities(geometry=True) does
+    drawn = scene.entities(hidden_layers=[], geometry=True)
+    assert drawn[0] == scene.entity(every[0]["id"])
+    [run] = scene.entity("#700")["primitives"]
+    assert (run["kind"], run["text"], run["height"], run["matrix"]) == ("text", "平面図", 5.0, (1, 0, 0, 1, 10, 220))
+    assert [cell["char"] for cell in run["cells"]] == ["平", "面", "図"]
+    [stroke] = scene.entity("#640")["primitives"]
+    assert stroke["points"] == [(110.0, 240.0), (130.0, 250.0), (150.0, 240.0)]
+    assert (stroke["closed"], stroke["segments"], stroke["width"]) == (False, False, 0.5)
+    hatch = next(entity for entity in drawn if entity["kind"] == "hatch" and entity["primitives"][0]["kind"] == "fill")
+    assert all(len(point) == 2 for ring in hatch["primitives"][0]["rings"] for point in ring)
 
     # Multiline text breaks between lines, and entities inside blocks carry the scale of their placement
     dxf = zumen.read(FIXTURES / "dxf" / "features.dxf")
