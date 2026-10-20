@@ -196,6 +196,16 @@ fn reports_what_jws_cannot_hold() {
     assert_eq!(JwsFile::read(&written.bytes).unwrap().header.version, 700);
 }
 
+#[test]
+fn reports_discarded_sxf_colors_and_width_units() {
+    let mut doc = symbol(700);
+    doc.content.extended_colors = Some(vec!["#123456".into(); 257]);
+    assert_eq!(codes(&write_jws(&doc)), ["jws-settings"]);
+    let mut doc = symbol(700);
+    doc.content.width_unit.hundredth = !doc.content.width_unit.hundredth;
+    assert_eq!(codes(&write_jws(&doc)), ["jws-settings"]);
+}
+
 /// Git に入れない図形（ZUMEN_SAMPLES のフォルダーの JWS）を、読んで書くと同じバイト列になること。
 /// `ZUMEN_SAMPLES=<folder> cargo test -p zumen-jww --lib jws -- --ignored`
 #[test]

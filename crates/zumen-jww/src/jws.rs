@@ -390,6 +390,8 @@ fn has_settings(content: &JwwDocument) -> bool {
     layers
         || !content.memo.trim().is_empty()
         || differs(content.pen_colors.as_ref().map(|colors| Some(colors) != defaults.pen_colors.as_ref()))
+        || differs(content.extended_colors.as_ref().map(|colors| Some(colors) != defaults.extended_colors.as_ref()))
+        || content.width_unit != defaults.width_unit
         || differs(content.pen_widths.as_ref().map(|widths| Some(widths) != defaults.pen_widths.as_ref()))
         || (!content.line_types.is_empty() && content.line_types != defaults.line_types)
 }

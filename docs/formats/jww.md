@@ -25,6 +25,11 @@ follows MFC (Technical Note 2, *Persistent Object Data Format*).
   shared by the entity list, the block definitions and the entities in them.
 - A negative arc angle runs clockwise; flatness and tilt make ellipses and elliptical arcs. Blocks are placed, nested,
   by the number of their definition.
+- Solid triangles and quadrilaterals use the stored `CDataSolid::Serialize` order (start, end, DPoint2, DPoint3)
+  as their boundary order. Reordering by the names of vertices in the format description (1, 4, 2, 3) makes
+  rectangles cross themselves. This interpretation was checked in Jw_cad 10.3.6 on Windows with its sample plan;
+  generated rectangles, oblique quadrilaterals and triangles cover versions 600 and 700. Only conversion to DXF
+  SOLID changes to the DXF vertex order (1, 2, 4, 3).
 - Temporary points (not printed) and images embedded in text (`^@BM` …) are not drawn and are counted in notices.
   Random (hand-drawn style) lines are drawn solid.
 - Settings that Jw_cad 8 and later store as text at (0, −1000), such as `Printer_Orientation = 0`, are not drawn as
@@ -179,7 +184,7 @@ Notices when writing:
 
 ## Editing (`edit_jww`)
 
-`zumen_jww::edit_jww` (through `zumen::edit`) changes a JWW drawing in place with the operations of
+`zumen_jww::edit_jww` changes a JWW drawing in place with the operations of
 [decision 0012](../decisions/0012-edit-in-place-and-write-every-format.md). It reads the file as a `JwwFile`, changes,
 adds and deletes records of the entity list, and writes every record that no operation changes from its bytes. The
 version, the header settings, the block definitions and the embedded images stay, and an edit without operations gives
@@ -356,3 +361,7 @@ hold.
 - **JWK** (figures of Jw_cad for DOS): no public description or sample was found. Not read.
 - **JWF** (environment settings), `JWC_TEMP.TXT` (the text exchanged with external programs) and `.BAK` (a copy of a
   JWW) are not drawings and are not read.
+
+When appending JWC text would overflow the original 32-bit DOS pool address, the writer relocates the pool and all text references together. An unchanged pool keeps its original address and bytes.
+
+JWS also reports `jws-settings` when custom SXF colors or a printer width unit cannot be stored.
