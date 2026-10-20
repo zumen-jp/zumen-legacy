@@ -13,6 +13,8 @@ mod file;
 mod header;
 mod mleader;
 mod objects;
+#[cfg(test)]
+mod samples;
 mod write;
 
 pub use document::read_dwg;

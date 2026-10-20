@@ -4,6 +4,7 @@
 //! - 入れ物（container）・オブジェクト（object）・区切りで囲む節（sections）・圧縮（compress）は、どの書き方にも使う
 
 pub(crate) mod bits;
+pub(crate) mod classes;
 pub(crate) mod compress;
 pub(crate) mod container;
 pub(crate) mod database;

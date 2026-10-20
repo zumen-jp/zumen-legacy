@@ -1,0 +1,263 @@
+//! 実物の図面（ZUMEN_SAMPLES のフォルダの DWG。リポジトリには入れない）で、書き出しの検査の値と入れ物を確かめる。
+//! フォルダがなければ何もしない。
+//!
+//! - CRC と検査の値: 図面に記録された値（ファイルの頭、ページ、ヘッダ変数・クラスの節、オブジェクト、
+//!   オブジェクトの表、R2000 の 2 つ目のファイルの頭）を、書き出しと同じ関数で計算して同じになる
+//! - 書き直し: rewrite_dwg した図面の節の中身が、元の図面と同じになる
+
+use crate::crc::{CRC8_SEED, crc8, crc32, page_checksum};
+use crate::file::{self, R2004Container, Version, magic_sequence};
+use crate::objects::{object_length, read_object_map};
+use crate::write::sections::{CLASSES_END, CLASSES_SENTINEL, Framed, HEADER_END, HEADER_SENTINEL};
+use std::path::PathBuf;
+use zumen_core::NoticeList;
+
+fn samples() -> Vec<(String, Vec<u8>)> {
+    let Some(folder) = std::env::var_os("ZUMEN_SAMPLES") else { return Vec::new() };
+    let Ok(entries) = std::fs::read_dir(PathBuf::from(folder)) else { return Vec::new() };
+    let mut out: Vec<(String, Vec<u8>)> = entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|extension| extension.eq_ignore_ascii_case("dwg")))
+        .filter_map(|path| Some((path.file_name()?.to_string_lossy().into_owned(), std::fs::read(&path).ok()?)))
+        .collect();
+    out.sort();
+    out
+}
+
+fn u32_at(bytes: &[u8], at: usize) -> u32 {
+    u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap())
+}
+
+/// オブジェクトの表の区切りの CRC（上位のバイトが先）と、表が指すオブジェクトの CRC を数える。(区切り, オブジェクト)
+fn check_objects(name: &str, map_section: &[u8], objects: &[u8], r2010: bool) -> (usize, usize) {
+    let mut at = 0;
+    let mut chunks = 0;
+    while at + 2 <= map_section.len() {
+        let size = usize::from(u16::from_be_bytes([map_section[at], map_section[at + 1]]));
+        let stored = u16::from_be_bytes([map_section[at + size], map_section[at + size + 1]]);
+        assert_eq!(crc8(CRC8_SEED, &map_section[at..at + size]), stored, "{name}: object map chunk at {at}");
+        chunks += 1;
+        at += size + 2;
+        if size <= 2 {
+            break;
+        }
+    }
+    let map = read_object_map(map_section);
+    for (handle, &offset) in &map {
+        let length = object_length(objects, offset, r2010).unwrap_or_else(|| panic!("{name}: object {handle:X}"));
+        let bytes = &objects[offset..offset + length];
+        let stored = u16::from_le_bytes([bytes[length - 2], bytes[length - 1]]);
+        assert_eq!(crc8(CRC8_SEED, &bytes[..length - 2]), stored, "{name}: object {handle:X}");
+    }
+    (chunks, map.len())
+}
+
+/// 2 つのバイト列の先頭の bits ビットが同じなら None、違えば最初に違うビットの位置
+fn same_bits(a: &[u8], b: &[u8], bits: u64) -> Option<u64> {
+    (0..bits).find(|&at| {
+        let bit = |bytes: &[u8]| bytes.get((at / 8) as usize).map(|byte| byte & (0x80 >> (at % 8)) != 0);
+        bit(a) != bit(b)
+    })
+}
+
+fn check_framed(name: &str, section: &[u8], start: &[u8; 16], end: &[u8; 16], extra: bool) {
+    let framed = Framed::parse(section, start, end, extra).unwrap_or_else(|| panic!("{name}: framing"));
+    assert!(framed.crc_ok, "{name}: CRC");
+}
+
+fn check_r2000(name: &str, bytes: &[u8]) {
+    let records = file::r2000_records(bytes).unwrap();
+    // ファイルの頭の CRC: 0 から始めて節の数ごとの値と排他的論理和をとる（3.2.6）のと、0xC0C1 から始めるのが同じ
+    let crc_at = 0x19 + records.len() * 9;
+    let stored = u16::from_le_bytes([bytes[crc_at], bytes[crc_at + 1]]);
+    let xor = match records.len() {
+        3 => 0xa598,
+        4 => 0x8101,
+        5 => 0x3cc4,
+        _ => 0x8461,
+    };
+    assert_eq!(crc8(0, &bytes[..crc_at]) ^ xor, stored, "{name}: file header CRC (spec)");
+    assert_eq!(crc8(CRC8_SEED, &bytes[..crc_at]), stored, "{name}: file header CRC");
+    let slice = |number| file::r2000_slice(bytes, &records, number).unwrap();
+    check_framed(name, slice(0), &HEADER_SENTINEL, &HEADER_END, false);
+    check_framed(name, slice(1), &CLASSES_SENTINEL, &CLASSES_END, false);
+    check_objects(name, slice(2), bytes, false);
+    // 2 つ目のファイルの頭（26）: 大きさの欄からビットの値の終わりまでの CRC
+    let sentinel = [0xd4, 0x7b, 0x21, 0xce, 0x28, 0x93, 0x9f, 0xbf, 0x53, 0x24, 0x40, 0x09, 0x12, 0x3c, 0xaa, 0x01];
+    let at = bytes.windows(16).position(|window| window == sentinel).expect("second header");
+    let size = u32_at(bytes, at + 16) as usize;
+    // 大きさは大きさの欄から終わりの区切りの前まで。CRC の後に 8 バイトが続く
+    let crc_at = at + 16 + size - 10;
+    let stored = u16::from_le_bytes([bytes[crc_at], bytes[crc_at + 1]]);
+    assert_eq!(crc8(CRC8_SEED, &bytes[at + 16..crc_at]), stored, "{name}: second header CRC");
+}
+
+fn check_r2004(name: &str, bytes: &[u8], version: Version) {
+    let magic = magic_sequence(0x100);
+    // ファイルの頭（4.1）: CRC32 は CRC の欄を 0 にした 0x6C バイトから、初めの値 0
+    let mut header = file::r2004_file_header(bytes).unwrap();
+    let stored = u32_at(&header, 0x68);
+    header[0x68..0x6c].fill(0);
+    assert_eq!(crc32(0, &header), stored, "{name}: file header CRC32");
+    assert_eq!(bytes[0xec..0x100], magic[0xec..], "{name}: magic after the file header");
+    let second = u32_at(&header, 0x34) as usize;
+    assert_eq!(bytes[second..second + 0x6c], bytes[0x80..0xec], "{name}: copy of the file header");
+    // ページ（4.3、4.6）
+    let page_map_at = u32_at(&header, 0x54) as usize + 0x100;
+    let system = |at: usize| {
+        let head: Vec<u8> = bytes[at..at + 0x14].to_vec();
+        let compressed = u32_at(&head, 8) as usize;
+        let mut zeroed = head.clone();
+        zeroed[0x10..0x14].fill(0);
+        let expected = page_checksum(page_checksum(0, &zeroed), &bytes[at + 0x14..at + 0x14 + compressed]);
+        assert_eq!(expected, u32_at(&head, 0x10), "{name}: system page at {at:#x}");
+    };
+    system(page_map_at);
+    let container = R2004Container::open(bytes).unwrap();
+    let mut pages = 0;
+    for info in &container.sections {
+        for &(number, ..) in &info.pages {
+            let at = container.page_address(number).unwrap();
+            let mask = 0x4164_536b_u32 ^ at as u32;
+            let mut head: Vec<u8> = (0..8).flat_map(|index| (u32_at(bytes, at + index * 4) ^ mask).to_le_bytes()).collect();
+            let size = u32_at(&head, 8) as usize;
+            let data_checksum = page_checksum(0, &bytes[at + 0x20..at + 0x20 + size]);
+            assert_eq!(data_checksum, u32_at(&head, 0x1c), "{name}: data checksum of page {number}");
+            let stored = u32_at(&head, 0x18);
+            head[0x18..0x1c].fill(0);
+            assert_eq!(page_checksum(data_checksum, &head), stored, "{name}: header checksum of page {number}");
+            pages += 1;
+        }
+    }
+    system(container.page_address(u32_at(&header, 0x5c) as i32).unwrap());
+    assert!(pages > 0, "{name}: pages");
+    let mut notices = NoticeList::new();
+    let extra = crate::write::database::has_extra(version, bytes[0x0b]);
+    check_framed(name, &container.section("AcDb:Header", &mut notices).unwrap(), &HEADER_SENTINEL, &HEADER_END, extra);
+    check_framed(
+        name,
+        &container.section("AcDb:Classes", &mut notices).unwrap(),
+        &CLASSES_SENTINEL,
+        &CLASSES_END,
+        extra,
+    );
+    let handles = container.section("AcDb:Handles", &mut notices).unwrap();
+    let objects = container.section("AcDb:AcDbObjects", &mut notices).unwrap();
+    check_objects(name, &handles, &objects, version >= Version::R2010);
+    assert!(notices.into_vec().is_empty(), "{name}: notices");
+}
+
+/// 図面に記録された CRC と検査の値を、書き出しと同じ関数で計算すると同じ値になる
+#[test]
+fn the_crcs_and_checksums_of_real_drawings_are_reproduced() {
+    for (name, bytes) in samples() {
+        match Version::from_magic(&bytes[..6]) {
+            Some(Version::R2000) => check_r2000(&name, &bytes),
+            Some(version @ (Version::R2004 | Version::R2010 | Version::R2013 | Version::R2018)) => {
+                check_r2004(&name, &bytes, version)
+            }
+            _ => {}
+        }
+    }
+}
+
+/// 書き直した図面の節は、元の図面の節と同じ中身になる（オブジェクトの表は同じ並べ方で同じバイト列になる）
+#[test]
+fn rewritten_drawings_keep_every_section() {
+    for (name, bytes) in samples() {
+        let Some(version) = Version::from_magic(&bytes[..6]) else { continue };
+        if !matches!(version, Version::R2004 | Version::R2010 | Version::R2013 | Version::R2018) {
+            continue;
+        }
+        let written = crate::rewrite_dwg(&bytes).unwrap();
+        assert!(written.notices.is_empty(), "{name}: {:?}", written.notices);
+        let before = R2004Container::open(&bytes).unwrap();
+        let after = R2004Container::open(&written.bytes).unwrap();
+        let names = |container: &R2004Container| -> Vec<String> {
+            container.sections.iter().map(|section| section.name.clone()).collect()
+        };
+        assert_eq!(names(&before), names(&after), "{name}");
+        let mut notices = NoticeList::new();
+        for info in &before.sections {
+            let original = before.data(info, &mut notices);
+            let rewritten = after.section(&info.name, &mut notices).unwrap();
+            let rewritten_info = after.info(&info.name).unwrap();
+            assert_eq!(
+                (rewritten_info.max_size, rewritten_info.compressed, rewritten_info.encrypted),
+                (info.max_size, info.compressed, info.encrypted),
+                "{name}: {}",
+                info.name
+            );
+            if info.name == "AcDb:Header" {
+                // 終わりの区切りの後の値（以前の保存の残り）は写さない
+                assert_eq!(original[..rewritten.len()], rewritten, "{name}: {}", info.name);
+            } else {
+                assert_eq!(original, rewritten, "{name}: {}", info.name);
+            }
+        }
+        assert!(notices.into_vec().is_empty(), "{name}");
+    }
+}
+
+/// R2000 の書き直し: ヘッダ変数・クラス・AuxHeader・Template が同じで、どのハンドルも同じオブジェクトを指す
+#[test]
+fn rewritten_r2000_drawings_keep_every_object() {
+    for (name, bytes) in samples() {
+        if Version::from_magic(&bytes[..6]) != Some(Version::R2000) {
+            continue;
+        }
+        let written = crate::rewrite_dwg(&bytes).unwrap();
+        assert!(written.notices.is_empty(), "{name}: {:?}", written.notices);
+        let after = &written.bytes;
+        check_r2000(&name, after);
+        let records = [file::r2000_records(&bytes).unwrap(), file::r2000_records(after).unwrap()];
+        let section = |index: usize, number: u8| {
+            file::r2000_slice(if index == 0 { &bytes } else { after }, &records[index], number).map(<[u8]>::to_vec)
+        };
+        for number in [0, 1, 4, 5] {
+            assert_eq!(section(0, number), section(1, number), "{name}: record {number}");
+        }
+        let maps = [read_object_map(&section(0, 2).unwrap()), read_object_map(&section(1, 2).unwrap())];
+        assert_eq!(maps[0].len(), maps[1].len(), "{name}");
+        for (handle, &offset) in &maps[0] {
+            let length = object_length(&bytes, offset, false).unwrap();
+            let moved = maps[1][handle];
+            assert_eq!(bytes[offset..offset + length], after[moved..moved + length], "{name}: object {handle:X}");
+        }
+    }
+}
+
+/// クラスの節の値を読んで書くと、同じバイト列になる
+#[test]
+fn classes_of_real_drawings_are_written_back_unchanged() {
+    use crate::bits::TextCodec;
+    use crate::write::classes::{classes_bits, read_class_defs};
+    for (name, bytes) in samples() {
+        let Some(version) = Version::from_magic(&bytes[..6]) else { continue };
+        let section = match version {
+            Version::R2000 => {
+                let records = file::r2000_records(&bytes).unwrap();
+                file::r2000_slice(&bytes, &records, 1).unwrap().to_vec()
+            }
+            Version::R2004 | Version::R2010 | Version::R2013 | Version::R2018 => {
+                let mut notices = NoticeList::new();
+                R2004Container::open(&bytes).unwrap().section("AcDb:Classes", &mut notices).unwrap()
+            }
+            _ => continue,
+        };
+        let extra = crate::write::database::has_extra(version, bytes[0x0b]);
+        let framed = Framed::parse(&section, &CLASSES_SENTINEL, &CLASSES_END, extra).unwrap();
+        let codec = if version >= Version::R2007 {
+            TextCodec::Utf16
+        } else {
+            TextCodec::Bytes(encoding_rs::WINDOWS_1252)
+        };
+        let classes = read_class_defs(&framed.data, version, codec);
+        assert!(!classes.is_empty(), "{name}");
+        // 終わりの埋めるビットは AutoCAD では不定なので、意味のあるビットだけを比べる
+        let bits = classes_bits(version, encoding_rs::WINDOWS_1252, &classes);
+        assert_eq!(same_bits(bits.as_bytes(), &framed.data, bits.bit_len()), None, "{name}: {} classes", classes.len());
+        assert_eq!(bits.bit_len().div_ceil(8), framed.data.len() as u64, "{name}");
+    }
+}

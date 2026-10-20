@@ -268,7 +268,12 @@ impl<'a> R2004Container<'a> {
 
     /// 節の最初のページのファイルの中の位置（ファイルの中の節の順に使う）。ページがなければ None
     pub fn address(&self, info: &SectionInfo) -> Option<usize> {
-        info.pages.first().and_then(|(number, ..)| self.pages.get(number).copied())
+        info.pages.first().and_then(|(number, ..)| self.page_address(*number))
+    }
+
+    /// ページの番号のページのファイルの中の位置
+    pub fn page_address(&self, number: i32) -> Option<usize> {
+        self.pages.get(&number).copied()
     }
 }
 

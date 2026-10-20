@@ -63,14 +63,23 @@ impl<'a> Streams<'a> {
         Self { data, text, handles: Some(handles), format }
     }
 
+    /// 文字列の並びはあるが、ハンドルは値の並びの中（R2007 以降のクラスの節）
+    pub fn with_text_inline(data: Bits<'a>, text: Text<'a>, format: Format) -> Self {
+        Self { data, text, handles: None, format }
+    }
+
     /// TV。DXF と同じく、制御文字はキャレット表記（^J など）に、^ は「^ 」にする
     pub fn tv(&mut self) -> Read<String> {
-        let text = match &mut self.text {
+        Ok(caret_notation(self.tv_raw()?))
+    }
+
+    /// TV をそのまま（キャレット表記にしない）
+    pub fn tv_raw(&mut self) -> Read<String> {
+        Ok(match &mut self.text {
             Text::Inline => self.data.tv(self.format.codec)?,
             Text::Stream(text) => text.tv(TextCodec::Utf16)?,
             Text::Empty => String::new(),
-        };
-        Ok(caret_notation(text))
+        })
     }
 
     /// H（ハンドルの並びから）
