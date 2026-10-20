@@ -30,7 +30,7 @@
 Option 3.
 
 - `@zumenjs/stb` (the reader, `StructureModel`, the three.js view and the React component), its notes, its
-  verification record and the playground sample move to the private repository `zumenjs/stb`, from commit `1f3ccdf`.
+  verification record and the playground sample move to a private repository, from commit `1f3ccdf`.
   The open pull request #24 (the `StructureViewer` engine) moves there with its whole diff.
   [Decision 0001](0001-st-bridge-in-zumen.md) is superseded.
 - zumen adds no format whose publication needs a third party's permission, and no runtime dependency whose license is
@@ -46,7 +46,7 @@ Option 3.
   are not part of zumen.
 - `AGENTS.md` and the release checklist name the rule, so that a contribution does not bring such a format or
   dependency back unnoticed.
-- `zumenjs/stb` builds and tests on its own (pnpm, TypeScript, Vitest, Biome). Its browser tests are not set up there
+- That repository builds and tests on its own (pnpm, TypeScript, Vitest, Biome). Its browser tests are not set up there
   yet.
 
 ## References
