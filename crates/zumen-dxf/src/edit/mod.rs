@@ -38,6 +38,19 @@ pub fn edit_dxf(bytes: &[u8], operations: &[EditOperation]) -> Result<Edited, Ed
     let source = RawDxf::parse(bytes);
     let mut editor = Editor::new(&source);
     for (index, operation) in operations.iter().enumerate() {
+        // DXF Reference「Binary DXF Files」: 文字列は NUL 終端。値の途中の NUL は後続のタグを壊す。
+        let values = match operation {
+            EditOperation::Add { values, .. } | EditOperation::AddLayer { values, .. } => Some(values),
+            EditOperation::Update { set, .. } | EditOperation::UpdateLayer { set, .. } => Some(set),
+            EditOperation::Delete { .. } => None,
+        };
+        if source.binary
+            && values.is_some_and(|values| {
+                values.values().any(|value| matches!(value, EditValue::Text(text) if text.contains('\0')))
+            })
+        {
+            return Err(EditError::at(index, "invalid-value", "バイナリ DXF の文字列に NUL は書けません"));
+        }
         match operation {
             EditOperation::Add { kind, container, values } => editor.add(index, kind, container.as_deref(), values)?,
             EditOperation::Update { id, set } => editor.update(index, id, set)?,
@@ -343,20 +356,23 @@ impl<'a> Editor<'a> {
         let mut table = String::new();
         let mut block: Option<String> = None;
         let mut max_handle = 0u64;
+        // DXF Reference「Common Group Codes for Entities」: VERTEX・ATTRIB・SEQEND も独自のハンドルを持つ。
+        // 図形の索引では従うレコードを飛ばすので、先に全レコードのハンドルを予約する。
+        for (record, tags) in self.records.iter().enumerate().skip(1) {
+            let kind = self.kind(record);
+            if kind == "SECTION" {
+                continue; // HEADER の 5 は $HANDSEED で、オブジェクトのハンドルではない。
+            }
+            if let Some(handle) = value(tags, if kind == "DIMSTYLE" { 105 } else { 5 }) {
+                max_handle = max_handle.max(handle_value(handle).unwrap_or(0));
+                self.record_handles.insert(record, upper(handle));
+            }
+        }
         let mut record = 1;
         while record < self.records.len() {
             let kind = self.kind(record).to_string();
             let tags = &self.records[record];
-            // 見出しの節の 5 は $HANDSEED の値で、レコードのハンドルではない
-            let handle = if kind == "SECTION" {
-                None
-            } else {
-                value(tags, if kind == "DIMSTYLE" { 105 } else { 5 }).map(str::to_string)
-            };
-            if let Some(handle) = &handle {
-                max_handle = max_handle.max(handle_value(handle).unwrap_or(0));
-                self.record_handles.insert(record, upper(handle));
-            }
+            let handle = self.record_handles.get(&record).cloned();
             match kind.as_str() {
                 "SECTION" => {
                     section = upper(value(tags, 2).unwrap_or(""));
@@ -434,7 +450,7 @@ impl<'a> Editor<'a> {
             }
             record += 1;
         }
-        self.seed = self.seed.max(max_handle + 1);
+        self.seed = self.seed.max(max_handle.saturating_add(1));
     }
 
     fn read_header(&mut self) {
@@ -519,14 +535,18 @@ impl<'a> Editor<'a> {
         self.modified.entry(record).or_insert_with(|| records[record].clone())
     }
 
-    fn next_handle(&mut self) -> Option<String> {
+    fn next_handle(&mut self, index: usize) -> Result<Option<String>, EditError> {
         if !self.handles {
-            return None;
+            return Ok(None);
         }
+        let next = self
+            .seed
+            .checked_add(1)
+            .ok_or_else(|| EditError::at(index, "handle-exhausted", "新しい図形のハンドルを割り当てられません"))?;
         let handle = format!("{:X}", self.seed);
-        self.seed += 1;
+        self.seed = next;
         self.seed_used = true;
-        Some(handle)
+        Ok(Some(handle))
     }
 
     /// 足したハンドルの次を $HANDSEED にする
@@ -725,7 +745,7 @@ impl<'a> Editor<'a> {
         common: &Common,
     ) -> Result<(Record, Option<String>), EditError> {
         let mut record = Record::new(kind);
-        let handle = self.next_handle();
+        let handle = self.next_handle(index)?;
         if let Some(handle) = &handle {
             record.tag(5, handle.clone());
         }
@@ -1481,7 +1501,7 @@ impl<'a> Editor<'a> {
                 (start, true)
             }
         };
-        let handle = self.next_handle();
+        let handle = self.next_handle(index)?;
         let mut opener = Record::new("TABLE");
         opener.tag(2, "LAYER");
         if let Some(handle) = &handle {
@@ -1557,7 +1577,7 @@ impl<'a> Editor<'a> {
         for (offset, tag) in own.into_iter().enumerate() {
             tags.insert(name_at + offset, tag);
         }
-        if let Some(handle) = self.next_handle() {
+        if let Some(handle) = self.next_handle(index)? {
             tags.insert(1, Tag::new(5, handle));
         }
         self.apply_layer_values(index, &mut tags, &reader)?;

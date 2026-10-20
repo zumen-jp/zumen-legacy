@@ -207,10 +207,10 @@ impl<'a> RawDxf<'a> {
             }
             let (bytes, _, unmappable) = encoder.encode(c.encode_utf8(&mut buffer));
             if unmappable {
-                let code = u32::from(c);
-                out.extend_from_slice(
-                    if code <= 0xffff { format!("\\U+{code:04X}") } else { "?".to_string() }.as_bytes(),
-                );
+                // CIF は UTF-16 の単位で書く。補助文字もサロゲート対で保つ（Storage of String Values）。
+                for unit in c.encode_utf16(&mut [0; 2]) {
+                    out.extend_from_slice(format!("\\U+{unit:04X}").as_bytes());
+                }
             } else {
                 out.extend_from_slice(&bytes);
             }
