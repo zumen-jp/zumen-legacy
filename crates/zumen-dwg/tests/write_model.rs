@@ -1,0 +1,348 @@
+//! モデルからの DWG の書き出し: tests/fixtures の DXF・DWG を AutoCAD 2013 の DWG に書いて読み直すと、すべての表示で
+//! 元と同じに描ける（crates/zumen/tests/convert.rs の DXF の書き出しと同じ確かめ方）。
+//! 比べるのは図形ごとの種類・レイヤの名前・外接矩形・描く要素（数は 1e-9 の相対誤差まで同じとみなす）。
+//! 書けない図形（IMAGE）は省き、形を変えて書く図形（HELIX・MPOLYGON・ブロック参照に属さない ATTRIB）は種類を
+//! 比べない（どちらも notices で知らせる）。
+//!
+//! 元の表示は、DWG を読むと変わる値を DWG の読み取りと同じ形にしたモデルから作る:
+//! - AutoCAD 2013 の DWG は複数行の属性を持てない（埋め込みの MTEXT は R2018 から）ので、1 行の属性にする
+//!   （書き出しが notices で知らせる）
+//! - DWG の文字列は文字のまま持つので、読み取りはキャレット表記の正しい形（制御文字は ^ と文字、^ は「^ 」）にする
+//! - WIPEOUT の多角形の境界は、読み取りが DXF と同じく最初の点で閉じる
+//!
+//! 当てはめ点だけのスプラインは、DWG の読み取りが AutoCAD と同じく制御点を求めて描く（DXF の読み取りは点を通る曲線で
+//! 近似する）ので、比べない
+
+use serde_json::{Value, json};
+use std::collections::HashSet;
+use std::fs;
+use std::path::{Path, PathBuf};
+use zumen_core::Scene;
+use zumen_dxf::{DxfDocument, DxfEntity, DxfEntityData, dxf_to_scene, parse_dxf};
+
+fn fixtures() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures")
+}
+
+fn model(bytes: &[u8]) -> Option<DxfDocument> {
+    if zumen_dwg::is_dwg(bytes) { zumen_dwg::read_dwg(bytes).ok() } else { Some(parse_dxf(bytes)) }
+}
+
+fn close(a: &Value, b: &Value) -> bool {
+    match (a, b) {
+        (Value::Number(x), Value::Number(y)) => {
+            let (x, y) = (x.as_f64().unwrap(), y.as_f64().unwrap());
+            (x - y).abs() <= 1e-9 * x.abs().max(y.abs()).max(1.0)
+        }
+        (Value::Array(x), Value::Array(y)) => x.len() == y.len() && x.iter().zip(y).all(|(x, y)| close(x, y)),
+        (Value::Object(x), Value::Object(y)) => {
+            x.len() == y.len() && x.iter().all(|(key, value)| y.get(key).is_some_and(|other| close(value, other)))
+        }
+        _ => a == b,
+    }
+}
+
+/// 比べる値。形を変えて書く図形（changed）は種類を比べない
+fn shape(scene: &Scene, entity: &Value, changed: bool) -> Value {
+    let layers: Vec<String> = entity["layers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|id| {
+            let id = id.as_u64().unwrap();
+            scene
+                .layers
+                .iter()
+                .find(|layer| u64::from(layer.id) == id)
+                .map_or(String::new(), |layer| layer.name.clone())
+        })
+        .collect();
+    json!({
+        "type": if changed { Value::Null } else { entity["type"].clone() },
+        "layers": layers,
+        "bbox": entity["bbox"],
+        "primitives": entity["primitives"],
+    })
+}
+
+/// テキストの DXF のキャレット表記を文字に戻す（書き出しと同じ）
+fn uncaret(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    let mut chars = value.chars().peekable();
+    while let Some(c) = chars.next() {
+        match (c, chars.peek().copied()) {
+            ('^', Some(' ')) => {
+                out.push('^');
+                chars.next();
+            }
+            ('^', Some(next)) if ('@'..='_').contains(&next) => {
+                out.push(char::from(next as u8 - 0x40));
+                chars.next();
+            }
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// 文字列をキャレット表記にする（DWG の読み取りと同じ）
+fn caret(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for c in value.chars() {
+        if c < ' ' {
+            out.push('^');
+            out.push(char::from(c as u8 + 0x40));
+        } else if c == '^' {
+            out.push_str("^ ");
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// DWG を読むと変わる値を、DWG の読み取りと同じ形にしたモデル
+fn expected(doc: &DxfDocument) -> DxfDocument {
+    let mut doc = doc.clone();
+    let normal = |text: &mut String| *text = caret(&uncaret(text));
+    fn entity(item: &mut DxfEntity, normal: &dyn Fn(&mut String)) {
+        match &mut item.data {
+            DxfEntityData::Text(text) => normal(&mut text.text),
+            DxfEntityData::Attrib { text, tag, mtext, .. } => {
+                if let Some(embedded) = mtext.take()
+                    && text.text.is_empty()
+                {
+                    text.text = embedded.content.text.replace(['\n', '\r'], " ");
+                }
+                normal(&mut text.text);
+                normal(tag);
+            }
+            DxfEntityData::Attdef { text, tag, prompt, mtext, .. } => {
+                if let Some(embedded) = mtext.take()
+                    && text.text.is_empty()
+                {
+                    text.text = embedded.content.text.replace(['\n', '\r'], " ");
+                }
+                normal(&mut text.text);
+                normal(tag);
+                normal(prompt);
+            }
+            DxfEntityData::MText(mtext) => normal(&mut mtext.raw_text),
+            DxfEntityData::Dimension(dimension) => normal(&mut dimension.text),
+            DxfEntityData::MLeader(mleader) => {
+                if let Some(mtext) = &mut mleader.context.mtext {
+                    normal(&mut mtext.default_content);
+                }
+                for attrib in &mut mleader.block_attribs {
+                    normal(&mut attrib.text);
+                }
+            }
+            DxfEntityData::Image(image) => {
+                if image.boundary.len() > 2 && image.boundary.first() != image.boundary.last() {
+                    let first = image.boundary[0];
+                    image.boundary.push(first);
+                }
+            }
+            DxfEntityData::Insert(insert) => {
+                for attrib in &mut insert.attribs {
+                    entity(attrib, normal);
+                }
+            }
+            _ => {}
+        }
+    }
+    for item in &mut doc.entities {
+        entity(item, &normal);
+    }
+    doc
+}
+
+/// 当てはめ点だけのスプラインのハンドル（比べない）
+fn fit_splines(doc: &DxfDocument) -> HashSet<String> {
+    doc.entities
+        .iter()
+        .filter(|entity| {
+            matches!(&entity.data, DxfEntityData::Spline(spline) if spline.control_points.len() < 2 && !spline.fit_points.is_empty())
+        })
+        .map(|entity| entity.base.handle.clone())
+        .collect()
+}
+
+/// 元の図形ごとに、書き直した図面の同じ図形（同じ id、なければ同じ順の図形）と比べる
+fn differences(original: &Scene, again: &Scene, skipped: &HashSet<String>) -> Vec<String> {
+    let entities = |scene: &Scene| serde_json::to_value(&scene.entities).unwrap().as_array().unwrap().clone();
+    let (before, after) = (entities(original), entities(again));
+    let mut out = Vec::new();
+    for (index, entity) in before.iter().enumerate() {
+        let id = entity["id"].as_str().unwrap();
+        let source = entity["source"].as_str().unwrap_or("");
+        let same_id = after.iter().find(|other| other["id"] == entity["id"]);
+        if source == "IMAGE" {
+            if same_id.is_some() {
+                out.push(format!("{id}: an image was written"));
+            }
+            continue;
+        }
+        let last = id.rsplit('>').next().unwrap_or(id);
+        if skipped.contains(last) {
+            continue;
+        }
+        let changed = matches!(source, "HELIX" | "MPOLYGON" | "ATTRIB");
+        match same_id.or_else(|| after.get(index)) {
+            None => out.push(format!("{id}: missing")),
+            Some(other) if !close(&shape(original, entity, changed), &shape(again, other, changed)) => {
+                out.push(format!(
+                    "{id} ({}): differs\n  {}\n  {}",
+                    entity["type"],
+                    shape(original, entity, changed),
+                    shape(again, other, changed)
+                ))
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// 図面を DWG に書き、すべての表示で元と比べる。比べた表示の数と、違いを返す
+fn check(name: &str, bytes: &[u8]) -> (usize, Vec<String>) {
+    let Some(doc) = model(bytes) else { return (0, Vec::new()) };
+    let written = zumen_dwg::write_dwg(&doc);
+    let again = match zumen_dwg::read_dwg(&written.bytes) {
+        Ok(again) => again,
+        Err(error) => return (0, vec![format!("{name}: rereading: {error}")]),
+    };
+    let skipped = fit_splines(&doc);
+    let doc = expected(&doc);
+    let original = dxf_to_scene(&doc, None);
+    let views: Vec<Option<String>> =
+        std::iter::once(None).chain(original.views.iter().flatten().map(|view| Some(view.id.clone()))).collect();
+    let mut out = Vec::new();
+    for view in &views {
+        let before = dxf_to_scene(&doc, view.as_deref());
+        let after = dxf_to_scene(&again, view.as_deref());
+        out.extend(differences(&before, &after, &skipped).into_iter().map(|line| format!("{name} ({view:?}) {line}")));
+    }
+    (views.len(), out)
+}
+
+fn drawings(folder: &Path) -> Vec<PathBuf> {
+    let mut files: Vec<PathBuf> = fs::read_dir(folder)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| {
+            path.extension()
+                .and_then(|extension| extension.to_str())
+                .is_some_and(|extension| matches!(extension.to_ascii_lowercase().as_str(), "dxf" | "dwg"))
+        })
+        .collect();
+    files.sort();
+    files
+}
+
+#[test]
+fn written_drawings_draw_the_same() {
+    let mut checked = 0;
+    let mut failures = Vec::new();
+    for format in ["dxf", "dwg"] {
+        for file in drawings(&fixtures().join(format)) {
+            let name = file.file_name().unwrap().to_string_lossy().to_string();
+            let (views, differences) = check(&name, &fs::read(&file).unwrap());
+            failures.extend(differences);
+            checked += views;
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    assert!(checked >= 20, "checked only {checked} views");
+}
+
+/// Git に入れない図面（ZUMEN_SAMPLES のフォルダーの DXF・DWG）で確かめる。
+/// `ZUMEN_SAMPLES=<folder> cargo test -p zumen-dwg --release --test write_model -- --ignored`
+#[test]
+#[ignore = "needs drawings in ZUMEN_SAMPLES"]
+fn written_samples_draw_the_same() {
+    let folder = std::env::var("ZUMEN_SAMPLES").expect("set ZUMEN_SAMPLES to a folder of drawings");
+    let mut failures = Vec::new();
+    for file in drawings(Path::new(&folder)) {
+        let name = file.file_name().unwrap().to_string_lossy().to_string();
+        let (views, differences) = check(&name, &fs::read(&file).unwrap());
+        println!("{name}: {views} views, {} differences", differences.len());
+        failures.extend(differences.into_iter().take(5));
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// 壊れた・途中で切れた図面から読んだモデルでも panic せずすぐに書け、書いた図面は読み取りが開ける
+#[test]
+fn models_of_damaged_drawings_are_written() {
+    let mut seed: u64 = 0x5eed_0003;
+    let mut random = move |bound: usize| {
+        seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        (seed >> 33) as usize % bound.max(1)
+    };
+    for format in ["dxf", "dwg"] {
+        for file in drawings(&fixtures().join(format)) {
+            let name = file.file_name().unwrap().to_string_lossy().to_string();
+            let original = fs::read(&file).unwrap();
+            for round in 0..30 {
+                let mut bytes = original.clone();
+                match round % 3 {
+                    0 => bytes.truncate(random(bytes.len())),
+                    1 => {
+                        for _ in 0..1 + random(8) {
+                            let at = random(bytes.len());
+                            bytes[at] = random(256) as u8;
+                        }
+                    }
+                    _ => {
+                        let at = random(bytes.len());
+                        let length = random(64).min(bytes.len() - at);
+                        bytes.drain(at..at + length);
+                    }
+                }
+                let Some(doc) = model(&bytes) else { continue };
+                let start = std::time::Instant::now();
+                let written = zumen_dwg::write_dwg(&doc);
+                assert!(
+                    zumen_dwg::read_dwg(&written.bytes).is_ok(),
+                    "{name} round {round}: the written drawing does not read"
+                );
+                assert!(start.elapsed().as_secs() < 5, "{name} round {round} took too long");
+            }
+        }
+    }
+}
+
+/// DWG の文字列は 32,767 単位（UTF-16）までなので、長い文字列はサロゲートの対を分けずにそこまでで切り、notices で知らせる
+#[test]
+fn long_strings_are_cut_with_a_notice() {
+    let mut doc = parse_dxf(&fs::read(fixtures().join("dxf/features.dxf")).unwrap());
+    let mtext = |entity: &DxfEntity| match &entity.data {
+        DxfEntityData::MText(mtext) => Some(mtext.raw_text.clone()),
+        _ => None,
+    };
+    let handle = doc.entities.iter().find(|entity| mtext(entity).is_some()).unwrap().base.handle.clone();
+    for entity in &mut doc.entities {
+        if entity.base.handle == handle
+            && let DxfEntityData::MText(mtext) = &mut entity.data
+        {
+            mtext.raw_text = "\u{2000b}".repeat(20_000);
+        }
+    }
+    let written = zumen_dwg::write_dwg(&doc);
+    let notice = written.notices.iter().find(|notice| notice.code == "long-text").expect("no long-text notice");
+    assert_eq!(notice.count, 1);
+    let again = zumen_dwg::read_dwg(&written.bytes).unwrap();
+    let text = again.entities.iter().find(|entity| entity.base.handle == handle).and_then(mtext).unwrap();
+    assert_eq!(text, "\u{2000b}".repeat(16_383));
+}
+
+#[test]
+fn reports_what_could_not_be_written_as_it_was() {
+    let bytes = fs::read(fixtures().join("dxf/features.dxf")).unwrap();
+    let written = zumen_dwg::write_dwg(&parse_dxf(&bytes));
+    let codes: Vec<&str> = written.notices.iter().map(|notice| notice.code.as_str()).collect();
+    for code in ["image", "helix", "mpolygon", "table", "attrib-alone", "complex-linetype", "missing-block"] {
+        assert!(codes.contains(&code), "{code} not in {codes:?}");
+    }
+}
