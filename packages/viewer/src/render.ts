@@ -1,11 +1,12 @@
 import {
   BACKGROUND_COLOR,
   type Box,
+  isEntityVisible,
   type Primitive,
   type Scene,
   type SceneEntity,
   type StrokePrimitive,
-} from "./types.js";
+} from "@zumenjs/core";
 
 /** 用紙の mm から CSS の px への変換。x_px = offsetX + x × scale、y_px = offsetY − y × scale */
 export interface View {
@@ -27,10 +28,17 @@ export interface RenderOptions {
   lineWeights: boolean;
   /** 用紙の枠を描く */
   sheetFrame: boolean;
+  /** 用紙の枠の色。省略すると、明るい背景では黒、暗い背景では白の 35% */
+  sheetFrameColor?: string;
   devicePixelRatio: number;
-  /** 強調して重ね描きする要素 */
-  highlight?: SceneEntity | null;
-  highlightColor?: string;
+  /** 図面の上に強調して重ね描きする図形の組。前の組から描き、後の組が上に重なる */
+  highlights?: readonly HighlightLayer[];
+}
+
+/** 強調して重ね描きする図形と、その色。塗りは描かず、線を 3 デバイス px 以上の太さで描く */
+export interface HighlightLayer {
+  readonly entities: Iterable<SceneEntity>;
+  readonly color: string;
 }
 
 const REFERENCE_FONT_SIZE = 64;
@@ -61,12 +69,6 @@ export function zoomAt(view: View, px: number, py: number, factor: number): View
   const scale = Math.min(Math.max(view.scale * factor, 1e-6), 1e6);
   const applied = scale / view.scale;
   return { scale, offsetX: px - (px - view.offsetX) * applied, offsetY: py - (py - view.offsetY) * applied };
-}
-
-export function isEntityVisible(entity: SceneEntity, hiddenLayers: ReadonlySet<number>): boolean {
-  if (hiddenLayers.size === 0) return true;
-  for (const layer of entity.layers) if (hiddenLayers.has(layer)) return false;
-  return true;
 }
 
 /** #rrggbb・#rrggbbaa の輝度（0〜1）。読めない色は null */
@@ -295,6 +297,18 @@ class Painter {
     this.flush();
   }
 
+  highlights(layers: readonly HighlightLayer[]): void {
+    this.resetTransform();
+    for (const layer of layers) {
+      const override = { color: layer.color, boost: 3 };
+      for (const entity of layer.entities) {
+        if (!this.intersects(entity.bbox)) continue;
+        for (const primitive of entity.primitives) if (primitive.kind !== "fill") this.primitive(primitive, override);
+      }
+      this.finish();
+    }
+  }
+
   sheet(scene: Scene): void {
     if (!scene.sheet) return;
     this.flush();
@@ -302,7 +316,8 @@ class Painter {
     ctx.save();
     ctx.setLineDash([]);
     ctx.lineWidth = this.pixel;
-    ctx.strokeStyle = this.options.invertLight ? "rgba(0,0,0,0.35)" : "rgba(255,255,255,0.35)";
+    ctx.strokeStyle =
+      this.options.sheetFrameColor ?? (this.options.invertLight ? "rgba(0,0,0,0.35)" : "rgba(255,255,255,0.35)");
     ctx.strokeRect(0, 0, scene.sheet.width, scene.sheet.height);
     ctx.restore();
   }
@@ -331,13 +346,31 @@ export function renderScene(
     for (const primitive of entity.primitives) painter.primitive(primitive);
   }
   painter.finish();
-  const highlight = options.highlight;
-  if (highlight) {
-    const override = { color: options.highlightColor ?? "#ffb000", boost: 3 };
-    for (const primitive of highlight.primitives) {
-      if (primitive.kind !== "fill") painter.primitive(primitive, override);
-    }
-    painter.finish();
-  }
+  if (options.highlights) painter.highlights(options.highlights);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+}
+
+/**
+ * 図形を強調の色で、Canvas の今の内容の上に重ね描きする（選択・名前付きの強調・ポインターの下の図形）。
+ * レイヤの表示によらず描き、画面の外の図形は飛ばす。width・height は CSS px
+ */
+export function renderHighlights(
+  ctx: CanvasRenderingContext2D,
+  layers: readonly HighlightLayer[],
+  view: View,
+  width: number,
+  height: number,
+  options: Pick<RenderOptions, "background" | "lineWeights" | "devicePixelRatio">,
+): void {
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  const painter = new Painter(
+    ctx,
+    view,
+    { ...options, invertLight: false, hiddenLayers: new Set(), sheetFrame: false },
+    width,
+    height,
+  );
+  painter.highlights(layers);
   ctx.setTransform(1, 0, 0, 1, 0, 0);
 }

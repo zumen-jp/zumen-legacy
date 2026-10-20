@@ -1,13 +1,28 @@
-import { measureDistance, readDrawing, type SceneEntity } from "@zumenjs/core";
+import { measureDistance, readDrawing, type SceneEntity, type TextPrimitive } from "@zumenjs/core";
 import { describe, expect, it } from "vitest";
-import { type DxfLine, type DxfMLine, type DxfMText, type DxfText, dxf, dxfToScene, parseDxf } from "../src/index.js";
 import {
+  type DxfAttdef,
+  type DxfAttrib,
+  type DxfLine,
+  type DxfMLine,
+  type DxfMText,
+  type DxfText,
+  dxf,
+  dxfToScene,
+  parseDxf,
+} from "../src/index.js";
+import {
+  ATTRIBUTES_R2018,
+  ascii,
   BINARY,
   BINARY_LIMITS,
+  BINARY_TEXT,
   BLOCKS,
   CODEPAGE,
+  DIMSTYLE_DEFAULTS,
   LAYOUT,
   LIMITS,
+  latin1,
   MISALIGNED,
   MLEADER,
   MLINE,
@@ -25,6 +40,10 @@ function strokes(entity: SceneEntity | undefined): number[][] {
   );
   if (out.length === 0) throw new Error("線がありません");
   return out;
+}
+
+function texts(entity: SceneEntity | undefined): TextPrimitive[] {
+  return (entity?.primitives ?? []).flatMap((item) => (item.kind === "text" ? [item] : []));
 }
 
 // 文字コードの規則と、CP932 の 2 バイト目の 0x5C を書式コードと取り違えないこと（図面は fixtures.ts）
@@ -182,5 +201,60 @@ describe("DXF の読み取りの上限", () => {
     const scene = readDrawing(BINARY_LIMITS, [dxf]);
     expect(scene.notices).toContainEqual(expect.objectContaining({ code: "hatch-dense", count: 1 }));
     expect(stroke(scene.entities[0])).toEqual([0, 0, 100, 0, 100, 100, 0, 100, 0, 0]);
+  });
+});
+
+/**
+ * 同じ図面の DWG と比べて見つかった、DXF の値の読み違い。AutoCAD 2018 の属性の種類、バイナリの DXF の文字列の
+ * 書き方、AutoCAD が省く寸法スタイルの既定値（図面は fixtures.ts）
+ */
+describe("DXF の値と同じ図面の DWG", () => {
+  it("AcDbAttribute の 71（属性の種類）を文字の生成フラグにせず、AcDbText の 71 だけを使う", () => {
+    const [attdef, attrib] = parseDxf(ATTRIBUTES_R2018).entities as [DxfAttdef, DxfAttrib];
+    expect(attdef.text_generation_flag).toBe(0);
+    expect(attrib.text_generation_flag).toBe(2);
+    // 複数行の属性定義のタグは上下反転せず、AcDbText で左右反転の属性は X を反転して描く
+    const scene = readDrawing(ATTRIBUTES_R2018, [dxf]);
+    const [tag, value] = scene.entities.map((entity) => texts(entity)[0]);
+    expect([tag?.text, Math.sign(tag?.matrix[0] ?? 0), Math.sign(tag?.matrix[3] ?? 0)]).toEqual(["MULTI", 1, 1]);
+    expect([value?.text, Math.sign(value?.matrix[0] ?? 0), Math.sign(value?.matrix[3] ?? 0)]).toEqual(["ABC", -1, 1]);
+  });
+
+  it("バイナリの DXF の改行・タブ・^ をテキストの DXF と同じ ^J・^I・「^ 」にし、MTEXT の改行で段落を分ける", () => {
+    const [mtext, power, text] = parseDxf(BINARY_TEXT).entities as [DxfMText, DxfMText, DxfText];
+    // biome-ignore format: DXF のタグ（グループコードと値）の組を 1 行に並べて読めるようにする
+    const asText = parseDxf(latin1(ascii(
+      0, "SECTION", 2, "ENTITIES",
+      0, "MTEXT", 10, 0, 20, 0, 40, 2.5, 1, "First line^JSecond^Iline",
+      0, "MTEXT", 10, 0, 20, -20, 40, 2.5, 1, "x^ 2",
+      0, "TEXT", 10, 0, 20, -30, 40, 2.5, 1, "m^ 2",
+      0, "ENDSEC", 0, "EOF",
+    )));
+    expect([mtext.raw_text, power.raw_text, text.text]).toEqual(["First line^JSecond^Iline", "x^ 2", "m^ 2"]);
+    expect(
+      asText.entities.map((entity) => ("raw_text" in entity ? entity.raw_text : (entity as DxfText).text)),
+    ).toEqual([mtext.raw_text, power.raw_text, text.text]);
+    const scene = readDrawing(BINARY_TEXT, [dxf]);
+    expect(scene.entities.map((entity) => texts(entity).map((item) => item.text))).toEqual([
+      ["First line", "Second    line"],
+      ["x^2"],
+      ["m^2"],
+    ]);
+  });
+
+  it("AutoCAD が DXF で省いた DIMASZ・DIMTXT は、$MEASUREMENT によらず既定の 0.18 にする", () => {
+    const doc = parseDxf(DIMSTYLE_DEFAULTS);
+    expect(doc.header).toMatchObject({ measurement: 1, dimasz: 2.5, dimtxt: 2.5 });
+    expect(doc.dimstyles.map(({ name, dimasz, dimtxt }) => [name, dimasz, dimtxt])).toEqual([
+      ["Standard", 0.18, 0.18],
+      ["ISO-25", 2.5, 2.5],
+    ]);
+    // 引出線の矢印の長さは、ヘッダの $DIMASZ ではなく引出線の寸法スタイルの DIMASZ × DIMSCALE
+    const arrows = readDrawing(DIMSTYLE_DEFAULTS, [dxf]).entities.map((entity) => {
+      const fill = entity.primitives.find((item) => item.kind === "fill");
+      const [tx = 0, , ax = 0, , bx = 0] = fill?.kind === "fill" ? Array.from(fill.rings[0] ?? []) : [];
+      return Math.round(((ax + bx) / 2 - tx) * 1e6) / 1e6;
+    });
+    expect(arrows).toEqual([0.18, 2.5]);
   });
 });

@@ -15,10 +15,14 @@ format, version, authoring software, and the notices the viewer shows.
 - wasm-bindgen-cli of the version of `wasm-bindgen` in `Cargo.lock`, which builds the WebAssembly reader of
   `@zumenjs/dwg` (`cargo install wasm-bindgen-cli --locked --version 0.2.129`; `node scripts/wasm.mjs` prints the
   command for the current version when it differs).
+- Chromium for the tests of the engine and the React hooks, which run in a browser (`*.browser.test.*`):
+  `pnpm exec playwright install --only-shell chromium` installs the headless shell of the Playwright version in
+  `package.json`.
 - Install and run every check:
 
   ```bash
   pnpm install --frozen-lockfile
+  pnpm exec playwright install --only-shell chromium
   pnpm run check
   ```
 
@@ -27,12 +31,16 @@ format, version, authoring software, and the notices the viewer shows.
   `playground` port in
   [config/local-ports.json](config/local-ports.json) (24100); set `PORT` to override it.
   To open drawings that are not in Git, set `ZUMEN_SAMPLES` to their folder and visit `/?sample=<file name>`.
-  ST-Bridge models open the same way; the playground tells them from drawings by their contents.
+  ST-Bridge models open the same way; the playground tells them from drawings by their contents. Drawings are shown by
+  the 2D sample (`playground/drawing-sample.tsx`), which uses only the public API of `@zumenjs/react` and
+  `@zumenjs/viewer`.
 
 ## How the code is organized
 
-Read [docs/architecture.md](docs/architecture.md) first. In short: format packages depend only on `@zumenjs/core`,
-parsing never touches the DOM, and interaction belongs in `DrawingViewer`. Structural models (`@zumenjs/stb`) are a
+Read [docs/architecture.md](docs/architecture.md) first. In short: format packages and `@zumenjs/viewer` depend only
+on `@zumenjs/core`, parsing and `@zumenjs/core` never touch the DOM, interaction belongs in the engine
+(`DrawingViewer` of `@zumenjs/viewer`), `@zumenjs/react` has hooks only, and the packages ship no CSS and no text for
+people: the interface is the application's, and the playground has a sample. Structural models (`@zumenjs/stb`) are a
 separate 3D line with its own model and a three.js view.
 
 - Follow the public specification of each format and cite the section in a comment.
@@ -45,6 +53,9 @@ separate 3D line with its own model and a three.js view.
 Keep tests few and meaningful. Add a test when a mistake would go unnoticed and produce wrong output:
 encodings, coordinate systems, scales, nesting, and regressions of serious bugs. Do not add tests that restate the
 implementation or check UI text. Build test drawings inside the test (see `packages/jww/tests`).
+Tests named `*.browser.test.ts` or `*.browser.test.tsx` run in Chromium (the `browser` project of `vitest.config.ts`):
+the engine and the React hooks are tested there with synthetic pointer, wheel and key events and the pixels of the
+canvas.
 
 The Rust readers must return the same scenes as the TypeScript readers. The synthetic drawings that the TypeScript
 tests build are also written to `tests/fixtures` with the scenes they produce; after changing a TypeScript reader, run

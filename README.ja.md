@@ -16,28 +16,33 @@ AutoCAD などの **DXF**（Shift_JIS の日本語、バイナリを含む）も
 
 ## パッケージ
 
-pnpm の workspace で、形式ごとの読み取りと、形式に依存しない図面エンジン、React の部品に分ける。
+pnpm の workspace で、形式ごとの読み取りと、形式に依存しないモデル、利用側の画面に組み込む図面エンジン、React のフックに分ける。
 npm には未公開（0.x の公開準備中）。
 
 | パッケージ | フォルダー | 中身 |
 | --- | --- | --- |
-| `@zumenjs/core` | `packages/core` | 表示用モデル（`Scene`）、Canvas の描画、`DrawingViewer`（拡大・移動・選択・計測・重ね描き）、距離の計測、`readDrawing`。幾何は `/geometry`、文字の配置は `/text` |
+| `@zumenjs/core` | `packages/core` | 表示用モデル（`Scene`）と JSON、`readDrawing` と読み取りの口（`DrawingReader`）、距離の計測、読み取りの注意。DOM を使わない。幾何は `/geometry`、文字の配置は `/text` |
+| `@zumenjs/viewer` | `packages/viewer` | 画面に組み込む 2D のエンジン。Canvas の描画、当たり判定と吸着、`DrawingViewer`（表示範囲・状態・操作のハンドラ・道具・見た目） |
 | `@zumenjs/sxf` | `packages/sxf` | `parseSfc`・`parseP21`（フィーチャのモデル）、`sxfToScene`、読み取りの `sxf` |
 | `@zumenjs/jww` | `packages/jww` | `readJww`（JWW のままのモデル）、`jwwToScene`、読み取りの `jww` |
 | `@zumenjs/dxf` | `packages/dxf` | `parseDxf`（DWG と共有する AutoCAD の図形モデル）、`dxfToScene`、読み取りの `dxf` |
-| `@zumenjs/dwg` | `packages/dwg` | 読み取りの `dwg`（Rust の DWG の読み取りを WebAssembly にしたもの。`initDwg` で読み込む）、`isDwg` |
-| `@zumenjs/react` | `packages/react` | 完成品の画面 `CadViewer`、フック `useDrawingViewer`・`useCadFile` |
+| `@zumenjs/dwg` | `packages/dwg` | 読み取りの `dwg`（Rust の DWG の読み取りを WebAssembly にしたもの。`initDwg` か `dwg.load` で読み込む）、`isDwg` |
+| `@zumenjs/react` | `packages/react` | フックだけ。`useDrawingViewer`・`useViewerState`・`useViewerEvent`・`useDrawing` |
 | `@zumenjs/stb` | `packages/stb` | ST-Bridge の読み取り `readStb`・`isStb`（3D の構造モデル）、three.js の表示 `StructureView`（`/three`）、React の `StbViewer`・`useStbFile`（`/react`） |
 
-依存の向きは `@zumenjs/react` → `@zumenjs/core`、`@zumenjs/sxf`・`@zumenjs/jww`・`@zumenjs/dxf`・`@zumenjs/dwg` →
-`@zumenjs/core` だけ（DWG は Rust だけで読み、`zumen-dwg` が `zumen-dxf` のモデルと変換を使う。`@zumenjs/dwg` はその
-WebAssembly の build を包む）。
+依存の向きは `@zumenjs/react` → `@zumenjs/viewer` → `@zumenjs/core`、`@zumenjs/sxf`・`@zumenjs/jww`・`@zumenjs/dxf`・
+`@zumenjs/dwg` → `@zumenjs/core` だけ（DWG は Rust だけで読み、`zumen-dwg` が `zumen-dxf` のモデルと変換を使う。
+`@zumenjs/dwg` はその WebAssembly の build を包む）。パッケージは画面の文言と CSS を持たず、画面は利用側が作る
+（試用画面にサンプルがある）。
 `@zumenjs/stb` は 3D の別の系統で、ほかのパッケージに依存しない。
 `@zumenjs/core` は形式を知らず、使う形式の読み取りを `readDrawing` に渡す。形式は拡張子ではなく中身で判定する。
 
 ## できること
 
 - 図面全体の表示、拡大・縮小（ホイール・ピンチ・ボタン・キー）、移動（ドラッグ・矢印キー）。
+- 利用側の画面への組み込み。表示範囲を指定・保存・復元し、変化をイベントで受ける（図面の上に置いた HTML を追従させる）。
+  複数の図形の選択、検索結果などの名前付きの強調、利用側の道具（書き込み・ピン・範囲など）、操作のハンドラごとの停止
+  （ホイールは Ctrl・⌘ を押したときだけ拡大、なども選べる）、CSS のカスタムプロパティによる配色。
 - レイヤごとの表示・非表示。図面の表示指定を初期状態にする。JWW はレイヤグループごとにまとめて切り替えられる。
 - 図形を選んで属性を確認する。種類、レイヤ、色・線種・線幅、座標、寸法値、部分図の縮尺など。
 - DXF の R12〜2018（テキスト・バイナリ）。線分・円弧・ふくらみと幅のあるポリライン・スプライン・文字・書式つきの複数行文字・
@@ -54,72 +59,108 @@ WebAssembly の build を包む）。
 
 ## 使い方
 
-React では、読む形式を `useCadFile` に渡し、`CadViewer` で表示する。
+React では、`useDrawing` で渡した読み取りを使ってファイルを読み、`useDrawingViewer` で画面の要素の上にエンジンを作り、
+`useViewerState` で状態のうち部品が使う部分を読む。
 
 ```tsx
 "use client";
 
+import type { Scene } from "@zumenjs/core";
+import { dwg } from "@zumenjs/dwg";
 import { dxf } from "@zumenjs/dxf";
 import { jww } from "@zumenjs/jww";
-import { CadViewer, useCadFile } from "@zumenjs/react";
+import { useDrawing, useDrawingViewer, useViewerState } from "@zumenjs/react";
 import { sxf } from "@zumenjs/sxf";
-import { useState } from "react";
 
-const READERS = [sxf, jww, dxf];
+const READERS = [sxf, jww, dxf, dwg];
 
 export function DrawingView({ file }: { file: File | null }) {
-  // DXF のモデル空間・レイアウト。undefined は図面の既定の表示。
-  // ファイルごとに DrawingView を作り直す（key を付けるなど）と、既定の表示から始まる
-  const [view, setView] = useState<string>();
-  const { scene, error, loading } = useCadFile(file, READERS, { view });
+  // DWG の読み取りは、初めて DWG を開いたときに WebAssembly（brotli で 494 KB）を読み込む。
+  // DXF・DWG のレイアウトは { view } で選ぶ
+  const { scene, error, loading } = useDrawing(file, READERS);
   if (loading) return <p>読み込み中…</p>;
   if (error) return <p role="alert">{error.message}</p>;
-  return scene ? <CadViewer scene={scene} onViewChange={setView} style={{ height: 640 }} /> : null;
+  return scene ? <Drawing scene={scene} label={file?.name ?? "図面"} /> : null;
+}
+
+function Drawing({ scene, label }: { scene: Scene; label: string }) {
+  const { ref, viewer } = useDrawingViewer(scene, { label, handlers: { wheel: "modifier" } });
+  const tool = useViewerState(viewer, (state) => state.tool);
+  const distance = useViewerState(viewer, (state) => state.distance);
+  return (
+    <>
+      <button type="button" onClick={() => viewer?.fit()}>全体</button>
+      <button type="button" aria-pressed={tool === "measure"} onClick={() => viewer?.setTool("measure")}>
+        計測
+      </button>
+      <div ref={ref} style={{ height: 480 }} />
+      {distance ? <p>用紙 {distance.paper.toFixed(1)} mm、実寸 {distance.real?.toFixed(0) ?? "-"} mm</p> : null}
+    </>
+  );
 }
 ```
 
-DWG は、`@zumenjs/dwg` の `dwg` を読み取りに加え、DWG を読む前に `initDwg()` を待つ。これが WebAssembly の読み取り
-（brotli で 494 KB）を読み込む。`isDwg` はそれなしで DWG を見分けるので、試用画面のように、初めて DWG を開いたときに
-読み込める。
+試用画面の [2D のサンプル](playground/drawing-sample.tsx) は、この形で操作盤・レイヤの一覧・属性・読み取りの注意・
+状態の欄を作っている。
+
+React を使わない場合は、`DrawingViewer` に要素と図面を渡す。`load` を持つ読み取り（DWG）は、読む前にそれを待つ。
 
 ```ts
 import { readDrawing } from "@zumenjs/core";
 import { dwg, initDwg, isDwg } from "@zumenjs/dwg";
+import { dxf } from "@zumenjs/dxf";
+import { jww } from "@zumenjs/jww";
+import { sxf } from "@zumenjs/sxf";
+import { DrawingViewer } from "@zumenjs/viewer";
 
-async function read(file: File) {
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  if (isDwg(bytes)) await initDwg(); // 最初の DWG で読み取りを読み込む。2 度目からはすぐに終わる
-  return readDrawing(bytes, [sxf, jww, dxf, dwg]);
+const bytes = new Uint8Array(await file.arrayBuffer());
+if (isDwg(bytes)) await initDwg(); // 最初の DWG で読み取りを読み込む。2 度目からはすぐに終わる
+const scene = readDrawing(bytes, [sxf, jww, dxf, dwg]);
+const viewer = new DrawingViewer(element, scene, { label: file.name });
+
+viewer.fitBounds(scene.entities[0].bbox, { padding: 40 }); // 図形へ移る
+const { center, zoom } = viewer.getView(); // viewer.jumpTo({ center, zoom }) でこの表示範囲に戻る
+viewer.on("move", () => {
+  // 用紙の点 (120, 80) に置いた HTML を、表示範囲の変化に追従させる
+  const [px, py] = viewer.toScreen(120, 80);
+  marker.style.transform = `translate(${px}px, ${py}px)`;
+});
+viewer.on("cursor", ({ point }) => console.log(point)); // ポインターの下の用紙の座標（mm）
+viewer.setHighlight("search", found); // 検索で見つけた図形を、その名前の色で強調する
+viewer.subscribe(() => console.log(viewer.getState().selection));
+```
+
+道具は用紙の mm でポインターのイベントを受け、図面の上に描く。組み込みの選択・計測・移動も同じ口の道具である。
+色は要素の CSS のカスタムプロパティ（黒背景用と白背景用）から読むので、利用側の配色に合わせられる。
+
+```ts
+const pins: [number, number][] = [];
+viewer.addTool({
+  name: "pin",
+  click(event, viewer) {
+    pins.push([event.x, event.y]);
+    viewer.invalidate();
+  },
+  draw(ctx, viewer) {
+    for (const [x, y] of pins) {
+      const [px, py] = viewer.toScreen(x, y);
+      ctx.fillRect(px - 4, py - 4, 8, 8);
+    }
+  },
+});
+viewer.setTool("pin");
+```
+
+```css
+.drawing {
+  --zumen-background-dark: #1f2023; /* 暗い色なので、黒に近い線は白で描く */
+  --zumen-selection-dark: #ffd43d;
+  --zumen-highlight-search-dark: #5ad2ff;
+  --zumen-fit-padding: 16;
 }
 ```
 
-操作盤を自分で作る場合は `useDrawingViewer` を使う。`ref` を大きさを決めた要素に渡し、
-`state`（倍率・選択・計測の距離など）を読んで、`viewer` のメソッドで操作する。
-
-```tsx
-const { ref, viewer, state } = useDrawingViewer(scene, { onSelect: (entity) => console.log(entity) });
-return (
-  <>
-    <button type="button" onClick={() => viewer?.fit()}>全体</button>
-    <div ref={ref} style={{ height: 480 }} />
-    <p>{state.selected?.type}</p>
-  </>
-);
-```
-
-React を使わない場合は、`DrawingViewer` に要素と図面を渡す。
-
-```ts
-import { DrawingViewer, readDrawing } from "@zumenjs/core";
-import { jww } from "@zumenjs/jww";
-import { sxf } from "@zumenjs/sxf";
-
-const scene = readDrawing(new Uint8Array(await file.arrayBuffer()), [sxf, jww]);
-const viewer = new DrawingViewer(element, scene, { label: file.name });
-viewer.subscribe(() => console.log(viewer.getState().distance));
-// 図面の上に重ねて描く（書き込みなど）。view で用紙の mm と画面の px を変換する
-const remove = viewer.addOverlay((ctx, view) => ctx.fillRect(view.offsetX, view.offsetY - 8, 8, 8));
-```
+表示範囲・状態・操作のハンドラ・道具・見た目の詳細は [packages/viewer](packages/viewer/README.md)（英語）を参照。
 
 表示せずに解析だけを使う場合は、形式のままのモデルを読む（Node.js でも動く）。
 
@@ -211,22 +252,26 @@ Python では、読み取りと描画の間 GIL を外す。
 
 ```bash
 pnpm install --frozen-lockfile
+pnpm exec playwright install --only-shell chromium
 pnpm run check
 ```
 
 `check` は Biome、WebAssembly の読み取りのビルドと正解との比較（`pnpm run wasm`）、型検査、単体テスト、依存監査、
-各パッケージ（core、sxf・jww・dxf・dwg、react、stb の順）と試用画面のビルドに加え、
+各パッケージ（core、viewer、sxf・jww・dxf・dwg、react、stb の順）と試用画面のビルドに加え、
 Rust（rustfmt・Clippy・テスト・wasm32 のビルド）と Python の結合部（Ruff・maturin・pytest）を検査する。
 WebAssembly の読み取りは `scripts/wasm.mjs` が cargo と wasm-bindgen-cli（`Cargo.lock` の wasm-bindgen と同じ版）で
 `packages/dwg/wasm` に作る。`pnpm dev` と `check` は最初にこれを走らせる。
 Rust は `rust-toolchain.toml`、Python は uv と `bindings/python/.python-version` に固定する。
 TS の読み取りを変えたら `pnpm run golden` で `tests/fixtures` の正解を作り直し、Rust の読み取りも同じ結果に直す。
+エンジンと React のフックのテスト（`*.browser.test.*`）は Canvas とポインターのイベントを使うので、Playwright の
+Chromium（headless shell）で動かす。
 開発中は、パッケージ同士が `package.json` の exports の `@zumenjs/source` 条件で `src` を読むため、ビルドしなくても変更がすぐ反映される。
 Node.js は `.node-version`、pnpm は `package.json` の `packageManager` に固定する。
 
 試用画面は `pnpm dev` で開く（ポートは [config/local-ports.json](config/local-ports.json) の `playground`、既定 24100）。
 Git に入れない図面は、置いたフォルダーを `ZUMEN_SAMPLES` に指定し、`http://127.0.0.1:24100/?sample=<ファイル名>` で開く。
-ファイルの選択・ドロップでも開ける。ST-Bridge は中身で見分けて 3D の表示に切り替える（three.js はそのときだけ読み込む）。
+ファイルの選択・ドロップでも開ける。図面は公開 API だけで作った 2D のサンプル（`playground/drawing-sample.tsx`）で表示する。
+ST-Bridge は中身で見分けて 3D の表示に切り替える（three.js はそのときだけ読み込む）。
 DWG も中身で見分け、初めて開いたときに WebAssembly の読み取りを読み込む。
 
 ## ライセンス

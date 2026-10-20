@@ -1,11 +1,11 @@
 # Architecture
 
-zumen is a pnpm workspace with one package per drawing format, a format-neutral drawing engine,
-and a thin React layer. A drawing flows through the packages like this:
+zumen is a pnpm workspace with one package per drawing format, a format-neutral scene model, a drawing engine that
+applications embed in their own interface, and React hooks. A drawing flows through the packages like this:
 
 ```text
-bytes ─▶ format reader ─▶ native model ─▶ toScene ─▶ Scene ─▶ DrawingViewer (Canvas) ─▶ React UI
-         (@zumenjs/sxf,     (SxfDrawing,              (@zumenjs/core)                     (@zumenjs/react)
+bytes ─▶ format reader ─▶ native model ─▶ toScene ─▶ Scene ─────────▶ DrawingViewer ───▶ hooks ─▶ your UI
+         (@zumenjs/sxf,     (SxfDrawing,             (@zumenjs/core)  (@zumenjs/viewer)  (@zumenjs/react)
           @zumenjs/jww,      JwwDocument,
           @zumenjs/dxf)      DxfDocument)
 ```
@@ -28,12 +28,13 @@ bytes ─▶ readStb ─▶ StructureModel ─▶ StructureView (three.js) ─�
 
 | Package | Responsibility |
 | --- | --- |
-| `@zumenjs/core` | The `Scene` model and its types, `NoticeList`, `readDrawing` and the `DrawingReader` interface, the Canvas 2D renderer, hit testing and snapping (`HitIndex`), distance measurement (`measureDistance`, `toReal`), and `DrawingViewer`. Geometry helpers are exported from `@zumenjs/core/geometry` and text layout from `@zumenjs/core/text`. |
+| `@zumenjs/core` | What `zumen-core` covers: the `Scene` model and its types and JSON (`sceneToJson`, `sceneFromJson`), `NoticeList`, `readDrawing` and the `DrawingReader` interface (with the optional `load`), layer visibility (`isEntityVisible`) and distance measurement (`measureDistance`, `toReal`). Geometry helpers are exported from `@zumenjs/core/geometry` and text layout from `@zumenjs/core/text`. No DOM. |
+| `@zumenjs/viewer` | The 2D engine that applications embed: the Canvas 2D renderer (`renderScene`, `renderHighlights`), hit testing and snapping (`HitIndex`), and `DrawingViewer` with the view, the state, input handlers, tools and style. No text for people and no CSS. |
 | `@zumenjs/sxf` | SFC and P21 parsing into the SXF feature model (`parseSfc`, `parseP21` → `SxfDrawing`), conversion to a scene (`sxfToScene`), and the `sxf` reader. |
 | `@zumenjs/jww` | JWW parsing into the JWW document model (`readJww` → `JwwDocument`), conversion to a scene (`jwwToScene`), and the `jww` reader. |
 | `@zumenjs/dxf` | DXF parsing (ASCII and binary) into the AutoCAD drawing model (`parseDxf` → `DxfDocument`), conversion of model space or a layout to a scene (`dxfToScene`), and the `dxf` reader. Their Rust port (`zumen-dxf`) also draws DWG. |
 | `@zumenjs/dwg` | The `dwg` reader, which reads DWG with the WebAssembly build of the Rust reader (`initDwg` loads it), and `isDwg`. It has no DWG reader of its own. |
-| `@zumenjs/react` | `useDrawingViewer` (the engine in React), `CadViewer` (a complete viewer), and `useCadFile`. |
+| `@zumenjs/react` | Hooks only: `useDrawingViewer` (the engine on an element), `useViewerState` (a part of its state), `useViewerEvent` (its events) and `useDrawing` (read a file, waiting for readers that load). |
 | `@zumenjs/stb` | ST-Bridge parsing into a 3D structural model (`isStb`, `readStb` → `StructureModel`) and member filters (`isMemberVisible`, `membersOnAxis`). `@zumenjs/stb/three` draws the model with three.js (`StructureView`, tessellation and picking), and `@zumenjs/stb/react` adds `StbViewer` and `useStbFile`. |
 
 1. Format packages depend only on `@zumenjs/core`, never on each other.
@@ -42,17 +43,25 @@ bytes ─▶ readStb ─▶ StructureModel ─▶ StructureView (three.js) ─�
    only in Rust, by `zumen-dwg` into the `DxfDocument` of `zumen-dxf` (see [decision 0003](decisions/0003-dwg-in-rust.md)
    and [How DWG is handled](formats/dwg.md)). `@zumenjs/dwg` wraps the WebAssembly build and also depends only on
    `@zumenjs/core`.
-2. `@zumenjs/core` has no knowledge of any format. Formats are passed to `readDrawing` as `DrawingReader`s.
+2. `@zumenjs/core` has no knowledge of any format and does not use the DOM (its build has no DOM types). Formats are
+   passed to `readDrawing` as `DrawingReader`s. It covers what the Rust crate `zumen-core` covers: what both
+   languages have goes to `@zumenjs/core`, and what only browsers need (drawing, input, hit testing) to
+   `@zumenjs/viewer`.
 3. Parsing (`parse*`, `read*` and everything below them) does not use the DOM, React or the renderer.
    It uses only the types and `NoticeList` from `@zumenjs/core`. The `*ToScene` conversions use the geometry
    and text layout helpers.
-4. Interaction (zoom, pan, selection, measurement) lives in `DrawingViewer`. The React layer only reads the
-   viewer state and calls its methods.
+4. Interaction (the view, selection, measurement, input handlers and tools) lives in the engine, `DrawingViewer` of
+   `@zumenjs/viewer`, which depends only on `@zumenjs/core`. `@zumenjs/react` depends on both and has hooks only:
+   they create the engine, read its state and events, and read files. The packages ship no CSS and no text for
+   people; the interface belongs to the application, and the playground has a sample written only against the public
+   API ([decision 0005](decisions/0005-browser-packages-for-embedding.md)).
 5. `@zumenjs/stb` is a separate line for 3D structural models and depends on no other package. Inside it, parsing
    (`src/`, `src/xml/`, `src/stb/`) does not use the DOM, three.js or React, drawing lives in `src/three/` and React in
    `src/react/`, and the imports go react → three → parsing only. When plan and elevation drawings of a structure are
    added, they convert the model to a `Scene`, and `@zumenjs/stb` then depends on `@zumenjs/core` only
-   (see [decision 0001](decisions/0001-st-bridge-in-zumen.md)).
+   (see [decision 0001](decisions/0001-st-bridge-in-zumen.md)). Its React component `StbViewer` still keeps the
+   interaction state; the 3D step of decision 0005 moves it into the engine of `@zumenjs/stb/three` on the contract
+   of the 2D engine, and the component into the playground.
 
 ## The scene model
 
@@ -90,12 +99,44 @@ bytes ─▶ readStb ─▶ StructureModel ─▶ StructureView (three.js) ─�
 
 ## Extension points for applications
 
-- `viewer.addOverlay(painter)` draws on top of the drawing (markup, photo positions, annotations).
-  Call `viewer.invalidate()` when the overlay content changes.
-- `viewer.toPaper(px, py)`, `viewer.toScreen(x, y)` and `toReal(placement, x, y)` convert between screen pixels,
-  paper millimeters and real-world coordinates.
-- `viewer.getState()` and `viewer.subscribe(listener)` expose the state to any UI (React uses `useSyncExternalStore`).
-- `onSelect` reports entities the user picks.
+`DrawingViewer` of `@zumenjs/viewer` is the engine an application embeds, and the interface around it (toolbars,
+panels, text, layout) is the application's. It splits like map engines such as MapLibre GL JS and OpenLayers: the view,
+the state, the input handlers and the tools are separate, and each can be used or replaced on its own
+([decision 0005](decisions/0005-browser-packages-for-embedding.md)).
+
+- **View.** `jumpTo({ center, zoom })`, `fitBounds(box, { padding })`, `fit()`, `zoomBy(factor, px, py)`,
+  `panBy(dx, dy)` and `getView()`, whose center and zoom go back to `jumpTo` unchanged (saved views, two views kept
+  together). `move` is sent on every change and `moveend` when it is over, with the view and the DOM event of the
+  user's action. `toScreen(x, y)`, `toPaper(px, py)` and `toReal(placement, x, y)` of `@zumenjs/core` convert between
+  screen pixels, paper millimeters and real-world millimeters, for HTML placed on the drawing.
+- **State.** `getState()` and `subscribe(listener)`: the scene, the background, line weights, hidden layers, the
+  selection (several entities), the hovered entity, named highlights (`setHighlight(name, entities)`), the active
+  tool and the measurement. Every change makes a new object, which React reads with `useSyncExternalStore`. What
+  changes at the pace of the pointer is sent as events instead: `move` and `cursor` (the paper point under the pointer).
+- **Input handlers.** `dragPan`, `wheel` (`"always"`, `"modifier"` for Ctrl or ⌘ only, or `"never"`), `pinch`,
+  `doubleClick` and `keyboard`, in the options or with `setHandlers`.
+- **Tools.** A `ViewerTool` receives pointer events in paper millimeters and key presses, asks for the entities and
+  the snap point under the pointer, changes the state and draws on the overlay canvas. The built-in `select`,
+  `measure` and `pan` tools use the same interface; `addTool` and `setTool` add and choose an application's own
+  (markup, pins, areas).
+- **Style.** CSS custom properties on the element, `--zumen-<role>-dark` and `--zumen-<role>-light` for the
+  background, the selection, the hovered entity, named highlights (also per name), the measurement and the sheet
+  frame, and `--zumen-fit-padding`, so the drawing follows the application's theme; `setStyle` overrides them. The
+  background defaults to the one the drawing assumes (`Scene.background`), and colors that cannot be told from it are
+  inverted according to its lightness, with the rules of `renderScene` and `zumen-render`.
+- **Queries.** `entitiesAt(x, y)`, `entitiesIn(box)` and `snapAt(x, y)` for applications that handle input
+  themselves.
+- **Overlays.** `addOverlay(painter)` draws on top of the drawing whatever the tool; `invalidate()` redraws it.
+- **Readers that load.** A `DrawingReader` may have `load()`, as the WebAssembly reader of DWG does; `useDrawing` waits
+  for the one that recognizes the file.
+- **React.** `useDrawingViewer`, `useViewerState(viewer, selector)`, `useViewerEvent(viewer, type, listener)` and
+  `useDrawing(file, readers, options)`.
+- **Text.** The engine has none: the canvas label (`label`, `setLabel`) and every other text come from the
+  application. Scenes still carry Japanese entity types, property labels and notice messages; stable keys next to them
+  are a later step of decision 0005.
+
+The playground's 2D sample (`playground/drawing-sample.tsx`, with `layer-list.tsx` and `drawing-sample.css`) is a
+complete viewer, with a toolbar, a layer list, properties, notices and a status bar, written only against this API.
 
 ## The Rust implementation
 
@@ -119,7 +160,7 @@ bytes ─▶ zumen-sxf, zumen-jww, zumen-dxf, zumen-dwg ─▶ Scene (zumen-core
 | `zumen-dxf` | DXF parsing (ASCII and binary) into the AutoCAD drawing model (`parse_dxf` → `DxfDocument`), conversion of model space or a layout to a scene (`dxf_to_scene`), and the `DXF` reader. |
 | `zumen-dwg` | DWG decoding (AutoCAD 2000 to 2018) into the AutoCAD drawing model of `zumen-dxf` (`read_dwg` → `DxfDocument`), drawn with `dxf_to_scene`, and the `DWG` reader. |
 | `zumen` | `read` and `detect` over every reader, with limits for untrusted drawings (`ReadDrawingOptions::limits`). The entry point for applications. |
-| `zumen-render` | Draws a scene to PNG with the rules of `render.ts` (color inversion, line weights with a 1 px minimum, dash rules, even-odd fills, clipping, per-character text, small text as a line), and reports which entities it drew and where (`render_image`, `drawn_entities`, `View::pixel_box`). |
+| `zumen-render` | Draws a scene to PNG with the rules of `render.ts` in `@zumenjs/viewer` (color inversion, line weights with a 1 px minimum, dash rules, even-odd fills, clipping, per-character text, small text as a line), and reports which entities it drew and where (`render_image`, `drawn_entities`, `View::pixel_box`). |
 | `zumen-cli` | The `zumen` command (`detect`, `scene`, `texts`, `entities`, `render`). |
 | `bindings/python` | PyO3 bindings, built with maturin as an abi3 wheel for Python 3.10 and later. The GIL is released while reading and rendering. `Scene.to_arrow` needs pyarrow (Apache-2.0, `zumen[arrow]`), and the MCP server `zumen.mcp` needs the MCP SDK (MIT, `zumen[mcp]`); both are optional dependencies. |
 | `bindings/wasm` | wasm-bindgen bindings that detect the format (`detect`) and return scene JSON (`readSceneJson`). `scripts/wasm.mjs` builds them into `packages/dwg/wasm` for `@zumenjs/dwg`. |
@@ -271,8 +312,12 @@ a Japanese gothic close to the MS Gothic that SXF and Jw_cad drawings assume. Ch
 - `scripts/wasm.mjs` builds the WebAssembly reader into `packages/dwg/wasm`, which is not in Git, with cargo and
   `wasm-bindgen-cli`. `pnpm dev` and `pnpm run check` run it first; `pnpm test`, the type checker and the builds need
   its output. When the Rust code has not changed, it takes well under a second.
-- `pnpm run build` compiles the packages in dependency order (core, then sxf, jww, dxf and dwg, then react, then stb,
-  which depends on none of them) into each `dist`.
+- `pnpm run build` compiles the packages in dependency order (core, then viewer, sxf, jww, dxf and dwg, then react,
+  then stb, which depends on none of them) into each `dist`.
+- `pnpm test` runs two Vitest projects: the unit tests in Node.js, and the tests of the engine and the hooks
+  (`*.browser.test.*`) in Chromium through Playwright, with synthetic pointer, wheel and key events and the pixels of
+  the canvas. The Chromium headless shell of the Playwright version in `package.json` is installed with
+  `pnpm exec playwright install --only-shell chromium`.
 - `pnpm run check` runs Biome, builds the WebAssembly reader and compares it with the fixtures (`pnpm run wasm`), then
   runs the type checker, the unit tests, `pnpm audit` and all builds, then the Rust checks (`check:rust`: rustfmt,
   Clippy, tests and the wasm32 build) and the Python checks (`check:python`: Ruff, maturin, pytest).
