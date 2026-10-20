@@ -426,6 +426,14 @@ describe("見た目", () => {
     await frames();
     expect(pixel(base, 2, 2)).toEqual([64, 80, 96, 255]);
     expect(pixel(base, ...viewer.toScreen(25, 50))).toEqual([255, 0, 0, 255]);
+    // ポインターの下の図形は、hover の色を決めたときだけ重ね描きの Canvas に描く
+    pointer(viewer, "pointermove", ...viewer.toScreen(25, 0), { buttons: 0 });
+    expect(viewer.getState().hovered).toBe(bottom);
+    await frames();
+    expect(pixel(viewer.canvas, ...viewer.toScreen(25, 0))).toEqual([0, 0, 0, 0]);
+    viewer.setStyle({ dark: { hover: "#00ffff" } });
+    await frames();
+    expect(pixel(viewer.canvas, ...viewer.toScreen(25, 0))).toEqual([0, 255, 255, 255]);
   });
 
   it("背景の既定は図面の想定で、背景と見分けにくい色は背景の明るさで反転する", async () => {

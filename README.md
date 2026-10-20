@@ -4,7 +4,7 @@ English | [日本語](README.ja.md)
 
 Read, view and measure architectural and civil engineering 2D drawings in the browser, and view structural models in 3D.
 **zumen** (図面, "drawing" in Japanese) parses the drawing files themselves, so nothing is uploaded to a server,
-and gives you a framework-agnostic drawing engine and React components to build viewers on top of.
+and gives you a framework-agnostic drawing engine to embed in your own interface, with React hooks and a sample UI.
 
 > **Status:** pre-release (0.x). The packages are not published to npm yet.
 
@@ -31,6 +31,10 @@ and gives you a framework-agnostic drawing engine and React components to build 
 - DXF and DWG model space and layouts: viewports draw model space at their scale, and measurements inside them return
   real-world units.
 - Fit, zoom (wheel, pinch, buttons, keyboard) and pan (drag, arrow keys).
+- An engine to embed: set and read the view (and follow it with events, to keep HTML on the drawing in place), select
+  several entities, highlight named sets such as search results, add your own tools, turn each input handler off
+  (the wheel can zoom only with Ctrl or ⌘), and take colors from CSS custom properties. The engine has no text and the
+  packages ship no CSS, so the interface around it is yours; the playground has a sample built on the public API.
 - Layer visibility. JWW layer groups can be toggled at once.
 - Pick an entity to see its properties: type, layer, color, line type, width, coordinates, dimension values, scale.
 - Measure distances with snapping to vertices and lines, in paper millimeters and in **real-world units**
@@ -46,85 +50,126 @@ and gives you a framework-agnostic drawing engine and React components to build 
 
 | Package | Contents |
 | --- | --- |
-| [`@zumenjs/core`](packages/core) | Format-neutral scene model, Canvas 2D renderer, `DrawingViewer` (zoom, pan, select, measure, overlays), `readDrawing` |
+| [`@zumenjs/core`](packages/core) | Format-neutral scene model, `readDrawing` and the `DrawingReader` interface, geometry, text layout and measurement (no DOM) |
+| [`@zumenjs/viewer`](packages/viewer) | The 2D engine to embed: Canvas renderer, hit testing and snapping, and `DrawingViewer` (view, state, input handlers, tools, style) |
 | [`@zumenjs/sxf`](packages/sxf) | `parseSfc` and `parseP21` (the SXF feature model), `sxfToScene`, the `sxf` reader |
 | [`@zumenjs/jww`](packages/jww) | `readJww` (the JWW document model), `jwwToScene`, the `jww` reader |
 | [`@zumenjs/dxf`](packages/dxf) | `parseDxf` (the AutoCAD drawing model, shared with DWG), `dxfToScene`, the `dxf` reader |
-| [`@zumenjs/dwg`](packages/dwg) | The `dwg` reader, with the Rust DWG reader built to WebAssembly (`initDwg` loads it) |
-| [`@zumenjs/react`](packages/react) | `CadViewer` (a complete viewer), `useDrawingViewer` and `useCadFile` hooks |
+| [`@zumenjs/dwg`](packages/dwg) | The `dwg` reader, with the Rust DWG reader built to WebAssembly (`initDwg` or `dwg.load` loads it) |
+| [`@zumenjs/react`](packages/react) | Hooks: `useDrawingViewer`, `useViewerState`, `useViewerEvent` and `useDrawing` |
 | [`@zumenjs/stb`](packages/stb) | `readStb` and `isStb` (the 3D structural model), `StructureView` (three.js) and `StbViewer` (React) |
 
-Format packages depend only on `@zumenjs/core`, and `@zumenjs/core` knows nothing about formats.
+Format packages and `@zumenjs/viewer` depend only on `@zumenjs/core`, `@zumenjs/react` on `@zumenjs/viewer` and
+`@zumenjs/core`, and `@zumenjs/core` knows nothing about formats and does not use the DOM.
 `@zumenjs/stb` is a separate 3D line and depends on no other package.
 Formats are detected from the file contents, not from the file name. See [docs/architecture.md](docs/architecture.md).
 
 ## Quick start
 
-React: pass the readers you need to `useCadFile` and show the result with `CadViewer`.
+React: `useDrawing` reads a file with the readers you pass, `useDrawingViewer` creates the engine on an element of
+your interface, and `useViewerState` reads the part of its state a component needs.
 
 ```tsx
 "use client";
 
+import type { Scene } from "@zumenjs/core";
+import { dwg } from "@zumenjs/dwg";
 import { dxf } from "@zumenjs/dxf";
 import { jww } from "@zumenjs/jww";
-import { CadViewer, useCadFile } from "@zumenjs/react";
+import { useDrawing, useDrawingViewer, useViewerState } from "@zumenjs/react";
 import { sxf } from "@zumenjs/sxf";
-import { useState } from "react";
 
-const READERS = [sxf, jww, dxf];
+const READERS = [sxf, jww, dxf, dwg];
 
 export function DrawingView({ file }: { file: File | null }) {
-  // DXF model space or a layout; undefined is the drawing's default view.
-  // Give each file its own DrawingView (for example with a key) so that the view starts from the default.
-  const [view, setView] = useState<string>();
-  const { scene, error, loading } = useCadFile(file, READERS, { view });
+  // The DWG reader loads its WebAssembly module (494 KB with brotli) when the first DWG is opened.
+  // Pass { view } to pick a DXF or DWG layout.
+  const { scene, error, loading } = useDrawing(file, READERS);
   if (loading) return <p>Loading…</p>;
   if (error) return <p role="alert">{error.message}</p>;
-  return scene ? <CadViewer scene={scene} onViewChange={setView} style={{ height: 640 }} /> : null;
+  return scene ? <Drawing scene={scene} label={file?.name ?? "Drawing"} /> : null;
+}
+
+function Drawing({ scene, label }: { scene: Scene; label: string }) {
+  const { ref, viewer } = useDrawingViewer(scene, { label, handlers: { wheel: "modifier" } });
+  const tool = useViewerState(viewer, (state) => state.tool);
+  const distance = useViewerState(viewer, (state) => state.distance);
+  return (
+    <>
+      <button type="button" onClick={() => viewer?.fit()}>Fit</button>
+      <button type="button" aria-pressed={tool === "measure"} onClick={() => viewer?.setTool("measure")}>
+        Measure
+      </button>
+      <div ref={ref} style={{ height: 480 }} />
+      {distance ? <p>{distance.paper.toFixed(1)} mm on paper, {distance.real?.toFixed(0) ?? "-"} mm real</p> : null}
+    </>
+  );
 }
 ```
 
-DWG: add `dwg` from `@zumenjs/dwg` to the readers and wait for `initDwg()`, which loads the WebAssembly reader
-(494 KB with brotli), before a DWG is read. `isDwg` tells DWG apart without it, so the reader can be loaded when the
-first DWG is opened, as the playground does.
+The playground's [2D sample](playground/drawing-sample.tsx) builds a complete viewer this way: toolbar, layer list,
+properties, notices and status bar.
+
+Without React: give `DrawingViewer` an element and a scene. Wait for `load` of a reader that has one (DWG) before
+reading with it.
 
 ```ts
 import { readDrawing } from "@zumenjs/core";
 import { dwg, initDwg, isDwg } from "@zumenjs/dwg";
+import { dxf } from "@zumenjs/dxf";
+import { jww } from "@zumenjs/jww";
+import { sxf } from "@zumenjs/sxf";
+import { DrawingViewer } from "@zumenjs/viewer";
 
-async function read(file: File) {
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  if (isDwg(bytes)) await initDwg(); // the first DWG loads the reader; later calls return at once
-  return readDrawing(bytes, [sxf, jww, dxf, dwg]);
+const bytes = new Uint8Array(await file.arrayBuffer());
+if (isDwg(bytes)) await initDwg(); // the first DWG loads the reader; later calls return at once
+const scene = readDrawing(bytes, [sxf, jww, dxf, dwg]);
+const viewer = new DrawingViewer(element, scene, { label: file.name });
+
+viewer.fitBounds(scene.entities[0].bbox, { padding: 40 }); // go to an entity
+const { center, zoom } = viewer.getView(); // viewer.jumpTo({ center, zoom }) restores this view
+viewer.on("move", () => {
+  // keep an HTML marker on the paper point (120, 80) while the view moves
+  const [px, py] = viewer.toScreen(120, 80);
+  marker.style.transform = `translate(${px}px, ${py}px)`;
+});
+viewer.on("cursor", ({ point }) => console.log(point)); // paper millimeters under the pointer
+viewer.setHighlight("search", found); // entities your search found, in their own color
+viewer.subscribe(() => console.log(viewer.getState().selection));
+```
+
+Tools receive pointer events in paper millimeters and draw on top of the drawing; the built-in selection, measurement
+and panning are tools too. Colors come from CSS custom properties on the element, for the dark and the light
+background, so they follow the theme of your application:
+
+```ts
+const pins: [number, number][] = [];
+viewer.addTool({
+  name: "pin",
+  click(event, viewer) {
+    pins.push([event.x, event.y]);
+    viewer.invalidate();
+  },
+  draw(ctx, viewer) {
+    for (const [x, y] of pins) {
+      const [px, py] = viewer.toScreen(x, y);
+      ctx.fillRect(px - 4, py - 4, 8, 8);
+    }
+  },
+});
+viewer.setTool("pin");
+```
+
+```css
+.drawing {
+  --zumen-background-dark: #1f2023; /* a dark color, so near-black lines are drawn white */
+  --zumen-selection-dark: #ffd43d;
+  --zumen-highlight-search-dark: #5ad2ff;
+  --zumen-fit-padding: 16;
 }
 ```
 
-Your own UI: `useDrawingViewer` returns a `ref` for a sized element, the viewer state, and the viewer to control.
-
-```tsx
-const { ref, viewer, state } = useDrawingViewer(scene, { onSelect: (entity) => console.log(entity) });
-return (
-  <>
-    <button type="button" onClick={() => viewer?.fit()}>Fit</button>
-    <div ref={ref} style={{ height: 480 }} />
-    <p>{state.selected?.type}</p>
-  </>
-);
-```
-
-Without React: give `DrawingViewer` an element and a scene.
-
-```ts
-import { DrawingViewer, readDrawing } from "@zumenjs/core";
-import { jww } from "@zumenjs/jww";
-import { sxf } from "@zumenjs/sxf";
-
-const scene = readDrawing(new Uint8Array(await file.arrayBuffer()), [sxf, jww]);
-const viewer = new DrawingViewer(element, scene, { label: file.name });
-viewer.subscribe(() => console.log(viewer.getState().distance));
-// Draw on top of the drawing (markup, for example). `view` converts paper millimeters to screen pixels.
-const remove = viewer.addOverlay((ctx, view) => ctx.fillRect(view.offsetX, view.offsetY - 8, 8, 8));
-```
+See [packages/viewer](packages/viewer/README.md) for the view, the state, the input handlers, the tools and the style.
 
 Parsing only (works in Node.js):
 
@@ -215,7 +260,7 @@ sending them anywhere.
 - Browsers with Canvas 2D, and WebAssembly for DWG. Verified in Chromium; Firefox and Safari are expected to work but
   are not tested yet.
 - WebGL and three.js 0.186 for the 3D view of `@zumenjs/stb`.
-- React 19.3 for `@zumenjs/react` and `@zumenjs/stb/react`.
+- React 19.3 for the hooks of `@zumenjs/react` and for `@zumenjs/stb/react`.
 - Node.js 24 for parsing and for development.
 
 ## Roadmap
