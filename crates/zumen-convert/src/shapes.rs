@@ -145,7 +145,7 @@ pub(crate) fn bezier(degree: usize, knots: &[f64], control: &[[f64; 2]]) -> Opti
 }
 
 /// 点が輪郭（偶奇規則）の内側か
-fn inside(ring: &[f64], x: f64, y: f64) -> bool {
+pub(crate) fn inside(ring: &[f64], x: f64, y: f64) -> bool {
     let n = ring.len() / 2;
     let mut result = false;
     let mut j = n.wrapping_sub(1);

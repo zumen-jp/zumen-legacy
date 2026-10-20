@@ -230,3 +230,7 @@ all layer groups 1/1, lengths in millimeters).
 The shared conformance test (`crates/zumen/tests/edit.rs`) passes for the fixtures and the 9 local sample drawings
 when JWW is added to it, with the updated entity's layer compared by the end of the scene's layer value (`グループ 0 /
 0-3 ZUMEN-EDIT-CHECK`). Written and edited drawings have not yet been opened in Jw_cad; that check is pending.
+
+The AutoCAD-to-JWW mapper reports each omitted invisible entity as `invisible`, each array reduced to its first
+placement at the 10,000-placement bound as `block-array`, and each nonrectangular viewport treated as its bounding
+rectangle as `viewport-boundary`. Frozen layers named by R12 viewports are resolved alongside frozen layer handles.
