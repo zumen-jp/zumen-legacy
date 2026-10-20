@@ -4,6 +4,11 @@ All packages share one version during 0.x.
 
 ## Unreleased (0.1.0)
 
+- ST-Bridge left zumen: `@zumenjs/stb` and its notes moved to a private repository, because publishing an
+  implementation of ST-Bridge needs a license from buildingSMART Japan. zumen keeps to formats that need no third
+  party's permission and to dependencies with permissive licenses
+  ([decision 0013](docs/decisions/0013-st-bridge-out-of-zumen.md)). The playground opens drawings only.
+
 - The length unit of a drawing: `Scene.unit`, one of `LENGTH_UNITS` (`LengthUnit` in Rust), is the unit of the
   drawing's own coordinates (the `raw` points and lengths of properties): `millimeter` in SXF and JWW, and in DXF and
   DWG the unit of `$INSUNITS` (`inch`, `meter`, …), or the one assumed with the `unit-assumed` notice. `Scene.unit` in

@@ -2,7 +2,7 @@
 
 English | [日本語](README.ja.md)
 
-Read, view and measure architectural and civil engineering 2D drawings in the browser, and view structural models in 3D.
+Read, view and measure architectural and civil engineering 2D drawings in the browser.
 **zumen** (図面, "drawing" in Japanese) parses the drawing files themselves, so nothing is uploaded to a server,
 and gives you a framework-agnostic drawing engine to embed in your own interface, with React hooks and a sample UI.
 
@@ -16,8 +16,6 @@ and gives you a framework-agnostic drawing engine to embed in your own interface
 - **DXF** from AutoCAD and other CAD software is read in TypeScript, including Japanese drawings in Shift_JIS and binary DXF.
   **DWG** (AutoCAD 2000 to 2018) is read into the same AutoCAD drawing model by our own decoder in Rust, without GPL
   components, and in the browser through its WebAssembly build (`@zumenjs/dwg`).
-- Structural design data in Japan is exchanged as **ST-Bridge** (`.stb`). We found no browser library for it either,
-  so `@zumenjs/stb` reads versions 2.0 and 2.1 and shows the members in 3D.
 
 ## Features
 
@@ -41,10 +39,7 @@ and gives you a framework-agnostic drawing engine to embed in your own interface
   from the scale of SXF sub-figures, JWW layer groups, DXF units and DXF layout viewports.
 - Dark and light backgrounds; true line weights or hairlines.
 - Drawing metadata (title block, authoring software, sheet) and a list of everything that was skipped or substituted.
-- Structural models: ST-Bridge 2.0 and 2.1 in 3D, with members extruded from their sections, stories and grid axes,
-  plans and elevations by filtering, and member properties (section, materials, story and the original attributes).
-- No runtime dependencies; the 3D view uses three.js as an optional peer dependency, and `@zumenjs/dwg` ships its
-  WebAssembly reader. Parsing also runs in Node.js.
+- No runtime dependencies; `@zumenjs/dwg` ships its WebAssembly reader. Parsing also runs in Node.js.
 
 ## Packages
 
@@ -57,11 +52,9 @@ and gives you a framework-agnostic drawing engine to embed in your own interface
 | [`@zumenjs/dxf`](packages/dxf) | `parseDxf` (the AutoCAD drawing model, shared with DWG), `dxfToScene`, the `dxf` reader |
 | [`@zumenjs/dwg`](packages/dwg) | The `dwg` reader, with the Rust DWG reader built to WebAssembly (`initDwg` or `dwg.load` loads it) |
 | [`@zumenjs/react`](packages/react) | Hooks: `useDrawingViewer`, `useViewerState`, `useViewerEvent` and `useDrawing` |
-| [`@zumenjs/stb`](packages/stb) | `readStb` and `isStb` (the 3D structural model), `StructureView` (three.js) and `StbViewer` (React) |
 
 Format packages and `@zumenjs/viewer` depend only on `@zumenjs/core`, `@zumenjs/react` on `@zumenjs/viewer` and
 `@zumenjs/core`, and `@zumenjs/core` knows nothing about formats and does not use the DOM.
-`@zumenjs/stb` is a separate 3D line and depends on no other package.
 Formats are detected from the file contents, not from the file name. See [docs/architecture.md](docs/architecture.md).
 
 ## Quick start
@@ -193,21 +186,6 @@ const circles = scene.entities.filter((entity) => entity.kind === "circle"); // 
 const radius = circles[0]?.properties.find((property) => property.key === "radius")?.raw; // label 半径, value "25"
 ```
 
-Structural models (ST-Bridge): `useStbFile` reads the file and `StbViewer` shows it in 3D. `readStb` alone works in Node.js.
-
-```tsx
-import { StbViewer, useStbFile } from "@zumenjs/stb/react";
-
-export function StructureView({ file }: { file: File | null }) {
-  const { model, error } = useStbFile(file);
-  if (error) return <p role="alert">{error.message}</p>;
-  return model ? <StbViewer model={model} style={{ height: 640 }} /> : null;
-}
-```
-
-A `StructureModel` uses global millimeters with the Z axis up. Each member keeps its solid, its properties and the
-original XML attributes. See [packages/stb](packages/stb/README.md).
-
 ## Rust and Python
 
 The readers are being ported to Rust (`crates/`), with Python bindings (`bindings/python`) and a WebAssembly build
@@ -294,8 +272,7 @@ sending them anywhere.
 
 - Browsers with Canvas 2D, and WebAssembly for DWG. Verified in Chromium; Firefox and Safari are expected to work but
   are not tested yet.
-- WebGL and three.js 0.186 for the 3D view of `@zumenjs/stb`.
-- React 19.3 for the hooks of `@zumenjs/react` and for `@zumenjs/stb/react`.
+- React 19.3 for the hooks of `@zumenjs/react`.
 - Node.js 24 for parsing and for development.
 
 ## Roadmap
@@ -307,7 +284,6 @@ sending them anywhere.
    R13 and R14 are next).
 5. Writing and converting drawings (SXF, JWW, DXF and DWG to DXF done in Rust; SFC, P21 and JWW writers next),
    analysis (tables, rooms and areas; the comparison of revisions is done), markup and PDF drawings.
-6. Plan and elevation drawings of ST-Bridge models as scenes, to view, measure and render them like drawings.
 
 ## Documentation
 
@@ -316,7 +292,6 @@ sending them anywhere.
 - [How JWW is handled](docs/formats/jww.md) (Japanese)
 - [How DXF is handled](docs/formats/dxf.md)
 - [How DWG is handled](docs/formats/dwg.md)
-- [How ST-Bridge is handled](docs/formats/st-bridge.md) (Japanese)
 - [Verification records](docs/verification.md)
 - [Design decisions](docs/decisions/README.md)
 
@@ -329,8 +304,7 @@ Report security issues as described in [SECURITY.md](SECURITY.md).
 
 To be decided before the first public release.
 Third-party notices: [packages/jww/THIRD_PARTY_NOTICES.md](packages/jww/THIRD_PARTY_NOTICES.md),
-[packages/dxf/THIRD_PARTY_NOTICES.md](packages/dxf/THIRD_PARTY_NOTICES.md),
-[packages/stb/THIRD_PARTY_NOTICES.md](packages/stb/THIRD_PARTY_NOTICES.md).
+[packages/dxf/THIRD_PARTY_NOTICES.md](packages/dxf/THIRD_PARTY_NOTICES.md).
 The bundled font of `zumen-render` is BIZ UDGothic under the SIL Open Font License 1.1
 ([crates/zumen-render/fonts/OFL.txt](crates/zumen-render/fonts/OFL.txt)).
 
@@ -341,5 +315,3 @@ The bundled font of `zumen-render` is BIZ UDGothic under the SIL Open Font Licen
   Transport and Tourism of Japan, and the display requirements published by NILIM.
 - The DXF reader follows the Autodesk DXF Reference and was checked against [ezdxf](https://ezdxf.mozman.at/) (MIT);
   the code page table and some interpretations follow ezdxf.
-- The ST-Bridge reader follows the ST-Bridge XML specifications (ver.2.1.1 and 2.0.2) and XML Schemas published by
-  buildingSMART Japan. It is not certified by buildingSMART Japan.
