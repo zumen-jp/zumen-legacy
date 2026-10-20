@@ -1245,6 +1245,49 @@ impl<'a> Mapper<'a> {
         flush(self, &mut run, items);
     }
 
+    /// 線種が破線か
+    fn linetype_dashed(&self, name: &str) -> bool {
+        self.linetypes_upper
+            .get(&name.to_uppercase())
+            .is_some_and(|linetype| linetype.dashes.iter().any(|value| *value != 0.0))
+    }
+
+    /// ブロックが破線の図形を持つか（BYLAYER はその図形のレイヤの線種）
+    fn dashed(&mut self, name: &str, depth: usize) -> bool {
+        let key = format!("\u{0}dashed:{}", name.to_uppercase());
+        if let Some(value) = self.inherits.get(&key) {
+            return *value;
+        }
+        if depth > MAX_DEPTH {
+            return false;
+        }
+        self.inherits.insert(key.clone(), false);
+        let members = self.order.blocks.get(&name.to_uppercase()).cloned().unwrap_or_default();
+        let mut value = false;
+        for member in members {
+            let linetype = match member.base.linetype.to_uppercase().as_str() {
+                "" | "BYLAYER" => {
+                    self.layers_upper.get(&member.base.layer.to_uppercase()).map(|layer| layer.linetype.clone())
+                }
+                _ => Some(member.base.linetype.clone()),
+            };
+            let child = match &member.data {
+                DxfEntityData::Insert(insert) => Some(insert.name.clone()),
+                DxfEntityData::Table(table) => Some(table.name.clone()),
+                DxfEntityData::Dimension(dimension) => Some(dimension.anonymous_block_name.clone()),
+                _ => None,
+            };
+            if linetype.is_some_and(|linetype| self.linetype_dashed(&linetype))
+                || child.is_some_and(|child| self.dashed(&child, depth + 1))
+            {
+                value = true;
+                break;
+            }
+        }
+        self.inherits.insert(key, value);
+        value
+    }
+
     /// ブロックが、配置の値（BYBLOCK・レイヤ 0）を継ぐ図形を持つか
     fn inherits(&mut self, name: &str, depth: usize) -> bool {
         let key = name.to_uppercase();
@@ -1392,7 +1435,14 @@ impl<'a> Mapper<'a> {
         stack: &[String],
     ) -> String {
         let variant = self.inherits(name, 0).then(|| inherit.key());
-        let lookup = (key.to_string(), variant);
+        // 線種のピッチは用紙の mm なので、破線を持つブロックは用紙での縮尺ごとに作図部品を作る
+        let scale = length_scale(&multiply(&ctx.to_paper, placement)) * ctx.dash_factor;
+        let key = if self.dashed(name, 0) || self.linetype_dashed(&inherit.linetype) {
+            format!("{key}\u{0}{}", js::to_precision(scale, 12))
+        } else {
+            key.to_string()
+        };
+        let lookup = (key, variant);
         if let Some(figure) = self.variants.get(&lookup) {
             let figure = figure.clone();
             return figure;
@@ -1460,7 +1510,8 @@ impl<'a> Mapper<'a> {
         copy.base.owner = None;
         let font = self.text_font(entity);
         let layer = self.layer_code(&layer_name);
-        let dash_scale = length_scale(&multiply(&ctx.to_paper, &ctx.m)) * ctx.dash_factor;
+        // 表示の線種の長さは図面の単位を mm にした長さ
+        let dash_scale = length_scale(&multiply(&ctx.to_paper, &ctx.m)) * ctx.dash_factor / self.unit;
         let mut hatch = None;
         if let DxfEntityData::Hatch(data) = &mut copy.data {
             if data.gradient.is_some() {
@@ -1534,7 +1585,6 @@ impl<'a> Mapper<'a> {
         let mut synthetic = self.doc.clone();
         synthetic.entities.retain(|entity| entity.base.space == DxfSpace::Block && !self.is_layout_block(entity));
         synthetic.entities.extend(self.pending.iter().map(|pending| pending.entity.clone()));
-        synthetic.header.insunits = 4.0;
         synthetic.sort_handles.retain(|(name, _)| !name.eq_ignore_ascii_case("*MODEL_SPACE"));
         synthetic.notices = Vec::new();
         let scene = dxf_to_scene(&synthetic, Some("Model"));
@@ -1554,8 +1604,13 @@ impl<'a> Mapper<'a> {
             };
             let mut features = Vec::new();
             for entity in entities {
+                // 表示は図面の単位を mm にして描く（弦の誤差も元の表示と同じ）。placement.inverse は表示 → 実寸の mm
                 let inverse = entity.placement.as_ref().map_or(IDENTITY, |placement| placement.inverse);
-                let to_container = multiply(&self.pending[index].m, &inverse);
+                let unit = self.unit;
+                let to_container = multiply(
+                    &multiply(&self.pending[index].m, &[1.0 / unit, 0.0, 0.0, 1.0 / unit, 0.0, 0.0]),
+                    &inverse,
+                );
                 for primitive in &entity.primitives {
                     self.primitive(index, primitive, &to_container, &mut features);
                 }

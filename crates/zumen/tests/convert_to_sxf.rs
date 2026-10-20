@@ -133,6 +133,22 @@ fn unwritable(text: &str) -> bool {
     })
 }
 
+/// CP932 にない文字を ? にした文字列（SFC の書き出しと同じ）
+fn cp932(text: &str) -> String {
+    text.chars().filter(|c| !c.is_control()).map(|c| if unwritable(&c.to_string()) { '?' } else { c }).collect()
+}
+
+/// 「box [a, b, c, d] → [e, f, g, h]」の違いのいちばん大きい値
+fn box_moved(line: &str) -> Option<f64> {
+    let numbers = |part: &str| -> Option<Vec<f64>> {
+        let inner = part.split_once('[')?.1.split_once(']')?.0;
+        inner.split(',').map(|value| value.trim().parse().ok()).collect()
+    };
+    let (before, after) = line.split_once(" → ")?;
+    let (a, b) = (numbers(before.rsplit_once("box ")?.1)?, numbers(after)?);
+    (a.len() == 4 && b.len() == 4).then(|| a.iter().zip(&b).map(|(x, y)| (x - y).abs()).fold(0.0, f64::max))
+}
+
 /// 線種の点（長さ 0 の線分）は、SXF には 0.25 mm の線分にして書く（zumen-convert の pitch と同じ）
 fn sxf_dashes(dashes: &mut [f64]) {
     for i in (0..dashes.len()).step_by(2) {
@@ -198,10 +214,41 @@ fn check_dxf(name: &str, doc: &DxfDocument) -> (usize, Vec<String>) {
                     skip.insert(entity.id.clone());
                 }
                 zumen::Primitive::Stroke(stroke) => sxf_dashes(&mut stroke.dashes),
+                zumen::Primitive::Clipped(clipped) => {
+                    clipped.strokes.iter_mut().for_each(|stroke| sxf_dashes(&mut stroke.dashes));
+                }
                 _ => {}
             }
         }
     }
+    let sizes: HashMap<String, f64> = original
+        .entities
+        .iter()
+        .map(|entity| {
+            let b = &entity.bbox;
+            (entity.id.clone(), (b.max_x - b.min_x).max(b.max_y - b.min_y))
+        })
+        .collect();
+    // 円・円弧の半径（表示の点列の始め・中・終わりを通る円）。弦の誤差の許容に使う
+    let radii: HashMap<String, f64> = original
+        .entities
+        .iter()
+        .filter_map(|entity| {
+            let zumen::Primitive::Stroke(stroke) = entity.primitives.first()? else { return None };
+            let n = stroke.points.len() / 2;
+            if n < 3 {
+                return Some((entity.id.clone(), 0.0));
+            }
+            let point = |i: usize| (stroke.points[i * 2], stroke.points[i * 2 + 1]);
+            let ((ax, ay), (bx, by), (cx, cy)) = (point(0), point(n / 2), point(n - 1));
+            let d = 2.0 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by));
+            let (a2, b2, c2) = (ax * ax + ay * ay, bx * bx + by * by, cx * cx + cy * cy);
+            let ux = (a2 * (by - cy) + b2 * (cy - ay) + c2 * (ay - by)) / d;
+            let uy = (a2 * (cx - bx) + b2 * (ax - cx) + c2 * (bx - ax)) / d;
+            let radius = (ax - ux).hypot(ay - uy);
+            Some((entity.id.clone(), if radius.is_finite() { radius } else { 0.0 }))
+        })
+        .collect();
     let groups = common::group(&again, &sources);
     for entity in &original.entities {
         let Some(parts) = groups.get(&entity.id) else { continue };
@@ -239,7 +286,7 @@ fn check_dxf(name: &str, doc: &DxfDocument) -> (usize, Vec<String>) {
     // 塗りの輪郭は、重ならないものを別の塗りにする（幅のあるポリラインの区間ごとの塗り）
     let collapsed = |list: &str| -> Vec<String> {
         let mut kinds: Vec<String> = list.split(',').map(str::to_string).collect();
-        kinds.dedup_by(|a, b| a == b && *a == "fill");
+        kinds.dedup_by(|a, b| a == b && (*a == "fill" || *a == "clipped"));
         kinds
     };
     let differences = common::differences(&original, &again, &sources)
@@ -254,7 +301,56 @@ fn check_dxf(name: &str, doc: &DxfDocument) -> (usize, Vec<String>) {
                 return false;
             }
             // DEFPOINTS の寸法の定義点は、表示では寸法の図形にまとめ、SXF では DEFPOINTS（非表示）のレイヤに書く
-            if line.contains("layer DEFPOINTS not in") {
+            if line.to_uppercase().contains("LAYER DEFPOINTS NOT IN") {
+                return false;
+            }
+            // 円・円弧・楕円は同じ形で書く。表示が折線にする細かさ（弦の誤差は 0.02 mm か半径の 1/10,000 の大きい方）
+            // が DXF と SXF で違うので、その 2 倍まで
+            if let Some(moved) = line.split("stroke moved by ").nth(1).and_then(|rest| rest.split(' ').next())
+                && ["(円)", "(円弧)", "(楕円)", "(楕円弧)"].iter().any(|kind| line.contains(kind))
+                && let (Some(radius), Some(size)) = (radii.get(id), sizes.get(id))
+                && moved.parse::<f64>().is_ok_and(|moved| {
+                    // 点が 2 つ（弦 1 本）の円弧は、弦の誤差が弧の大きさの 1/100 まで
+                    moved <= radius * 3e-4 + 0.05 || (*radius == 0.0 && moved <= size * 0.01)
+                })
+            {
+                return false;
+            }
+            if line.contains(": box [")
+                && ["(円)", "(円弧)", "(楕円)", "(楕円弧)", "(スプライン)"].iter().any(|kind| line.contains(kind))
+                && let Some(size) = sizes.get(id)
+                && box_moved(line).is_some_and(|moved| moved <= size * 0.01 + 0.05)
+            {
+                return false;
+            }
+            // CP932 にないレイヤ名の文字は ? にして書く
+            if let Some(name) = line.split("): layer ").nth(1).and_then(|rest| rest.split(" not in ").next())
+                && original.layers.iter().any(|layer| cp932(&layer.name) == name)
+            {
+                return false;
+            }
+            // スプラインは、SXF には同じ曲線の 3 次ベジェ曲線で書く（shapes.rs の単体テストで、分けたベジェ曲線が
+            // B スプラインと同じ点を通ることを確かめている）。DXF の表示は媒介変数を曲線全体で等分した点
+            // （16 × 制御点の数）を結ぶので、節点の間隔が不揃いな曲線では短い区間の点が足りない。大きさの 5/100 まで
+            if let Some(moved) = line.split("stroke moved by ").nth(1).and_then(|rest| rest.split(' ').next())
+                && line.contains("(スプライン)")
+                && let Some(size) = sizes.get(id)
+                && moved.parse::<f64>().is_ok_and(|moved| moved <= size * 0.05)
+            {
+                return false;
+            }
+            // 座標の大きい図面の模様の線の位置（10 万 mm を超える座標の桁落ち。間隔の 1/10,000 まで）
+            if let Some((before, after)) = line.split("hatch lines ").nth(1).and_then(|rest| rest.split_once(" → ")) {
+                let parse = |text: &str| -> Vec<f64> {
+                    text.trim_end_matches('"').split('/').filter_map(|value| value.parse().ok()).collect()
+                };
+                let (a, b) = (parse(before), parse(after));
+                if a.len() == 3 && b.len() == 3 && a[0] == b[0] && a[1] == b[1] && (a[2] - b[2]).abs() <= a[1] * 1e-4 {
+                    return false;
+                }
+            }
+            // 境界にちょうど重なるハッチング線（線の数の数え方の端数で、引く・引かないが分かれる）
+            if line.contains("hatch lines") && line.contains("/0.000000/") {
                 return false;
             }
             // 折線を折線と円弧に分けた（線の数の違い。形は外接矩形と、ほかの図形で確かめる）
@@ -286,6 +382,35 @@ fn dxf_and_dwg_written_as_sxf_draw_the_same() {
         let (entities, differences) = check_dxf(&name, &doc);
         println!("{name}: {entities} entities, {} differences", differences.len());
         failures.extend(differences.into_iter().take(40));
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// Git に入れない図面（ZUMEN_SAMPLES のフォルダーの SFC・P21・JWW・DXF・DWG）で確かめる。
+/// `ZUMEN_SAMPLES=<folder> cargo test -p zumen --release --test convert_to_sxf -- --ignored`
+#[test]
+#[ignore = "needs drawings in ZUMEN_SAMPLES"]
+fn samples_written_as_sxf_draw_the_same() {
+    let folder = std::env::var("ZUMEN_SAMPLES").expect("set ZUMEN_SAMPLES to a folder of drawings");
+    let mut failures = Vec::new();
+    for file in files(Path::new(&folder), &["sfc", "p21", "jww", "dxf", "dwg"]) {
+        let name = file.file_name().unwrap().to_string_lossy().to_string();
+        let bytes = fs::read(&file).unwrap();
+        let (entities, differences) = match zumen::detect(&bytes) {
+            Some("dxf") => check_dxf(&name, &zumen::dxf::parse_dxf(&bytes)),
+            Some("dwg") => match zumen::dwg::read_dwg(&bytes) {
+                Ok(doc) => check_dxf(&name, &doc),
+                Err(error) => {
+                    println!("{name}: not read ({error})");
+                    continue;
+                }
+            },
+            Some(_) => check_round_trip(&name, &bytes),
+            None => continue,
+        };
+        println!("{name}: {entities} entities, {} differences", differences.len());
+        let shown = std::env::var("ZUMEN_DIFFERENCES").ok().and_then(|value| value.parse().ok()).unwrap_or(10);
+        failures.extend(differences.into_iter().take(shown));
     }
     assert!(failures.is_empty(), "{failures:#?}");
 }
