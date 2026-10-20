@@ -11,6 +11,7 @@ use crate::extract::{EntityFilter, EntityText, entity_text, select_entities};
 use crate::geometry::{distance_to_segment_squared, empty_box, extend_box, inside_rings, transform_points};
 use crate::types::{BBox, EntityKind, Placement, Primitive, Scene, SceneEntity};
 use std::collections::{HashMap, HashSet};
+use std::hash::{BuildHasherDefault, Hasher};
 use std::sync::Arc;
 
 /// 既定で領域の境界にする図形の種類。寸法・文字・引出線・ハッチング・ビューポートの枠などは使わない
@@ -138,8 +139,8 @@ pub fn closed_regions(scene: &Scene, options: &RegionOptions) -> Vec<ClosedRegio
             }
             let mut bbox = empty_box();
             for ring in std::iter::once(&face.outline).chain(&face.holes) {
-                for point in ring.chunks_exact(2) {
-                    extend_box(&mut bbox, point[0], point[1]);
+                for [x, y] in ring.as_chunks::<2>().0 {
+                    extend_box(&mut bbox, *x, *y);
                 }
             }
             let real = group.placement.as_ref().map(|placement| {
@@ -181,10 +182,7 @@ pub fn closed_regions(scene: &Scene, options: &RegionOptions) -> Vec<ClosedRegio
         let group = |region: &ClosedRegion| {
             region.placement.as_deref().map(placement_key).and_then(|key| group_of.get(&Some(key)).copied())
         };
-        group(a)
-            .cmp(&group(b))
-            .then(b.bbox.max_y.total_cmp(&a.bbox.max_y))
-            .then(a.bbox.min_x.total_cmp(&b.bbox.min_x))
+        group(a).cmp(&group(b)).then(b.bbox.max_y.total_cmp(&a.bbox.max_y)).then(a.bbox.min_x.total_cmp(&b.bbox.min_x))
     });
     regions
 }
@@ -287,7 +285,7 @@ struct Graph {
 /// 点を許容差の格子でまとめる
 struct PointIndex {
     tolerance: f64,
-    cells: HashMap<(i64, i64), Vec<usize>>,
+    cells: FastMap<(i64, i64), Vec<usize>>,
     points: Vec<(f64, f64)>,
 }
 
@@ -327,15 +325,21 @@ impl PointIndex {
 impl Graph {
     fn build(segments: &[Segment], tolerance: f64) -> Graph {
         let splits = split_parameters(segments, tolerance);
-        let mut index = PointIndex { tolerance, cells: HashMap::new(), points: Vec::new() };
-        let mut edge_of: HashMap<(usize, usize), usize> = HashMap::new();
+        let mut index = PointIndex { tolerance, cells: FastMap::default(), points: Vec::new() };
+        let mut edge_of: FastMap<(usize, usize), usize> = FastMap::default();
         let mut edges: Vec<(usize, usize, usize)> = Vec::new();
+        let mut last: Option<(f64, f64, usize)> = None;
         for (segment, params) in segments.iter().zip(&splits) {
             let mut previous: Option<usize> = None;
             for &t in params {
                 let x = segment.x1 + (segment.x2 - segment.x1) * t;
                 let y = segment.y1 + (segment.y2 - segment.y1) * t;
-                let id = index.find_or_add(x, y);
+                // 折線の続く線分は、前の線分の終点から始まる
+                let id = match last {
+                    Some((lx, ly, id)) if lx == x && ly == y => id,
+                    _ => index.find_or_add(x, y),
+                };
+                last = Some((x, y, id));
                 if let Some(from) = previous
                     && from != id
                 {
@@ -450,23 +454,19 @@ impl Graph {
         let epsilon = tolerance * tolerance;
         let inner: Vec<usize> = (0..cycles.len()).filter(|&c| cycles[c].area > epsilon).collect();
         let boxes: Vec<BBox> = cycles.iter().map(|cycle| ring_box(&cycle.ring)).collect();
-        // 外側の輪（負の面積）は、ほかの成分の面のうち、それを含む最も小さいものの穴になる
+        // 外側の輪（負の面積）は、ほかの成分の面のうち、それを含む最も小さいものの穴になる。面は外接矩形で格子に入れて探す
+        let grid = BoxGrid::new(inner.iter().map(|&f| (f, boxes[f])).collect());
         let mut holes: HashMap<usize, Vec<usize>> = HashMap::new();
         for (c, cycle) in cycles.iter().enumerate() {
             if cycle.area >= -epsilon {
                 continue;
             }
             let (x, y) = (cycle.ring[0], cycle.ring[1]);
-            let container = inner
-                .iter()
-                .copied()
+            let container = grid
+                .at(x, y)
                 .filter(|&f| cycles[f].component != cycle.component)
-                .filter(|&f| {
-                    let b = &boxes[f];
-                    x >= b.min_x && x <= b.max_x && y >= b.min_y && y <= b.max_y
-                })
                 .filter(|&f| inside_rings(x, y, std::slice::from_ref(&cycles[f].ring)))
-                .min_by(|&a, &b| cycles[a].area.total_cmp(&cycles[b].area));
+                .min_by(|&a, &b| cycles[a].area.total_cmp(&cycles[b].area).then(a.cmp(&b)));
             if let Some(f) = container {
                 holes.entry(f).or_default().push(c);
             }
@@ -515,6 +515,82 @@ impl Graph {
     }
 }
 
+/// 格子のマスと点の番号のための速いハッシュ（FxHash と同じ計算）。鍵は図面から作るが、衝突しても遅くなるだけ
+#[derive(Default)]
+struct FastHasher(u64);
+
+impl Hasher for FastHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        for &byte in bytes {
+            self.write_u64(u64::from(byte));
+        }
+    }
+
+    fn write_u64(&mut self, value: u64) {
+        self.0 = (self.0.rotate_left(5) ^ value).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95);
+    }
+
+    fn write_i64(&mut self, value: i64) {
+        self.write_u64(value as u64);
+    }
+
+    fn write_usize(&mut self, value: usize) {
+        self.write_u64(value as u64);
+    }
+}
+
+type FastMap<K, V> = HashMap<K, V, BuildHasherDefault<FastHasher>>;
+
+/// 外接矩形を格子のマスに入れ、点を含むものを探す
+struct BoxGrid {
+    bounds: BBox,
+    side: f64,
+    cells: FastMap<(i64, i64), Vec<usize>>,
+    boxes: FastMap<usize, BBox>,
+}
+
+impl BoxGrid {
+    fn new(items: Vec<(usize, BBox)>) -> BoxGrid {
+        let mut bounds = empty_box();
+        for (_, b) in &items {
+            extend_box(&mut bounds, b.min_x, b.min_y);
+            extend_box(&mut bounds, b.max_x, b.max_y);
+        }
+        let width = (bounds.max_x - bounds.min_x).max(1e-9);
+        let height = (bounds.max_y - bounds.min_y).max(1e-9);
+        let count = items.len().max(1) as f64;
+        let side = (width * height / count).sqrt().max(width / 1024.0).max(height / 1024.0);
+        let mut grid = BoxGrid { bounds, side, cells: FastMap::default(), boxes: FastMap::default() };
+        for (id, b) in items {
+            let (x0, y0) = grid.cell(b.min_x, b.min_y);
+            let (x1, y1) = grid.cell(b.max_x, b.max_y);
+            for cx in x0..=x1 {
+                for cy in y0..=y1 {
+                    grid.cells.entry((cx, cy)).or_default().push(id);
+                }
+            }
+            grid.boxes.insert(id, b);
+        }
+        grid
+    }
+
+    fn cell(&self, x: f64, y: f64) -> (i64, i64) {
+        (((x - self.bounds.min_x) / self.side).floor() as i64, ((y - self.bounds.min_y) / self.side).floor() as i64)
+    }
+
+    /// 外接矩形が点を含むもの
+    fn at(&self, x: f64, y: f64) -> impl Iterator<Item = usize> + '_ {
+        self.cells.get(&self.cell(x, y)).into_iter().flatten().copied().filter(move |id| {
+            let b = &self.boxes[id];
+            x >= b.min_x && x <= b.max_x && y >= b.min_y && y <= b.max_y
+        })
+    }
+}
+
 struct Cycle {
     ring: Vec<f64>,
     sources: Vec<usize>,
@@ -534,10 +610,8 @@ fn split_parameters(segments: &[Segment], tolerance: f64) -> Vec<Vec<f64>> {
     // 線分の数に合わせた格子。1 辺のマスは 2048 まで
     let width = (bounds.max_x - bounds.min_x).max(tolerance);
     let height = (bounds.max_y - bounds.min_y).max(tolerance);
-    let side = ((width * height / segments.len() as f64).sqrt())
-        .max(width / 2048.0)
-        .max(height / 2048.0)
-        .max(tolerance * 4.0);
+    let side =
+        ((width * height / segments.len() as f64).sqrt()).max(width / 2048.0).max(height / 2048.0).max(tolerance * 4.0);
     let cell = |x: f64, y: f64| -> (i64, i64) {
         (((x - bounds.min_x) / side).floor() as i64, ((y - bounds.min_y) / side).floor() as i64)
     };
@@ -550,7 +624,7 @@ fn split_parameters(segments: &[Segment], tolerance: f64) -> Vec<Vec<f64>> {
         }
     };
     let boxes: Vec<BBox> = segments.iter().map(expanded).collect();
-    let mut grid: HashMap<(i64, i64), Vec<usize>> = HashMap::new();
+    let mut grid: FastMap<(i64, i64), Vec<usize>> = FastMap::default();
     for (i, b) in boxes.iter().enumerate() {
         let (x0, y0) = cell(b.min_x, b.min_y);
         let (x1, y1) = cell(b.max_x, b.max_y);
@@ -642,15 +716,15 @@ fn ring_length(ring: &[f64]) -> f64 {
 
 fn ring_box(ring: &[f64]) -> BBox {
     let mut b = empty_box();
-    for point in ring.chunks_exact(2) {
-        extend_box(&mut b, point[0], point[1]);
+    for [x, y] in ring.as_chunks::<2>().0 {
+        extend_box(&mut b, *x, *y);
     }
     b
 }
 
 /// 輪から、前後の点を結ぶ線の上にある点（線分を分けた点）を除く。折り返す点は残す
 fn simplify(ring: &[f64], tolerance: f64) -> Vec<f64> {
-    let mut points: Vec<(f64, f64)> = ring.chunks_exact(2).map(|p| (p[0], p[1])).collect();
+    let mut points: Vec<(f64, f64)> = ring.as_chunks::<2>().0.iter().map(|[x, y]| (*x, *y)).collect();
     let limit = tolerance * tolerance;
     let mut changed = true;
     while changed && points.len() > 3 {
@@ -699,8 +773,8 @@ mod tests {
 
     fn line(id: &str, layer: u32, points: &[f64], closed: bool) -> SceneEntity {
         let mut bbox = empty_box();
-        for p in points.chunks_exact(2) {
-            extend_box(&mut bbox, p[0], p[1]);
+        for [x, y] in points.as_chunks::<2>().0 {
+            extend_box(&mut bbox, *x, *y);
         }
         SceneEntity {
             id: id.into(),
@@ -819,8 +893,7 @@ mod tests {
             line("h", 0, &[-10.0, 30.0, 110.0, 30.0], false),
             line("v", 0, &[70.0, -10.0, 70.0, 110.0], false),
         ]);
-        let mut areas: Vec<f64> =
-            closed_regions(&s, &RegionOptions::default()).iter().map(|r| r.paper.area).collect();
+        let mut areas: Vec<f64> = closed_regions(&s, &RegionOptions::default()).iter().map(|r| r.paper.area).collect();
         areas.sort_by(f64::total_cmp);
         assert_eq!(areas.len(), 4);
         for (area, expected) in areas.iter().zip([900.0, 2100.0, 2100.0, 4900.0]) {
@@ -854,12 +927,8 @@ mod tests {
     fn gives_real_areas_through_the_placement() {
         // 1/100 の部分図。用紙の 40 × 30 mm は実寸の 4 m × 3 m
         let to_paper = placement(10.0, 10.0, 0.0, 0.01, 0.01);
-        let placed = Arc::new(Placement {
-            name: "平面図".into(),
-            scale_x: 0.01,
-            scale_y: 0.01,
-            inverse: invert(&to_paper),
-        });
+        let placed =
+            Arc::new(Placement { name: "平面図".into(), scale_x: 0.01, scale_y: 0.01, inverse: invert(&to_paper) });
         let mut room = line("room", 0, &[10.0, 10.0, 50.0, 10.0, 50.0, 40.0, 10.0, 40.0], true);
         room.placement = Some(placed.clone());
         // 同じ形の、配置の外の線（用紙の枠など）は別に数え、つながない
