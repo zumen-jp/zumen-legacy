@@ -56,6 +56,25 @@ pub fn aci_color(index: f64) -> String {
     if i.is_finite() && i < ACI.len() as f64 { ACI[i as usize].clone() } else { ACI[7].clone() }
 }
 
+/// トゥルーカラー（420 の値、0xRRGGBB）に最も近い ACI（1〜255）
+pub(crate) fn nearest_aci(value: f64) -> f64 {
+    let rgb = js::to_int32(value) & 0xff_ffff;
+    let channels = |value: i32| [(value >> 16) & 0xff, (value >> 8) & 0xff, value & 0xff];
+    let target = channels(rgb);
+    let mut best = (7.0, i32::MAX);
+    for (index, hex) in ACI.iter().enumerate().skip(1) {
+        let Ok(value) = i32::from_str_radix(hex.trim_start_matches('#'), 16) else {
+            continue;
+        };
+        let color = channels(value);
+        let distance: i32 = (0..3).map(|i| (color[i] - target[i]).pow(2)).sum();
+        if distance < best.1 {
+            best = (index as f64, distance);
+        }
+    }
+    best.0
+}
+
 pub fn true_color(value: f64) -> String {
     let rgb = js::to_int32(value) & 0xff_ffff;
     to_hex(((rgb >> 16) & 0xff) as u32, ((rgb >> 8) & 0xff) as u32, (rgb & 0xff) as u32)
