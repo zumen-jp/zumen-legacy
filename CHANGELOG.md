@@ -4,6 +4,14 @@ All packages share one version during 0.x.
 
 ## Unreleased (0.1.0)
 
+- `@zumenjs/reader` replaces `@zumenjs/dwg`: every format (SFC, P21, P2Z, SFZ, JWW, DXF and DWG) is read in browsers
+  and Node.js by the Rust readers built to WebAssembly. `initReader` loads the module, `reader` is the
+  `DrawingReader` for `readDrawing` and `useDrawing`, `detectDrawing` tells the format before the module loads, and
+  `createReader({ limits })` and `readScene` stop at `maxBytes` and `maxEntities` with a `LimitError` that names the
+  limit. `ReaderWorker` reads in a Web Worker (`@zumenjs/reader/worker`), stops it when `limits.timeout` passes or an
+  `AbortSignal` fires, and transfers the scene's point lists to the page. The playground reads with it. The TypeScript
+  readers `@zumenjs/sxf`, `@zumenjs/jww` and `@zumenjs/dxf` stay as the reference of the tests and will not be
+  published.
 - Rust, Python and the command line: edit drawings in place and create new ones
   ([decision 0012](docs/decisions/0012-edit-in-place-and-write-every-format.md)). The operations are the same for every
   format: `add`, `update` and `delete` entities, and `add-layer` and `update-layer`, with the kinds, ids and property

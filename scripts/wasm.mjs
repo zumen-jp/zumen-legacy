@@ -1,4 +1,4 @@
-// WebAssembly の読み取り（bindings/wasm）を作り、@zumenjs/dwg が読み込む packages/dwg/wasm に置く。
+// WebAssembly の読み取り（bindings/wasm）を作り、@zumenjs/reader が読み込む packages/reader/wasm に置く。
 //
 //   node scripts/wasm.mjs
 //
@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 import { version } from "./wasm-bindgen-version.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
-const out = fileURLToPath(new URL("../packages/dwg/wasm/", import.meta.url));
+const out = fileURLToPath(new URL("../packages/reader/wasm/", import.meta.url));
 
 let installed = null;
 try {
@@ -53,4 +53,4 @@ if (!wasm) throw new Error("cargo が zumen_wasm.wasm を書きませんでし�
 
 rmSync(out, { recursive: true, force: true });
 execFileSync("wasm-bindgen", ["--target", "web", "--out-dir", out, wasm], { cwd: root, stdio: "inherit" });
-console.log(`packages/dwg/wasm/zumen_wasm_bg.wasm: ${statSync(join(out, "zumen_wasm_bg.wasm")).size} bytes`);
+console.log(`packages/reader/wasm/zumen_wasm_bg.wasm: ${statSync(join(out, "zumen_wasm_bg.wasm")).size} bytes`);
