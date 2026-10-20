@@ -110,11 +110,12 @@ def convert(
     it. Written as SFC, the layout becomes the sheet, each viewport a sub-figure at its scale and each block a drawing
     part; what SXF has no feature for (multiline texts, leaders, dimensions) is written as the lines, fills and texts
     that zumen draws for it.
-    ``version`` chooses the DXF version: ``"2000"``, ``"2004"``, ``"2007"``, ``"2010"``, ``"2013"`` (the default) or
-    ``"2018"`` (``"R12"`` is not written yet). Versions before 2007 are written in the drawing's code page
-    (``$DWGCODEPAGE``), or in the one that holds its texts (such as ANSI_932 for Japanese), and what a version cannot
-    hold (true colors, transparency, gradients and arc and large radial dimensions before 2004, backgrounds of
-    multiline text before 2007) is written in another form and reported in the notices.
+    ``version`` chooses the DXF version: ``"R12"``, ``"2000"``, ``"2004"``, ``"2007"``, ``"2010"``, ``"2013"`` (the
+    default) or ``"2018"``. Versions before 2007 are written in the drawing's code page (``$DWGCODEPAGE``), or in the one
+    that holds its texts (such as ANSI_932 for Japanese), and what a version cannot hold (true colors, transparency,
+    gradients and arc and large radial dimensions before 2004, backgrounds of multiline text before 2007) is written in
+    another form and reported in the notices. R12 also explodes what it lacks (multiline text, hatches, leaders,
+    ellipses, splines) into lines, solids and one-line texts, keeps only the current layout and has no length unit.
     ``Converted.data`` holds the bytes and ``Converted.save(path)`` writes them to a file.
     ``Converted.notices`` tells what could not be written as it was, such as images (IMAGE) that are left out.
     Raises ``ReadError`` when the drawing cannot be read or written in that format.

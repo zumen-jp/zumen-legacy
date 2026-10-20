@@ -262,3 +262,330 @@ fn classes_of_real_drawings_are_written_back_unchanged() {
         assert_eq!(bits.bit_len().div_ceil(8), framed.data.len() as u64, "{name}");
     }
 }
+
+/// 区切りで囲む節の値（R2004 以降は伸長したもの）。number は R2000 の節の位置の記録の番号
+fn framed_section(bytes: &[u8], version: Version, number: u8, name: &str) -> Framed {
+    let section = match version {
+        Version::R2000 => {
+            let records = file::r2000_records(bytes).unwrap();
+            file::r2000_slice(bytes, &records, number).unwrap().to_vec()
+        }
+        _ => {
+            let mut notices = NoticeList::new();
+            R2004Container::open(bytes).unwrap().section(name, &mut notices).unwrap()
+        }
+    };
+    let extra = crate::write::database::has_extra(version, bytes[0x0b]);
+    let (start, end) = if number == 0 { (&HEADER_SENTINEL, &HEADER_END) } else { (&CLASSES_SENTINEL, &CLASSES_END) };
+    Framed::parse(&section, start, end, extra).unwrap()
+}
+
+/// ヘッダ変数をすべて読んで書くと、同じビット列になる（読み残しもない）
+#[test]
+fn header_variables_of_real_drawings_are_written_back_unchanged() {
+    use crate::codec::header::{LEFTOVER, header_bits, read_header_vars};
+    for (name, bytes) in samples() {
+        let Some(version) = Version::from_magic(&bytes[..6]) else { continue };
+        if !matches!(version, Version::R2000 | Version::R2004 | Version::R2010 | Version::R2013 | Version::R2018) {
+            continue;
+        }
+        let framed = framed_section(&bytes, version, 0, "AcDb:Header");
+        let vars = read_header_vars(&framed.data, version).unwrap_or_else(|_| panic!("{name}: read"));
+        // 残りは終わりを埋めるビットだけ（AutoCAD は 1 バイトを足して埋めることもある）
+        let [data, strings, handles] = LEFTOVER.get();
+        assert!(data < 16 && strings == 0 && handles < 16, "{name}: left {data} {strings} {handles} bits");
+        let bits = header_bits(&vars);
+        let differs = same_bits(bits.as_bytes(), &framed.data, bits.bit_len());
+        assert_eq!(differs, None, "{name}: {} values", vars.values.len());
+        let length = bits.bit_len().div_ceil(8);
+        assert!((length..=length + 1).contains(&(framed.data.len() as u64)), "{name}");
+    }
+}
+
+/// 読み書きできるオブジェクトの種類と、読んで書く関数（型の番号、図形の種類の名前）
+type Codec = fn(&mut crate::codec::In<'_>, u16, &str, &mut crate::write::object::ObjectWriter) -> crate::bits::Read<()>;
+
+/// 型の番号とクラスの DXF の名前（500 から）から、読んで書く関数
+fn codec(kind: u16, class: &str) -> Option<Codec> {
+    use crate::codec::objects::*;
+    use crate::codec::tables::*;
+    macro_rules! with {
+        ($read:expr) => {
+            |s, _, _, o| {
+                $read(s)?.write(o);
+                Ok(())
+            }
+        };
+    }
+    Some(match (kind, class) {
+        (48 | 50 | 52 | 56 | 60 | 62 | 64 | 66 | 68 | 70, _) => |s, kind, _, o| {
+            Control::read(s, kind)?.write(o, kind);
+            Ok(())
+        },
+        (49, _) => with!(BlockHeader::read),
+        (51, _) => with!(Layer::read),
+        (53, _) => with!(TextStyle::read),
+        (57, _) => with!(Linetype::read),
+        (65, _) => with!(Vport::read),
+        (67, _) => with!(Appid::read),
+        (69, _) => with!(DimStyle::read),
+        (42, _) => |s, _, _, o| {
+            Dictionary::read(s, false)?.write(o);
+            Ok(())
+        },
+        (72, _) => with!(Group::read),
+        (73, _) => with!(MLineStyle::read),
+        (79, _) | (_, "XRECORD") => with!(XRecord::read),
+        (80, _) | (_, "ACDBPLACEHOLDER") => with!(Placeholder::read),
+        (82, _) | (_, "LAYOUT") => with!(Layout::read),
+        (_, "ACDBDICTIONARYWDFLT") => |s, _, _, o| {
+            Dictionary::read(s, true)?.write(o);
+            Ok(())
+        },
+        (_, "DICTIONARYVAR") => with!(DictionaryVar::read),
+        (_, "SCALE") => with!(Scale::read),
+        (_, "SORTENTSTABLE") => with!(SortEntsTable::read),
+        (_, "MLEADERSTYLE") => with!(MLeaderStyle::read),
+        (_, "MATERIAL") => with!(Material::read),
+        _ if crate::codec::entities::Entity::knows(entity_name(kind, class)) => |s, _, name, o| {
+            crate::codec::entities::Entity::read(s, name)?.ok_or(crate::bits::Eof)?.write(o);
+            Ok(())
+        },
+        _ => return None,
+    })
+}
+
+/// 図形の種類の名前（固定の型の名前か、クラスの DXF の名前）
+fn entity_name(kind: u16, class: &str) -> &str {
+    crate::codec::entities::fixed_name(kind).unwrap_or(class)
+}
+
+/// 図面のオブジェクトの節とオブジェクトの表
+fn objects_of(bytes: &[u8], version: Version) -> (Vec<u8>, std::collections::HashMap<u64, usize>) {
+    match version {
+        Version::R2000 => {
+            let records = file::r2000_records(bytes).unwrap();
+            (bytes.to_vec(), read_object_map(file::r2000_slice(bytes, &records, 2).unwrap()))
+        }
+        _ => {
+            let mut notices = NoticeList::new();
+            let container = R2004Container::open(bytes).unwrap();
+            let handles = container.section("AcDb:Handles", &mut notices).unwrap();
+            (container.section("AcDb:AcDbObjects", &mut notices).unwrap(), read_object_map(&handles))
+        }
+    }
+}
+
+/// 読み書きできる種類のオブジェクトをすべて読んで書くと、同じビット列になる（読み残しもない）
+#[test]
+fn objects_of_real_drawings_are_written_back_unchanged() {
+    use crate::codec::object::{open_raw, writer};
+    let mut checked: std::collections::BTreeMap<String, usize> = Default::default();
+    let mut failures: Vec<String> = Vec::new();
+    let mut unknown: std::collections::BTreeMap<String, usize> = Default::default();
+    for (name, bytes) in samples() {
+        let Some(version) = Version::from_magic(&bytes[..6]) else { continue };
+        if !matches!(version, Version::R2000 | Version::R2004 | Version::R2010 | Version::R2013 | Version::R2018) {
+            continue;
+        }
+        let (objects, map) = objects_of(&bytes, version);
+        let codec_text = if version >= Version::R2007 {
+            crate::bits::TextCodec::Utf16
+        } else {
+            crate::bits::TextCodec::Bytes(encoding_rs::WINDOWS_1252)
+        };
+        let classes = crate::write::classes::read_class_defs(
+            &framed_section(&bytes, version, 1, "AcDb:Classes").data,
+            version,
+            codec_text,
+        );
+        let mut handles: Vec<(&u64, &usize)> = map.iter().collect();
+        handles.sort();
+        for (handle, &offset) in handles {
+            let Ok(mut raw) = open_raw(&objects, offset, version) else { continue };
+            let class =
+                classes.iter().find(|class| class.number == raw.kind).map_or("", |class| class.dxf_name.as_str());
+            let Some(codec) = codec(raw.kind, class) else {
+                *unknown.entry(if class.is_empty() { raw.kind.to_string() } else { class.to_string() }).or_default() +=
+                    1;
+                continue;
+            };
+            let kind = raw.kind;
+            let mut out = writer(version, kind, raw.handle, &raw.eed);
+            if codec(&mut raw.input, kind, entity_name(kind, class), &mut out).is_err() {
+                failures.push(format!("{name} {handle:X} type {kind} {class}: read"));
+                continue;
+            }
+            let left = [
+                raw.input.data.remaining(),
+                raw.input.strings.as_ref().map_or(0, crate::bits::Bits::remaining),
+                raw.input.handles.as_ref().map_or(0, crate::bits::Bits::remaining),
+            ];
+            let length = object_length(&objects, offset, version >= Version::R2010).unwrap();
+            let original = &objects[offset..offset + length];
+            let (written, padding) = out.frame();
+            let meaningful = (written.len() as u64 - 2) * 8 - padding;
+            let same = written.len() == original.len() && same_bits(&written, original, meaningful).is_none();
+            if left[0] != 0 || left[1] != 0 || left[2] >= 8 || !same {
+                if failures.iter().filter(|line| line.contains(&format!("type {kind} {class}:"))).count() < 3 {
+                    failures.push(format!(
+                        "{name} {handle:X} type {kind} {class}: left {left:?}, length {} vs {}, first different bit {:?}",
+                        written.len(),
+                        original.len(),
+                        same_bits(&written, original, meaningful)
+                    ));
+                }
+            } else {
+                *checked.entry(if class.is_empty() { kind.to_string() } else { class.to_string() }).or_default() += 1;
+            }
+        }
+    }
+    println!("checked {checked:?}");
+    println!("not checked {unknown:?}");
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// 節の表（名前・大きさ・ページの大きさ・圧縮・暗号化・ページ）と中身の頭を表示する（新しい図面の決め方を AutoCAD の
+/// 図面から調べるため）。`ZUMEN_DUMP=<名前,…> ZUMEN_BYTES=<表示するバイト数>`
+#[test]
+#[ignore]
+fn dump_sections() {
+    let wanted = std::env::var("ZUMEN_DUMP").unwrap_or_default();
+    for (name, bytes) in samples() {
+        if !wanted.split(',').any(|w| w == name) {
+            continue;
+        }
+        let container = R2004Container::open(&bytes).unwrap();
+        println!("{name}");
+        let mut notices = NoticeList::new();
+        for info in &container.sections {
+            let data = container.data(info, &mut notices);
+            println!(
+                "  {:24} size {:7} max {:#7x} compressed {} encrypted {} pages {:?} first {:?} head {:02x?}",
+                info.name,
+                info.size,
+                info.max_size,
+                info.compressed,
+                info.encrypted,
+                info.pages.iter().map(|page| page.0).collect::<Vec<_>>(),
+                container.address(info),
+                &data[..data.len().min(std::env::var("ZUMEN_BYTES").ok().and_then(|v| v.parse().ok()).unwrap_or(48))]
+            );
+        }
+    }
+}
+
+/// 種類ごとに最初のいくつかのオブジェクトの値を表示する（新しい図面の既定の値を決めるため）
+#[test]
+#[ignore]
+fn dump_objects() {
+    use crate::codec::entities::{Entity, fixed_name};
+    use crate::codec::object::open_raw;
+    use crate::codec::objects::*;
+    use crate::codec::tables::*;
+    let wanted = std::env::var("ZUMEN_DUMP").unwrap_or_default();
+    let kinds: Vec<String> = std::env::var("ZUMEN_KINDS").unwrap_or_default().split(',').map(str::to_string).collect();
+    let limit: usize = std::env::var("ZUMEN_LIMIT").ok().and_then(|v| v.parse().ok()).unwrap_or(1);
+    for (name, bytes) in samples() {
+        if !wanted.split(',').any(|w| w == name) {
+            continue;
+        }
+        let version = Version::from_magic(&bytes[..6]).unwrap();
+        let (objects, map) = objects_of(&bytes, version);
+        let text = if version >= Version::R2007 {
+            crate::bits::TextCodec::Utf16
+        } else {
+            crate::bits::TextCodec::Bytes(encoding_rs::WINDOWS_1252)
+        };
+        let classes = crate::write::classes::read_class_defs(
+            &framed_section(&bytes, version, 1, "AcDb:Classes").data,
+            version,
+            text,
+        );
+        let mut handles: Vec<(&u64, &usize)> = map.iter().collect();
+        handles.sort();
+        let mut seen: std::collections::HashMap<String, usize> = Default::default();
+        for (handle, &offset) in handles {
+            let Ok(mut raw) = open_raw(&objects, offset, version) else { continue };
+            let class =
+                classes.iter().find(|class| class.number == raw.kind).map_or("", |class| class.dxf_name.as_str());
+            let kname = fixed_name(raw.kind)
+                .map(str::to_string)
+                .unwrap_or_else(|| if class.is_empty() { raw.kind.to_string() } else { class.to_string() });
+            if !kinds.contains(&kname) {
+                continue;
+            }
+            let count = seen.entry(kname.clone()).or_default();
+            if *count >= limit {
+                continue;
+            }
+            *count += 1;
+            let s = &mut raw.input;
+            let value: String = match (raw.kind, class) {
+                (48 | 50 | 52 | 56 | 60 | 62 | 64 | 66 | 68 | 70, _) => format!("{:?}", Control::read(s, raw.kind)),
+                (49, _) => format!("{:?}", BlockHeader::read(s)),
+                (51, _) => format!("{:?}", Layer::read(s)),
+                (53, _) => format!("{:?}", TextStyle::read(s)),
+                (57, _) => format!("{:?}", Linetype::read(s)),
+                (65, _) => format!("{:?}", Vport::read(s)),
+                (67, _) => format!("{:?}", Appid::read(s)),
+                (69, _) => format!("{:?}", DimStyle::read(s)),
+                (42, _) => format!("{:?}", Dictionary::read(s, false)),
+                (72, _) => format!("{:?}", Group::read(s)),
+                (73, _) => format!("{:?}", MLineStyle::read(s)),
+                (79, _) | (_, "XRECORD") => format!("{:?}", XRecord::read(s)),
+                (80, _) | (_, "ACDBPLACEHOLDER") => format!("{:?}", Placeholder::read(s)),
+                (82, _) | (_, "LAYOUT") => format!("{:?}", Layout::read(s)),
+                (_, "ACDBDICTIONARYWDFLT") => format!("{:?}", Dictionary::read(s, true)),
+                (_, "DICTIONARYVAR") => format!("{:?}", DictionaryVar::read(s)),
+                (_, "SCALE") => format!("{:?}", Scale::read(s)),
+                (_, "SORTENTSTABLE") => format!("{:?}", SortEntsTable::read(s)),
+                (_, "MLEADERSTYLE") => format!("{:?}", MLeaderStyle::read(s)),
+                (_, "MATERIAL") => format!("{:?}", Material::read(s)),
+                _ => format!("{:?}", Entity::read(s, &kname)),
+            };
+            println!("{name} {handle:X} {kname} eed {:?}\n  {value}", raw.eed);
+        }
+    }
+}
+
+/// ヘッダ変数をすべて表示する。`ZUMEN_DUMP=<名前,…>`
+#[test]
+#[ignore]
+fn dump_header() {
+    let wanted = std::env::var("ZUMEN_DUMP").unwrap_or_default();
+    for (name, bytes) in samples() {
+        if !wanted.split(',').any(|w| w == name) {
+            continue;
+        }
+        let version = Version::from_magic(&bytes[..6]).unwrap();
+        let header = framed_section(&bytes, version, 0, "AcDb:Header");
+        let vars = crate::codec::header::read_header_vars(&header.data, version).unwrap();
+        for (key, value) in &vars.values {
+            println!("{key} = {value:?}");
+        }
+    }
+}
+
+/// クラスの定義を表示する。`ZUMEN_DUMP=<名前,…>`
+#[test]
+#[ignore]
+fn dump_classes() {
+    let wanted = std::env::var("ZUMEN_DUMP").unwrap_or_default();
+    for (name, bytes) in samples() {
+        if !wanted.split(',').any(|w| w == name) {
+            continue;
+        }
+        let version = Version::from_magic(&bytes[..6]).unwrap();
+        let text = if version >= Version::R2007 {
+            crate::bits::TextCodec::Utf16
+        } else {
+            crate::bits::TextCodec::Bytes(encoding_rs::WINDOWS_1252)
+        };
+        let framed = framed_section(&bytes, version, 1, "AcDb:Classes");
+        println!("{name} extra {:?}", framed.extra);
+        for class in crate::write::classes::read_class_defs(&framed.data, version, text) {
+            println!("  {class:?}");
+        }
+    }
+}

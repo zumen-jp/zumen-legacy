@@ -144,6 +144,7 @@ pub(crate) fn viewport(view: &View, offset: [f64; 2], id: f64) -> DxfViewport {
         view_twist_angle: crate::text::normalize(view.angle),
         status_flags: VIEWPORT_FLAGS,
         frozen_layer_handles: Vec::new(),
+        frozen_layer_names: Vec::new(),
         clipping_boundary_handle: None,
     }
 }
@@ -170,6 +171,7 @@ pub(crate) fn overall_viewport(builder: &mut Builder, width: f64, height: f64) {
         view_twist_angle: 0.0,
         status_flags: 32768.0,
         frozen_layer_handles: Vec::new(),
+        frozen_layer_names: Vec::new(),
         clipping_boundary_handle: None,
     });
     builder.add(&Space::Paper, &look, "VIEWPORT", data, "");

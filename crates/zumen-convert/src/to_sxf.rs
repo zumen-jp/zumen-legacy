@@ -537,11 +537,13 @@ impl<'a> Mapper<'a> {
         let (x0, y0) = apply(paper_matrix, cx - hw, cy - hh);
         let (x1, y1) = apply(paper_matrix, cx + hw, cy + hh);
         let clip = [x0.min(x1), y0.min(y1), x0.max(x1), y0.max(y1)];
+        // R12 のビューポートは凍結したレイヤを名前で持つ
         let frozen: HashSet<String> = viewport
             .frozen_layer_handles
             .iter()
             .filter_map(|handle| self.doc.layers.iter().find(|layer| layer.handle == *handle))
             .map(|layer| layer.name.to_uppercase())
+            .chain(viewport.frozen_layer_names.iter().map(|name| name.to_uppercase()))
             .collect();
         // モデル空間の表示の外接矩形（表示の座標 = 実寸 mm − 原点の寄せ）を、図形ごとに
         let mut boxes: HashMap<&str, zumen_core::BBox> = HashMap::new();

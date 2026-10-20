@@ -476,6 +476,8 @@ struct Builder<'a> {
     /// ブロック参照・寸法の中で描いた図形の数
     expanded: u64,
     infinite: Vec<(DxfEntity, Ctx)>,
+    /// Some なら、描いた文字の run を 1 行の文字として覚える（`Exploder`）
+    pieces: Option<Vec<TextPiece>>,
 }
 
 impl<'a> Builder<'a> {
@@ -501,6 +503,7 @@ impl<'a> Builder<'a> {
             shx_count: 0,
             expanded: 0,
             infinite: Vec::new(),
+            pieces: None,
         };
         for layer in &doc.layers {
             builder.layer(&layer.name, Some(layer));
@@ -1398,7 +1401,7 @@ impl<'a> Builder<'a> {
                 shx = true;
             }
             if let Some(stack) = &run.stack {
-                x += self.draw_stack(run, stack, x, transform, &color, family, out);
+                x += self.draw_stack(run, stack, x, transform, &color, family, style, out);
                 continue;
             }
             let text = run.text.replace('\t', "    ");
@@ -1407,6 +1410,18 @@ impl<'a> Builder<'a> {
             }
             let em = em_for(&text) * run.height;
             let width = units(&text) * em * run.width_factor;
+            if let Some(pieces) = self.pieces.as_mut().filter(|_| !js::trim(&text).is_empty()) {
+                pieces.push(TextPiece {
+                    text: text.clone(),
+                    matrix: multiply(transform, &translate(x, 0.0)),
+                    height: run.height,
+                    width_factor: run.width_factor,
+                    oblique: run.oblique,
+                    color: color.clone(),
+                    font: run.font.clone(),
+                    style: style.map(|style| style.name.clone()),
+                });
+            }
             if !js::trim(&text).is_empty() && vertical {
                 // 縦書きのフォントは、字形をベースラインに対して 90° 左に回して並べる（ベースラインを 270° に向けると字が
                 // 立つ）。文字範囲は、ベースラインの向きに長さ width、横に em（em の下端から DESCENT 上がベースライン）
@@ -1479,14 +1494,28 @@ impl<'a> Builder<'a> {
         transform: &Matrix,
         color: &str,
         family: &str,
+        style: Option<&DxfTextStyle>,
         out: &mut Vec<Primitive>,
     ) -> f64 {
         let h = run.height * 0.7;
         let widths = [&stack.upper, &stack.lower].map(|part| units(part) * em_for(part) * h * run.width_factor);
         let width = if stack.kind == "#" { widths[0] + widths[1] } else { js::max(widths[0], widths[1]) };
+        let pieces = &mut self.pieces;
         let mut place = |text: &str, px: f64, baseline: f64, w: f64| {
             if text.is_empty() {
                 return;
+            }
+            if let Some(pieces) = pieces.as_mut() {
+                pieces.push(TextPiece {
+                    text: text.to_string(),
+                    matrix: multiply(transform, &translate(px, baseline)),
+                    height: h,
+                    width_factor: run.width_factor,
+                    oblique: run.oblique,
+                    color: color.to_string(),
+                    font: run.font.clone(),
+                    style: style.map(|style| style.name.clone()),
+                });
             }
             let em = em_for(text) * h;
             let primitive = layout_text(
@@ -3219,7 +3248,7 @@ fn unit_info(doc: &DxfDocument, notices: &mut NoticeList) -> (f64, String, Lengt
 }
 
 /// 図形の代表の点（原点を寄せる位置を決める）
-fn anchor_of(entity: &DxfEntity) -> Option<Vec2> {
+pub(crate) fn anchor_of(entity: &DxfEntity) -> Option<Vec2> {
     let first = |points: &[Vec3]| points.first().map(|point| [point[0], point[1]]);
     match &entity.data {
         DxfEntityData::Line { start, .. } => Some([start[0], start[1]]),
@@ -3428,6 +3457,124 @@ pub fn drawing_unit(doc: &DxfDocument) -> f64 {
 
 /// AutoCAD の図面（DXF・DWG から読んだモデル）を、モデル空間か 1 つのレイアウトの表示用の図面にする。
 /// layout は "Model"（モデル空間）かレイアウトの名前。None なら図面を保存したときの空間
+/// レイアウトの用紙。紙空間の座標 × paper_unit + origin が用紙の mm（左下が原点、幅 width・高さ height）
+pub(crate) struct LayoutSheet {
+    pub paper_unit: f64,
+    pub width: f64,
+    pub height: f64,
+    pub origin: Vec2,
+}
+
+pub(crate) fn layout_sheet(layout: &DxfLayout) -> LayoutSheet {
+    let paper_unit = (if layout.paper_units == 0.0 { 25.4 } else { 1.0 })
+        * (if layout.plot_scale[1] > 0.0 && layout.plot_scale[0] > 0.0 {
+            layout.plot_scale[0] / layout.plot_scale[1]
+        } else {
+            1.0
+        });
+    let rotated = layout.plot_rotation == 1.0 || layout.plot_rotation == 3.0;
+    let (mut left, mut bottom) = (layout.margins[0], layout.margins[1]);
+    if rotated {
+        (left, bottom) = (bottom, left);
+    }
+    let mut width = if rotated { layout.paper_height } else { layout.paper_width };
+    let mut height = if rotated { layout.paper_width } else { layout.paper_height };
+    let mut ox = left + layout.plot_origin[0];
+    let mut oy = bottom + layout.plot_origin[1];
+    if !(width > 0.0 && height > 0.0) {
+        // 用紙の大きさがない（R12 など）ときは、紙空間の範囲を用紙とする
+        let [x0, y0] = layout.limmin;
+        let [x1, y1] = layout.limmax;
+        width = (x1 - x0) * paper_unit;
+        height = (y1 - y0) * paper_unit;
+        ox = -x0 * paper_unit;
+        oy = -y0 * paper_unit;
+    }
+    LayoutSheet { paper_unit, width, height, origin: [ox, oy] }
+}
+
+/// 描いた文字の 1 つの run（`draw_line`・`draw_stack`）。同じ高さ・幅の係数・斜体・書体の 1 行の文字（TEXT）を
+/// matrix の位置と向きに置けば、同じに描ける
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct TextPiece {
+    pub text: String,
+    /// ベースラインの左端を原点とする文字の座標系 → 図形の座標系
+    pub matrix: Matrix,
+    pub height: f64,
+    pub width_factor: f64,
+    pub oblique: f64,
+    pub color: String,
+    /// 書式コード（\f）の書体
+    pub font: Option<RunFont>,
+    /// 文字スタイルの名前（ないときは Standard）
+    pub style: Option<String>,
+}
+
+/// 図形を、zumen が描く形のまま R12 の図形に崩すための描く要素（`r12::prepare`）
+pub(crate) struct Exploded {
+    /// 描く順の要素。文字（Primitive::Text）は texts の同じ順のものに対応する
+    pub primitives: Vec<Primitive>,
+    pub texts: Vec<TextPiece>,
+    /// 図形そのものの色。部品の色がこれと同じなら、部品は図形の色を継ぐ
+    pub color: String,
+    /// 図形の線種が破線か（実線の部品は CONTINUOUS にする）
+    pub dashed: bool,
+}
+
+/// 図形を、図形の座標系（モデル空間・紙空間・ブロックの WCS）のまま描く。曲線の細かさはモデル空間の表示と同じ
+/// （図面の単位を mm にして弦のずれを決める）。ブロックの中の図形は、ブロックが配置される最大の尺度で細かくする
+pub(crate) struct Exploder<'a> {
+    builder: Builder<'a>,
+    unit: f64,
+}
+
+impl<'a> Exploder<'a> {
+    pub(crate) fn new(doc: &'a DxfDocument) -> Self {
+        Self { builder: Builder::new(doc), unit: drawing_unit(doc) }
+    }
+
+    pub(crate) fn explode(&mut self, entity: &DxfEntity, scale: f64) -> Exploded {
+        let unit = self.unit * scale;
+        let ctx = root_ctx([unit, 0.0, 0.0, unit, 0.0, 0.0], IDENTITY, None);
+        let start = self.builder.entities.len();
+        self.builder.pieces = Some(Vec::new());
+        self.builder.emit(entity, &ctx);
+        let texts = self.builder.pieces.take().unwrap_or_default();
+        let back: Matrix = [1.0 / unit, 0.0, 0.0, 1.0 / unit, 0.0, 0.0];
+        let points = |points: &[f64]| transform_points(&back, points);
+        let stroke = |stroke: StrokePrimitive| StrokePrimitive {
+            points: points(&stroke.points),
+            width: stroke.width / unit,
+            dashes: stroke.dashes.iter().map(|dash| dash / unit).collect(),
+            ..stroke
+        };
+        let primitives = self
+            .builder
+            .entities
+            .drain(start..)
+            .flat_map(|entity| entity.primitives)
+            .map(|primitive| match primitive {
+                Primitive::Stroke(value) => Primitive::Stroke(stroke(value)),
+                Primitive::Fill(fill) => Primitive::Fill(FillPrimitive {
+                    rings: fill.rings.iter().map(|ring| points(ring)).collect(),
+                    ..fill
+                }),
+                Primitive::Clipped(clipped) => Primitive::Clipped(ClippedPrimitive {
+                    rings: clipped.rings.iter().map(|ring| points(ring)).collect(),
+                    strokes: clipped.strokes.into_iter().map(stroke).collect(),
+                }),
+                Primitive::Dot(dot) => Primitive::Dot(DotPrimitive { x: dot.x / unit, y: dot.y / unit, ..dot }),
+                Primitive::Text(text) => Primitive::Text(text),
+            })
+            .collect();
+        let texts =
+            texts.into_iter().map(|piece| TextPiece { matrix: multiply(&back, &piece.matrix), ..piece }).collect();
+        let color = self.builder.color(&entity.base, &ctx);
+        let dashed = !self.builder.dashes(&entity.base, &ctx, &ctx.m).is_empty();
+        Exploded { primitives, texts, color, dashed }
+    }
+}
+
 pub fn dxf_to_scene(doc: &DxfDocument, layout: Option<&str>) -> Scene {
     let mut builder = Builder::new(doc);
     let (unit, unit_name, length_unit) = unit_info(doc, &mut builder.notices);
@@ -3489,30 +3636,7 @@ pub fn dxf_to_scene(doc: &DxfDocument, layout: Option<&str>) -> Scene {
         }
         Some(layout) => {
             background = Background::Light;
-            let paper_unit = (if layout.paper_units == 0.0 { 25.4 } else { 1.0 })
-                * (if layout.plot_scale[1] > 0.0 && layout.plot_scale[0] > 0.0 {
-                    layout.plot_scale[0] / layout.plot_scale[1]
-                } else {
-                    1.0
-                });
-            let rotated = layout.plot_rotation == 1.0 || layout.plot_rotation == 3.0;
-            let (mut left, mut bottom) = (layout.margins[0], layout.margins[1]);
-            if rotated {
-                (left, bottom) = (bottom, left);
-            }
-            let mut width = if rotated { layout.paper_height } else { layout.paper_width };
-            let mut height = if rotated { layout.paper_width } else { layout.paper_height };
-            let mut ox = left + layout.plot_origin[0];
-            let mut oy = bottom + layout.plot_origin[1];
-            if !(width > 0.0 && height > 0.0) {
-                // 用紙の大きさがない（R12 など）ときは、紙空間の範囲を用紙とする
-                let [x0, y0] = layout.limmin;
-                let [x1, y1] = layout.limmax;
-                width = (x1 - x0) * paper_unit;
-                height = (y1 - y0) * paper_unit;
-                ox = -x0 * paper_unit;
-                oy = -y0 * paper_unit;
-            }
+            let LayoutSheet { paper_unit, width, height, origin: [ox, oy] } = layout_sheet(layout);
             let paper_matrix: Matrix = [paper_unit, 0.0, 0.0, paper_unit, ox, oy];
             if width > 0.0 && height > 0.0 {
                 let size = layout.paper_size.replace('_', " ");
@@ -3672,6 +3796,7 @@ fn draw_viewport(
             frozen.insert(layer.name.to_uppercase());
         }
     }
+    frozen.extend(viewport.frozen_layer_names.iter().map(|name| name.to_uppercase()));
     let ctx = Ctx {
         m,
         local: IDENTITY,

@@ -1,6 +1,6 @@
 //! AutoCAD の DXF（R12〜2018、テキストとバイナリ）を読み、AutoCAD の図面のモデル（`DxfDocument`）と
 //! zumen の表示用モデル（`Scene`）にする。`@zumenjs/dxf` の Rust 版で、同じ図面から同じ `Scene` を返す。
-//! モデルを AutoCAD 2013 の DXF に書き戻す（`write_dxf`）。
+//! モデルを DXF に書き戻す（`write_dxf` は AutoCAD 2013、`write_dxf_as` は R12〜2018 の版を選ぶ）。
 #![forbid(unsafe_code)]
 
 mod colors;
@@ -9,6 +9,7 @@ mod edit;
 mod model;
 mod mtext;
 mod parse;
+mod r12;
 mod scene;
 mod tags;
 mod write;
