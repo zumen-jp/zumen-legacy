@@ -12,9 +12,10 @@ through that build with `@zumenjs/dwg` ([DWG in the browser](../architecture.md#
 bytes ─▶ file (container, pages, decompression) ─▶ objects (bit streams) ─▶ read_dwg ─▶ DxfDocument ─▶ dxf_to_scene ─▶ Scene
 ```
 
-It also writes DWG: `rewrite_dwg` writes a drawing back in its own version with every object copied as its bits, the
-base for editing a drawing in place, and `write_dwg` writes the AutoCAD drawing model as an AutoCAD 2013 DWG, which is
-how a DXF, a DWG or a drawing of another format read into the model becomes DWG ([Writing](#writing)).
+It also writes DWG: `rewrite_dwg` writes a drawing back in its own version with every object copied as its bits,
+`write_dwg` writes the AutoCAD drawing model as an AutoCAD 2013 DWG, which is how a DXF, a DWG or a drawing of another
+format read into the model becomes DWG ([Writing](#writing)), and `edit_dwg` changes a drawing in place, keeping every
+object that no operation names ([Editing](#editing-edit_dwg)).
 
 Where the specification is silent or does not match the files, the behavior was checked against the same drawing
 saved as DXF by AutoCAD and against the MIT implementations [ACadSharp](https://github.com/DomCR/ACadSharp) and
@@ -411,3 +412,78 @@ of leaders to their annotation (a leader keeps the hook vertex that the reader a
   LARGE_RADIAL_DIMENSION class that it does not know. For the samples that are DWG, it finds the same entities of each
   type as in the original, apart from the types that the model does not hold.
 - ODA File Converter and DWG TrueView: not run yet.
+
+## Editing (`edit_dwg`)
+
+`zumen_dwg::edit_dwg` (through `zumen::edit`) changes a DWG drawing in place with the operations of
+[decision 0012](../decisions/0012-edit-in-place-and-write-every-format.md), with the keys, values and error codes of the
+DXF editor ([Editing](dxf.md#editing-edit_dxf)). It opens the drawing as `rewrite_dwg` does (R2000 to R2018, R2007
+included): every object that no operation changes is copied as its bits, so extended data, reactors, extension
+dictionaries, objects and entities that zumen does not read stay. An object that an operation changes is read with the
+lossless codec of its type (`src/codec`), changed and written again in the drawing's version, and new objects are
+written in that version too. The version, the code page and the other sections stay; the drawing is written in the
+container of its version. An edit without operations gives the same bytes. `new_dwg(units)` makes an empty AutoCAD 2013
+drawing with `write_dwg` (`$INSUNITS` and `$MEASUREMENT` from the units), which `zumen::create` edits.
+
+- **Handles**: new objects take handles from `$HANDSEED` (or above the largest handle), and `$HANDSEED` and the copy in
+  AcDb:AuxHeader (27) become the next one. When the codec cannot read every header variable (the test drawings of
+  `tests/writer` hold only those that reading uses), the bytes of the `$HANDSEED` value are written in place, which
+  leaves room for new handles of the same byte length.
+- **Where `add` puts an entity**: at the end of the block of its container. `model` (the default) is model space,
+  `layout:<name>` the paper space block of that layout (entity mode 1 for the active paper space, otherwise the block as
+  owner), `block:<name>` a block definition; block names are those of the BLOCK entities, as reading gives them (all
+  paper space block records are named `*Paper_Space`). From R2004 on, the entity is added to the list of entities of its
+  BLOCK_HEADER; in R2000 it is linked after the last entity of the block (previous and next entity, 20.4.1), and the
+  block's last entity becomes it. A block reference is added to the list of inserts of its block.
+- **What `add` writes**: LINE, CIRCLE, ARC (degrees become radians as in [Values](#values)), ELLIPSE, POINT, LWPOLYLINE
+  (closed 512, constant width, elevation, bulges), TEXT, MTEXT (when the text has line breaks or `wrapWidth` is given;
+  attachment bottom left, as the DXF editor writes it; from R2018 on with the redundant fields of a non-annotative
+  MTEXT, as AutoCAD writes it) and INSERT, with layer, ENC color (a true color from R2004 on), line type (BYLAYER and
+  BYBLOCK by the flags, others by handle) and line weight. Text without a style takes `Standard`. Strings before R2007
+  are in the drawing's code page, with `\U+XXXX` for characters it cannot hold and a closing NUL, as AutoCAD writes
+  them. A layer that the drawing lacks is added as `add-layer` adds it (`edit-added-layer`).
+- **What `update` changes**: only the values of the keys set, through the codec of the entity. Moving an aligned TEXT,
+  ATTRIB or ATTDEF moves its alignment point by the same amount; `rotation` of MTEXT sets its direction; the layer of a
+  POLYLINE is also set on its vertices and SEQEND; LWPOLYLINE vertices are written again with their bulges (vertex
+  widths are dropped). The text of a multi-line attribute (R2018) cannot be changed (`unsupported-kind`). An entity of
+  a type that the codec does not read can be deleted but not changed.
+- **What `delete` removes**: the entity with what follows it (vertices and SEQEND, attributes and SEQEND), its extension
+  dictionary and the objects in it; the entity leaves the entity list (R2004 and later) or the chain of its block (R2000:
+  the neighbours are linked to each other and the block's first or last entity moves), the draw order of the block
+  (ACAD_SORTENTS), groups (GROUP) and the reactors of the objects it reacts with, and a block reference leaves the
+  inserts of its block. Other references to it, such as associative dependencies, stay, as in DXF; AutoCAD's audit
+  removes them. An attribute alone cannot be deleted.
+- **Layers**: `add-layer` copies layer `0` without its extension dictionary, reactors and extended data (plot style and
+  material stay), with color 7, `CONTINUOUS`, the default line weight and plotting on, and adds it to the layer table;
+  `update-layer` sets the color, frozen (1), off (2), locked (8), plot (16) and line weight (0x3E0) of the flags, and the
+  line type. An R2000 layer that is off also gets a negative color number, as DXF writes it.
+- **Values the version cannot hold** are written as the nearest one and reported: `edit-nearest-color` (no true color
+  before AutoCAD 2004) and `edit-rounded-lineweight` (the line weights of DWG).
+- **Not editable**: R13 and R14 (not read), drawings with a password, and, in R2000, an entity whose neighbour in its
+  block is of a type that the codec does not read (`unsupported-kind`, as the neighbour's links would change).
+
+### Inferred rules of editing
+
+- **R2000 links**: an entity with Nolinks has the previous and next handles; AutoCAD links the first entity of a block to
+  a null previous entity and the last one to a null next entity, and the block header points at both. Entities are
+  found by following the next entity from the block's first entity, as reading does, and the links that an edit
+  changes are written as absolute soft pointers. The test drawings give paper space entities mode 2 and the first
+  entity Nolinks; the editor takes a block's entities from its chain or list, not from the mode.
+- **Strings**: AutoCAD's R2000 and R2004 drawings end strings with a NUL that the length counts; names are compared
+  without it.
+
+### Verification of editing
+
+- The conformance test of decision 0012 (`crates/zumen/tests/edit.rs`): for the two DWG fixtures and the 49 sample
+  drawings (DXF and DWG, R2000 to 2018, R2007 included) with `ZUMEN_SAMPLES`, an edit without operations gives the same
+  bytes, and after adding a layer, a line and a text, changing the layer of an entity and deleting another, every other
+  entity reads again with the same id, type, values and shape, and no new reading notice appears.
+- `src/edit/tests.rs`: every kind added in model space, paper space and a block, every key changed, deletion of block
+  references with their attributes, layers added and changed, the error codes, new drawings, and 400 damaged copies
+  edited without panicking. After every edit, the entity lists (R2004 and later) and chains (R2000) of every block hold
+  exactly the entities of the block. For the samples, the edited drawings also pass the checks of every stored CRC,
+  checksum and Reed-Solomon parity (`src/samples.rs`).
+- ezdwg 0.16.3 reads every edited sample with one more layer, the added line and text and without the deleted entity;
+  ACadSharp 3.8.26 reads them with the same warnings as the originals.
+- ODA File Converter and DWG TrueView: not run yet. `cargo run --release -p zumen-dwg --example edit -- in.dwg out.dwg`
+  makes the files to check.

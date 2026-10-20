@@ -162,6 +162,8 @@ impl Color {
 pub(crate) struct Class {
     pub number: u16,
     pub dxf_name: String,
+    /// 図形を作るクラス（item class id が 0x1F2）
+    pub entity: bool,
 }
 
 /// クラスの節を読む。読めなくなった所までのクラスを返す
@@ -204,13 +206,13 @@ fn classes(section: &[u8], format: Format, out: &mut Vec<Class>) -> Read<()> {
         let _cpp = streams.tv()?;
         let dxf_name = streams.tv()?;
         let _zombie = streams.data.bit()?;
-        let _item_class = streams.data.bs()?;
+        let item_class = streams.data.bs()?;
         if format.r2004() {
             for _ in 0..5 {
                 streams.data.bl()?;
             }
         }
-        out.push(Class { number, dxf_name });
+        out.push(Class { number, dxf_name, entity: item_class == 0x1f2 });
     }
     Ok(())
 }
