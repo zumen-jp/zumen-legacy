@@ -51,6 +51,77 @@ def test_finds_entities_by_type_and_layer():
         mcp.get_entity(scene, "no such id")
 
 
+def test_lists_the_placements_drawn_at_a_scale():
+    info = mcp.summary(zumen.read(SFC))
+    assert info["placements_total"] == len(info["placements"]) > 1
+    counts = [placement["entities"] for placement in info["placements"]]
+    assert counts == sorted(counts, reverse=True)
+    part = next(placement for placement in info["placements"] if placement["scale"] == "1:20")
+    assert part["name"] == "部分図（数学座標系） 部分図"
+    assert part["to_real"] == [20.0, 0.0, 0.0, 20.0, -400.0, -2000.0]
+    x0, y0, x1, y1 = part["bbox"]
+    assert x0 < x1 and y0 < y1
+    # A drawing whose entities sit on the sheet itself has no placement
+    assert mcp.summary(zumen.read(FIXTURES / "sfc" / "nosheet.sfc"))["placements"] == []
+
+
+def test_gives_the_geometry_of_an_entity_in_paper_and_real_millimeters():
+    scene = zumen.read(SFC)
+    line = mcp.get_entity(scene, "#600")
+    assert line["geometry"] == [{"shape": "polyline", "points": [[10.0, 250.0], [100.0, 250.0]], "closed": False}]
+    dimension = mcp.get_entity(scene, "#810>#290")
+    assert dimension["placement"]["scale"] == "1:20" and len(dimension["placement"]["to_real"]) == 6
+    first, *_, text = dimension["geometry"]
+    assert first == {
+        "shape": "polyline",
+        "points": [[20.0, 110.0], [70.0, 110.0]],
+        "closed": False,
+        "real": [[0.0, 200.0], [1000.0, 200.0]],
+    }
+    assert text == {
+        "shape": "text",
+        "text": "1,000",
+        "point": [42.5, 110.5],
+        "height": 0.125,
+        "angle": 0.0,
+        "real": [450.0, 210.0],
+    }
+    # Shapes past max_points are left out whole; a point with real counts twice
+    short = mcp.get_entity(scene, "#810>#290", max_points=8)
+    assert [shape["shape"] for shape in short["geometry"]] == ["polyline", "polyline"]
+    assert short["geometry_omitted"] == 4
+    with pytest.raises(mcp.DrawingError):
+        mcp.get_entity(scene, "#600", max_points=0)
+    # In DXF model space the real-world coordinates are those on the sheet, so they are not repeated
+    point = mcp.get_entity(zumen.read(FIXTURES / "dxf" / "features.dxf"), "107")
+    assert point["geometry"] == [{"shape": "point", "point": [110.0, 5.0]}]
+
+
+def test_pages_through_the_geometry_of_entities_within_a_number_of_points():
+    scene = zumen.read(SFC)
+    plain = mcp.find_entities(scene, limit=1000)
+    assert "geometry" not in plain["entities"][0] and plain["next_offset"] is None
+    whole = mcp.find_entities(scene, geometry=True, limit=1000, max_points=mcp.MAX_POINTS)
+    assert [entity["id"] for entity in whole["entities"]] == [entity["id"] for entity in plain["entities"]]
+    assert all("geometry" in entity and "placement" in entity for entity in whole["entities"])
+    dimension = next(entity for entity in whole["entities"] if entity["id"] == "#810>#290")
+    assert dimension["placement"] == {"name": "部分図（数学座標系） 部分図", "scale": "1:20"}
+    assert dimension["geometry"] == mcp.get_entity(scene, "#810>#290")["geometry"]
+
+    # Small pages end before the points pass the budget, and next_offset goes on from there
+    ids: list[str] = []
+    offset: int | None = 0
+    while offset is not None:
+        page = mcp.find_entities(scene, geometry=True, offset=offset, max_points=40)
+        assert page["entities"], offset
+        ids += [entity["id"] for entity in page["entities"]]
+        offset = page["next_offset"]
+    assert ids == [entity["id"] for entity in plain["entities"]]
+    # An entity larger than the budget still comes first on its page, with the shapes that fit
+    big = mcp.find_entities(scene, geometry=True, region=(165, 240, 175, 250), type="円", max_points=4)
+    assert big["entities"][0]["geometry"] == [] and big["entities"][0]["geometry_omitted"] == 1
+
+
 def test_measures_real_lengths_through_the_scale_of_a_placement():
     scene = zumen.read(SFC)
     # A line in a part drawn at 1:10, where 1 mm on the sheet is 10 mm in reality
@@ -134,6 +205,13 @@ def test_serves_the_tools_over_mcp():
 
             found = await client.call_tool("find_texts", {"path": SFC, "query": "平面図"})
             assert [text["id"] for text in found.structured_content["texts"]] == ["#700"]
+
+            entity = await client.call_tool("get_entity", {"path": SFC, "id": "#810>#290", "max_points": 8})
+            assert [shape["shape"] for shape in entity.structured_content["geometry"]] == ["polyline", "polyline"]
+            listed = await client.call_tool("find_entities", {"path": SFC, "geometry": True, "limit": 5})
+            assert all("geometry" in item for item in listed.structured_content["entities"])
+            too_many = await client.call_tool("get_entity", {"path": SFC, "id": "#600", "max_points": 10**6})
+            assert too_many.is_error
 
             missing = await client.call_tool("get_entity", {"path": SFC, "id": "no such id"})
             assert missing.is_error and "no such id" in missing.content[0].text
