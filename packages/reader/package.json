@@ -22,7 +22,6 @@
     "url": "git+https://github.com/zumenjs/zumen.git",
     "directory": "packages/reader"
   },
-  "private": true,
   "type": "module",
   "license": "MIT",
   "sideEffects": [

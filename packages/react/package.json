@@ -18,7 +18,6 @@
     "url": "git+https://github.com/zumenjs/zumen.git",
     "directory": "packages/react"
   },
-  "private": true,
   "type": "module",
   "license": "MIT",
   "sideEffects": false,

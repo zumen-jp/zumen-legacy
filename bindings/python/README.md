@@ -4,8 +4,12 @@ Read 2D drawings of Japanese construction and render them, with the Rust impleme
 [zumen](https://github.com/zumenjs/zumen). The result is the same `Scene` model as the
 `@zumenjs/core` viewer in the browser.
 
-> Status: before the first release. SXF (SFC and P21, also compressed as P2Z and SFZ), Jw_cad JWW, DXF and DWG
-> (AutoCAD 2000 to 2018) are supported.
+> Status: early release (0.x), for Python 3.12 or newer. SXF (SFC and P21, also compressed as P2Z and SFZ),
+> Jw_cad JWW, DXF and DWG (AutoCAD 1.0 to 2018) are supported.
+
+Download a wheel for your platform from the [GitHub release](https://github.com/zumenjs/zumen/releases/latest)
+and install it with `pip install path/to/zumen-0.1.0-….whl`. The release includes wheels for Linux x86_64 and
+aarch64 (glibc 2.28 or newer), macOS arm64, and a source distribution for other platforms.
 
 ```python
 import zumen
