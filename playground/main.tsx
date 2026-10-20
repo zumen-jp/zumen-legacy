@@ -4,7 +4,7 @@ import { type DragEvent, StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { DrawingSample } from "./drawing-sample.js";
 
-const ACCEPT = ".sfc,.p21,.sfz,.p2z,.jww,.dxf,.dwg";
+const ACCEPT = ".sfc,.p21,.sfz,.p2z,.jww,.jwc,.jws,.dxf,.dwg";
 const READERS = [reader];
 
 /** 図面を選ぶ・ドロップする・?sample=名前 で開く試用画面 */
@@ -62,7 +62,7 @@ function App() {
       <header style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12 }}>
         <h1 style={{ margin: 0, fontSize: 18 }}>図面のビューア</h1>
         <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-          図面（SFC・P21・P2Z・SFZ・JWW・DXF・DWG）
+          図面（SFC・P21・P2Z・SFZ・JWW・JWC・JWS・DXF・DWG）
           <input type="file" accept={ACCEPT} onChange={(event) => open(event.currentTarget.files?.[0] ?? null)} />
         </label>
         <span aria-live="polite">

@@ -4,11 +4,11 @@ import type { DrawingFormat } from "@zumenjs/core";
 // WebAssembly を読み込まずに判定できる。tests/reader.test.ts がどの図面でも WebAssembly の detect と比べる
 
 /** 読める形式。圧縮した SXF は sfz（中が SFC）と p2z（中が P21） */
-export const FORMATS: readonly DrawingFormat[] = ["sfc", "p21", "sfz", "p2z", "jww", "dxf", "dwg"];
+export const FORMATS: readonly DrawingFormat[] = ["sfc", "p21", "sfz", "p2z", "jww", "jwc", "jws", "dxf", "dwg"];
 
 /** 図面の形式を中身から判定する（SXF・JWW・DXF・DWG の順に見る）。読めない形式なら null */
 export function detectDrawing(bytes: Uint8Array): DrawingFormat | null {
-  return detectSxf(bytes) ?? (isJww(bytes) ? "jww" : isDxf(bytes) ? "dxf" : isDwg(bytes) ? "dwg" : null);
+  return detectSxf(bytes) ?? detectJw(bytes) ?? (isDxf(bytes) ? "dxf" : isDwg(bytes) ? "dwg" : null);
 }
 
 /**
@@ -25,9 +25,12 @@ export function isDwg(bytes: Uint8Array): boolean {
   );
 }
 
-/** JWW の図面の印（JwwData.）で始まるか */
-function isJww(bytes: Uint8Array): boolean {
-  return startsWith(bytes, "JwwData.", 0);
+/** Jw_cad の識別子。Rust の is_jww・is_jwc・is_jws と同じ（docs/formats/jww.md の JWC・JWS） */
+function detectJw(bytes: Uint8Array): DrawingFormat | null {
+  if (startsWith(bytes, "JwwData.", 0)) return "jww";
+  if (startsWith(bytes, "jw_cad(c)data", 0)) return "jwc";
+  if (startsWith(bytes, "JwsData.", 0)) return "jws";
+  return null;
 }
 
 /** バイナリの DXF の印で始まるか、テキストの DXF（先頭のコメント 999 を飛ばし、最初のタグが 0 / SECTION）か */

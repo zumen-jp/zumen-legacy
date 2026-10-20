@@ -110,6 +110,7 @@ describe("@zumenjs/reader", () => {
         latin1,
       ),
       ...["JwwData.", "JwwData", "999\ncomment\n  0\nSECTION\n", "ï»¿0\r\nSECTION", "0\nSECTIONS"].map(latin1),
+      ...["jw_cad(c)data", "jw_cad(c)dat", "JW_CAD(c)data", "JwsData.", "JwsData", "jwsData."].map(latin1),
       latin1("AutoCAD Binary DXF\r\n\x1a\x00"),
       latin1(" \r\nISO-10303-21;\nFILE_DESCRIPTION ( ( 'SCADEC level2 feature_mode'"),
       latin1("\tISO-10303-21;"),
@@ -127,6 +128,16 @@ describe("@zumenjs/reader", () => {
     for (const bytes of inputs) expect(detectDrawing(bytes)).toBe(detect(bytes) ?? null);
     expect(inputs.map(detectDrawing).slice(-7)).toEqual(["p2z", "sfz", null, "sfz", null, null, null]);
     expect(drawings.filter((name) => isDwg(read(name)))).toEqual(["dwg/r2000.dwg", "dwg/r2018.dwg"]);
+  });
+
+  it("JWC と JWS を WebAssembly 読み込み前の判定と reader の対応形式に含める", () => {
+    for (const [signature, format] of [
+      ["jw_cad(c)data", "jwc"],
+      ["JwsData.", "jws"],
+    ] as const) {
+      expect(reader.detect(latin1(signature))).toBe(format);
+      expect(reader.formats).toContain(format);
+    }
   });
 
   // どの形式も Rust の読み取りで読み、TypeScript の読み取りが書いた正解ファイル（DWG は golden.test.ts）と同じ Scene になる
