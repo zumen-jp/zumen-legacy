@@ -10,8 +10,9 @@ mod p21_reader;
 mod scene;
 mod sfc;
 mod sfc_reader;
+mod style;
 mod symbols;
-mod tables;
+pub mod tables;
 
 pub use document::{CompositeCurve, SubFigure, SubFigures, SxfDocument, SxfDrawing};
 pub use features::{
@@ -23,6 +24,8 @@ pub use header::SxfHeader;
 pub use p21::parse_p21;
 pub use scene::{SxfSceneOptions, sxf_to_scene, sxf_to_scene_with};
 pub use sfc::parse_sfc;
+pub use style::DEFAULT_WIDTH;
+pub use symbols::{arrow_primitives, marker_primitives};
 
 use zumen_core::{DrawingReader, ReadError, ReadOptions, Scene};
 
@@ -65,6 +68,15 @@ fn is_feature_mode(head: &[u8]) -> bool {
     })
 }
 
+/// 形式（sfc・p21）ごとに SXF の図面を読む。表示用の図面にする前の、SXF のフィーチャの図面を返す
+pub fn parse_sxf(bytes: &[u8], format: &str) -> Result<SxfDrawing, ReadError> {
+    match format {
+        "sfc" => parse_sfc(bytes),
+        "p21" => parse_p21(bytes),
+        _ => Err(ReadError::new(format!("SXF の読み取りは {format} を読めません"))),
+    }
+}
+
 /// read_drawing に渡す SXF（SFC・P21）の読み取り
 pub struct Sxf;
 
@@ -81,11 +93,6 @@ impl DrawingReader for Sxf {
     }
 
     fn read(&self, bytes: &[u8], format: &str, _options: &ReadOptions) -> Result<Scene, ReadError> {
-        let drawing = match format {
-            "sfc" => parse_sfc(bytes)?,
-            "p21" => parse_p21(bytes)?,
-            _ => return Err(ReadError::new(format!("SXF の読み取りは {format} を読めません"))),
-        };
-        Ok(sxf_to_scene(&drawing))
+        Ok(sxf_to_scene(&parse_sxf(bytes, format)?))
     }
 }

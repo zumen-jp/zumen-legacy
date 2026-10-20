@@ -142,7 +142,7 @@ const DEFAULT_LINEWEIGHT: f64 = 0.25;
 const EM_LATIN: f64 = 1.0 / 0.72;
 const EM_CJK: f64 = 1.0 / 0.88;
 /// em の下端からベースラインまで（em に対する比）
-const DESCENT: f64 = 0.12;
+pub const DESCENT: f64 = 0.12;
 /// MTEXT の既定の行の間隔（文字の高さの 5/3、DXF Reference「MTEXT」の 44）
 const LINE_SPACING: f64 = 5.0 / 3.0;
 /// 引出線を矢印の先から始める矢印（ほかの矢印は、矢印の大きさだけ離れた矢印の根元から線を始める）。
@@ -300,7 +300,8 @@ fn units(text: &str) -> f64 {
     text.chars().fold(0.0, |total, c| total + if is_half_width(c) { 0.5 } else { 1.0 })
 }
 
-fn em_for(text: &str) -> f64 {
+/// 文字の高さ（TEXT の 40）に対する字形の em の大きさ。全角の文字を含めば漢字の高さを、なければ大文字の高さを合わせる
+pub fn em_for(text: &str) -> f64 {
     if text.chars().any(|c| !is_half_width(c) && !js::is_whitespace(c)) { EM_CJK } else { EM_LATIN }
 }
 

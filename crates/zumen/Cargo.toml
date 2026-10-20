@@ -1,12 +1,13 @@
 [package]
 name = "zumen"
-description = "Read 2D drawings (SXF, JWW, DXF and DWG) into one scene model, and convert DXF and DWG to DXF"
+description = "Read 2D drawings (SXF, JWW, DXF and DWG) into one scene model, and convert them to DXF"
 version.workspace = true
 edition.workspace = true
 repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+zumen-convert.workspace = true
 zumen-core.workspace = true
 zumen-dxf.workspace = true
 zumen-dwg.workspace = true

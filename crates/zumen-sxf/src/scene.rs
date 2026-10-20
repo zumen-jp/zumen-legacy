@@ -4,8 +4,9 @@
 use crate::document::{SxfDocument, SxfDrawing};
 use crate::features::{Annotation, Arrow, ExtensionLine, HatchPattern, Region, SxfFeature};
 use crate::symbols::{arrow_primitives, marker_primitives};
+use crate::style::DEFAULT_WIDTH;
 use crate::tables::{
-    PREDEFINED_COLORS, PREDEFINED_LINE_TYPES, PREDEFINED_WIDTHS, arrow_name, index, marker_name, sfig_kind, sheet_size,
+    PREDEFINED_COLORS, PREDEFINED_LINE_TYPES, arrow_name, display_name, index, marker_name, sfig_kind, sheet_size,
 };
 use std::collections::HashSet;
 use std::f64::consts::PI;
@@ -37,16 +38,6 @@ impl Default for SxfSceneOptions {
     fn default() -> Self {
         Self { tolerance: 0.02 }
     }
-}
-
-/// `Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, "0")`
-fn hex_part(value: f64) -> String {
-    let clamped = js::max(0.0, js::min(255.0, js::round(value)));
-    if clamped.is_nan() { "NaN".into() } else { format!("{:02x}", clamped as u32) }
-}
-
-fn hex(r: f64, g: f64, b: f64) -> String {
-    format!("#{}{}{}", hex_part(r), hex_part(g), hex_part(b))
 }
 
 /// 属性に表示する数値（`Intl.NumberFormat("ja-JP", { maximumFractionDigits })`）
@@ -248,17 +239,6 @@ fn scale_label(scale: f64) -> String {
     }
 }
 
-/// P21 の接頭語（$$SXF_FM_ など）と属性付加機構の記述を除いた複合図形名
-fn display_name(name: &str) -> &str {
-    let stripped = name
-        .strip_prefix("$$SXF_")
-        .and_then(|rest| ["FM_", "FG_", "G_", "P_"].iter().find_map(|prefix| rest.strip_prefix(prefix)));
-    match stripped {
-        Some(rest) if !rest.is_empty() => rest,
-        _ => name,
-    }
-}
-
 /// 曲線の点列を、向きをそろえてつなぐ
 fn append_chained(ring: &mut Vec<f64>, points: Vec<f64>) {
     if points.len() < 4 {
@@ -328,17 +308,10 @@ impl SceneBuilder<'_> {
     // 色・線種・線幅・フォントのコードを値にする（附属書 SFC 編 1-3-8〜1-3-18）
 
     fn color(&mut self, code: f64) -> String {
-        if let Some(predefined) = index(code - 1.0).and_then(|index| PREDEFINED_COLORS.get(index)) {
-            let [r, g, b] = predefined.rgb;
-            return hex(f64::from(r), f64::from(g), f64::from(b));
-        }
-        if code >= 17.0
-            && let Some(user) = index(code - 17.0).and_then(|index| self.doc.user_colors.get(index))
-        {
-            return hex(user.r, user.g, user.b);
-        }
-        self.notices.add(NoticeLevel::Warning, "unknown-color", "定義のない色コードを白で表示しました");
-        DEFAULT_COLOR.into()
+        self.doc.color(code).unwrap_or_else(|| {
+            self.notices.add(NoticeLevel::Warning, "unknown-color", "定義のない色コードを白で表示しました");
+            DEFAULT_COLOR.into()
+        })
     }
 
     fn color_label(&self, code: f64) -> String {
@@ -360,23 +333,10 @@ impl SceneBuilder<'_> {
     }
 
     fn dashes(&mut self, code: f64) -> Vec<f64> {
-        if (1.0..=16.0).contains(&code) {
-            return index(code - 1.0)
-                .and_then(|index| PREDEFINED_LINE_TYPES.get(index))
-                .map(|line_type| line_type.pitch.to_vec())
-                .unwrap_or_default();
-        }
-        if code >= 17.0
-            && let Some(user) = index(code - 17.0).and_then(|index| self.doc.user_line_types.get(index))
-        {
-            return if user.pitch.iter().all(|value| *value > 0.0) && user.pitch.len() % 2 == 0 {
-                user.pitch.clone()
-            } else {
-                Vec::new()
-            };
-        }
-        self.notices.add(NoticeLevel::Warning, "unknown-line-type", "定義のない線種コードを実線で表示しました");
-        Vec::new()
+        self.doc.dashes(code).unwrap_or_else(|| {
+            self.notices.add(NoticeLevel::Warning, "unknown-line-type", "定義のない線種コードを実線で表示しました");
+            Vec::new()
+        })
     }
 
     fn line_type_label(&self, code: f64) -> String {
@@ -394,22 +354,14 @@ impl SceneBuilder<'_> {
     }
 
     fn width(&mut self, code: f64) -> f64 {
-        if let Some(predefined) = index(code - 1.0).and_then(|index| PREDEFINED_WIDTHS.get(index)) {
-            return *predefined;
-        }
-        if code >= 11.0
-            && let Some(user) = index(code - 11.0).and_then(|index| self.doc.user_widths.get(index))
-        {
-            return user.width;
-        }
-        if code != 0.0 {
+        self.doc.width(code).unwrap_or_else(|| {
             self.notices.add(NoticeLevel::Warning, "unknown-width", "定義のない線幅コードを 0.13mm で表示しました");
-        }
-        0.13
+            DEFAULT_WIDTH
+        })
     }
 
     fn font(&self, code: f64) -> Option<&str> {
-        index(code - 1.0).and_then(|index| self.doc.fonts.get(index)).map(|font| font.name.as_str())
+        self.doc.font(code)
     }
 
     fn layer_name(&self, code: f64) -> String {
@@ -753,23 +705,7 @@ impl SceneBuilder<'_> {
         }
         let color = self.color(color);
         let font_family = font_family_for(self.font(value.font).unwrap_or("")).to_string();
-        layout_text(
-            TextLayoutInput {
-                text: &value.text,
-                x,
-                y,
-                height: value.height,
-                width: value.width,
-                spacing: value.spacing,
-                angle: value.angle,
-                slant: value.slant,
-                anchor: value.anchor,
-                vertical: value.direction == 2.0,
-                color,
-                font_family,
-            },
-            &ctx.m,
-        )
+        layout_text(value.layout_input(x, y, color, font_family), &ctx.m)
     }
 
     fn locate(&mut self, feature: &SxfFeature, ctx: &Context) {
@@ -1267,6 +1203,7 @@ impl SceneBuilder<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::style::hex;
 
     #[test]
     fn reads_background_and_display_names_like_the_regular_expressions() {

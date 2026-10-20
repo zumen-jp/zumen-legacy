@@ -460,6 +460,7 @@ name = "zumen"
 version = "0.1.0"
 dependencies = [
  "serde_json",
+ "zumen-convert",
  "zumen-core",
  "zumen-dwg",
  "zumen-dxf",
@@ -474,6 +475,16 @@ dependencies = [
  "serde_json",
  "zumen",
  "zumen-render",
+]
+
+[[package]]
+name = "zumen-convert"
+version = "0.1.0"
+dependencies = [
+ "zumen-core",
+ "zumen-dxf",
+ "zumen-jww",
+ "zumen-sxf",
 ]
 
 [[package]]

@@ -19,7 +19,7 @@ pub use mtext::{
     parse_text_codes,
 };
 pub use parse::parse_dxf;
-pub use scene::{dash_array, dxf_to_scene};
+pub use scene::{DESCENT as TEXT_DESCENT, dash_array, dxf_to_scene, em_for as text_em};
 pub use tags::{codepage_encoding, decode_escapes, is_ascii_dxf, is_binary_dxf};
 pub use write::{DxfWritten, write_dxf};
 
