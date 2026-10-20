@@ -9,8 +9,6 @@ readme = "README.md"
 requires-python = ">=3.12"
 keywords = ["cad", "drawing", "jww", "sxf", "dxf", "dwg", "aec"]
 classifiers = [
-  # PyPI への初回公開を決めるまで、この分類子を残す（docs/releasing.md）
-  "Private :: Do Not Upload",
   "Programming Language :: Rust",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: Implementation :: CPython",

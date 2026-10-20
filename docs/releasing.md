@@ -5,8 +5,8 @@ release and the routine for later ones.
 
 A release is a tag `vX.Y.Z`. Two workflows react to a pushed tag and nothing else publishes: `python-wheels.yml` for the
 Python package and `npm-release.yml` for the npm packages. The uploads to PyPI and to npm happen only when the repository
-variable `PUBLISH_TO_PYPI` or `PUBLISH_TO_NPM` is `true`, and the packages still carry the two guards that stop them
-(step 9 below), so a tag cannot publish to either until then. (`python-wheels.yml` also attaches the wheels to a GitHub
+variable `PUBLISH_TO_PYPI` or `PUBLISH_TO_NPM` is `true`. The public packages are publishable from 0.1.0; the workspace
+root and the TypeScript reference readers stay private. (`python-wheels.yml` also attaches the wheels to a GitHub
 Release for every tag.)
 
 ## Before the first package release
@@ -31,9 +31,10 @@ Release for every tag.)
    `zumenjs`, repository `zumen`, workflow `python-wheels.yml`, environment `pypi`. A pending publisher lets the first
    upload from the workflow create the project, so the first PyPI release needs no hand work.
 8. **Third-party rights.** Keep third-party license texts with distributed binaries. ST-Bridge is outside this repository ([decision 0013](decisions/0013-st-bridge-out-of-zumen.md)).
-9. **Lift the two guards.** In the commit that you tag first, remove `"private": true` from `packages/core`, `packages/viewer`, `packages/reader` and `packages/react` only (the workspace root and TypeScript reference readers stay private) and replace the classifier `Private :: Do Not Upload` in
-   `bindings/python/pyproject.toml` with `License :: OSI Approved :: MIT License`. They are what stops `pnpm publish`
-   and PyPI today. Do this when you have read the audit of the repository and decided to publish.
+9. **Lift the two guards.** Done for 0.1.0 after the repository review: `packages/core`, `packages/viewer`,
+   `packages/reader` and `packages/react` have no `"private": true`, and `bindings/python/pyproject.toml` has no
+   `Private :: Do Not Upload` classifier. The Python license is the SPDX expression `license = "MIT"`; do not add a
+   deprecated license classifier alongside it ([Python packaging specification](https://packaging.python.org/en/latest/specifications/pyproject-toml/#classifiers)).
 
 Steps 1 to 4 and 9 are changes to the repository; 5 to 8 cover account settings and third-party rights.
 

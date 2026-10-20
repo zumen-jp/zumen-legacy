@@ -4,7 +4,10 @@ All packages share one version during 0.x.
 
 ## Unreleased
 
-- Prepare MIT licensing, third-party license notices, a code of conduct, and gated npm/PyPI release workflows. (0.1.0)
+## 0.1.0 — 2026-10-20
+
+- First public release under the MIT license, with third-party license notices, four npm packages
+  (`@zumenjs/core`, `@zumenjs/viewer`, `@zumenjs/reader`, `@zumenjs/react`) and Python wheels and an sdist.
 
 - `@zumenjs/reader` replaces `@zumenjs/dwg`: every format (SFC, P21, P2Z, SFZ, JWW, DXF and DWG) is read in browsers
   and Node.js by the Rust readers built to WebAssembly. `initReader` loads the module, `reader` is the
@@ -47,7 +50,7 @@ All packages share one version during 0.x.
   without a Rust toolchain. One abi3 wheel serves every Python from 3.12, for manylinux_2_28 (x86_64 and aarch64) and
   macOS (arm64). Pull requests and `main` upload them as workflow artifacts after the tests of `bindings/python` ran
   against each installed wheel on Python 3.12 and 3.14, and a pushed tag `v*` attaches them to a GitHub Release
-  ([docs/releasing.md](docs/releasing.md)). Nothing goes to PyPI until the license is decided. The wheels now hold the
+  ([docs/releasing.md](docs/releasing.md)). PyPI uploads use a trusted publisher and an explicit repository gate. The wheels hold the
   license text of the bundled BIZ UDGothic (SIL OFL 1.1) in `dist-info/licenses`, which they lacked.
 - The length unit of a drawing: `Scene.unit`, one of `LENGTH_UNITS` (`LengthUnit` in Rust), is the unit of the
   drawing's own coordinates (the `raw` points and lengths of properties): `millimeter` in SXF and JWW, and in DXF and
