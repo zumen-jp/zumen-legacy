@@ -237,6 +237,7 @@ fn rewrite_r2004(bytes: &[u8], version: Version, notices: &mut NoticeList) -> Re
             compressed: info.compressed,
             encrypted: info.encrypted,
             preview_base,
+            keep_zero_pages: false,
         });
     }
     let (Some(objects_at), Some(handles_at)) = (objects_at, handles_at) else {
@@ -278,6 +279,7 @@ mod tests {
                 compressed: false,
                 encrypted: 0,
                 preview_base: None,
+                keep_zero_pages: false,
             }],
             stream_order: vec![0],
         });
