@@ -7,7 +7,9 @@ use std::collections::HashSet;
 use std::io::{BufWriter, Write};
 use std::process::ExitCode;
 use zumen::compare::{CompareOptions, compare_scenes, diff_scene};
-use zumen::extract::{EntityFilter, EntityText, entity_text, layer_names, scene_texts, select_entities};
+use zumen::extract::{
+    EntityFilter, EntityText, Shape, entity_shapes, entity_text, layer_names, real_shapes, scene_texts, select_entities,
+};
 use zumen::title::{TitleKey, title_block, title_fields};
 use zumen::{BBox, Background, ReadDrawingOptions, ReadLimits, Scene, SceneEntity};
 use zumen_render::{ImageSize, RenderOptions, RenderedImage};
@@ -17,7 +19,8 @@ Usage:
   zumen detect <file>
   zumen scene <file> [--format <name>] [--view <id>] [--pretty]
   zumen texts <file> [--region <x0>,<y0>,<x1>,<y1>] [--all-layers] [--format <name>] [--view <id>]
-  zumen entities <file> [--region <x0>,<y0>,<x1>,<y1>] [--all-layers] [--format <name>] [--view <id>]
+  zumen entities <file> [--region <x0>,<y0>,<x1>,<y1>] [--all-layers] [--geometry] [--format <name>]
+                 [--view <id>]
   zumen title <file> [--format <name>] [--view <id>]
   zumen render <file> -o <out.png|out.svg|out.pdf> [--dpi <n> | --size <w>x<h> [--margin <px>]] [--dpr <n>]
                [--region <x0>,<y0>,<x1>,<y1>] [--all-layers] [--map <out.json>]
@@ -31,6 +34,9 @@ reading an untrusted drawing that is too large (P2Z and SFZ after unpacking), to
 
 Reads SXF, JWW, DXF and DWG drawings into zumen's scene model.
 texts and entities write one JSON object per line, in paper millimeters (Y up) rounded to 0.001.
+--geometry adds the shapes drawn to each entity (polylines, segments, fills, hatches, points and text
+parts; curves as the polyline drawn), with real for the same coordinates in real-world millimeters
+when the entity sits in a scaled placement.
 title finds the drawing number, revision, title, project, scale and date in the title block.
 render writes SVG or PDF when the output ends in .svg or .pdf: the sheet (or --region) at its real size,
 with text that can be searched. --dpi, --size, --dpr and --map are for PNG only.
@@ -59,6 +65,7 @@ struct Args {
     dpr: f64,
     region: Option<BBox>,
     all_layers: bool,
+    geometry: bool,
     map: Option<String>,
     tolerance: f64,
     style: bool,
@@ -105,6 +112,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
         dpr: 1.0,
         region: None,
         all_layers: false,
+        geometry: false,
         map: None,
         tolerance: 0.01,
         style: false,
@@ -136,6 +144,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
             "--dpr" => parsed.dpr = value("--dpr")?.parse().map_err(|_| "--dpr needs a number")?,
             "--region" => parsed.region = Some(parse_region(&value("--region")?)?),
             "--all-layers" => parsed.all_layers = true,
+            "--geometry" => parsed.geometry = true,
             "--map" => parsed.map = Some(value("--map")?),
             "--tolerance" => {
                 parsed.tolerance = value("--tolerance")?.parse().map_err(|_| "--tolerance needs a number")?
@@ -196,7 +205,64 @@ fn text_json(scene: &Scene, entity: &SceneEntity, text: &EntityText) -> Value {
     })
 }
 
-fn entity_json(scene: &Scene, entity: &SceneEntity) -> Value {
+fn point_json(x: f64, y: f64) -> Value {
+    json!([mm(x), mm(y)])
+}
+
+fn points_json(points: &[f64]) -> Value {
+    Value::Array(points.as_chunks::<2>().0.iter().map(|[x, y]| point_json(*x, *y)).collect())
+}
+
+/// 形の座標。polyline は点の並び、segments は 2 点の組の並び、fill と hatch は輪の並び、point と text は 1 点
+fn coordinates_json(shape: &Shape) -> Value {
+    match shape {
+        Shape::Polyline { points, .. } => points_json(points),
+        Shape::Segments { points } => Value::Array(
+            points
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|[x0, y0, x1, y1]| json!([point_json(*x0, *y0), point_json(*x1, *y1)]))
+                .collect(),
+        ),
+        Shape::Fill { rings } | Shape::Hatch { rings } => {
+            Value::Array(rings.iter().map(|ring| points_json(ring)).collect())
+        }
+        Shape::Point { x, y } | Shape::Text { x, y, .. } => point_json(*x, *y),
+    }
+}
+
+/// 形（shape と用紙の mm の座標、配置の中なら実寸の mm の座標の real）
+fn shape_json(shape: &Shape, real: Option<&Shape>) -> Value {
+    let mut object = Map::new();
+    object.insert("shape".into(), json!(shape.name()));
+    if let Shape::Text { text, .. } = shape {
+        object.insert("text".into(), json!(text));
+    }
+    let key = match shape {
+        Shape::Polyline { .. } => "points",
+        Shape::Segments { .. } => "segments",
+        Shape::Fill { .. } | Shape::Hatch { .. } => "rings",
+        Shape::Point { .. } | Shape::Text { .. } => "point",
+    };
+    object.insert(key.into(), coordinates_json(shape));
+    match shape {
+        Shape::Polyline { closed, .. } => {
+            object.insert("closed".into(), json!(closed));
+        }
+        Shape::Text { height, angle, .. } => {
+            object.insert("height".into(), json!(mm(*height)));
+            object.insert("angle".into(), json!(round(*angle, 3)));
+        }
+        _ => {}
+    }
+    if let Some(real) = real {
+        object.insert("real".into(), coordinates_json(real));
+    }
+    Value::Object(object)
+}
+
+fn entity_json(scene: &Scene, entity: &SceneEntity, geometry: bool) -> Value {
     let mut object = Map::new();
     object.insert("id".into(), json!(entity.id));
     object.insert("type".into(), json!(entity.kind));
@@ -214,6 +280,15 @@ fn entity_json(scene: &Scene, entity: &SceneEntity) -> Value {
             "placement".into(),
             json!({ "name": placement.name, "scaleX": placement.scale_x, "scaleY": placement.scale_y }),
         );
+    }
+    if geometry {
+        let real = real_shapes(entity);
+        let shapes: Vec<Value> = entity_shapes(entity, None)
+            .iter()
+            .enumerate()
+            .map(|(index, shape)| shape_json(shape, real.as_ref().and_then(|real| real.get(index))))
+            .collect();
+        object.insert("geometry".into(), Value::Array(shapes));
     }
     Value::Object(object)
 }
@@ -391,9 +466,9 @@ fn run(args: Args) -> Result<(), String> {
             object.insert("fields".into(), Value::Array(fields));
             println!("{}", serde_json::to_string_pretty(&Value::Object(object)).map_err(|error| error.to_string())?);
         }
-        "entities" => {
-            write_lines(select_entities(&scene, &filter).into_iter().map(|entity| entity_json(&scene, entity)))?
-        }
+        "entities" => write_lines(
+            select_entities(&scene, &filter).into_iter().map(|entity| entity_json(&scene, entity, args.geometry)),
+        )?,
         "render" => {
             let output = args.output.ok_or("render needs -o <out.png>")?;
             let options = RenderOptions {

@@ -225,6 +225,12 @@ conversion between pixels and paper millimeters, and `drawn_entities` with `View
 entity drawn, in pixels. An application can then show the entity that a model refers to, or render the part of the
 sheet around it. These work on the scene, so every format gets them at once. There is no TypeScript counterpart yet.
 
+`extract::entity_shapes` gives the shapes that an entity draws, from its primitives: polylines (curves as the
+polyline drawn), segments, fills, hatched areas (their rings, without the hatch lines), points and text parts.
+`real_shapes` gives the same shapes through the inverse of the entity's placement, in the coordinates of the drawing
+itself (real-world millimeters), so that a client can compute lengths, areas and distances between entities without
+reading every format's properties ([decision 0009](decisions/0009-geometry-for-ai-clients.md)).
+
 `zumen_core::compare` compares two revisions of a drawing. Entity ids change when some formats are saved again, so
 entities are matched by type, shape and text instead, in three passes: shapes equal after rounding coordinates to the
 tolerance (0.01 mm by default; the direction of a line and the start of a ring do not matter), shapes split by the
@@ -245,9 +251,10 @@ folding and removing spaces and punctuation; a bare 番号 or `NO` is not taken 
 has several title blocks, the one nearest the bottom right of the sheet comes first. Every candidate is kept with
 its source, label and entities, so an application can show where a value came from.
 
-`zumen.mcp` serves them to AI applications as MCP tools over stdio (`zumen-mcp`): open a drawing, render a region,
-find texts and entities, show one entity, measure in real-world millimeters through the scale of a placement and
-compare two revisions. The
+`zumen.mcp` serves them to AI applications as MCP tools over stdio (`zumen-mcp`): open a drawing (with its
+placements and their conversion to real-world millimeters), render a region, find texts and entities, show one
+entity with its shapes, measure in real-world millimeters through the scale of a placement and compare two
+revisions. The
 tools only read, take local paths limited by `--root`, and bound file sizes, image sizes and result counts
 ([decision 0004](decisions/0004-mcp-server-in-the-python-package.md)).
 

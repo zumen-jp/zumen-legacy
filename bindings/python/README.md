@@ -32,6 +32,25 @@ table = scene.to_arrow()  # a pyarrow.Table, for pandas, Polars or DuckDB (pip i
 `texts` joins the parts of a text that share a line and puts a line break between lines.
 `properties` are the label and value pairs that the format gives, as in the viewer's property panel.
 
+`geometry=True` adds the shapes drawn, in drawing order, so that an application or an AI model can compute with
+the coordinates of lines, outlines and hatched areas:
+
+```python
+entity = scene.entity("#120", geometry=True)  # also scene.entities(region=..., geometry=True)
+for shape in entity["geometry"]:
+    shape["shape"]  # "polyline", "segments", "fill", "hatch", "point" or "text"
+    shape["points"]  # polyline: [(x, y), ...] in paper millimeters, with shape["closed"]
+    shape["real"]  # the same coordinates in real-world millimeters, or None outside a placement
+```
+
+Segments have `segments` (pairs of points), fills and hatches `rings` (the outline and its holes; hatch lines are
+left out), and points and text parts one `point` (for text, the lower left, with `text`, `height` and `angle`).
+Arcs, circles, ellipses and splines come as the polyline drawn (arcs, circles and ellipses within 0.02 mm of the
+curve on the sheet); their center, radius and angles are in `properties`. `real` goes through the placement of the
+entity (an SXF sub-figure or part, a JWW layer group, a DXF viewport or model space), so it is in the coordinates
+of the drawing itself: the real-world coordinates of JWW, those of the SXF sub-figure or part, and DXF model space
+in millimeters, also for drawings in inches.
+
 `render` returns the image with the conversion between pixels and paper millimeters and the box of
 every entity drawn, so that an application can tell which entity a vision model refers to:
 
@@ -103,13 +122,19 @@ claude mcp add zumen -- zumen-mcp --root ~/drawings  # Claude Code; other client
 
 | Tool | What it returns |
 | --- | --- |
-| `open_drawing` | Format, sheet, views, layers with entity counts, entity types, notices, metadata and the drawing number, revision, title, project, scale and date from the title block |
+| `open_drawing` | Format, sheet, views, layers with entity counts, entity types, the placements drawn at a scale (with their box and the conversion from paper to real-world millimeters), notices, metadata and the drawing number, revision, title, project, scale and date from the title block |
 | `render_drawing` | A PNG of the sheet or a region (1,568 pixels on the long edge by default), the scale to convert pixels to paper millimeters, and the texts drawn with their pixel boxes |
 | `find_texts` | Texts that contain a query, ignoring full-width and half-width forms, case and spaces |
-| `find_entities` | Entities in a region, by type or layer, with counts by type |
-| `get_entity` | One entity with its properties and the scale of its placement |
+| `find_entities` | Entities in a region, by type or layer, with counts by type; with `geometry`, their shapes as `get_entity` gives them |
+| `get_entity` | One entity with its properties, the scale of its placement and its geometry: the shapes drawn, in paper millimeters and, inside a placement, in real-world millimeters |
 | `measure_distance` | The distance between two points on the sheet and in real-world millimeters |
 | `compare_drawings` | What changed between two revisions: an image of the changes, the regions that changed and the changed entities with their texts |
+
+Geometry is the agent's to interpret: the server gives the shapes as drawn and their coordinates, and leaves deciding
+what is a wall or a room to the client. `real` is left out where it equals the coordinates on the sheet (DXF model
+space), and one call returns at most `max_points` points (1,000 by default, at most 10,000; a point with `real` counts
+twice), so that a page of entities stays well below what clients accept from a tool. A page of `find_entities` with
+`geometry` ends before an entity whose shapes would pass the budget; `next_offset` goes on from there.
 
 `--root DIR` (repeatable) limits the directories the server may read. `--max-bytes` (256 MiB by default, after
 unpacking P2Z and SFZ), `--max-entities` (2,000,000) and `--timeout` (60 seconds) limit each drawing it reads. Texts, layer names and properties come from the drawing file; clients should treat them as

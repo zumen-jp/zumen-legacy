@@ -1,9 +1,11 @@
 //! 図面（`Scene`）から図形と文字を取り出す。サーバーや AI が、描いた画像と一緒に図面の中身を読むために使う。
-//! 座標はすべて用紙の mm（Y 軸は上向き）。
+//! 座標は用紙の mm（Y 軸は上向き）。図形の形（`entity_shapes`）だけは、配置の元の座標（実寸の mm）でも返せる。
 
-use crate::geometry::{apply, apply_vector, empty_box, extend_box, is_empty_box, rotation_deg};
+use crate::geometry::{
+    IDENTITY, apply, apply_vector, empty_box, extend_box, is_empty_box, multiply, rotation_deg, transform_points,
+};
 use crate::js;
-use crate::types::{BBox, Primitive, Scene, SceneEntity, TextPrimitive};
+use crate::types::{BBox, Matrix, Primitive, Scene, SceneEntity, TextPrimitive};
 use std::collections::HashSet;
 
 /// 取り出す図形の条件
@@ -134,11 +136,112 @@ pub fn scene_texts<'a>(scene: &'a Scene, filter: &EntityFilter) -> Vec<(&'a Scen
     select_entities(scene, filter).into_iter().filter_map(|entity| Some((entity, entity_text(entity)?))).collect()
 }
 
+/// 図形の形の 1 つ。描いたとおりの形で、曲線（円弧・円・楕円・スプラインなど）は描いた折線になる
+/// （中心・半径などの定義は図形の属性にある）。座標は x, y を交互に並べる
+#[derive(Debug, Clone, PartialEq)]
+pub enum Shape {
+    /// 折線。closed なら最後の点から最初の点へ戻る
+    Polyline { points: Vec<f64>, closed: bool },
+    /// 2 点ずつ別の線分（メッシュの辺など）
+    Segments { points: Vec<f64> },
+    /// 塗った領域。外形と中抜きの輪で、偶奇規則で塗る
+    Fill { rings: Vec<Vec<f64>> },
+    /// 線で埋めた領域（ハッチング）。中の線は模様なので、領域の輪だけを持つ
+    Hatch { rings: Vec<Vec<f64>> },
+    /// 点
+    Point { x: f64, y: f64 },
+    /// 文字の部分。x・y は文字範囲の左下（文字の基準点）、height は文字の高さ、angle は文字の向き（度）
+    Text { text: String, x: f64, y: f64, height: f64, angle: f64 },
+}
+
+impl Shape {
+    /// 種類の名前（polyline、segments、fill、hatch、point、text）
+    pub fn name(&self) -> &'static str {
+        match self {
+            Shape::Polyline { .. } => "polyline",
+            Shape::Segments { .. } => "segments",
+            Shape::Fill { .. } => "fill",
+            Shape::Hatch { .. } => "hatch",
+            Shape::Point { .. } => "point",
+            Shape::Text { .. } => "text",
+        }
+    }
+
+    /// 点の数。線分は 1 本で 2 点、輪は輪ごとの点の和、点と文字は 1 点
+    pub fn point_count(&self) -> usize {
+        match self {
+            Shape::Polyline { points, .. } | Shape::Segments { points } => points.len() / 2,
+            Shape::Fill { rings } | Shape::Hatch { rings } => rings.iter().map(|ring| ring.len() / 2).sum(),
+            Shape::Point { .. } | Shape::Text { .. } => 1,
+        }
+    }
+}
+
+/// 図形の形を描く順に返す。matrix は用紙の mm から返す座標への変換で、None なら用紙の mm のまま。
+/// 点のない線と輪のない塗りは省き、空白だけの文字も `entity_text` と同じく省く
+pub fn entity_shapes(entity: &SceneEntity, matrix: Option<&Matrix>) -> Vec<Shape> {
+    let m = matrix.unwrap_or(&IDENTITY);
+    let points = |points: &[f64]| if matrix.is_some() { transform_points(m, points) } else { points.to_vec() };
+    let rings = |rings: &[Vec<f64>]| -> Vec<Vec<f64>> {
+        rings.iter().filter(|ring| ring.len() >= 2).map(|ring| points(ring)).collect()
+    };
+    let mut shapes = Vec::new();
+    for primitive in &entity.primitives {
+        match primitive {
+            Primitive::Stroke(stroke) if stroke.points.len() >= 2 => {
+                if stroke.segments == Some(true) {
+                    // 2 点に満たない余りは描かれないので省く
+                    let whole = stroke.points.len() / 4 * 4;
+                    if whole > 0 {
+                        shapes.push(Shape::Segments { points: points(&stroke.points[..whole]) });
+                    }
+                } else {
+                    shapes.push(Shape::Polyline { points: points(&stroke.points), closed: stroke.closed });
+                }
+            }
+            Primitive::Fill(fill) => {
+                let rings = rings(&fill.rings);
+                if !rings.is_empty() {
+                    shapes.push(Shape::Fill { rings });
+                }
+            }
+            Primitive::Clipped(clipped) => {
+                let rings = rings(&clipped.rings);
+                if !rings.is_empty() {
+                    shapes.push(Shape::Hatch { rings });
+                }
+            }
+            Primitive::Dot(dot) => {
+                let (x, y) = apply(m, dot.x, dot.y);
+                shapes.push(Shape::Point { x, y });
+            }
+            Primitive::Text(text) if !text.text.trim().is_empty() => {
+                let t = multiply(m, &text.matrix);
+                let (x, y) = apply(&t, 0.0, 0.0);
+                let (ux, uy) = apply_vector(&t, 0.0, 1.0);
+                let height = text.height * js::hypot2(ux, uy);
+                shapes.push(Shape::Text { text: text.text.clone(), x, y, height, angle: rotation_deg(&t) });
+            }
+            _ => {}
+        }
+    }
+    shapes
+}
+
+/// 図形の形を、配置（部分図・部品・レイヤグループ・ビューポートなど）の元の座標（実寸の mm）で返す。
+/// 並びは `entity_shapes` と同じ。配置の中にない図形は縮尺がわからないので None
+pub fn real_shapes(entity: &SceneEntity) -> Option<Vec<Shape>> {
+    entity.placement.as_ref().map(|placement| entity_shapes(entity, Some(&placement.inverse)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::geometry::placement;
-    use crate::types::{Background, SceneLayer, StrokePrimitive};
+    use crate::types::{
+        Background, ClippedPrimitive, DotPrimitive, FillPrimitive, Placement, SceneLayer, StrokePrimitive,
+    };
+    use std::sync::Arc;
 
     fn text(content: &str, matrix: [f64; 6], height: f64) -> Primitive {
         Primitive::Text(TextPrimitive {
@@ -272,5 +375,95 @@ mod tests {
         let inside = EntityFilter { region: Some(square(2.0, 2.0, 5.0)), hidden_layers: Some(HashSet::new()) };
         assert_eq!(ids(&inside), ["b"]);
         assert_eq!(layer_names(&s, &s.entities[1]), ["表示", "非表示"]);
+    }
+
+    fn stroke(points: Vec<f64>, closed: bool, segments: Option<bool>) -> StrokePrimitive {
+        StrokePrimitive { points, closed, segments, color: "#000000".into(), width: 0.0, dashes: Vec::new() }
+    }
+
+    fn close(a: f64, b: f64) -> bool {
+        (a - b).abs() < 1e-9
+    }
+
+    #[test]
+    fn gives_the_shapes_drawn_in_paper_millimeters() {
+        let e = entity(
+            "1",
+            vec![0],
+            vec![
+                Primitive::Stroke(stroke(vec![0.0, 0.0, 10.0, 0.0, 10.0, 5.0], false, None)),
+                Primitive::Stroke(stroke(vec![0.0, 0.0, 1.0, 0.0, 1.0, 1.0], true, None)),
+                // 2 点に満たない余り（最後の 1 点）は描かれない
+                Primitive::Stroke(stroke(vec![0.0, 0.0, 1.0, 1.0, 2.0, 2.0, 3.0, 3.0, 4.0, 4.0], false, Some(true))),
+                Primitive::Stroke(stroke(Vec::new(), false, None)),
+                Primitive::Fill(FillPrimitive {
+                    color: "#000000".into(),
+                    rings: vec![vec![0.0, 0.0, 4.0, 0.0, 4.0, 4.0], Vec::new()],
+                }),
+                Primitive::Clipped(ClippedPrimitive {
+                    rings: vec![vec![0.0, 0.0, 8.0, 0.0, 8.0, 8.0, 0.0, 8.0]],
+                    strokes: vec![stroke(vec![0.0, 1.0, 8.0, 1.0, 0.0, 2.0, 8.0, 2.0], false, Some(true))],
+                }),
+                Primitive::Dot(DotPrimitive { x: 3.0, y: 4.0, color: "#000000".into() }),
+                text("ABC", placement(10.0, 20.0, 0.0, 1.0, 1.0), 2.5),
+                text("  ", placement(0.0, 0.0, 0.0, 1.0, 1.0), 2.5),
+            ],
+            square(0.0, 0.0, 20.0),
+        );
+        let shapes = entity_shapes(&e, None);
+        assert_eq!(
+            shapes,
+            [
+                Shape::Polyline { points: vec![0.0, 0.0, 10.0, 0.0, 10.0, 5.0], closed: false },
+                Shape::Polyline { points: vec![0.0, 0.0, 1.0, 0.0, 1.0, 1.0], closed: true },
+                Shape::Segments { points: vec![0.0, 0.0, 1.0, 1.0, 2.0, 2.0, 3.0, 3.0] },
+                Shape::Fill { rings: vec![vec![0.0, 0.0, 4.0, 0.0, 4.0, 4.0]] },
+                Shape::Hatch { rings: vec![vec![0.0, 0.0, 8.0, 0.0, 8.0, 8.0, 0.0, 8.0]] },
+                Shape::Point { x: 3.0, y: 4.0 },
+                Shape::Text { text: "ABC".into(), x: 10.0, y: 20.0, height: 2.5, angle: 0.0 },
+            ]
+        );
+        let names: Vec<&str> = shapes.iter().map(Shape::name).collect();
+        assert_eq!(names, ["polyline", "polyline", "segments", "fill", "hatch", "point", "text"]);
+        let counts: Vec<usize> = shapes.iter().map(Shape::point_count).collect();
+        assert_eq!(counts, [3, 3, 4, 3, 4, 1, 1]);
+        // 配置の中にない図形は、実寸の座標を持たない
+        assert_eq!(real_shapes(&e), None);
+    }
+
+    #[test]
+    fn gives_the_shapes_in_the_real_coordinates_of_a_placement() {
+        // 1/100 の部分図。用紙の (100, 50) が元の座標の原点で、元の座標 1 mm が用紙の 0.01 mm
+        let to_paper = placement(100.0, 50.0, 0.0, 0.01, 0.01);
+        let mut e = entity(
+            "1",
+            vec![0],
+            vec![
+                Primitive::Stroke(stroke(vec![100.0, 50.0, 110.0, 50.0], false, None)),
+                Primitive::Dot(DotPrimitive { x: 101.0, y: 52.0, color: "#000000".into() }),
+                // 用紙で高さ 2.5 mm、30 度回した文字
+                text("通り芯", placement(105.0, 55.0, 30.0, 1.0, 1.0), 2.5),
+            ],
+            square(100.0, 50.0, 10.0),
+        );
+        e.placement = Some(Arc::new(Placement {
+            name: "部分図 平面図".into(),
+            scale_x: 0.01,
+            scale_y: 0.01,
+            inverse: crate::geometry::invert(&to_paper),
+        }));
+        let real = real_shapes(&e).unwrap();
+        let Shape::Polyline { points, closed: false } = &real[0] else { panic!("{:?}", real[0]) };
+        let expected = [0.0, 0.0, 1000.0, 0.0];
+        assert!(points.iter().zip(expected).all(|(a, b)| close(*a, b)), "{points:?}");
+        let Shape::Point { x, y } = real[1] else { panic!("{:?}", real[1]) };
+        assert!(close(x, 100.0) && close(y, 200.0));
+        let Shape::Text { text, x, y, height, angle } = &real[2] else { panic!("{:?}", real[2]) };
+        assert_eq!(text, "通り芯");
+        assert!(close(*x, 500.0) && close(*y, 500.0) && close(*height, 250.0) && close(*angle, 30.0));
+        // 用紙の形と同じ並び
+        let paper = entity_shapes(&e, None);
+        assert_eq!(paper.len(), real.len());
+        assert!(paper.iter().zip(&real).all(|(a, b)| a.name() == b.name() && a.point_count() == b.point_count()));
     }
 }

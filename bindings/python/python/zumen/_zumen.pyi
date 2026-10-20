@@ -13,9 +13,52 @@ class Placement(TypedDict):
     scale_y: float
     inverse: tuple[float, float, float, float, float, float]
 
-class Entity(TypedDict):
-    """An entity of ``Scene.entities`` and ``Scene.entity`` (type checking only)."""
+Point: TypeAlias = tuple[float, float]
 
+class Polyline(TypedDict):
+    """A line through points; curves come as the polyline drawn (type checking only)."""
+
+    shape: Literal["polyline"]
+    points: list[Point]
+    closed: bool
+    real: list[Point] | None
+
+class Segments(TypedDict):
+    """Separate lines, two points each (type checking only)."""
+
+    shape: Literal["segments"]
+    segments: list[tuple[Point, Point]]
+    real: list[tuple[Point, Point]] | None
+
+class Area(TypedDict):
+    """A filled area, or one filled with hatch lines: outer and inner rings, even-odd (type checking only)."""
+
+    shape: Literal["fill", "hatch"]
+    rings: list[list[Point]]
+    real: list[list[Point]] | None
+
+class Dot(TypedDict):
+    """A point (type checking only)."""
+
+    shape: Literal["point"]
+    point: Point
+    real: Point | None
+
+class TextPart(TypedDict):
+    """A part of a text: the lower left of the text, its height and angle in degrees (type checking only)."""
+
+    shape: Literal["text"]
+    text: str
+    point: Point
+    height: float
+    angle: float
+    real: Point | None
+
+#: A shape drawn, in paper millimeters; ``real`` holds the same coordinates in real-world millimeters when the
+#: entity sits in a placement, and is None otherwise.
+Shape: TypeAlias = Polyline | Segments | Area | Dot | TextPart
+
+class _Entity(TypedDict):
     id: str
     type: str
     source: str
@@ -24,6 +67,11 @@ class Entity(TypedDict):
     text: str | None
     properties: list[tuple[str, str]]
     placement: Placement | None
+
+class Entity(_Entity, total=False):
+    """An entity of ``Scene.entities`` and ``Scene.entity``, with ``geometry`` when asked (type checking only)."""
+
+    geometry: list[Shape]
 
 class Text(TypedDict):
     """A text of ``Scene.texts`` in paper millimeters (type checking only)."""
@@ -144,8 +192,10 @@ class Scene:
         sheet_frame: bool = True,
     ) -> Rendering: ...
     def texts(self, *, region: Box | None = None, hidden_layers: list[int] | None = None) -> list[Text]: ...
-    def entities(self, *, region: Box | None = None, hidden_layers: list[int] | None = None) -> list[Entity]: ...
-    def entity(self, id: str) -> Entity | None: ...
+    def entities(
+        self, *, region: Box | None = None, hidden_layers: list[int] | None = None, geometry: bool = False
+    ) -> list[Entity]: ...
+    def entity(self, id: str, *, geometry: bool = False) -> Entity | None: ...
     def title_block(self) -> TitleBlock: ...
     def to_arrow(self, *, region: Box | None = None, hidden_layers: list[int] | None = None) -> Any:
         """A ``pyarrow.Table`` of the entities (needs pyarrow)."""
