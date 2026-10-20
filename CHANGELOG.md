@@ -67,6 +67,12 @@ All packages share one version during 0.x.
 - `@zumenjs/dxf`: a line that is not a group code is skipped and reading resumes on the next line in CRLF drawings too
   (the value was read one character off), and block names or entity types such as `__proto__` are counted and sorted
   like any other name.
+- `@zumenjs/dxf` and `zumen-dxf`: three values are read as the DWG of the same drawing has them. ATTRIB and ATTDEF take
+  their text generation flags (71) from `AcDbText` only, since AutoCAD 2018 writes the attribute type to the 71 of
+  `AcDbAttribute` (multi-line attribute definitions were drawn upside down). Strings of binary DXF use the caret
+  notation of ASCII DXF (`^J`, `^I`, `^ `), so the line feeds of MTEXT in binary DXF of AutoCAD 2004 and later break
+  paragraphs, and TEXT draws `^ ` as `^` and `^I` as a tab. A dimension style whose DIMASZ or DIMTXT AutoCAD left out
+  of the DXF gets 0.18 instead of 0, so a leader no longer takes its arrow size from `$DIMASZ`.
 - `zumen-core`: `js::sort_by` follows V8's `Array.prototype.sort` (TimSort), so orders match TypeScript even when a
   comparison is inconsistent (NaN); `js::string_to_number`, `parse_int` and `to_precision` follow `Number`, `parseInt`
   and `toPrecision`; and `js::to_fixed` computes `toFixed` with 128-bit integers, which builds scenes faster.

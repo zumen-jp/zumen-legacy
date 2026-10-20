@@ -135,7 +135,7 @@ export interface DxfSpline extends DxfEntityBase {
 
 /** TEXT・ATTRIB・ATTDEF に共通する 1 行の文字 */
 export interface DxfTextBase {
-  /** 文字列。%%c などの制御コードを含んだまま */
+  /** 文字列。%%c などの制御コードと、テキストの DXF のキャレット表記（^ は「^ 」）を含んだまま */
   text: string;
   /** 第 1 整列点（OCS） */
   insert: Vec3;
@@ -152,7 +152,7 @@ export interface DxfTextBase {
   halign: number;
   /** 0 ベースライン、1 下、2 中、3 上 */
   valign: number;
-  /** 2 は左右反転、4 は上下反転 */
+  /** 2 は左右反転、4 は上下反転（71。ATTRIB・ATTDEF は AcDbText の 71） */
   text_generation_flag: number;
 }
 
@@ -178,7 +178,7 @@ export interface DxfMText extends DxfEntityBase {
   type: "MTEXT";
   /** 書式コードを除いた文字列（\P は改行） */
   text: string;
-  /** 書式コードを含む元の文字列 */
+  /** 書式コードを含む元の文字列。改行の文字はテキストの DXF と同じく ^J */
   raw_text: string;
   /** WCS */
   insert: Vec3;
@@ -652,11 +652,11 @@ export interface DxfTextStyle {
 export interface DxfDimStyle {
   handle: string;
   name: string;
-  /** 全体の尺度（DIMSCALE） */
+  /** 全体の尺度（DIMSCALE）。DXF にないときは 1 */
   dimscale: number;
-  /** 矢印の大きさ（DIMASZ） */
+  /** 矢印の大きさ（DIMASZ）。DXF にないときは AutoCAD の既定の 0.18 */
   dimasz: number;
-  /** 寸法値の高さ（DIMTXT） */
+  /** 寸法値の高さ（DIMTXT）。DXF にないときは AutoCAD の既定の 0.18 */
   dimtxt: number;
 }
 
