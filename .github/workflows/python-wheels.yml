@@ -1,0 +1,201 @@
+# Builds the Python package of bindings/python as abi3 wheels (manylinux_2_28 x86_64 and aarch64, macOS arm64) and an
+# sdist, installs each wheel to run the Python tests, and attaches them to a GitHub Release when a tag v* is pushed.
+# Nothing goes to PyPI: the package has the classifier "Private :: Do Not Upload" until the license is decided
+# (docs/releasing.md).
+name: Python wheels
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: python-wheels-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  wheels:
+    name: wheel (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            manylinux: "2_28"
+          # Built in the manylinux container for arm64 on an arm64 runner, so it can be tested there too
+          - name: linux-aarch64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            manylinux: "2_28"
+          - name: macos-arm64
+            runner: macos-latest
+            target: aarch64-apple-darwin
+    steps:
+      # actions/checkout v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      # The maturin of bindings/python/uv.lock, which pnpm run check:python builds with
+      - id: maturin
+        run: |
+          version="$(grep -A1 '^name = "maturin"$' bindings/python/uv.lock | sed -n 's/^version = "\(.*\)"$/\1/p')"
+          test -n "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      # PyO3/maturin-action v1.51.0 installs the Rust toolchain of rust-toolchain.toml, on the host and in the container
+      - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b
+        with:
+          maturin-version: ${{ steps.maturin.outputs.version }}
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux }}
+          args: --release --locked --out dist --manifest-path bindings/python/Cargo.toml
+      - run: python3 bindings/python/scripts/check_dist.py dist
+      # actions/upload-artifact v7.0.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: wheel-${{ matrix.name }}
+          path: dist/*.whl
+          if-no-files-found: error
+          retention-days: 14
+
+  sdist:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # actions/checkout v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - id: maturin
+        run: |
+          version="$(grep -A1 '^name = "maturin"$' bindings/python/uv.lock | sed -n 's/^version = "\(.*\)"$/\1/p')"
+          test -n "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      # PyO3/maturin-action v1.51.0
+      - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b
+        with:
+          maturin-version: ${{ steps.maturin.outputs.version }}
+          command: sdist
+          args: --out dist --manifest-path bindings/python/Cargo.toml
+      - run: python3 bindings/python/scripts/check_dist.py dist
+      # actions/upload-artifact v7.0.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+      # The sdist alone must build a wheel that has the font and its license. It does not hold rust-toolchain.toml, so
+      # the Rust of the runner builds it, as it would for anyone who installs the sdist, outside a manylinux container
+      # astral-sh/setup-uv v10.3.0 (without its cache, since this workflow publishes)
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
+        with:
+          enable-cache: false
+      - run: uv build --wheel --out-dir "$RUNNER_TEMP/from-sdist" dist/zumen-*.tar.gz
+      - run: python3 bindings/python/scripts/check_dist.py --any-platform "$RUNNER_TEMP/from-sdist"
+
+  test:
+    name: test (${{ matrix.wheel }}, Python ${{ matrix.python }})
+    needs: wheels
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        wheel: [linux-x86_64, linux-aarch64, macos-arm64]
+        python: ["3.12", "3.14"]
+        include:
+          - wheel: linux-x86_64
+            runner: ubuntu-latest
+          - wheel: linux-aarch64
+            runner: ubuntu-24.04-arm
+          - wheel: macos-arm64
+            runner: macos-latest
+    steps:
+      # actions/checkout v7.0.1 (the tests and their drawings are in the repository, not in the wheel)
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      # actions/download-artifact v8.0.2
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: wheel-${{ matrix.wheel }}
+          path: dist
+      # astral-sh/setup-uv v10.3.0 sets UV_PYTHON, which wins over bindings/python/.python-version (3.14)
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
+        with:
+          python-version: ${{ matrix.python }}
+          enable-cache: false
+      - name: Install the wheel alone in an empty environment, as an application does
+        run: |
+          uv venv "$RUNNER_TEMP/bare"
+          uv pip install --python "$RUNNER_TEMP/bare" dist/*.whl
+          "$RUNNER_TEMP/bare/bin/python" -I -c "import zumen; print(zumen.__version__, zumen.__file__)"
+      # The test dependencies are those of uv.lock. The project itself is not installed (package = false in
+      # pyproject.toml), so the wheel is the only zumen here, not the development build of pnpm run check:python
+      - name: Install the test dependencies and the wheel
+        run: |
+          uv sync --project bindings/python --frozen
+          uv pip install --python bindings/python/.venv/bin/python --no-deps dist/*.whl
+      # pytest.importorskip skips the tests of pyarrow, ezdxf and mcp when they are not installed, so import them here
+      - name: Check the environment
+        env:
+          EXPECTED_PYTHON: ${{ matrix.python }}
+        run: |
+          bindings/python/.venv/bin/python -I -c '
+          import os, sys
+          import ezdxf, mcp, pyarrow, pytest, zumen
+          assert "{}.{}".format(*sys.version_info) == os.environ["EXPECTED_PYTHON"], sys.version
+          assert "site-packages" in zumen.__file__, zumen.__file__
+          print(sys.version, zumen.__version__, zumen.__file__)
+          '
+      - run: bindings/python/.venv/bin/python -m pytest bindings/python/tests -q -ra
+
+  release:
+    # Only for a pushed tag v*: the wheels and the sdist go to a GitHub Release, never to PyPI
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [wheels, sdist, test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # To create the release and attach the files to it
+      contents: write
+    steps:
+      # actions/download-artifact v8.0.2
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          pattern: wheel-*
+          merge-multiple: true
+          path: dist
+      # actions/download-artifact v8.0.2
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: sdist
+          path: dist
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          ls -l dist
+          # The files carry the version of Cargo.toml, so a tag that does not match it would publish the wrong files
+          version="${TAG#v}"
+          for file in dist/*; do
+            case "${file##*/}" in
+              "zumen-${version}-"* | "zumen-${version}.tar.gz") ;;
+              *)
+                echo "::error::${file##*/} is not version ${version} of the tag ${TAG}. Change the version of every package, then tag again."
+                exit 1
+                ;;
+            esac
+          done
+          gh release create "$TAG" dist/* --verify-tag --title "$TAG" --generate-notes \
+            --notes "Wheels (manylinux_2_28 x86_64 and aarch64, macOS arm64) and the sdist of the Python package. Not on PyPI; see docs/releasing.md."

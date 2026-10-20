@@ -17,6 +17,15 @@ All packages share one version during 0.x.
   party's permission and to dependencies with permissive licenses
   ([decision 0013](docs/decisions/0013-st-bridge-out-of-zumen.md)). The playground opens drawings only.
 
+- Python: `zumen` requires Python 3.12 or newer (`requires-python`, and `abi3-py312` for the wheels). The types of
+  `zumen.tools` are `typing.TypedDict`, which pydantic, and so the agent frameworks that build schemas with it, accepts
+  only from 3.12; 3.10 and 3.11 are not supported.
+- Python: wheels and an sdist of `zumen` from `.github/workflows/python-wheels.yml`, so that an application installs it
+  without a Rust toolchain. One abi3 wheel serves every Python from 3.12, for manylinux_2_28 (x86_64 and aarch64) and
+  macOS (arm64). Pull requests and `main` upload them as workflow artifacts after the tests of `bindings/python` ran
+  against each installed wheel on Python 3.12 and 3.14, and a pushed tag `v*` attaches them to a GitHub Release
+  ([docs/releasing.md](docs/releasing.md)). Nothing goes to PyPI until the license is decided. The wheels now hold the
+  license text of the bundled BIZ UDGothic (SIL OFL 1.1) in `dist-info/licenses`, which they lacked.
 - The length unit of a drawing: `Scene.unit`, one of `LENGTH_UNITS` (`LengthUnit` in Rust), is the unit of the
   drawing's own coordinates (the `raw` points and lengths of properties): `millimeter` in SXF and JWW, and in DXF and
   DWG the unit of `$INSUNITS` (`inch`, `meter`, …), or the one assumed with the `unit-assumed` notice. `Scene.unit` in
