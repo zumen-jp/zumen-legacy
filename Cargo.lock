@@ -516,6 +516,7 @@ name = "zumen-convert"
 version = "0.1.0"
 dependencies = [
  "zumen-core",
+ "zumen-dwg",
  "zumen-dxf",
  "zumen-jww",
  "zumen-sxf",
