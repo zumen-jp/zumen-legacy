@@ -1082,6 +1082,7 @@ fn finish(mut editor: Editor<'_, '_>, sheet: u64, bytes: &[u8]) -> SxfWritten {
         splices.insert(file.data_end, with_line_ending(added.as_bytes(), line_ending(bytes)));
     }
     editor.graph.take_notices(&mut notices);
+    crate::write::check_limits(doc, &mut notices);
     if writer.nonfinite > 0 {
         notices.add_count(NoticeLevel::Warning, "invalid-number", "数でない値を 0 にして書きました", writer.nonfinite);
     }

@@ -318,6 +318,7 @@ Names outside ASCII are Shift_JIS, or UTF-8 with the UTF-8 flag when Shift_JIS l
 | `title` | A title block set on a drawing read from P21 was not written |
 | `rewrite` | The original file could not be edited in place and was written anew (the reason is in the message) |
 | `archive` | The original archive could not be read again, so a new archive holds only the SXF file |
+| `sxf-limit` | The drawing exceeds an SXF limit (256 layers, color codes up to 256, line type codes up to 32, width codes up to 16, 1,024 fonts, strings of 256 CP932 bytes, the values ezsxf checks); it is written as it is, and SXF programs may refuse it |
 | `encoding`, `invalid-number` | Characters outside CP932 became ? (SFC), and values that are not numbers became 0 |
 
 ### Verification

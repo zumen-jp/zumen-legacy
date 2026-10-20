@@ -665,7 +665,78 @@ pub(crate) fn write_sfc_new(drawing: &SxfDrawing) -> SxfWritten {
         define(&mut writer, sheet.id, Definition::Sheet(sheet));
     }
     writer.out.extend_from_slice(b"ENDSEC;\nEND-ISO-10303-21;\n");
+    check_limits(doc, &mut writer.notices);
     SxfWritten { bytes: writer.out, notices: writer.notices.into_vec(), ids: writer.ids }
+}
+
+/// SXF の数の上限（レイヤ 256、色コード 256、線種コード 32、線幅コード 16、文字フォント 1024、文字列 256 バイト。
+/// ezsxf の検証と同じ値）を超える図面を知らせる。値は変えずに書く（SXF のソフトが読めないことがある）。
+/// 件数は上限を超えた項目の数（表の項目の多い分と、長すぎる文字列の数）
+pub(crate) fn check_limits(doc: &SxfDocument, notices: &mut NoticeList) {
+    let over = |count: usize, limit: usize| count.saturating_sub(limit) as u64;
+    let mut found: Vec<(&str, u64)> = vec![
+        ("レイヤ", over(doc.layers.len(), 256)),
+        ("ユーザ定義色", over(doc.user_colors.len(), 240)),
+        ("ユーザ定義線種", over(doc.user_line_types.len(), 16)),
+        ("ユーザ定義線幅", over(doc.user_widths.len(), 6)),
+        ("文字フォント", over(doc.fonts.len(), 1024)),
+    ];
+    // 文字列は CP932 で 256 バイトまで
+    let long = |text: &str| SHIFT_JIS.encode(text).0.len() > 256;
+    let mut strings = 0u64;
+    let mut count_feature = |feature: &SxfFeature| {
+        let texts: Vec<&str> = match feature {
+            SxfFeature::TextString { text, .. } => vec![text.text.as_str()],
+            SxfFeature::LinearDim { text, .. }
+            | SxfFeature::RadiusDim { text, .. }
+            | SxfFeature::DiameterDim { text, .. }
+            | SxfFeature::Label { text, .. }
+            | SxfFeature::Balloon { text, .. } => text.iter().map(|text| text.text.as_str()).collect(),
+            SxfFeature::CurveDim(dimension) | SxfFeature::AngularDim(dimension) => {
+                dimension.text.iter().map(|text| text.text.as_str()).collect()
+            }
+            SxfFeature::SfigLocate { name, .. }
+            | SxfFeature::ExternallyDefinedSymbol { name, .. }
+            | SxfFeature::ExternallyDefinedHatch { name, .. }
+            | SxfFeature::FillAreaStyleTiles { name, .. } => vec![name.as_str()],
+            _ => Vec::new(),
+        };
+        strings += texts.into_iter().filter(|text| long(text)).count() as u64;
+    };
+    for feature in doc
+        .sheet_members
+        .iter()
+        .chain(doc.sub_figures.values().flat_map(|figure| figure.members.iter()))
+        .chain(doc.composite_curves.iter().flat_map(|curve| curve.members.iter()))
+    {
+        count_feature(feature);
+    }
+    let names = doc
+        .layers
+        .iter()
+        .map(|layer| layer.name.as_str())
+        .chain(doc.fonts.iter().map(|font| font.name.as_str()))
+        .chain(doc.user_line_types.iter().map(|line_type| line_type.name.as_str()))
+        .chain(doc.sub_figures.values().map(|figure| figure.feature.name.as_str()))
+        .chain(doc.sheet.iter().map(|sheet| sheet.name.as_str()));
+    strings += names.filter(|name| long(name)).count() as u64;
+    found.push(("CP932 で 256 バイトを超える文字列", strings));
+    found.retain(|(_, count)| *count > 0);
+    if found.is_empty() {
+        return;
+    }
+    let total = found.iter().map(|(_, count)| count).sum();
+    let detail: Vec<String> = found.iter().map(|(what, count)| format!("{what} {count}")).collect();
+    notices.add_count(
+        NoticeLevel::Warning,
+        "sxf-limit",
+        format!(
+            "SXF の上限（レイヤ 256・色 256・線種 32・線幅 16・文字フォント 1024・文字列 256 バイト）を超えています（{}）。\
+             SXF のソフトが読めないことがあります",
+            detail.join("、")
+        ),
+        total,
+    );
 }
 
 /// 書いたインスタンス番号の対応（図面のインスタンス番号 → 書いた番号）。同じ番号の要素が複数あれば最初のもの

@@ -1388,6 +1388,7 @@ pub(crate) fn write_p21_new(drawing: &SxfDrawing) -> SxfWritten {
     let sheet = graph.sheet(doc.sheet.as_ref(), doc.title.as_ref(), items);
     graph.layers(sheet);
     graph.take_notices(&mut notices);
+    crate::write::check_limits(doc, &mut notices);
     let mut writer = StepWriter::default();
     let bytes = file(&header(drawing), &graph.instances, &mut writer);
     if writer.nonfinite > 0 {

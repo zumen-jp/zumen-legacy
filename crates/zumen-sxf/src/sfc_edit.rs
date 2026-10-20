@@ -406,8 +406,8 @@ pub(crate) fn write_sfc_edit(drawing: &SxfDrawing, bytes: &[u8]) -> SxfWritten {
         skipped: 0,
     };
     edit(&mut editor, &layout);
-    let doc_notices = std::mem::take(&mut editor.notices);
-    let mut notices = doc_notices;
+    let mut notices = std::mem::take(&mut editor.notices);
+    crate::write::check_limits(&drawing.document, &mut notices);
     if editor.skipped > 0 {
         notices.add_count(
             NoticeLevel::Warning,

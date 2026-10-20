@@ -65,3 +65,19 @@ fn written_sfc_reads_back_as_the_same_drawing() {
         }
     }
 }
+
+#[test]
+fn drawings_beyond_the_sxf_limits_are_reported() {
+    let mut drawing = parse_sxf(&std::fs::read(fixtures().join("sfc/sample.sfc")).unwrap(), "sfc").unwrap();
+    drawing.source = None;
+    for index in 0..300 {
+        drawing.document.layers.push(zumen_sxf::LayerDefinition { id: 0.0, name: format!("L{index}"), visible: true });
+    }
+    drawing.document.sheet.as_mut().unwrap().name = "長".repeat(200);
+    for written in [write_sfc(&drawing), zumen_sxf::write_p21(&drawing)] {
+        let limit = written.notices.iter().find(|notice| notice.code == "sxf-limit").expect("上限の知らせ");
+        // レイヤは 302 で 46 多い。用紙の名前は CP932 で 400 バイト
+        assert_eq!(limit.count, 47);
+        assert!(limit.message.contains("レイヤ 46") && limit.message.contains("文字列 1"), "{}", limit.message);
+    }
+}
