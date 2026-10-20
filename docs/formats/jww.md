@@ -153,4 +153,75 @@ Notices when writing:
 | `dimension-parts` | Extension lines and points of dimensions beyond two and four, or in versions before 4.20, are not written |
 | `solid-style` | The line type of a solid was changed to match its kind (circle solids from 101) |
 
-Written drawings have not yet been opened in Jw_cad; that check is pending.
+## Editing (`edit_jww`)
+
+`zumen_jww::edit_jww` (through `zumen::edit`) changes a JWW drawing in place with the operations of
+[decision 0012](../decisions/0012-edit-in-place-and-write-every-format.md). It reads the file as a `JwwFile`, changes,
+adds and deletes records of the entity list, and writes every record that no operation changes from its bytes. The
+version, the header settings, the block definitions and the embedded images stay, and an edit without operations gives
+the same bytes. `new_jww()` is the empty drawing that `zumen::create` adds to (`JwwDocument::new()`: version 700, A3,
+all layer groups 1/1, lengths in millimeters).
+
+- **Ids** are the ids of the scene: the place of an entity in the entity list (`#5`), counting every record, also those
+  the scene does not draw (temporary points, Jw_cad's settings at (0, −1000)). Every operation chooses entities by their
+  ids in the drawing as read. Deleting records before an entity, or adding records, changes its id in the edited file;
+  `created` gives the ids of the new entities there (they are added at the end of the entity list). Entities inside a
+  block (`#5>#1`) are refused (`inside-block`), because changing them would change the definition and every placement
+  of it.
+- **Coordinates** are real-world millimeters of the entity's layer group, the numbers of the scene's `raw`: paper
+  millimeters from the center of the sheet × the scale of the group. Radii and axes are real lengths too. Text sizes
+  (`height`, `width`, `spacing`) are paper millimeters, as Jw_cad and the scene's `textSize` give them. Angles are
+  degrees, `parameter` radians.
+- **Where `add` puts an entity**: at the end of the entity list, on `layer`, or else on the write layer of the write
+  layer group (Jw_cad's current layer). `container` `group:<number or name>` (0–F, or the name of the group) chooses the
+  layer group; `model` is the same as none.
+- **What `add` writes**:
+
+  | `kind` | Record | Keys |
+  | --- | --- | --- |
+  | `line` | CDataSen | `start`, `end` |
+  | `circle`, `arc` | CDataEnko with flatness 1 | `center`, `radius`, `angle` (`[from, to]` in degrees counterclockwise, for arcs) |
+  | `ellipse`, `ellipse-arc` | CDataEnko | `center`, `majorAxis` (from the center), `ratio` (the flatness, up to 1), `parameter` (`[start, end]` in radians, for arcs) |
+  | `point` | CDataTen | `position` |
+  | `text` | CDataMoji | `position` (the start of the baseline), `text` (one line), `height`, `width` (the height if left out), `spacing`, `rotation`, `font` (ＭＳ ゴシック if left out) |
+  | `block-reference` | CDataBlock | `block` (the name of a definition, with or without `@@SfigorgFlag@@n`), `position`, `scale` (a number or `[x, y]`), `rotation` |
+
+  Every kind takes `layer`. Lines, circles, arcs and ellipses also take `color`, `lineType` and `lineWidth`, points
+  `color` and `lineWidth`, and text `color`: in JWW the line type of a text is its anchor and its line width holds the
+  flags of dimension values, and the attributes of a block placement are not used. The end point of a new text is its
+  start plus the width of its characters (a full-width character is `width` wide, a half-width one half of it, with
+  `spacing` between them), as Jw_cad computes it. JWW has no polylines (`unsupported-kind`; add lines instead).
+- **Values**:
+  - `layer`: a layer number `0-A` (the group and the layer in hexadecimal, as the scene names layers, followed by
+    anything), the name of one layer, or the scene's raw layer number (group × 16 + layer + 1). A name the drawing lacks
+    is added as `add-layer` does (`edit-added-layer`).
+  - `color`: pen colors 1–9, the SXF colors 100–356 (version 4.20 and later), or `#rrggbb`: a pen color of that screen
+    color, else an SXF user color (117–355) that has no name and that no entity uses, set to that color, else the
+    nearest pen color (`edit-nearest-color`, for example before version 4.20). A solid takes `#rrggbb` as its custom
+    color (pen color 10). JWW has no `bylayer` or `byblock`.
+  - `lineType`: 1–9, 11–15 (random lines), 16–19 (long line types), 30–62 (SXF line types, version 4.20 and later), or
+    the name of an SXF line type (`dashed` …).
+  - `lineWidth`: millimeters, written in the drawing's unit of entity widths: 1/100 mm, or printer dots for the dpi of
+    the header (`edit-rounded-lineweight` when it is not exact, `edit-no-lineweight` when the drawing has no such unit
+    or is older than version 3.51). `default` is 0, the width of the pen color.
+- **What `update` changes**: only the values set, in the record of the entity. A text whose content, size, spacing or
+  angle changes gets a new end point; moving it moves both points. Moving an entity to a layer group of another scale
+  keeps its real coordinates and sizes (`edit-rescaled`): paper coordinates, radii and block scales are multiplied by
+  the ratio of the scales, and text sizes stay. Solids and dimensions take `layer` and `color` (for every part of a
+  dimension).
+- **What `delete` removes**: the record. Block definitions stay, even when no placement uses them any more.
+- **Layers**: JWW has 16 layer groups of 16 layers, so a layer cannot be created. `add-layer` names the first layer
+  (0 to F) of a layer group that has no name and no entities — of the write layer group, or of the group in `group` (a
+  number or a name) — and gives `0-3 name` in `created`. `visible: false` hides a layer (state 0) and `locked: true`
+  makes it display-only (state 1); the write layer of a group cannot be hidden or display-only, so a layer added that
+  way takes another one. `scale` sets the scale of the layer group while the group has no entities. `update-layer`
+  takes the same values and `name`, which renames the layer. JWW layers have no color, line type, line width, frozen or
+  plot setting (`edit-layer-attributes`).
+- **Notices of the writer** come with the prefix `edit-`: `edit-text-encoding` for characters that Shift_JIS cannot
+  hold, in versions before 7.00.
+- **Errors**: `unreadable` (not JWW, or a file that `JwwFile` cannot read to its end), `unsupported-kind`,
+  `unknown-key`, `invalid-value`, `not-found`, `inside-block`, `missing-definition`, `already-exists`.
+
+The shared conformance test (`crates/zumen/tests/edit.rs`) passes for the fixtures and the 9 local sample drawings
+when JWW is added to it, with the updated entity's layer compared by the end of the scene's layer value (`グループ 0 /
+0-3 ZUMEN-EDIT-CHECK`). Written and edited drawings have not yet been opened in Jw_cad; that check is pending.
