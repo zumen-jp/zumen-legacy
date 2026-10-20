@@ -154,14 +154,14 @@ bytes ─▶ zumen-sxf, zumen-jww, zumen-dxf, zumen-dwg ─▶ Scene (zumen-core
 
 | Crate | Responsibility |
 | --- | --- |
-| `zumen-core` | The `Scene` types (serde, the same JSON as `sceneToJson`), `NoticeList`, `DrawingReader` and `read_drawing`, geometry (`geometry`), text layout (`text`), measurement, texts and entities for servers (`extract`), the comparison of two revisions (`compare`), and JavaScript-compatible number handling (`js`). |
+| `zumen-core` | The `Scene` types (serde, the same JSON as `sceneToJson`), `NoticeList`, `DrawingReader` and `read_drawing`, geometry (`geometry`), text layout (`text`), measurement, texts and entities for servers (`extract`), the fields of the title block (`title`), the comparison of two revisions (`compare`), and JavaScript-compatible number handling (`js`). |
 | `zumen-sxf` | SFC and P21 parsing into the SXF feature model (`parse_sfc`, `parse_p21` → `SxfDrawing`), conversion to a scene (`sxf_to_scene`), and the `SXF` reader. |
 | `zumen-jww` | JWW parsing into the JWW document model (`read_jww`), conversion to a scene (`jww_to_scene`), and the `JWW` reader. |
 | `zumen-dxf` | DXF parsing (ASCII and binary) into the AutoCAD drawing model (`parse_dxf` → `DxfDocument`), conversion of model space or a layout to a scene (`dxf_to_scene`), and the `DXF` reader. |
 | `zumen-dwg` | DWG decoding (AutoCAD 2000 to 2018) into the AutoCAD drawing model of `zumen-dxf` (`read_dwg` → `DxfDocument`), drawn with `dxf_to_scene`, and the `DWG` reader. |
 | `zumen` | `read` and `detect` over every reader. The entry point for applications. |
 | `zumen-render` | Draws a scene to PNG with the rules of `render.ts` in `@zumenjs/viewer` (color inversion, line weights with a 1 px minimum, dash rules, even-odd fills, clipping, per-character text, small text as a line), and reports which entities it drew and where (`render_image`, `drawn_entities`, `View::pixel_box`). It also writes SVG (`render_svg`) and one-page PDF (`render_pdf`) with the same colors, fills, clipping and text placement. |
-| `zumen-cli` | The `zumen` command (`detect`, `scene`, `texts`, `entities`, `render`, `compare`). |
+| `zumen-cli` | The `zumen` command (`detect`, `scene`, `texts`, `entities`, `title`, `render`, `compare`). |
 | `bindings/python` | PyO3 bindings, built with maturin as an abi3 wheel for Python 3.10 and later. The GIL is released while reading and rendering. `Scene.to_arrow` needs pyarrow (Apache-2.0, `zumen[arrow]`), and the MCP server `zumen.mcp` needs the MCP SDK (MIT, `zumen[mcp]`); both are optional dependencies. |
 | `bindings/wasm` | wasm-bindgen bindings that detect the format (`detect`) and return scene JSON (`readSceneJson`). `scripts/wasm.mjs` builds them into `packages/dwg/wasm` for `@zumenjs/dwg`. |
 
@@ -232,6 +232,16 @@ and layers count only when asked. When a revision moved as a whole (DXF model sp
 the most common offset between texts that occur once in both revisions moves it back. Changes near each other are
 grouped into regions, and `diff_scene` draws the result as a scene with three layers: unchanged entities in gray,
 removed ones and the old state of changed ones in red, added ones and the new state in blue.
+
+`zumen_core::title` guesses the fields of the title block, so that drawings can be filed by drawing number and
+revision: the drawing number, revision, title, project, scale and date. In order of trust, it reads attribute tags
+(DXF and DWG `ATTRIB`, such as `DWGNO` or `REV`), labels such as 図面番号, 図　面　名 or `DWG. NO.` with the nearest text to
+their right in the same row or else below them (in the label's own direction, so rotated title blocks work too),
+labels with their value in the same text (`縮尺 1/100`), the sheet name, and the metadata (the title block attributes
+that SXF files carry, with the year, month and day joined into one date). Labels are compared after NFKC, case
+folding and removing spaces and punctuation; a bare 番号 or `NO` is not taken for a drawing number. When a drawing
+has several title blocks, the one nearest the bottom right of the sheet comes first. Every candidate is kept with
+its source, label and entities, so an application can show where a value came from.
 
 `zumen.mcp` serves them to AI applications as MCP tools over stdio (`zumen-mcp`): open a drawing, render a region,
 find texts and entities, show one entity, measure in real-world millimeters through the scale of a placement and

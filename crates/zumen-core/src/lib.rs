@@ -14,6 +14,7 @@ mod notices;
 mod read;
 mod sort;
 pub mod text;
+pub mod title;
 mod types;
 
 pub use measure::{Distance, MeasurePoint, measure_distance, to_real};

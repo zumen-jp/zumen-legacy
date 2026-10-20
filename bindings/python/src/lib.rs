@@ -8,6 +8,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, OnceLock};
 use zumen::compare::{CompareOptions, SceneDiff, compare_scenes, diff_scene};
 use zumen::extract::{EntityFilter, EntityText, entity_text, layer_names, scene_texts, select_entities};
+use zumen::title::{TitleKey, title_fields};
 use zumen::{BBox, Background, ReadDrawingOptions, SceneEntity};
 use zumen_render::{ImageSize, RenderOptions, View};
 
@@ -409,6 +410,35 @@ impl Scene {
             list.append(entity_dict(py, scene, entity)?)?;
         }
         Ok(list)
+    }
+
+    /// 表題欄の項目（number、revision、title、project、scale、date）。見つからない項目は None。
+    /// 図面番号は「図面番号」「図番」「DWG NO.」などの項目名の右か下の文字、または属性のタグ（DWGNO など）から推定する。
+    /// fields は見つけたすべての候補（key、value、label、source、entity、label_entity、x、y）を項目ごとに確からしい順に
+    /// 並べたもの。source は attribute（属性のタグ）、label（項目名の文字の右か下）、inline（項目名と値が 1 つの文字）、
+    /// sheet（用紙の名前）、metadata（図面の情報）
+    fn title_block<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let fields = title_fields(&self.inner);
+        let dict = PyDict::new(py);
+        for key in TitleKey::ALL {
+            let value = fields.iter().find(|field| field.key == key).map(|field| field.value.as_str());
+            dict.set_item(key.name(), value)?;
+        }
+        let list = PyList::empty(py);
+        for field in &fields {
+            let item = PyDict::new(py);
+            item.set_item("key", field.key.name())?;
+            item.set_item("value", &field.value)?;
+            item.set_item("label", &field.label)?;
+            item.set_item("source", field.source.name())?;
+            item.set_item("entity", field.entity.as_deref())?;
+            item.set_item("label_entity", field.label_entity.as_deref())?;
+            item.set_item("x", field.x)?;
+            item.set_item("y", field.y)?;
+            list.append(item)?;
+        }
+        dict.set_item("fields", list)?;
+        Ok(dict)
     }
 
     /// id の図形（entities と同じ dict）。ない id なら None
