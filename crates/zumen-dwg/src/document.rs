@@ -393,7 +393,7 @@ pub fn read_dwg(bytes: &[u8]) -> Result<DxfDocument, String> {
     let format = Format { version, maintenance: dwg.maintenance, codec };
     let sections = &dwg.sections;
     let header = read_header(&sections.header, format).map_err(|_| "DWG のヘッダ変数が読めません".to_string())?;
-    let measurement = sections.template.as_deref().and_then(read_measurement);
+    let measurement = sections.template.as_deref().and_then(|template| read_measurement(template, version));
     let classes =
         read_classes(&sections.classes, format).into_iter().map(|class| (class.number, class.dxf_name)).collect();
     let map = read_object_map(&sections.handles);

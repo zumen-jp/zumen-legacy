@@ -426,6 +426,36 @@ impl Linetype {
     }
 }
 
+/// VIEWPORT ENTITY HEADER（20.4.70、R2000 まで）。紙空間のビューポートごとの項目。名前の後の B は DXF の 70 の 1、
+/// ハンドルは外部参照のブロック、ビューポート、次の項目（仕様は前の項目と書くが、AutoCAD の図面では表の順の次を指す）
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ViewportEntityHeader {
+    pub common: ObjectCommon,
+    pub name: EntryName,
+    pub on: bool,
+    pub xref_block: HandleRef,
+    pub viewport: HandleRef,
+    pub next: HandleRef,
+}
+
+impl ViewportEntityHeader {
+    pub fn read(s: &mut In<'_>) -> Read<Self> {
+        let common = ObjectCommon::read(s)?;
+        let name = EntryName::read(s)?;
+        let on = s.data.bit()?;
+        Ok(Self { common, name, on, xref_block: s.handle()?, viewport: s.handle()?, next: s.handle()? })
+    }
+
+    pub fn write(&self, o: &mut ObjectWriter) {
+        self.common.write(o);
+        self.name.write(o);
+        o.data.bit(self.on);
+        o.href(self.xref_block);
+        o.href(self.viewport);
+        o.href(self.next);
+    }
+}
+
 /// APPID（20.4.66）
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Appid {
