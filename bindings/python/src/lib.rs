@@ -1016,11 +1016,18 @@ fn compare(
 /// 図面を読み、to の形式（dxf）に書き直す。どの形式の図面も書き直せる（SXF・JWW は AutoCAD の図面のモデルに写す）。
 /// format は分かっている場合の読む形式
 #[pyfunction]
-#[pyo3(signature = (data, to, *, format = None))]
-fn convert(py: Python<'_>, data: &[u8], to: String, format: Option<String>) -> PyResult<Converted> {
+#[pyo3(signature = (data, to, *, format = None, version = None))]
+fn convert(
+    py: Python<'_>,
+    data: &[u8],
+    to: String,
+    format: Option<String>,
+    version: Option<String>,
+) -> PyResult<Converted> {
     let options = ReadDrawingOptions { format, ..ReadDrawingOptions::default() };
+    let write = zumen::WriteOptions { version };
     let converted = py
-        .detach(|| zumen::convert(data, &to, &options))
+        .detach(|| zumen::convert_with(data, &to, &options, &write))
         .map_err(|error| ReadError::new_err(error.message().to_string()))?;
     Ok(Converted { inner: converted, format: to })
 }

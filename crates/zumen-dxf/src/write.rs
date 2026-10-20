@@ -1,4 +1,7 @@
-//! AutoCAD の図面のモデル（`DxfDocument`）を DXF（ASCII、AutoCAD 2013 形式の AC1027、UTF-8）に書く。
+//! AutoCAD の図面のモデル（`DxfDocument`）を DXF（ASCII、既定は AutoCAD 2013 形式の AC1027、UTF-8）に書く。
+//! `write_dxf_as` で AutoCAD 2000〜2018 の版を選べる。版にない値（2004 より前のトゥルーカラー・透過度・グラデーション、
+//! 2007 より前の MTEXT の背景）は書かずに notices で知らせ、2007 より前の版は文字列を図面のコードページで書く
+//! （表せない文字は \U+XXXX。DXF Reference「Storage of String Values」）。
 //! DXF・DWG から読んだ図面を DXF にする変換に使う（DXF Reference の各節・各図形のグループコードに従う）。
 //!
 //! 書くもの: 見出しの主な変数、クラス、表（VPORT・LTYPE・LAYER・STYLE・VIEW・UCS・APPID・DIMSTYLE・
@@ -8,6 +11,7 @@
 //! 図形が参照するのに表にないレイヤ・線種・文字スタイル・寸法スタイル・ブロックは補う。
 //! 書けなかった・形を変えて書いた内容は、読み取りと同じ notices（種類ごとの件数）で返す。
 
+use crate::colors::nearest_aci;
 use crate::model::{
     DxfBlock, DxfDocument, DxfEmbeddedMText, DxfEntity, DxfEntityBase, DxfEntityData, DxfHatch, DxfHatchEdge, DxfImage,
     DxfLayout, DxfMLeader, DxfMLine, DxfMLineStyle, DxfMText, DxfPolyline, DxfSpace, DxfTextBase, Vec3,
@@ -26,11 +30,163 @@ pub struct DxfWritten {
 /// 色の生の値の BYBLOCK（0xC1000000）
 const BY_BLOCK_RAW: f64 = -1_056_964_608.0;
 
-/// DXF にする
+/// 書く DXF の版
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum DxfVersion {
+    R12,
+    R2000,
+    R2004,
+    R2007,
+    R2010,
+    R2013,
+    R2018,
+}
+
+impl DxfVersion {
+    pub const ALL: [DxfVersion; 7] = [
+        DxfVersion::R12,
+        DxfVersion::R2000,
+        DxfVersion::R2004,
+        DxfVersion::R2007,
+        DxfVersion::R2010,
+        DxfVersion::R2013,
+        DxfVersion::R2018,
+    ];
+
+    /// $ACADVER の値
+    pub fn code(self) -> &'static str {
+        match self {
+            DxfVersion::R12 => "AC1009",
+            DxfVersion::R2000 => "AC1015",
+            DxfVersion::R2004 => "AC1018",
+            DxfVersion::R2007 => "AC1021",
+            DxfVersion::R2010 => "AC1024",
+            DxfVersion::R2013 => "AC1027",
+            DxfVersion::R2018 => "AC1032",
+        }
+    }
+
+    /// 人に見せる名前（R12、2000 など）
+    pub fn name(self) -> &'static str {
+        match self {
+            DxfVersion::R12 => "R12",
+            DxfVersion::R2000 => "2000",
+            DxfVersion::R2004 => "2004",
+            DxfVersion::R2007 => "2007",
+            DxfVersion::R2010 => "2010",
+            DxfVersion::R2013 => "2013",
+            DxfVersion::R2018 => "2018",
+        }
+    }
+
+    /// $ACADMAINTVER の値（ezdxf 1.4.5 の acad_maint_ver と同じ）
+    fn maintenance(self) -> i32 {
+        match self {
+            DxfVersion::R12 | DxfVersion::R2004 => 0,
+            DxfVersion::R2000 | DxfVersion::R2010 => 6,
+            DxfVersion::R2007 => 25,
+            DxfVersion::R2013 => 105,
+            DxfVersion::R2018 => 4,
+        }
+    }
+
+    /// 名前・$ACADVER の値から（R12・12・AC1009、R2000・2000・AC1015 など。大文字・小文字は問わない）
+    pub fn parse(text: &str) -> Option<DxfVersion> {
+        let text = text.trim().to_ascii_uppercase();
+        let text = text.strip_prefix('R').unwrap_or(&text);
+        DxfVersion::ALL.into_iter().find(|version| {
+            version.code() == text || version.name().trim_start_matches('R') == text || version.code()[2..] == *text
+        })
+    }
+}
+
+/// DXF にする（AutoCAD 2013 形式）
 pub fn write_dxf(doc: &DxfDocument) -> DxfWritten {
-    let mut writer = Writer::new(doc);
+    let mut writer = Writer::new(doc, DxfVersion::R2013);
     writer.write();
     DxfWritten { bytes: writer.out.text.into_bytes(), notices: writer.notices.into_vec() }
+}
+
+/// 版を選んで DXF にする。R12 はまだ書けない
+pub fn write_dxf_as(doc: &DxfDocument, version: DxfVersion) -> Result<DxfWritten, String> {
+    if version == DxfVersion::R12 {
+        return Err("R12 の DXF はまだ書けません（書けるのは 2000〜2018）".into());
+    }
+    let mut writer = Writer::new(doc, version);
+    writer.write();
+    let text = std::mem::take(&mut writer.out.text);
+    let bytes = if version >= DxfVersion::R2007 {
+        text.replacen("CODEPAGE_PLACEHOLDER", "ANSI_1252", 1).into_bytes()
+    } else {
+        let (codepage, encoding) = codepage_for(doc, &text);
+        encode_with_escapes(&text.replacen("CODEPAGE_PLACEHOLDER", codepage, 1), encoding)
+    };
+    Ok(DxfWritten { bytes, notices: writer.notices.into_vec() })
+}
+
+/// AutoCAD 2007 より前の版の $DWGCODEPAGE と文字コード。元の図面の指定（西欧以外）、元の文字コード、文字の種類の順に決める
+fn codepage_for(doc: &DxfDocument, text: &str) -> (&'static str, &'static encoding_rs::Encoding) {
+    const PAGES: [(&str, &str); 6] = [
+        ("ANSI_932", "shift_jis"),
+        ("ANSI_936", "gbk"),
+        ("ANSI_949", "euc-kr"),
+        ("ANSI_950", "big5"),
+        ("ANSI_1251", "windows-1251"),
+        ("ANSI_1253", "windows-1253"),
+    ];
+    let page = |name: &str| PAGES.iter().find(|(page, _)| *page == name).copied();
+    let declared = doc.header.codepage.as_deref().map(|codepage| codepage.trim().to_ascii_uppercase());
+    let chosen = declared
+        .as_deref()
+        .and_then(page)
+        .or_else(|| PAGES.iter().find(|(_, label)| *label == doc.encoding).copied())
+        .or_else(|| {
+            let has = |range: std::ops::RangeInclusive<char>| text.chars().any(|c| range.contains(&c));
+            if has('\u{3041}'..='\u{30ff}') || has('\u{4e00}'..='\u{9fff}') {
+                page("ANSI_932")
+            } else if has('\u{ac00}'..='\u{d7a3}') {
+                page("ANSI_949")
+            } else if has('\u{0400}'..='\u{04ff}') {
+                page("ANSI_1251")
+            } else if has('\u{0370}'..='\u{03ff}') {
+                page("ANSI_1253")
+            } else {
+                None
+            }
+        });
+    match chosen {
+        Some((name, label)) => (name, crate::tags::encoding(label)),
+        None => ("ANSI_1252", encoding_rs::WINDOWS_1252),
+    }
+}
+
+/// 文字コードにする。表せない文字は \U+XXXX（基本多言語面の外は ?）にする
+fn encode_with_escapes(text: &str, encoding: &'static encoding_rs::Encoding) -> Vec<u8> {
+    let mut encoder = encoding.new_encoder();
+    let mut out = Vec::with_capacity(text.len() + 64);
+    let mut rest = text;
+    loop {
+        let (result, read) = encoder.encode_from_utf8_to_vec_without_replacement(rest, &mut out, true);
+        rest = &rest[read..];
+        match result {
+            encoding_rs::EncoderResult::InputEmpty => break,
+            encoding_rs::EncoderResult::OutputFull => out.reserve(rest.len() + 64),
+            encoding_rs::EncoderResult::Unmappable(c) => {
+                let code = u32::from(c);
+                if code <= 0xffff {
+                    out.extend_from_slice(format!("\\U+{code:04X}").as_bytes());
+                } else {
+                    out.push(b'?');
+                }
+            }
+        }
+    }
+    out
+}
+
+/// レイヤの色（負は非表示）の符号のまま、色の番号を変える
+fn aci_sign(color: f64, aci: f64) -> f64 {
+    if color < 0.0 { -aci } else { aci }
 }
 
 /// グループコードと値の行
@@ -183,6 +339,10 @@ struct BlockRecord {
 
 struct Writer<'a> {
     doc: &'a DxfDocument,
+    /// 書く版
+    version: DxfVersion,
+    /// 次に書く図形の色を、この ACI に変える（2004 より前の版のグラデーションの塗り）
+    color_override: Option<f64>,
     out: Out,
     handles: Handles,
     notices: NoticeList,
@@ -292,9 +452,11 @@ fn upper(name: &str) -> String {
 }
 
 impl<'a> Writer<'a> {
-    fn new(doc: &'a DxfDocument) -> Self {
+    fn new(doc: &'a DxfDocument, version: DxfVersion) -> Self {
         Self {
             doc,
+            version,
+            color_override: None,
             out: Out { text: String::new() },
             handles: Handles::new(doc),
             notices: NoticeList::new(),
@@ -483,11 +645,12 @@ impl<'a> Writer<'a> {
         self.section("HEADER");
         let out = &mut self.out;
         out.tag(9, "$ACADVER");
-        out.tag(1, "AC1027");
+        out.tag(1, self.version.code());
         out.tag(9, "$ACADMAINTVER");
-        out.tag(70, 105);
+        out.tag(70, self.version.maintenance());
+        // AutoCAD 2007 以降は UTF-8 で、AutoCAD は値を見ない。それより前は書いた後に文字コードと一緒に決める
         out.tag(9, "$DWGCODEPAGE");
-        out.tag(3, "ANSI_1252");
+        out.tag(3, "CODEPAGE_PLACEHOLDER");
         out.tag(9, "$HANDSEED");
         out.tag(5, "HANDSEED_PLACEHOLDER");
         out.tag(9, "$INSUNITS");
@@ -560,7 +723,12 @@ impl<'a> Writer<'a> {
         let wipeouts = count(&|entity| {
             matches!(entity.data, DxfEntityData::Image(_)) && entity.base.kind.eq_ignore_ascii_case("WIPEOUT")
         });
+        // 円弧の長さ・大きい半径の寸法は 2004 から（ezdxf の ArcDimension と同じ）。前の版はブロックの参照で書く
+        let old = self.version < DxfVersion::R2004;
         let dimensions = |kind: &str| {
+            if old {
+                return 0;
+            }
             count(&|entity| {
                 matches!(&entity.data, DxfEntityData::Dimension(dimension) if !dimension.anonymous_block_name.is_empty())
                     && entity.base.kind.eq_ignore_ascii_case(kind)
@@ -800,10 +968,22 @@ impl<'a> Writer<'a> {
             };
             self.layer_handles.insert(upper(&layer.name), handle);
             self.record("LAYER", handle, ids[2], "AcDbLayerTableRecord", &layer.name);
+            let old = self.version < DxfVersion::R2004;
+            let (color, true_color) = match layer.true_color {
+                Some(true_color) if old => {
+                    self.version_color();
+                    (aci_sign(layer.color, nearest_aci(true_color)), None)
+                }
+                other => (layer.color, other),
+            };
+            let transparency = layer.transparency.filter(|_| !old);
+            if old && layer.transparency.is_some() {
+                self.version_transparency();
+            }
             let out = &mut self.out;
             out.tag(70, layer.flags);
-            out.int(62, layer.color);
-            if let Some(true_color) = layer.true_color {
+            out.int(62, color);
+            if let Some(true_color) = true_color {
                 out.int(420, true_color);
             }
             out.str(6, &layer.linetype);
@@ -813,7 +993,7 @@ impl<'a> Writer<'a> {
             out.int(370, layer.lineweight);
             out.handle(390, self.placeholder);
             // 透過度は拡張データ AcCmTransparency の 1071
-            if let Some(transparency) = layer.transparency {
+            if let Some(transparency) = transparency {
                 out.tag(1001, "AcCmTransparency");
                 out.int(1071, transparency);
             }
@@ -1462,15 +1642,25 @@ impl<'a> Writer<'a> {
         if !base.linetype.is_empty() && upper(&base.linetype) != "BYLAYER" {
             out.str(6, &base.linetype);
         }
-        if base.color_index != 256.0 {
-            out.int(62, base.color_index);
+        // 2004 より前の版はトゥルーカラー（420）・透過度（440）を持たない（ezdxf の DXFGraphic と同じ）
+        let old = self.version < DxfVersion::R2004;
+        let (color_index, true_color) = match (self.color_override.take(), base.true_color) {
+            (Some(aci), _) => (aci, None),
+            (None, Some(color)) if old => (nearest_aci(color), None),
+            (None, color) => (base.color_index, color),
+        };
+        if color_index != 256.0 {
+            out.int(62, color_index);
         }
-        if let Some(color) = base.true_color {
+        if let Some(color) = true_color {
             out.int(420, color);
         }
-        if let Some(transparency) = base.transparency {
+        let transparency = base.transparency.filter(|_| !old);
+        if let Some(transparency) = transparency {
             out.int(440, transparency);
         }
+        let dropped_color = old && base.true_color.is_some();
+        let dropped_transparency = old && base.transparency.is_some();
         if base.lineweight != -1.0 {
             out.int(370, base.lineweight);
         }
@@ -1480,7 +1670,29 @@ impl<'a> Writer<'a> {
         if base.invisible {
             out.tag(60, 1);
         }
+        if dropped_color {
+            self.version_color();
+        }
+        if dropped_transparency {
+            self.version_transparency();
+        }
         handle
+    }
+
+    fn version_color(&mut self) {
+        self.notices.add(
+            NoticeLevel::Info,
+            "version-color",
+            "トゥルーカラーは、AutoCAD 2004 より前の版にないため、最も近い色の番号（ACI）で書きました",
+        );
+    }
+
+    fn version_transparency(&mut self) {
+        self.notices.add(
+            NoticeLevel::Info,
+            "version-transparency",
+            "透過度は、AutoCAD 2004 より前の版にないため、書きませんでした",
+        );
     }
 
     fn thickness(&mut self, base: &DxfEntityBase) {
@@ -1712,12 +1924,39 @@ impl<'a> Writer<'a> {
             DxfEntityData::Dimension(dimension) if dimension.anonymous_block_name.is_empty() => {
                 self.notices.add(NoticeLevel::Warning, "dimension-block", "表示のブロックがない寸法を省きました");
             }
+            DxfEntityData::Dimension(dimension)
+                if self.version < DxfVersion::R2004
+                    && matches!(kind.as_str(), "ARC_DIMENSION" | "LARGE_RADIAL_DIMENSION") =>
+            {
+                self.notices.add(
+                    NoticeLevel::Info,
+                    "version-dimension",
+                    "円弧の長さ・大きい半径の寸法は、AutoCAD 2004 より前の版にないため、寸法のブロックの参照（INSERT）として書きました",
+                );
+                self.common("INSERT", base, owner, paper);
+                self.out.tag(100, "AcDbBlockReference");
+                self.out.str(2, &dimension.anonymous_block_name);
+                self.out.point(10, &[0.0, 0.0, 0.0]);
+            }
             DxfEntityData::Dimension(dimension) => self.dimension(&kind, base, dimension, owner, paper),
             DxfEntityData::Hatch(hatch) => {
                 if kind == "MPOLYGON" {
                     self.notices.add(NoticeLevel::Info, "mpolygon", "MPOLYGON は、ハッチング（HATCH）として書きました");
                 }
-                self.hatch(base, hatch, owner, paper);
+                if hatch.gradient.is_some() && self.version < DxfVersion::R2004 {
+                    // グラデーションは 2004 から。前の版は 1 色目の塗りにする
+                    self.notices.add(
+                        NoticeLevel::Info,
+                        "version-gradient",
+                        "グラデーションは、AutoCAD 2004 より前の版にないため、1 色目の塗りで書きました",
+                    );
+                    let first = hatch.gradient_colors.as_deref().and_then(<[f64]>::first).copied();
+                    self.color_override = first.map(nearest_aci);
+                    let solid = DxfHatch { gradient: None, solid_fill: true, ..hatch.clone() };
+                    self.hatch(base, &solid, owner, paper);
+                } else {
+                    self.hatch(base, hatch, owner, paper);
+                }
             }
             DxfEntityData::Solid { vtx0, vtx1, vtx2, vtx3, invisible_edges } => {
                 let name = match kind.as_str() {
@@ -1754,7 +1993,17 @@ impl<'a> Writer<'a> {
                 }
                 self.extrusion(base);
             }
-            DxfEntityData::MLeader(mleader) => self.mleader(base, mleader, owner, paper),
+            DxfEntityData::MLeader(mleader) => {
+                if self.version < DxfVersion::R2007 {
+                    // ezdxf と同じく書く（AutoCAD 2008 より前の AutoCAD は代理オブジェクトとして扱う）
+                    self.notices.add(
+                        NoticeLevel::Info,
+                        "version-mleader",
+                        "マルチ引出線（MULTILEADER）は AutoCAD 2008 からで、それより前の版を読む CAD では表示されないことがあります",
+                    );
+                }
+                self.mleader(base, mleader, owner, paper)
+            }
             DxfEntityData::MLine(mline) => self.mline(base, mline, owner, paper),
             DxfEntityData::Viewport(viewport) => {
                 self.common("VIEWPORT", base, owner, paper);
@@ -1902,7 +2151,13 @@ impl<'a> Writer<'a> {
         }
         self.out.int(73, if mtext.line_spacing_style > 0.0 { mtext.line_spacing_style } else { 1.0 });
         self.out.real(44, if mtext.line_spacing_factor > 0.0 { mtext.line_spacing_factor } else { 1.0 });
-        if mtext.background_flags != 0.0 {
+        if mtext.background_flags != 0.0 && self.version < DxfVersion::R2007 {
+            self.notices.add(
+                NoticeLevel::Info,
+                "version-background",
+                "複数行の文字の背景は、AutoCAD 2007 より前の版にないため、書きませんでした",
+            );
+        } else if mtext.background_flags != 0.0 {
             self.out.int(90, mtext.background_flags);
             if let Some(color) = mtext.background_color_index {
                 self.out.int(63, color);
@@ -2366,6 +2621,37 @@ mod tests {
 
     fn codes(written: &DxfWritten) -> Vec<&str> {
         written.notices.iter().map(|notice| notice.code.as_str()).collect()
+    }
+
+    #[test]
+    fn reads_version_names() {
+        for (text, version) in [
+            ("2000", DxfVersion::R2000),
+            ("R2004", DxfVersion::R2004),
+            ("ac1021", DxfVersion::R2007),
+            ("r12", DxfVersion::R12),
+            ("AC1032", DxfVersion::R2018),
+        ] {
+            assert_eq!(DxfVersion::parse(text), Some(version), "{text}");
+        }
+        for text in ["R13", "2005", "", "AC1012"] {
+            assert_eq!(DxfVersion::parse(text), None, "{text}");
+        }
+    }
+
+    #[test]
+    fn writes_characters_the_code_page_lacks_as_unicode_escapes() {
+        let bytes = encode_with_escapes("壁 Ā 😀", encoding_rs::SHIFT_JIS);
+        let (expected, _, _) = encoding_rs::SHIFT_JIS.encode("壁 \\U+0100 ?");
+        assert_eq!(bytes, expected.into_owned());
+        // 2007 より前の版は、図面の文字に合うコードページで書く
+        let doc = parse_dxf(
+            b"0\nSECTION\n2\nENTITIES\n0\nTEXT\n8\n0\n10\n0\n20\n0\n40\n1\n1\n\xe5\xa3\x81\n0\nENDSEC\n0\nEOF\n",
+        );
+        let written = write_dxf_as(&doc, DxfVersion::R2000).unwrap();
+        let (text, _, _) = encoding_rs::SHIFT_JIS.decode(&written.bytes);
+        assert!(text.contains("$DWGCODEPAGE\r\n  3\r\nANSI_932") && text.contains("\r\n  1\r\n壁\r\n"), "{text}");
+        assert!(write_dxf_as(&doc, DxfVersion::R12).is_err());
     }
 
     #[test]

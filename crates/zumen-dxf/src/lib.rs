@@ -24,7 +24,7 @@ pub use scene::{
     DESCENT as TEXT_DESCENT, DrawOrder, dash_array, draw_order, drawing_unit, dxf_to_scene, em_for as text_em,
 };
 pub use tags::{codepage_encoding, decode_escapes, is_ascii_dxf, is_binary_dxf};
-pub use write::{DxfWritten, write_dxf};
+pub use write::{DxfVersion, DxfWritten, write_dxf, write_dxf_as};
 
 use zumen_core::{DrawingReader, ReadError, ReadOptions, Scene};
 

@@ -243,7 +243,8 @@ cargo run --release -p zumen-cli -- convert plan.sfc -o plan.dxf
 cargo run --release -p zumen-cli -- convert plan.dxf -o plan.sfc
 ```
 
-`convert` は、どの形式の図面も AutoCAD の図面のモデルを経て AutoCAD 2013 の DXF に書く。DXF・DWG はハンドル・表・
+`convert` は、どの形式の図面も AutoCAD の図面のモデルを経て AutoCAD 2013 の DXF に書く（`--target-version` で
+2000・2004・2007・2010・2018 を選べ、2007 より前は図面のコードページで書く）。DXF・DWG はハンドル・表・
 ブロック・レイアウトを保つ。SXF・JWW はモデル空間を実寸にして写す。SXF の部分図・JWW のレイヤグループの縮尺ごとに、
 用紙のレイアウトのビューポートがその縮尺で見せ、用紙にじかに描いたもの（図枠・表題欄）は紙空間に置く。レイヤ・色・線種・
 線の太さ・フォント・縦書き・ブロック・寸法・ハッチングを AutoCAD の図形にし、レイアウトは元の図面と同じに描ける

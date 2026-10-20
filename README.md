@@ -258,7 +258,8 @@ cargo run --release -p zumen-cli -- convert plan.sfc -o plan.dxf
 cargo run --release -p zumen-cli -- convert plan.dxf -o plan.sfc
 ```
 
-`convert` writes every format as DXF of AutoCAD 2013 through the AutoCAD drawing model. DXF and DWG keep their
+`convert` writes every format as DXF of AutoCAD 2013 through the AutoCAD drawing model (`--target-version` chooses
+2000, 2004, 2007, 2010 or 2018; older versions are written in the drawing's code page). DXF and DWG keep their
 handles, tables, blocks and layouts. SXF and JWW are mapped into the model with real-size model space: each SXF
 sub-figure and each JWW layer group scale is shown through a viewport of the sheet's layout at its scale, and what is
 drawn on the sheet itself (frames and title blocks) is in paper space. Layers, colors, line types, line weights, fonts,

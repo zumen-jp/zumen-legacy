@@ -27,7 +27,7 @@ Usage:
                [--theme light|dark] [--thin] [--format <name>] [--view <id>]
   zumen compare <before> <after> [--tolerance <mm>] [--style] [--all-layers] [--no-align]
                 [-o <overlay.png> [--dpi <n> | --size <w>x<h>]] [--format <name>] [--view <id>]
-  zumen convert <file> -o <out.dxf|out.sfc> [--format <name>]
+  zumen convert <file> -o <out.dxf|out.sfc> [--target-version <version>] [--format <name>]
 
 Every command that reads takes --max-bytes <n>, --max-entities <n> and --timeout <seconds>, to stop
 reading an untrusted drawing that is too large (P2Z and SFZ after unpacking), too complex or too slow.
@@ -46,7 +46,8 @@ the conversion between pixels and paper millimeters, and the pixel box of every 
 compare matches entities by shape and text (not by id) and writes the removed, added and changed
 entities and the regions that changed as JSON; -o draws them over the unchanged ones (red before,
 blue after, gray unchanged).
-convert writes a drawing as DXF (AutoCAD 2013, UTF-8) or SFC (SXF Ver.3.1, CP932), by the extension of the output,
+convert writes a drawing as DXF (AutoCAD 2013, UTF-8, or the version of --target-version: R12, 2000, 2004, 2007, 2010,
+2013 or 2018) or SFC (SXF Ver.3.1, CP932), by the extension of the output,
 and reports what it could not write. SXF and JWW are mapped into the AutoCAD model: model space at real size, the
 sheet as a layout with a viewport for each scale. SFC is written from that model: the layout is the sheet, each
 viewport a sub-figure at its scale and each block a drawing part.";
@@ -70,6 +71,7 @@ struct Args {
     geometry: bool,
     map: Option<String>,
     tolerance: f64,
+    target_version: Option<String>,
     style: bool,
     align: bool,
     limits: ReadLimits,
@@ -117,6 +119,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
         geometry: false,
         map: None,
         tolerance: 0.01,
+        target_version: None,
         style: false,
         align: true,
         limits: ReadLimits::default(),
@@ -152,6 +155,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
                 parsed.tolerance = value("--tolerance")?.parse().map_err(|_| "--tolerance needs a number")?
             }
             "--style" => parsed.style = true,
+            "--target-version" => parsed.target_version = Some(value("--target-version")?),
             "--no-align" => parsed.align = false,
             "--max-bytes" => {
                 parsed.limits.max_bytes = Some(value("--max-bytes")?.parse().map_err(|_| "--max-bytes needs a count")?)
@@ -441,7 +445,8 @@ fn run(args: Args) -> Result<(), String> {
             .map(str::to_ascii_lowercase)
             .unwrap_or_default();
         let options = ReadDrawingOptions { format: args.format.clone(), view: None, limits: args.limits };
-        let converted = zumen::convert(&bytes, &to, &options).map_err(|error| error.to_string())?;
+        let write = zumen::WriteOptions { version: args.target_version.clone() };
+        let converted = zumen::convert_with(&bytes, &to, &options, &write).map_err(|error| error.to_string())?;
         std::fs::write(&output, &converted.bytes).map_err(|error| format!("{output}: {error}"))?;
         print_notices(&converted.notices);
         return Ok(());

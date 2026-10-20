@@ -4,6 +4,12 @@ All packages share one version during 0.x.
 
 ## Unreleased (0.1.0)
 
+- Rust, Python and the command line: write DXF in a chosen version, AutoCAD 2000, 2004, 2007, 2010, 2013 or 2018
+  (`zumen_dxf::write_dxf_as`, `zumen::convert_with` with `WriteOptions`, `zumen.convert(..., version=...)`,
+  `zumen convert --target-version`). Versions before 2007 are written in the drawing's code page with `\U+XXXX` for
+  what it cannot hold, and true colors, transparency, gradients, MTEXT backgrounds and the newer dimension types that
+  a version lacks are written in another form and reported in the notices.
+
 - The length unit of a drawing: `Scene.unit`, one of `LENGTH_UNITS` (`LengthUnit` in Rust), is the unit of the
   drawing's own coordinates (the `raw` points and lengths of properties): `millimeter` in SXF and JWW, and in DXF and
   DWG the unit of `$INSUNITS` (`inch`, `meter`, …), or the one assumed with the `unit-assumed` notice. `Scene.unit` in

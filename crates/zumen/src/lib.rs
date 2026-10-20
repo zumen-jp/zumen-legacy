@@ -57,6 +57,33 @@ pub const WRITABLE_FORMATS: [&str; 2] = ["dxf", "sfc"];
 /// モデルに写す（`mapping`。モデル空間は実寸、縮尺ごとに用紙のレイアウトのビューポート）。SFC は、モデルを SXF の
 /// 図面に写して書く（`mapping::dxf_to_sxf`。ビューポートは部分図、ブロックは作図部品）
 pub fn convert(bytes: &[u8], to: &str, options: &ReadDrawingOptions) -> Result<Converted, ReadError> {
+    convert_with(bytes, to, options, &WriteOptions::default())
+}
+
+/// 書き出しの指定
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct WriteOptions {
+    /// 書く版。DXF は R12・2000・2004・2007・2010・2013・2018（`dxf::DxfVersion::parse` が読む名前）。省略すると
+    /// 形式の既定（DXF は 2013）
+    pub version: Option<String>,
+}
+
+/// `convert` に書き出しの指定（版など）を加えたもの
+pub fn convert_with(
+    bytes: &[u8],
+    to: &str,
+    options: &ReadDrawingOptions,
+    write: &WriteOptions,
+) -> Result<Converted, ReadError> {
+    let dxf_version = match (to, write.version.as_deref()) {
+        (_, None) => dxf::DxfVersion::R2013,
+        ("dxf", Some(name)) => dxf::DxfVersion::parse(name).ok_or_else(|| {
+            ReadError::new(format!("DXF の版 {name} はありません（R12・2000・2004・2007・2010・2013・2018）"))
+        })?,
+        (other, Some(_)) => {
+            return Err(ReadError::new(format!("{} の版はまだ選べません", other.to_uppercase())));
+        }
+    };
     if !WRITABLE_FORMATS.contains(&to) {
         return Err(ReadError::new(format!("{} には書き出せません（書き出せるのは DXF・SFC）", to.to_uppercase())));
     }
@@ -102,7 +129,7 @@ pub fn convert(bytes: &[u8], to: &str, options: &ReadDrawingOptions) -> Result<C
         let written = sxf::write_sfc(&mapped.drawing);
         (written.bytes, written.notices)
     } else {
-        let written = dxf::write_dxf(&doc);
+        let written = dxf::write_dxf_as(&doc, dxf_version).map_err(ReadError::new)?;
         (written.bytes, written.notices)
     };
     for notice in &written {
