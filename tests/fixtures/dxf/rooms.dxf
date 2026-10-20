@@ -20,6 +20,8 @@ ENTITIES
 LWPOLYLINE
 5
 20
+330
+1F
 100
 AcDbEntity
 8
@@ -50,6 +52,8 @@ AcDbPolyline
 LWPOLYLINE
 5
 21
+330
+1F
 100
 AcDbEntity
 8
@@ -80,6 +84,8 @@ AcDbPolyline
 LINE
 5
 22
+330
+1F
 100
 AcDbEntity
 8
@@ -102,6 +108,8 @@ AcDbLine
 LINE
 5
 23
+330
+1F
 100
 AcDbEntity
 8
@@ -124,6 +132,8 @@ AcDbLine
 LINE
 5
 24
+330
+1F
 100
 AcDbEntity
 8
@@ -146,6 +156,8 @@ AcDbLine
 CIRCLE
 5
 25
+330
+1F
 100
 AcDbEntity
 8
@@ -164,6 +176,8 @@ AcDbCircle
 LWPOLYLINE
 5
 26
+330
+1F
 100
 AcDbEntity
 8
@@ -194,6 +208,8 @@ AcDbPolyline
 TEXT
 5
 27
+330
+1F
 100
 AcDbEntity
 8
@@ -216,6 +232,8 @@ AcDbText
 TEXT
 5
 28
+330
+1F
 100
 AcDbEntity
 8
@@ -238,6 +256,8 @@ AcDbText
 TEXT
 5
 29
+330
+1F
 100
 AcDbEntity
 8
