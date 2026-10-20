@@ -6,7 +6,7 @@ build-backend = "maturin"
 name = "zumen"
 description = "Read 2D drawings of Japanese construction (SXF, JWW, DXF and DWG), render them to PNG, SVG and PDF, extract their texts and entities, and compare revisions"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 keywords = ["cad", "drawing", "jww", "sxf", "dxf", "dwg", "aec"]
 classifiers = [
   # 公開の前にライセンスを決める（docs/releasing.md）。それまで PyPI へ送らない

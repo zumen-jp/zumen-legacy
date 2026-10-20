@@ -48,12 +48,12 @@ If npm does not allow adding a trusted publisher before a package exists, publis
 it without a Rust toolchain. It does not publish to PyPI: the package has the classifier `Private :: Do Not Upload`,
 which PyPI refuses, until the license is decided (steps 1 and 2 of "Before going public").
 
-- **What it builds.** One abi3 wheel per platform, which serves every Python from 3.10: `manylinux_2_28` for x86_64
+- **What it builds.** One abi3 wheel per platform, which serves every Python from 3.12: `manylinux_2_28` for x86_64
   and aarch64 (glibc 2.28 or newer, as in Debian 10, Ubuntu 20.04 and RHEL 8) and macOS 11 or newer for arm64, and the
   sdist. There are no wheels for Windows, Intel macOS or musl (Alpine); the sdist builds there with a Rust toolchain.
   maturin is the version of `bindings/python/uv.lock`, and Rust the toolchain of `rust-toolchain.toml`.
 - **Pull requests and `main`.** The wheels and the sdist are artifacts of the workflow run (kept for 14 days). Each
-  wheel is installed on a runner of its platform, on Python 3.10 and 3.14, and the tests of `bindings/python/tests` run
+  wheel is installed on a runner of its platform, on Python 3.12 and 3.14, and the tests of `bindings/python/tests` run
   against it, not against a development build. The sdist must build a wheel by itself.
   `bindings/python/scripts/check_dist.py` checks every file: the extension module holds the bundled font (BIZ UDGothic)
   and `dist-info/licenses` holds the text of its license (SIL OFL 1.1, a link in `bindings/python/licenses/` to the
@@ -66,7 +66,7 @@ which PyPI refuses, until the license is decided (steps 1 and 2 of "Before going
 
   ```bash
   gh release download v0.1.0 --repo zumenjs/zumen --pattern '*manylinux_2_28_x86_64.whl' --dir wheels
-  pip install wheels/zumen-0.1.0-cp310-abi3-manylinux_2_28_x86_64.whl
+  pip install wheels/zumen-0.1.0-cp312-abi3-manylinux_2_28_x86_64.whl
   ```
 
   Install the file itself, or use `--no-index --find-links wheels`. The name `zumen` is not registered on PyPI, so an
