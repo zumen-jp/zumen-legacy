@@ -345,8 +345,13 @@ Checked on 2026-10-20 on macOS 27 (Apple Silicon) with Rust 1.99.0, Node.js 24.2
 - ezdxf reads every converted fixture and sample strictly (`ezdxf.readfile`) and its audit finds nothing. For the SXF
   fixture `sample.sfc`, ezdxf's `Viewport.get_transformation_matrix` maps the real-size line of the 1/20 sub-figure to
   the paper millimeters where the SXF scene draws it (the Python tests).
+- The 19 DXF files written from the fixtures and samples read the same in TypeScript and Rust, in the layout and in
+  model space (`ZUMEN_SAMPLES=<folder of the converted files> pnpm run parity`). In the playground, the converted
+  `D0LS004Z.SFC` opens in its layout `図面-1` with viewports at 1:10 and 1:20 and the hidden layer `VIEWPORTS`, and its
+  model space shows the two sub-figures at real size side by side.
 - `@zumenjs/dxf` and `zumen-dxf` draw `@` fonts vertically with the same scenes (`vertical-text` fixture, TypeScript
-  test of the column). None of the local DXF samples uses an `@` font, so their scenes do not change.
+  test of the column, and the playground). None of the local DXF samples uses an `@` font, so their scenes do not
+  change: `pnpm run parity` over the local samples gives the same 111 scenes as before.
 - Time with the release build of the `zumen` command, including reading and writing (median of seven runs):
   `D0LS004Z.SFC` (255 KB) 17 ms, `D0LS004Z.P21` (1.4 MB) 31 ms, both written as 0.58 MB of DXF; `Test6.jww` (128 KB,
   1,962 entities) 18 ms.
