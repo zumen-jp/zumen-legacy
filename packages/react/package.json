@@ -1,9 +1,10 @@
 {
   "name": "@zumenjs/react",
   "version": "0.1.0",
-  "description": "React components and hooks for viewing and measuring drawings with zumen",
+  "description": "React hooks for embedding the zumen drawing engine in your own UI: create the viewer, read its state and events, and read files",
   "keywords": [
     "react",
+    "hooks",
     "cad",
     "drawing",
     "viewer"
@@ -44,7 +45,8 @@
     }
   },
   "dependencies": {
-    "@zumenjs/core": "workspace:*"
+    "@zumenjs/core": "workspace:*",
+    "@zumenjs/viewer": "workspace:*"
   },
   "peerDependencies": {
     "react": "^19.3.0"

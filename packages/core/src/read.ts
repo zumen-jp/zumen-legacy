@@ -14,6 +14,11 @@ export interface DrawingReader {
    * options.view は Scene.views の id で、省略すると形式ごとの既定の表示にする
    */
   read(bytes: Uint8Array, format: DrawingFormat, options?: ReadOptions): Scene;
+  /**
+   * 読む前に待つ準備（WebAssembly の読み込みなど）。持たない読み取りは、すぐに読める。
+   * 何度呼んでもよく、準備ができた後はすぐに終わる。@zumenjs/react の useDrawing は、中身を認めた読み取りのものだけを待つ
+   */
+  load?(): Promise<void>;
 }
 
 export interface ReadOptions {
