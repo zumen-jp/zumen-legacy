@@ -9,7 +9,8 @@ All packages share one version during 0.x.
   `start`, `radius`, `dimensionType`, …) next to the Japanese `label`, with the unformatted value in `Property.raw`
   (numbers, `[x, y]`, format codes). The title block and the comparison read properties by key. Python entities have
   `kind` and `values` (key to value), scenes `metadata_values`, the Arrow table a `kind` column and property keys, and
-  the MCP server returns kinds and keys and finds entities by kind. The kinds and keys are listed in
+  the MCP server returns kinds and keys and finds entities by kind, and the JSON lines of `zumen entities` have `kind`
+  and `values`. The kinds and keys are listed in
   [the architecture notes](docs/architecture.md#stable-keys).
 - Rust and Python: compare two revisions of a drawing. `zumen_core::compare` matches entities by shape and text, not
   by id, so revisions saved again or in another format compare too. It reports the removed, added and changed entities
