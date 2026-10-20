@@ -244,6 +244,8 @@ saved (`farmhouse.dwg`: 1.79 MB against 1.93 MB), and rewriting takes 75 ms for 
   are rewritten without panicking.
 - [ezdwg](https://github.com/monozukuri-ai/ezdwg) 0.16.3 reads every rewritten sample to the same entities, layers,
   layouts and header variables as the original.
+- ACadSharp 3.8.26 (`DwgReader`, failsafe off) reads every rewritten sample to the same entities and the same
+  notifications as the original.
 - ODA File Converter (audit and conversion to DXF) and DWG TrueView: not run yet.
 
 ### New drawings
@@ -353,4 +355,7 @@ of leaders to their annotation (a leader keeps the hook vertex that the reader a
 - ezdwg 0.16.3 reads every written drawing. For the samples that are DWG, it reads the same values for every entity as
   from the original, apart from what the model does not hold (above) and values that ezdwg reads differently from any
   R2013 file (owners of INSERTs, names of hatches).
+- ACadSharp 3.8.26 (`DwgReader`, failsafe off) reads every written drawing, with no warning but one for the
+  LARGE_RADIAL_DIMENSION class that it does not know. For the samples that are DWG, it finds the same entities of each
+  type as in the original, apart from the types that the model does not hold.
 - ODA File Converter and DWG TrueView: not run yet.
