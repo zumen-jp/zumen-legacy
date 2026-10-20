@@ -7,18 +7,20 @@ name = "zumen"
 description = "Read 2D drawings of Japanese construction (SXF, JWW, DXF and DWG), render them to PNG, SVG and PDF, extract their texts and entities, and compare revisions"
 readme = "README.md"
 requires-python = ">=3.10"
+license = "MIT"
+# zumen の LICENSE と、同梱の BIZ UDGothic のライセンス（SIL OFL 1.1）の全文をホイールの dist-info に入れる。フォントは
+# 拡張モジュールに埋め込まれる。license-files は ../ を使えないので、LICENSE はルートの LICENSE の複製、licenses/ は
+# クレート側の OFL.txt へのリンクにしてある（scripts/check_dist.py が、どちらも元と同じ内容かを確かめる）
+license-files = ["LICENSE", "licenses/*"]
 keywords = ["cad", "drawing", "jww", "sxf", "dxf", "dwg", "aec"]
 classifiers = [
-  # 公開の前にライセンスを決める（docs/releasing.md）。それまで PyPI へ送らない
+  # 最初の公開の前に、この分類子を License :: OSI Approved :: MIT License に替える（docs/releasing.md）。PyPI はこれがある間は受け付けない
   "Private :: Do Not Upload",
   "Programming Language :: Rust",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: Implementation :: CPython",
   "Topic :: Scientific/Engineering",
 ]
-# 同梱の BIZ UDGothic は拡張モジュールに埋め込まれるので、そのライセンス（SIL OFL 1.1、licenses/ はクレート側の
-# OFL.txt へのリンク）の全文をホイールの dist-info に入れる。zumen 自身の LICENSE を決めたらここへ加える（docs/releasing.md）
-license-files = ["licenses/*"]
 dynamic = ["version"]
 
 [project.optional-dependencies]

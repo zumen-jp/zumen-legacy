@@ -1,8 +1,9 @@
 """Checks the wheels and the sdist that maturin built (CI: .github/workflows/python-wheels.yml).
 
-The bundled font (BIZ UDGothic, SIL Open Font License 1.1) is compiled into the extension module, and the license asks
-every copy of the font to carry its text. So a wheel must hold the bytes of the font in its module and the text of the
-license in dist-info/licenses, and the sdist the font and the license that building it needs. A wheel must also be an
+Every wheel and the sdist must carry the text of the license of zumen (LICENSE, MIT) as it is in the repository. The
+bundled font (BIZ UDGothic, SIL Open Font License 1.1) is compiled into the extension module, and its license asks
+every copy of the font to carry its text. So a wheel must hold the bytes of the font in its module and the texts of both
+licenses in dist-info/licenses, and the sdist the font and the licenses that building it needs. A wheel must also be an
 abi3 wheel (one file for every Python from 3.10) with a manylinux or macOS tag, never a bare linux_x86_64, unless
 --any-platform accepts the tag of a wheel that was built on the machine itself.
 """
@@ -16,7 +17,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 FONT = (ROOT / "crates/zumen-render/fonts/BIZUDGothic-Regular.ttf").read_bytes()
-LICENSE = (ROOT / "crates/zumen-render/fonts/OFL.txt").read_bytes()
+LICENSE = (ROOT / "LICENSE").read_bytes()
+FONT_LICENSE = (ROOT / "crates/zumen-render/fonts/OFL.txt").read_bytes()
 WHEEL = re.compile(r"zumen-(?P<version>[^-]+)-cp310-abi3-(?P<platform>[\w.]+)\.whl")
 RELEASE_PLATFORM = re.compile(r"(?:manylinux|macosx)_[\w.]+")
 SDIST = re.compile(r"zumen-(?P<version>[^-]+)\.tar\.gz")
@@ -38,7 +40,10 @@ def check_wheel(path: Path, any_platform: bool) -> list[str]:
         if FONT not in wheel.read(modules[0]):
             errors.append(f"{modules[0]} does not contain the bytes of BIZUDGothic-Regular.ttf")
         licenses = f"zumen-{match['version']}.dist-info/licenses/"
-        if not any(name.startswith(licenses) and wheel.read(name) == LICENSE for name in names):
+        held = [wheel.read(name) for name in names if name.startswith(licenses)]
+        if LICENSE not in held:
+            errors.append(f"{licenses} does not hold the text of LICENSE, the license of zumen")
+        if FONT_LICENSE not in held:
             errors.append(f"{licenses} does not hold the text of OFL.txt, the license of the bundled font")
     return errors
 
@@ -50,9 +55,10 @@ def check_sdist(path: Path) -> list[str]:
         return [f"{path.name} is not named zumen-<version>.tar.gz"]
     top = f"zumen-{match['version']}/"
     wanted = {
+        f"{top}LICENSE": LICENSE,
         f"{top}crates/zumen-render/fonts/BIZUDGothic-Regular.ttf": FONT,
-        f"{top}crates/zumen-render/fonts/OFL.txt": LICENSE,
-        f"{top}licenses/BIZUDGothic-OFL.txt": LICENSE,
+        f"{top}crates/zumen-render/fonts/OFL.txt": FONT_LICENSE,
+        f"{top}licenses/BIZUDGothic-OFL.txt": FONT_LICENSE,
     }
     errors = []
     with tarfile.open(path) as sdist:
