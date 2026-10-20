@@ -27,14 +27,14 @@ Usage:
                [--theme light|dark] [--thin] [--format <name>] [--view <id>]
   zumen compare <before> <after> [--tolerance <mm>] [--style] [--all-layers] [--no-align]
                 [-o <overlay.png> [--dpi <n> | --size <w>x<h>]] [--format <name>] [--view <id>]
-  zumen convert <file> -o <out.dxf|out.sfc> [--target-version <version>] [--format <name>]
+  zumen convert <file> -o <out.dxf|.dwg|.jww|.sfc|.p21|.sfz|.p2z> [--target-version <version>] [--format <name>]
   zumen edit <file> <operations.json> -o <out> [--format <name>]
-  zumen create <operations.json> -o <out.dxf> [--units mm|cm|m|inch|foot|unitless]
+  zumen create <operations.json> -o <out.dxf|.dwg|.jww|.sfc|.p21|.sfz|.p2z> [--units mm|cm|m|inch|foot|unitless]
 
 Every command that reads takes --max-bytes <n>, --max-entities <n> and --timeout <seconds>, to stop
 reading an untrusted drawing that is too large (P2Z and SFZ after unpacking), too complex or too slow.
 
-Reads SXF, JWW, DXF and DWG drawings into zumen's scene model.
+Reads SXF, JWW (also JWC and JWS), DXF and DWG drawings into zumen's scene model.
 texts and entities write one JSON object per line, in paper millimeters (Y up) rounded to 0.001.
 --geometry adds the shapes drawn to each entity (polylines, segments, fills, hatches, points and text
 parts; curves as the polyline drawn), with real for the same coordinates in real-world millimeters
@@ -49,14 +49,15 @@ compare matches entities by shape and text (not by id) and writes the removed, a
 entities and the regions that changed as JSON; -o draws them over the unchanged ones (red before,
 blue after, gray unchanged).
 convert writes a drawing as DXF (AutoCAD 2013, UTF-8, or the version of --target-version: R12, 2000, 2004, 2007, 2010,
-2013 or 2018, before 2007 in a code page such as ANSI_932; R12 explodes what it lacks, such as MTEXT and hatches) or
-SFC (SXF Ver.3.1, CP932), by the extension of the output,
-and reports what it could not write. SXF and JWW are mapped into the AutoCAD model: model space at real size, the
-sheet as a layout with a viewport for each scale. SFC is written from that model: the layout is the sheet, each
-viewport a sub-figure at its scale and each block a drawing part.
+2013 or 2018, before 2007 in a code page such as ANSI_932; R12 explodes what it lacks, such as MTEXT and hatches),
+DWG (AutoCAD 2013), JWW (Jw_cad 8) or SXF (SFC, P21, SFZ or P2Z of SXF Ver.3.1, or of the version of
+--target-version: 2.0, 3.0 or 3.1), by the extension of the output, and reports what it could not write. SXF and JWW are mapped into the AutoCAD model: model space at real size, the
+sheet as a layout with a viewport for each scale. SXF is written from that model: the layout is the sheet, each
+viewport a sub-figure at its scale and each block a drawing part. JWW is written from it the same way: the layout is
+the sheet and the model space in each viewport is a layer group at the viewport's scale.
 edit changes a drawing in place: it applies the operations (a JSON array of add, update, delete, add-layer and
-update-layer) and keeps everything else as it was, in the same format and version. create starts a new drawing in
-the format of the output and applies the operations. Both write the ids of what they added and the notices as
+update-layer) and keeps everything else as it was, in the same format and version (DXF, DWG, JWW and SXF). create
+starts a new drawing in the format of the output and applies the operations (JWW and SXF lengths are in mm). Both write the ids of what they added and the notices as
 JSON, and on an error write the number of the operation that failed.";
 
 struct Args {
@@ -473,7 +474,7 @@ fn run(args: Args) -> Result<(), String> {
         return compare(&args);
     }
     if args.command == "create" {
-        let output = args.output.as_deref().ok_or("create needs -o <out.dxf>")?;
+        let output = args.output.as_deref().ok_or("create needs -o <out.dxf|out.dwg|out.jww|out.sfc|...>")?;
         let created = zumen::create(&extension(output), &args.units, &operations(&args.file)?).map_err(edit_error)?;
         return write_edited(&created, output);
     }
@@ -497,7 +498,7 @@ fn run(args: Args) -> Result<(), String> {
         return write_edited(&edited, output);
     }
     if args.command == "convert" {
-        let output = args.output.ok_or("convert needs -o <out.dxf|out.sfc>")?;
+        let output = args.output.ok_or("convert needs -o <out.dxf|out.dwg|out.jww|out.sfc|...>")?;
         // 書く形式は出力のファイルの拡張子
         let to = extension(&output);
         let options = ReadDrawingOptions { format: args.format.clone(), view: None, limits: args.limits };
