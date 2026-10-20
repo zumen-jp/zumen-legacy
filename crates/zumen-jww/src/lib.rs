@@ -1,11 +1,23 @@
 //! Jw_cad の JWW ファイルを読み、zumen の表示用モデル（`Scene`）にする。`@zumenjs/jww` の Rust 版。
+//! JWW を書く（`JwwFile` は読んだファイルを元と同じバイト列に書き戻し、`write_jww` は新しい図面を書く）。
 #![forbid(unsafe_code)]
 
+mod archive;
+mod create;
+mod file;
+mod header;
 mod reader;
 mod scene;
 mod style;
 mod sxf_tables;
 
+pub use create::{JWW_VERSION, write_jww};
+pub use file::{JwwBlockRecord, JwwFile, JwwRecord, JwwWritten};
+pub use header::{
+    JwwDisplaySettings, JwwGeneralSettings, JwwGroupState, JwwHeader, JwwLayerState, JwwLinePattern, JwwMarkJump,
+    JwwPen, JwwPrinterPen, JwwRandomLine, JwwSettings, JwwSxfLineType, JwwSxfPrinterPen, JwwSxfSettings,
+    JwwTextSettings, JwwTextStyle,
+};
 pub use reader::{
     JwwArc, JwwBase, JwwBlock, JwwBlockDefinition, JwwCircleSolid, JwwDimension, JwwDocument, JwwEntity, JwwLayer,
     JwwLayerGroup, JwwLine, JwwPoint, JwwSolid, JwwText, WidthUnit, is_jww, read_jww,
