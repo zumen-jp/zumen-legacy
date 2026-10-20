@@ -75,8 +75,8 @@ def read(
 ) -> Scene:
     """Read a drawing from bytes or a file path into a ``Scene``.
 
-    ``format`` forces a format (``"sfc"``, ``"p21"``, ``"p2z"``, ``"sfz"``, ``"jww"``, ``"dxf"`` or ``"dwg"``) instead
-    of detecting it from the contents. ``view`` chooses a view such as a DXF layout (see ``Scene.views``).
+    ``format`` forces a format (``"sfc"``, ``"p21"``, ``"p2z"``, ``"sfz"``, ``"jww"``, ``"jwc"``, ``"jws"``, ``"dxf"``
+    or ``"dwg"``) instead of detecting it from the contents. ``view`` chooses a view such as a DXF layout (see ``Scene.views``).
     Raises ``ReadError`` when the drawing cannot be read.
 
     For drawings received from others, ``max_bytes`` (the size after unpacking P2Z and SFZ), ``max_entities`` and
@@ -104,13 +104,15 @@ def convert(
 ) -> Converted:
     """Read a drawing from bytes or a file path and write it in another format.
 
-    Drawings of every format can be written as DXF (``to="dxf"``: ASCII, AutoCAD 2013, UTF-8) and as SXF
-    (``to="sfc"``: SFC of SXF Ver.3.1, CP932), through the AutoCAD drawing model. SXF and JWW drawings are mapped into
+    Drawings of every format can be written as DXF (``to="dxf"``: ASCII, AutoCAD 2013, UTF-8), DWG (``"dwg"``:
+    AutoCAD 2013), JWW (``"jww"``: Jw_cad 8) and SXF (``"sfc"``, ``"p21"``, ``"sfz"`` or ``"p2z"``: SXF Ver.3.1),
+    through the AutoCAD drawing model. SXF and JWW drawings are mapped into
     it with model space at real size, and the sheet as a layout whose viewports show each scale where the drawing had
     it. Written as SFC, the layout becomes the sheet, each viewport a sub-figure at its scale and each block a drawing
     part; what SXF has no feature for (multiline texts, leaders, dimensions) is written as the lines, fills and texts
-    that zumen draws for it.
-    ``version`` chooses the DXF version: ``"R12"``, ``"2000"``, ``"2004"``, ``"2007"``, ``"2010"``, ``"2013"`` (the
+    that zumen draws for it. Written as JWW, the layout becomes the sheet and the model space in each viewport a layer
+    group at the viewport's scale.
+    ``version`` chooses the SXF version (``"2.0"``, ``"3.0"`` or ``"3.1"``, the default) or the DXF version: ``"R12"``, ``"2000"``, ``"2004"``, ``"2007"``, ``"2010"``, ``"2013"`` (the
     default) or ``"2018"``. Versions before 2007 are written in the drawing's code page (``$DWGCODEPAGE``), or in the one
     that holds its texts (such as ANSI_932 for Japanese), and what a version cannot hold (true colors, transparency,
     gradients and arc and large radial dimensions before 2004, backgrounds of multiline text before 2007) is written in
@@ -137,7 +139,7 @@ def edit(
     ...}`` and ``{"op": "update-layer", "name": ..., "set": {...}}``. Kinds and keys are the ones that ``Scene``
     reports (``kind`` and the property keys), and coordinates are the drawing's own (the ``raw`` of properties), not
     paper millimeters. The format, its version, its text encoding and everything that no operation names stay as they
-    were, including what zumen cannot read. DXF can be edited so far.
+    were, including what zumen cannot read. DXF, DWG, JWW and SXF can be edited.
 
     ``Edited.data`` holds the bytes, ``Edited.created`` the ids of the entities and the names of the layers added (in
     the order of the operations), and ``Edited.notices`` what was written differently, such as a color that the format

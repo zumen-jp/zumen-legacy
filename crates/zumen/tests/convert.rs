@@ -300,8 +300,14 @@ fn reports_what_could_not_be_written_as_it_was() {
 #[test]
 fn refuses_formats_it_cannot_write() {
     let dxf = fs::read(fixtures().join("dxf/r12.dxf")).unwrap();
-    let error = zumen::convert(&dxf, "p21", &ReadDrawingOptions::default()).unwrap_err();
-    assert!(error.message().contains("P21"), "{}", error.message());
+    let error = zumen::convert(&dxf, "jwc", &ReadDrawingOptions::default()).unwrap_err();
+    assert!(error.message().contains("JWC"), "{}", error.message());
+    let write = zumen::WriteOptions { version: Some("2013".into()) };
+    let error = zumen::convert_with(&dxf, "dwg", &ReadDrawingOptions::default(), &write).unwrap_err();
+    assert!(error.message().contains("DWG"), "{}", error.message());
+    let write = zumen::WriteOptions { version: Some("4.0".into()) };
+    let error = zumen::convert_with(&dxf, "sfc", &ReadDrawingOptions::default(), &write).unwrap_err();
+    assert!(error.message().contains("4.0"), "{}", error.message());
     let options = ReadDrawingOptions { format: Some("stb".into()), ..ReadDrawingOptions::default() };
     let error = zumen::convert(&dxf, "dxf", &options).unwrap_err();
     assert!(error.message().contains("STB"), "{}", error.message());
@@ -321,5 +327,35 @@ fn converts_sxf_and_jww_with_the_notices_of_mapping_and_writing() {
                 assert!(codes.contains(&code), "{path}: {code} not in {codes:?}");
             }
         }
+    }
+}
+
+/// どの形式の図面も、書き出せるどの形式にも書け、書いた図面はその形式として読める
+#[test]
+fn converts_every_format_to_every_writable_format() {
+    let paths = ["dxf/features.dxf", "dwg/r2018.dwg", "jww/solids-v700.jww", "sfc/features.sfc", "p21/features.p21"];
+    for path in paths {
+        let bytes = fs::read(fixtures().join(path)).unwrap();
+        let original = zumen::read(&bytes, &ReadDrawingOptions::default()).unwrap();
+        for to in zumen::WRITABLE_FORMATS {
+            let converted = zumen::convert(&bytes, to, &ReadDrawingOptions::default())
+                .unwrap_or_else(|error| panic!("{path} → {to}: {error}"));
+            assert_eq!(zumen::detect(&converted.bytes), Some(to), "{path} → {to}");
+            let again = zumen::read(&converted.bytes, &ReadDrawingOptions::default())
+                .unwrap_or_else(|error| panic!("{path} → {to}, read again: {error}"));
+            assert!(!again.entities.is_empty() || original.entities.is_empty(), "{path} → {to}: no entities");
+        }
+    }
+}
+
+#[test]
+fn writes_the_sxf_version_asked_for() {
+    let bytes = fs::read(fixtures().join("dxf/features.dxf")).unwrap();
+    for version in ["2.0", "3.0", "3.1"] {
+        let write = zumen::WriteOptions { version: Some(version.into()) };
+        let converted = zumen::convert_with(&bytes, "sfc", &ReadDrawingOptions::default(), &write).unwrap();
+        // 出力ライブラリ名の末尾が SXF の版
+        let text = String::from_utf8_lossy(&converted.bytes);
+        assert!(text.contains(&format!("zumen$${version}")), "{version}");
     }
 }

@@ -46,7 +46,7 @@ def test_reports_the_operation_that_cannot_be_applied():
     assert (raised.value.code, raised.value.operation) == ("unknown-key", 1)
     assert str(raised.value).startswith("操作 1: ")
     with pytest.raises(zumen.EditError) as raised:
-        zumen.edit(FIXTURES / "jww" / "minimal-v700.jww", [])
+        zumen.edit(source, [], format="jwc")
     assert (raised.value.code, raised.value.operation) == ("unsupported-format", None)
     with pytest.raises(zumen.EditError) as raised:
         zumen.edit(source, [{"op": "add", "kind": "line"}], max_bytes=10)
@@ -73,6 +73,22 @@ def test_creates_a_new_drawing():
     assert ("単位", "m") in scene.metadata
     with pytest.raises(zumen.EditError):
         zumen.create("dxf", units="furlong")
+
+
+def test_edits_and_creates_every_editable_format():
+    line = [{"op": "add", "kind": "line", "start": [0, 0], "end": [1000, 500]}]
+    for path in ["dwg/r2018.dwg", "jww/minimal-v700.jww", "sfc/features.sfc", "p21/features.p21"]:
+        source = (FIXTURES / path).read_bytes()
+        assert zumen.edit(source, []).data == source, path
+        edited = zumen.edit(source, line)
+        assert len(zumen.read(edited.data, view="Model")) == len(zumen.read(source, view="Model")) + 1, path
+    for to in ["dwg", "jww", "sfc", "p21", "sfz", "p2z"]:
+        created = zumen.create(to, line)
+        assert zumen.detect(created.data) == to
+        assert len(zumen.read(created.data)) == 1, to
+    with pytest.raises(zumen.EditError) as raised:
+        zumen.create("jww", units="m")
+    assert raised.value.code == "invalid-value"
 
 
 def test_edited_dxf_passes_the_audit_of_ezdxf(tmp_path):

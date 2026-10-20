@@ -14,7 +14,13 @@ use zumen::extract::{Shape, entity_shapes, real_shapes};
 use zumen::{ReadDrawingOptions, Scene};
 
 /// 形式と、その fixtures のフォルダー・拡張子
-const FOLDERS: [(&str, &str, &[&str]); 1] = [("dxf", "dxf", &["dxf"])];
+const FOLDERS: [(&str, &str, &[&str]); 5] = [
+    ("dxf", "dxf", &["dxf"]),
+    ("dwg", "dwg", &["dwg"]),
+    ("jww", "jww", &["jww"]),
+    ("sfc", "sfc", &["sfc"]),
+    ("p21", "p21", &["p21"]),
+];
 
 /// 消して確かめる図形の種類（中にほかの図形を持たないもの）
 const SIMPLE: [&str; 7] = ["line", "circle", "arc", "polyline", "point", "text", "ellipse"];
@@ -165,7 +171,8 @@ fn check(name: &str, bytes: &[u8]) -> Vec<String> {
         if !positional && *id != other_id {
             problems.push(format!("{name}: {id} became {other_id}"));
         } else if Some(index) == updated_at {
-            if layer_value(other) != Some(LAYER) {
+            // JWW のレイヤの値は「グループ / 0-3 ZUMEN-EDIT-CHECK」
+            if !layer_value(other).is_some_and(|value| value == LAYER || value.ends_with(&format!(" {LAYER}"))) {
                 problems.push(format!("{name}: the layer of {id} is {:?}", layer_value(other)));
             }
         } else if strip_layer_ids(entity) != strip_layer_ids(other) {
@@ -181,11 +188,17 @@ fn check(name: &str, bytes: &[u8]) -> Vec<String> {
     problems
 }
 
-/// レイヤの番号（layer の raw）を除いた値
+/// レイヤの番号（layer の raw）を除き、数の raw を 1e-6 に丸めた値（P21 の読み取りは 1e-7 違う 2 つの線幅を 1 つの
+/// コードにまとめ、書き直すと最初に出会った方の値になる）
 fn strip_layer_ids(entity: &Value) -> Value {
     let mut entity = entity.clone();
     if let Some(Value::Array(properties)) = entity.get_mut("properties") {
         for property in properties.iter_mut() {
+            if let Some(raw) = property.get_mut("raw")
+                && let Some(number) = raw.as_f64().or_else(|| raw.as_str().and_then(|text| text.parse().ok()))
+            {
+                *raw = json!((number * 1e6).round() / 1e6);
+            }
             if property.get("key") == Some(&json!("layer"))
                 && let Some(property) = property.as_object_mut()
             {
@@ -250,6 +263,29 @@ fn creates_new_drawings_from_operations() {
 }
 
 #[test]
+fn creates_new_drawings_in_every_editable_format() {
+    let operations = parse_operations(
+        r#"[
+            {"op": "add-layer", "name": "外構", "color": 3},
+            {"op": "add", "kind": "line", "layer": "外構", "start": [0, 0], "end": [10000, 8000]},
+            {"op": "add", "kind": "text", "layer": "外構", "position": [500, 500], "text": "敷地", "height": 350}
+        ]"#,
+    )
+    .unwrap();
+    for format in zumen::EDITABLE_FORMATS {
+        let created = zumen::create(format, "mm", &operations).unwrap_or_else(|error| panic!("{format}: {error}"));
+        assert_eq!(zumen::detect(&created.bytes), Some(format));
+        let scene = read(&created.bytes);
+        assert_eq!(scene.entities.len(), 2, "{format}");
+        assert!(scene.entities.iter().any(|entity| entity.kind.name() == "text"), "{format}");
+    }
+    // JWW と SXF の長さは mm だけ
+    for format in ["jww", "sfc"] {
+        assert_eq!(zumen::create(format, "m", &[]).unwrap_err().code, "invalid-value", "{format}");
+    }
+}
+
+#[test]
 fn refuses_formats_it_cannot_edit_yet() {
     for (path, format) in [("sfc/sample.sfc", "SFC"), ("jww/minimal-v700.jww", "JWW"), ("dwg/r2018.dwg", "DWG")] {
         let bytes = fs::read(fixtures().join(path)).unwrap();
@@ -260,6 +296,6 @@ fn refuses_formats_it_cannot_edit_yet() {
         assert_eq!(error.code, "unsupported-format");
         assert!(error.message.contains(format), "{}", error.message);
     }
-    let error = zumen::create("jww", "mm", &[]).unwrap_err();
+    let error = zumen::create("jwc", "mm", &[]).unwrap_err();
     assert_eq!(error.code, "unsupported-format");
 }

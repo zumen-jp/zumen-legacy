@@ -1,7 +1,7 @@
 # @zumenjs/reader
 
 Reads every drawing format of [zumen](https://github.com/zumenjs/zumen) in browsers and Node.js: SXF (SFC, P21 and the
-compressed P2Z and SFZ), JWW, DXF (ASCII and binary) and DWG (AutoCAD 1.0 to 2018). The readers are zumen's Rust
+compressed P2Z and SFZ), JWW (also JWC and JWS), DXF (ASCII and binary) and DWG (AutoCAD 1.0 to 2018). The readers are zumen's Rust
 readers built to WebAssembly, the same code that the Rust crates, the command line and the Python package run, so a
 drawing reads into the same scene everywhere.
 
@@ -79,6 +79,7 @@ const scene = await worker.read(bytes, { view: "Layout1", limits: { timeout: 10_
 | --- | --- | --- |
 | SXF SFC, P21 | `sfc`, `p21` | Sheets, sub-figures at their scale, attributes. P2Z and SFZ (a ZIP archive with one `.p21` or `.sfc`) read the drawing inside. |
 | JWW | `jww` | Layer groups and their scales, blocks, dimensions. |
+| JWC / JWS | `jwc` / `jws` | Legacy Jw_cad drawings and registered figures. |
 | DXF | `dxf` | ASCII and binary; model space and layouts with viewports at their scale. |
 | DWG | `dwg` | AutoCAD 1.0 to 2018 (MC0.0 to AC1032), read into the same model as DXF. |
 
