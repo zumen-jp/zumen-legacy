@@ -29,7 +29,7 @@ Choices made before this folder existed are described in [the architecture notes
 
 ## Records
 
-- [0001: Keep ST-Bridge structural models in zumen as a TypeScript package](0001-st-bridge-in-zumen.md) (2026-10-19, Accepted)
+- [0001: Keep ST-Bridge structural models in zumen as a TypeScript package](0001-st-bridge-in-zumen.md) (2026-10-19, Superseded by 0013)
 - [0002: Divide PDF work with ParaPDF by use: drawings in zumen, documents in ParaPDF](0002-pdf-and-parapdf.md) (2026-10-19, Accepted)
 - [0003: Read DWG in Rust only, with our own decoder, into the AutoCAD drawing model of zumen-dxf](0003-dwg-in-rust.md) (2026-10-19, Accepted)
 - [0004: Serve drawings to AI applications through an MCP server in the Python package](0004-mcp-server-in-the-python-package.md) (2026-10-20, Accepted)
@@ -40,3 +40,4 @@ Choices made before this folder existed are described in [the architecture notes
 - [0009: Give AI clients the shapes drawn, in paper and real-world millimeters, and leave their meaning to them](0009-geometry-for-ai-clients.md) (2026-10-20, Accepted)
 - [0010: Write SXF from the AutoCAD drawing model, with viewports as sub-figures and drawn shapes for what SXF lacks](0010-write-sxf-from-the-autocad-model.md) (2026-10-20, Accepted)
 - [0011: Give AI agents the functions behind the MCP tools as `zumen.tools`, with a documented schema](0011-tool-functions-for-agents.md) (2026-10-20, Proposed)
+- [0013: Keep zumen free of formats that need permission and of non-permissive dependencies, and move ST-Bridge out](0013-st-bridge-out-of-zumen.md) (2026-10-20, Accepted)
