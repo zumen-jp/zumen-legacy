@@ -10,6 +10,7 @@ pub mod edit;
 pub mod extract;
 pub mod geometry;
 pub mod js;
+pub mod regions;
 pub mod limits;
 mod measure;
 mod notices;
