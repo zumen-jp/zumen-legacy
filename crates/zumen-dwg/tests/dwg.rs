@@ -556,7 +556,7 @@ fn damaged_drawings_finish_without_panicking() {
     }
 }
 
-/// tests/fixtures/dwg の図面は、このテストの図面（R2000 は ANSI_932、R2018 は UTF-16）。@zumenjs/dwg のテストが
+/// tests/fixtures/dwg の図面は、このテストの図面（R2000 は ANSI_932、R2018 は UTF-16）。@zumenjs/reader のテストが
 /// WebAssembly で読んで正解の Scene を書き（pnpm run golden）、crates/zumen/tests/golden.rs が同じ Scene になることを
 /// 確かめる。テストの図面を変えたら UPDATE_GOLDEN=1 cargo test -p zumen-dwg で書き直してから pnpm run golden を走らせる
 #[test]

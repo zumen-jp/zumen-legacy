@@ -4,6 +4,14 @@ All packages share one version during 0.x.
 
 ## Unreleased (0.1.0)
 
+- `@zumenjs/reader` replaces `@zumenjs/dwg`: every format (SFC, P21, P2Z, SFZ, JWW, DXF and DWG) is read in browsers
+  and Node.js by the Rust readers built to WebAssembly. `initReader` loads the module, `reader` is the
+  `DrawingReader` for `readDrawing` and `useDrawing`, `detectDrawing` tells the format before the module loads, and
+  `createReader({ limits })` and `readScene` stop at `maxBytes` and `maxEntities` with a `LimitError` that names the
+  limit. `ReaderWorker` reads in a Web Worker (`@zumenjs/reader/worker`), stops it when `limits.timeout` passes or an
+  `AbortSignal` fires, and transfers the scene's point lists to the page. The playground reads with it. The TypeScript
+  readers `@zumenjs/sxf`, `@zumenjs/jww` and `@zumenjs/dxf` stay as the reference of the tests and will not be
+  published.
 - Rust and Python: compare two revisions of a drawing. `zumen_core::compare` matches entities by shape and text, not
   by id, so revisions saved again or in another format compare too. It reports the removed, added and changed entities
   and the regions that changed, aligns a revision that moved as a whole by its texts, and draws the result as a scene

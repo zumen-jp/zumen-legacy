@@ -139,7 +139,9 @@ export class ReaderWorker {
     if (!job || job.id !== message.id) return;
     if (message.type === "scene") this.#finish(job, undefined, message.scene);
     else {
-      const error = message.limit ? new LimitError(message.message, message.limit as Limit) : new Error(message.message);
+      const error = message.limit
+        ? new LimitError(message.message, message.limit as Limit)
+        : new Error(message.message);
       this.#finish(job, error);
     }
   }

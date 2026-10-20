@@ -9,8 +9,8 @@ import {
   isDwg,
   isReaderReady,
   LimitError,
-  readScene,
   reader,
+  readScene,
 } from "../src/index.js";
 import { detect } from "../wasm/zumen_wasm.js";
 
@@ -106,14 +106,15 @@ describe("@zumenjs/reader", () => {
       ...["AC1032", "AC1014", "AC1099", "AC1032AC", "AC103", "AC10", "AC1A32", "ac1032", "AC2032", " AC1032"].map(
         latin1,
       ),
-      ...["JwwData.", "JwwData", "999\ncomment\n  0\nSECTION\n", "ï»¿0\r\nSECTION", "0\nSECTIONS"].map(
-        latin1,
-      ),
+      ...["JwwData.", "JwwData", "999\ncomment\n  0\nSECTION\n", "ï»¿0\r\nSECTION", "0\nSECTIONS"].map(latin1),
       latin1("AutoCAD Binary DXF\r\n\x1a\x00"),
       latin1(" \r\nISO-10303-21;\nFILE_DESCRIPTION ( ( 'SCADEC level2 feature_mode'"),
       latin1("\tISO-10303-21;"),
       zip([{ name: "a/B.P21", bytes: p21 }]),
-      zip([{ name: "readme.txt", bytes: latin1("x") }, { name: "図面.sfc", bytes: sfc, utf8: true }]),
+      zip([
+        { name: "readme.txt", bytes: latin1("x") },
+        { name: "図面.sfc", bytes: sfc, utf8: true },
+      ]),
       zip([{ name: "readme.txt", bytes: latin1("x") }]),
       zip([{ name: "x.sfc", bytes: sfc }], "comment"),
       zip([{ name: "x.sfc", bytes: sfc }]).subarray(0, 60),
@@ -168,7 +169,10 @@ describe("@zumenjs/reader", () => {
       }
     })();
     expect(bytesError).toBeInstanceOf(LimitError);
-    expect(bytesError).toMatchObject({ limit: "bytes", message: "図面が上限の 100 バイトより大きいため、読みませんでした" });
+    expect(bytesError).toMatchObject({
+      limit: "bytes",
+      message: "図面が上限の 100 バイトより大きいため、読みませんでした",
+    });
     const limited = createReader({ limits: { maxEntities: 1 } });
     expect(() => readDrawing(bytes, [limited])).toThrow(LimitError);
     expect(() => readDrawing(bytes, [limited])).toThrow(expect.objectContaining({ limit: "entities" }));

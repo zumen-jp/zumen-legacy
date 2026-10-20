@@ -1,16 +1,13 @@
-import { dwg } from "@zumenjs/dwg";
-import { dxf } from "@zumenjs/dxf";
-import { jww } from "@zumenjs/jww";
 import { useDrawing } from "@zumenjs/react";
+import { reader } from "@zumenjs/reader";
 import { isStb } from "@zumenjs/stb";
-import { sxf } from "@zumenjs/sxf";
 import { type DragEvent, lazy, StrictMode, Suspense, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { DrawingSample } from "./drawing-sample.js";
 import type { StructureStatus } from "./structure-view.js";
 
-const ACCEPT = ".sfc,.p21,.jww,.dxf,.dwg,.stb";
-const READERS = [sxf, jww, dxf, dwg];
+const ACCEPT = ".sfc,.p21,.sfz,.p2z,.jww,.dxf,.dwg,.stb";
+const READERS = [reader];
 const StructureView = lazy(() => import("./structure-view.js").then((module) => ({ default: module.StructureView })));
 
 /** 図面・構造モデルを選ぶ・ドロップする・?sample=名前 で開く試用画面 */
@@ -25,7 +22,8 @@ function App() {
     () => new URLSearchParams(window.location.search).get("view") ?? undefined,
   );
   const [over, setOver] = useState(false);
-  // DWG の読み取り（WebAssembly、約 1.6 MB）は、useDrawing が初めて DWG を開いたときに dwg.load で読み込む
+  // 図面の読み取り（Rust の読み取りの WebAssembly、brotli で約 510 KB）は、useDrawing が初めて図面を開いたときに
+  // reader.load で読み込む
   const drawing = useDrawing(structure === false ? file : null, READERS, { view });
   const { error, loading } = structure
     ? structureStatus
@@ -90,7 +88,7 @@ function App() {
       <header style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12 }}>
         <h1 style={{ margin: 0, fontSize: 18 }}>図面・構造モデルのビューア</h1>
         <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-          図面（SFC・P21・JWW・DXF・DWG）・構造モデル（ST-Bridge）
+          図面（SFC・P21・P2Z・SFZ・JWW・DXF・DWG）・構造モデル（ST-Bridge）
           <input type="file" accept={ACCEPT} onChange={(event) => open(event.currentTarget.files?.[0] ?? null)} />
         </label>
         <span aria-live="polite">
