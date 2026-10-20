@@ -401,7 +401,7 @@ Checked on 2026-10-20 on macOS 27 (Apple Silicon) with Rust 1.99.0, Python 3.14.
 ## Editing DXF in place
 
 Checked on 2026-10-20 on macOS 27 (Apple Silicon) with Rust 1.99.0, Python 3.14.8 and ezdxf 1.4.5
-([decision 0010](decisions/0010-edit-in-place-and-write-every-format.md)).
+([decision 0012](decisions/0012-edit-in-place-and-write-every-format.md)).
 
 - Each of the 23 DXF fixtures, edited without operations, gives the same bytes. Edited with a layer added, a line and a
   text added on it, the layer of the first entity changed and another entity deleted, it reads again with the added
@@ -463,6 +463,36 @@ Checked on 2026-10-20 on macOS 27 (Apple Silicon) with Rust 1.99.0, Node.js 24.2
   1,962 entities) 18 ms.
 - Not checked: opening the written files in AutoCAD, Jw_cad or other CAD programs (in particular how they place the
   column of `@` font text, which zumen infers), and P2Z and SFZ, which are read by another pull request.
+
+## Writing SXF
+
+Checked on 2026-10-20 on macOS 27 (Apple Silicon) with Rust 1.99.0 and Python 3.14.8.
+
+- The 8 SXF and JWW drawings in `tests/fixtures` are converted to DXF, read again, mapped back into SXF and written as
+  SFC, and the 25 DXF and DWG fixtures are written as SFC (`crates/zumen/tests/convert_to_sxf.rs`). Read by the SXF
+  reader, each entity of the original scene (the SXF scene, or the DXF scene of the view that the drawing opens in) is
+  matched with the SXF features written from it, through the source of each feature, and compared as in
+  "SXF and JWW to DXF": boxes, drawn primitives in order, layers and the scale of sub-figures. The SXF → DXF → SXF round
+  trip finds no difference. From DXF and DWG, the differences that remain are the ones SXF cannot hold and that are
+  reported in `notices`: characters outside CP932 and mirrored text, viewport frames that clip, dots of line types
+  (0.25 mm), a block that inserts itself (drawn 32 levels deep by the DXF scene, written once), and the points of
+  dimensions on `DEFPOINTS`. Also left aside are differences in curve flattening: arcs within twice the chord error of
+  the two scenes, and splines within 5 % of their size, because the DXF scene samples the parameter of the whole curve
+  evenly (a spline of `farmhouse.dwg` with an uneven first knot span is 310 mm off in the DXF scene; the Bézier curves
+  written to SXF match the B-spline to 1e-13, `shapes::tests`).
+- The same check on the 57 local samples that zumen reads (the ACadSharp samples of R12 to 2018, the public drawings of
+  Yokosuka City and Imizu City, `farmhouse.dwg` with 25,873 entities, the SXF sample `D0LS004Z` and 10 JWW drawings)
+  finds no other difference (`ZUMEN_SAMPLES=… cargo test -p zumen --release --test convert_to_sxf -- --ignored`).
+- Small drawings in the same test pin the rules: model space as a 1:1 sub-figure on a sheet the size of the drawing,
+  block references as drawing parts with a copy for each inherited BYBLOCK color, layer 0 inheriting the reference's
+  layer, viewports as sub-figures at their scale and twist, CP932 and the codes of colors and widths. Each SXF and P21
+  fixture written as SFC and read again draws the same scene (`crates/zumen-sxf/tests/write.rs`).
+- Time with the release build of the `zumen` command, including reading and writing (mean of five runs):
+  `farmhouse.dwg` (25,873 entities) 332 ms as SFC (155 ms as DXF), the Yokosuka survey plan (9,260 entities) 103 ms,
+  `D0LS004Z.SFC` 31 ms and `Test6.jww` 34 ms.
+- Not checked: opening the written SFC in other SXF programs (the SXF browser of the 電子納品 checks, or CAD programs),
+  and the limits that the specification sets on the number of layers, user colors, line types and widths, which the
+  writer does not enforce yet.
 
 ## Rust readers, rendering and bindings
 

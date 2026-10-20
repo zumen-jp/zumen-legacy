@@ -103,9 +103,12 @@ def convert(
 ) -> Converted:
     """Read a drawing from bytes or a file path and write it in another format.
 
-    Drawings of every format can be written as DXF (``to="dxf"``: ASCII, AutoCAD 2013, UTF-8) so far. SXF and JWW
-    drawings are mapped into the AutoCAD drawing model: model space at real size, and the sheet as a layout whose
-    viewports show each scale where the drawing had it.
+    Drawings of every format can be written as DXF (``to="dxf"``: ASCII, AutoCAD 2013, UTF-8) and as SXF
+    (``to="sfc"``: SFC of SXF Ver.3.1, CP932), through the AutoCAD drawing model. SXF and JWW drawings are mapped into
+    it with model space at real size, and the sheet as a layout whose viewports show each scale where the drawing had
+    it. Written as SFC, the layout becomes the sheet, each viewport a sub-figure at its scale and each block a drawing
+    part; what SXF has no feature for (multiline texts, leaders, dimensions) is written as the lines, fills and texts
+    that zumen draws for it.
     ``Converted.data`` holds the bytes and ``Converted.save(path)`` writes them to a file.
     ``Converted.notices`` tells what could not be written as it was, such as images (IMAGE) that are left out.
     Raises ``ReadError`` when the drawing cannot be read or written in that format.

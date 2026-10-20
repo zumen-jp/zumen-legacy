@@ -1,4 +1,4 @@
-"""Editing drawings in place and creating new ones (docs/decisions/0010). The editors are tested in Rust; these check
+"""Editing drawings in place and creating new ones (docs/decisions/0012). The editors are tested in Rust; these check
 that operations, results and errors pass through, and that ezdxf, another implementation, accepts what was edited."""
 
 import json

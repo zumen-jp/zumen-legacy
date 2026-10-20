@@ -305,7 +305,7 @@ What cannot be written as it was is reported in `notices`:
 ## Editing (`edit_dxf`)
 
 `zumen_dxf::edit_dxf` (through `zumen::edit`) changes a DXF drawing in place with the operations of
-[decision 0010](../decisions/0010-edit-in-place-and-write-every-format.md). It does not go through the model: it splits
+[decision 0012](../decisions/0012-edit-in-place-and-write-every-format.md). It does not go through the model: it splits
 the file into tags as the reader does, keeps the bytes of every tag, and writes back every tag that no operation
 changes as it was. Extended data, reactors, extension dictionaries, objects and the entities that zumen does not read
 stay, and an edit without operations gives the same bytes.

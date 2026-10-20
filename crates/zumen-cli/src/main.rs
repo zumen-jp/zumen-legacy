@@ -27,7 +27,7 @@ Usage:
                [--theme light|dark] [--thin] [--format <name>] [--view <id>]
   zumen compare <before> <after> [--tolerance <mm>] [--style] [--all-layers] [--no-align]
                 [-o <overlay.png> [--dpi <n> | --size <w>x<h>]] [--format <name>] [--view <id>]
-  zumen convert <file> -o <out.dxf> [--format <name>]
+  zumen convert <file> -o <out.dxf|out.sfc> [--format <name>]
   zumen edit <file> <operations.json> -o <out> [--format <name>]
   zumen create <operations.json> -o <out.dxf> [--units mm|cm|m|inch|foot|unitless]
 
@@ -48,8 +48,10 @@ the conversion between pixels and paper millimeters, and the pixel box of every 
 compare matches entities by shape and text (not by id) and writes the removed, added and changed
 entities and the regions that changed as JSON; -o draws them over the unchanged ones (red before,
 blue after, gray unchanged).
-convert writes a drawing as DXF (AutoCAD 2013, UTF-8) and reports what it could not write. SXF and JWW are
-mapped into the AutoCAD model: model space at real size, the sheet as a layout with a viewport for each scale.
+convert writes a drawing as DXF (AutoCAD 2013, UTF-8) or SFC (SXF Ver.3.1, CP932), by the extension of the output,
+and reports what it could not write. SXF and JWW are mapped into the AutoCAD model: model space at real size, the
+sheet as a layout with a viewport for each scale. SFC is written from that model: the layout is the sheet, each
+viewport a sub-figure at its scale and each block a drawing part.
 edit changes a drawing in place: it applies the operations (a JSON array of add, update, delete, add-layer and
 update-layer) and keeps everything else as it was, in the same format and version. create starts a new drawing in
 the format of the output and applies the operations. Both write the ids of what they added and the notices as
@@ -490,7 +492,7 @@ fn run(args: Args) -> Result<(), String> {
         return write_edited(&edited, output);
     }
     if args.command == "convert" {
-        let output = args.output.ok_or("convert needs -o <out.dxf>")?;
+        let output = args.output.ok_or("convert needs -o <out.dxf|out.sfc>")?;
         // 書く形式は出力のファイルの拡張子
         let to = extension(&output);
         let options = ReadDrawingOptions { format: args.format.clone(), view: None, limits: args.limits };

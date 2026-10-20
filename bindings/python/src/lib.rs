@@ -921,7 +921,7 @@ impl Edited {
     }
 }
 
-/// 図面をその場で編集する（docs/decisions/0010）。operations は操作の list（または JSON の文字列）。
+/// 図面をその場で編集する（docs/decisions/0012）。operations は操作の list（または JSON の文字列）。
 /// 形式・版・文字コードと、操作が名指ししないものは元のまま。1 つでも通らない操作があれば EditError を出し、何も書かない
 #[pyfunction]
 #[pyo3(signature = (data, operations, *, format = None, max_bytes = None))]

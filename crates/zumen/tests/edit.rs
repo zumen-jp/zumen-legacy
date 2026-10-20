@@ -1,4 +1,4 @@
-//! その場の編集の適合テスト（docs/decisions/0010）。編集できるすべての形式（`zumen::EDITABLE_FORMATS`）の fixtures で、
+//! その場の編集の適合テスト（docs/decisions/0012）。編集できるすべての形式（`zumen::EDITABLE_FORMATS`）の fixtures で、
 //!
 //! - 操作なしの編集は、元と同じバイト列になる
 //! - 足した図形は読み直した図面に足した id で現れ、変えた図形は変えた値になり、消した図形はなくなる

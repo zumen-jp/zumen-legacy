@@ -38,4 +38,6 @@ Choices made before this folder existed are described in [the architecture notes
 - [0007: Map SXF and JWW into the AutoCAD drawing model in a crate of its own, zumen-convert](0007-mapping-crate-between-formats.md) (2026-10-20, Accepted)
 - [0008: Real-size model space, and the sheet as a layout with a viewport for each scale](0008-sheets-and-scales-in-the-autocad-model.md) (2026-10-20, Accepted)
 - [0009: Give AI clients the shapes drawn, in paper and real-world millimeters, and leave their meaning to them](0009-geometry-for-ai-clients.md) (2026-10-20, Accepted)
-- [0010: Edit drawings in place, keeping everything an operation does not name, and write every format zumen reads](0010-edit-in-place-and-write-every-format.md) (2026-10-20, Accepted)
+- [0010: Write SXF from the AutoCAD drawing model, with viewports as sub-figures and drawn shapes for what SXF lacks](0010-write-sxf-from-the-autocad-model.md) (2026-10-20, Accepted)
+- [0011: Give AI agents the functions behind the MCP tools as `zumen.tools`, with a documented schema](0011-tool-functions-for-agents.md) (2026-10-20, Proposed)
+- [0012: Edit drawings in place, keeping everything an operation does not name, and write every format zumen reads](0012-edit-in-place-and-write-every-format.md) (2026-10-20, Accepted)
