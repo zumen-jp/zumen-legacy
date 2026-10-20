@@ -1151,18 +1151,18 @@ impl Editor {
             return Ok(());
         };
         let mut value = state.state;
-        if let Some(locked) = locked {
-            value = match (locked, value) {
-                (true, 2 | 3) => 1,
-                (false, 1) => 2,
-                (_, other) => other,
-            };
-        }
         if let Some(visible) = visible {
             value = match (visible, value) {
                 (false, _) => 0,
                 (true, 0) => 2,
                 (true, other) => other,
+            };
+        }
+        if let Some(locked) = locked {
+            value = match (locked, value) {
+                (true, 2 | 3) => 1,
+                (false, 1) => 2,
+                (_, other) => other,
             };
         }
         if layer == write_layer && value < 2 {
