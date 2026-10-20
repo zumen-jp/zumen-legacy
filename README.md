@@ -332,6 +332,9 @@ Report security issues as described in [SECURITY.md](SECURITY.md).
 Third-party notices: [packages/jww/THIRD_PARTY_NOTICES.md](packages/jww/THIRD_PARTY_NOTICES.md),
 [packages/dxf/THIRD_PARTY_NOTICES.md](packages/dxf/THIRD_PARTY_NOTICES.md),
 [packages/stb/THIRD_PARTY_NOTICES.md](packages/stb/THIRD_PARTY_NOTICES.md).
+The licenses of the Rust crates that are compiled into the Python wheels and into the WebAssembly reader of
+`@zumenjs/dwg`: [bindings/python/licenses/THIRD_PARTY_LICENSES.txt](bindings/python/licenses/THIRD_PARTY_LICENSES.txt)
+and [packages/dwg/THIRD_PARTY_LICENSES.txt](packages/dwg/THIRD_PARTY_LICENSES.txt).
 The bundled font of `zumen-render` is BIZ UDGothic under the SIL Open Font License 1.1
 ([crates/zumen-render/fonts/OFL.txt](crates/zumen-render/fonts/OFL.txt)).
 

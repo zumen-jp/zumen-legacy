@@ -11,6 +11,10 @@ All packages share one version during 0.x.
   keeps `Private :: Do Not Upload` until the last step of [docs/releasing.md](docs/releasing.md).
 - The npm packages ship `src` next to `dist`, so that the source maps and the declaration maps (which point at `src`)
   resolve.
+- The Python wheels and `@zumenjs/dwg` carry the license texts of the Rust crates that are compiled into them
+  (`THIRD_PARTY_LICENSES.txt`: the crates that are linked, without build scripts and procedural macros, with the files
+  of each crate as they are). `pnpm run notices` writes them from `Cargo.lock`, `pnpm run check` fails when they are out
+  of date, and `check_dist.py` and the tarball check of `npm-release.yml` fail without them.
 - A tag `v*` can publish: `python-wheels.yml` uploads the wheels and the sdist to PyPI by trusted publishing, with
   attestations, and the new `npm-release.yml` publishes the npm packages in dependency order with provenance, from
   tarballs that its first job built and checked. Each waits for a repository variable (`PUBLISH_TO_PYPI`,

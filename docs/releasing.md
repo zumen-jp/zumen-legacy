@@ -14,7 +14,9 @@ Release for every tag.)
 1. **Rights.** Done. The copyright holder is the author of the repository, Yusuke Hayashi.
 2. **License.** Done. `LICENSE` is MIT, and the root `package.json`, every `packages/*/package.json`, `Cargo.toml` and
    `bindings/python/pyproject.toml` say so. The wheels carry the text of `LICENSE` and of the license of the bundled
-   font.
+   font. The licenses of the Rust crates that are compiled into the wheels and into the WebAssembly reader of
+   `@zumenjs/dwg` are in `THIRD_PARTY_LICENSES.txt` next to them (`pnpm run notices` writes them from `Cargo.lock`, and
+   `pnpm run check` fails when they are out of date).
 3. **Code of conduct.** Written in [CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md). Replace `[INSERT CONTACT METHOD]` with
    the way to reach the person who handles reports. If you prefer one for every repository of the organization, move the
    file to its `.github` repository.
@@ -103,10 +105,11 @@ it without a Rust toolchain, and uploads it to PyPI when the variable `PUBLISH_T
   wheel is installed on a runner of its platform, on Python 3.12 and 3.14, and the tests of `bindings/python/tests` run
   against it, not against a development build. The sdist must build a wheel by itself.
   `bindings/python/scripts/check_dist.py` checks every file: the extension module holds the bundled font (BIZ UDGothic),
-  and `dist-info/licenses` holds the text of the license of zumen and the text of the license of the font (SIL OFL 1.1),
-  as the licenses ask of every copy. `bindings/python/LICENSE` is a copy of the `LICENSE` of the repository root, and
-  `bindings/python/licenses/` a link to the `OFL.txt` next to the font, because `license-files` cannot reach outside the
-  project folder; the check fails when they differ.
+  and `dist-info/licenses` holds the text of the license of zumen, the text of the license of the font (SIL OFL 1.1) and
+  the licenses of the linked Rust crates, as the licenses ask of every copy. `bindings/python/LICENSE` is a copy of the
+  `LICENSE` of the repository root, and `bindings/python/licenses/` has a link to the `OFL.txt` next to the font and the
+  generated `THIRD_PARTY_LICENSES.txt`, because `license-files` cannot reach outside the project folder; the check fails
+  when they differ.
 - **Tags.** Pushing `vX.Y.Z` runs the same jobs, then attaches the wheels and the sdist to a GitHub Release of the tag,
   and with `PUBLISH_TO_PYPI` uploads them to PyPI. The files carry the `version` of `[workspace.package]` in
   `Cargo.toml`; the release job stops before it creates anything when the tag is another version.

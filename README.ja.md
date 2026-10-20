@@ -310,4 +310,7 @@ DWG も中身で見分け、初めて開いたときに WebAssembly の読み取
 [MIT](LICENSE)（Copyright (c) 2026 Yusuke Hayashi）。参照した第三者のソフトウェア・資料は [packages/jww/THIRD_PARTY_NOTICES.md](packages/jww/THIRD_PARTY_NOTICES.md)、
 [packages/dxf/THIRD_PARTY_NOTICES.md](packages/dxf/THIRD_PARTY_NOTICES.md)、
 [packages/stb/THIRD_PARTY_NOTICES.md](packages/stb/THIRD_PARTY_NOTICES.md) に記録した。
+Python のホイールと `@zumenjs/dwg` の WebAssembly にコンパイルして入る Rust のクレートのライセンスは、
+[bindings/python/licenses/THIRD_PARTY_LICENSES.txt](bindings/python/licenses/THIRD_PARTY_LICENSES.txt) と
+[packages/dwg/THIRD_PARTY_LICENSES.txt](packages/dwg/THIRD_PARTY_LICENSES.txt) にある（`pnpm run notices` が `Cargo.lock` から作る）。
 `zumen-render` に同梱するフォントは BIZ UDゴシック（SIL Open Font License 1.1、[crates/zumen-render/fonts/OFL.txt](crates/zumen-render/fonts/OFL.txt)）。

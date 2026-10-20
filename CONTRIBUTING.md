@@ -47,7 +47,9 @@ separate 3D line with its own model and a three.js view.
 - Follow the public specification of each format and cite the section in a comment.
   Write down behavior you had to infer in `docs/formats/`.
 - Report anything that is not drawn, or drawn differently, through `notices`. Do not drop content silently.
-- Do not add runtime dependencies without discussing it first. GPL and AGPL dependencies are not accepted.
+- Do not add runtime dependencies without discussing it first. GPL and AGPL dependencies are not accepted. When
+  `Cargo.lock` changes, run `pnpm run notices` to refresh the license texts of the Rust crates that end up in the Python
+  wheels and in `@zumenjs/dwg` (`THIRD_PARTY_LICENSES.txt`, checked by `pnpm run check`).
 
 ## Tests
 

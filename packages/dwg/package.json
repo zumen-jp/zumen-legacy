@@ -26,6 +26,7 @@
   "files": [
     "dist",
     "src",
+    "THIRD_PARTY_LICENSES.txt",
     "wasm/zumen_wasm.js",
     "wasm/zumen_wasm.d.ts",
     "wasm/zumen_wasm_bg.wasm"
