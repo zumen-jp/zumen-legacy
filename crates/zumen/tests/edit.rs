@@ -187,14 +187,12 @@ fn check(name: &str, bytes: &[u8]) -> Vec<String> {
 /// レイヤの番号（layer の raw）を除いた値
 fn strip_layer_ids(entity: &Value) -> Value {
     let mut entity = entity.clone();
-    if let Some(object) = entity.as_object_mut() {
-        if let Some(Value::Array(properties)) = object.get_mut("properties") {
-            for property in properties.iter_mut() {
-                if property.get("key") == Some(&json!("layer"))
-                    && let Some(property) = property.as_object_mut()
-                {
-                    property.remove("raw");
-                }
+    if let Some(Value::Array(properties)) = entity.get_mut("properties") {
+        for property in properties.iter_mut() {
+            if property.get("key") == Some(&json!("layer"))
+                && let Some(property) = property.as_object_mut()
+            {
+                property.remove("raw");
             }
         }
     }
