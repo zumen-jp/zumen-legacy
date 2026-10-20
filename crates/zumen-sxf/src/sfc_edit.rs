@@ -221,6 +221,10 @@ impl Editor<'_, '_> {
         let id = if wanted > 0.0 && wanted.fract() == 0.0 && !self.used.contains(&wanted.to_bits()) {
             wanted
         } else {
+            // 図面の番号のまま入れた新しいフィーチャと重ならない番号まで進める
+            while self.used.contains(&self.next.to_bits()) {
+                self.next += 10.0;
+            }
             let id = self.next;
             self.next += 10.0;
             id

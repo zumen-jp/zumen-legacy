@@ -224,3 +224,17 @@ fn a_source_cut_short_by_the_read_limits_is_written_anew() {
     let again = parse_sfc(&written.bytes).unwrap();
     assert_eq!(again.document.sheet_members.len(), drawing.document.sheet_members.len());
 }
+
+#[test]
+fn new_numbers_do_not_repeat_numbers_kept_from_the_drawing() {
+    let bytes = read_fixture("sfc", "sample");
+    let mut drawing = parse_sfc(&bytes).unwrap();
+    // 1 本目は図面の番号（元のファイルにない #260）のまま、2 本目は振り直す番号が #260 と重ならない
+    drawing.document.sheet_members.push(line(260.0, 1.0, 10.0));
+    drawing.document.sheet_members.push(line(0.0, 1.0, 20.0));
+    let written = write_sfc(&drawing);
+    let ids: Vec<f64> =
+        written.ids.iter().filter(|(old, new)| old != new || *old == 260.0).map(|(_, new)| *new).collect();
+    assert_eq!(&ids[ids.len() - 2..], &[260.0, 270.0]);
+    assert_reads_back(&drawing, &written);
+}
