@@ -55,12 +55,14 @@ async function readFile(url: URL): Promise<Uint8Array> {
 }
 
 /**
- * readDrawing に渡す DWG（AutoCAD 2000〜2018）の読み取り。読む前に initDwg を待つ。detect は WebAssembly を使わない
- * ので、読み込む前でも DWG かを見分けられる。options.view はモデル空間（Model）かレイアウトの名前
+ * readDrawing に渡す DWG（AutoCAD 2000〜2018）の読み取り。読む前に initDwg（load も同じ）を待つ。detect は WebAssembly
+ * を使わないので、読み込む前でも DWG かを見分けられる。options.view はモデル空間（Model）かレイアウトの名前
  */
 export const dwg: DrawingReader = {
   formats: ["dwg"],
   detect: (bytes) => (isDwg(bytes) ? "dwg" : null),
+  // @zumenjs/react の useDrawing などは、DWG を開いたときにこれを待つ。WebAssembly は既定の場所から読み込む
+  load: () => initDwg(),
   read(bytes, format, options) {
     if (format !== "dwg") throw new Error(`DWG の読み取りは ${format} を読めません`);
     if (!ready) throw new Error("DWG を読む前に、initDwg() で読み取り（WebAssembly）を読み込んでください");

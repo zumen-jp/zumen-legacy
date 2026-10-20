@@ -8,7 +8,16 @@ import {
   type SceneEntity,
 } from "@zumenjs/core";
 import { HitIndex, type SnapPoint } from "./pick.js";
-import { fitView, type HighlightLayer, renderHighlights, renderScene, toPaper, toScreen, type View, zoomAt } from "./render.js";
+import {
+  fitView,
+  type HighlightLayer,
+  renderHighlights,
+  renderScene,
+  toPaper,
+  toScreen,
+  type View,
+  zoomAt,
+} from "./render.js";
 import {
   cssProperty,
   DEFAULT_STYLE,
@@ -929,7 +938,11 @@ export class DrawingViewer {
       this.pinch = { distance, x: mx, y: my, moved: true };
       this.fitTarget = null;
       this.setCamera(
-        this.fromTransform({ ...zoomed, offsetX: zoomed.offsetX + mx - pinch.x, offsetY: zoomed.offsetY + my - pinch.y }),
+        this.fromTransform({
+          ...zoomed,
+          offsetX: zoomed.offsetX + mx - pinch.x,
+          offsetY: zoomed.offsetY + my - pinch.y,
+        }),
         false,
         event,
       );

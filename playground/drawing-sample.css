@@ -1,0 +1,297 @@
+/*
+ * 2D の図面の試用画面（drawing-sample.tsx）の見た目。パッケージは CSS を持たないので、画面を作る側が書く。
+ * 図面の色は --zumen-* のカスタムプロパティで変えられる（docs/architecture.md の Extension points for applications）
+ */
+.sample {
+  --sample-surface: #ffffff;
+  --sample-surface-muted: #f3f4f6;
+  --sample-text: #1a1a1c;
+  --sample-text-muted: #55585e;
+  --sample-border: #c9ccd2;
+  --sample-accent: #0031d8;
+  --sample-selected: #e8f1fe;
+  --sample-focus: #ffd43d;
+  container-type: inline-size;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-height: 0;
+  height: 100%;
+  color: var(--sample-text);
+  background: var(--sample-surface);
+  border: 1px solid var(--sample-border);
+  font:
+    14px / 1.5 system-ui,
+    -apple-system,
+    "Hiragino Sans",
+    "Noto Sans JP",
+    sans-serif;
+  box-sizing: border-box;
+}
+@media (prefers-color-scheme: dark) {
+  .sample {
+    --sample-surface: #1f2023;
+    --sample-surface-muted: #2a2c30;
+    --sample-text: #f1f2f4;
+    --sample-text-muted: #b6b9bf;
+    --sample-border: #4a4d53;
+    --sample-accent: #9db7f9;
+    --sample-selected: #26385f;
+  }
+}
+.sample *,
+.sample *::before,
+.sample *::after {
+  box-sizing: border-box;
+}
+.sample-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--sample-border);
+  background: var(--sample-surface-muted);
+}
+.sample-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.sample-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+.sample-button {
+  min-height: 40px;
+  min-width: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--sample-border);
+  border-radius: 6px;
+  background: var(--sample-surface);
+  color: var(--sample-text);
+  font: inherit;
+  cursor: pointer;
+}
+.sample-button:hover {
+  border-color: var(--sample-text-muted);
+}
+.sample-label {
+  align-self: center;
+  color: var(--sample-text-muted);
+}
+.sample-select {
+  min-height: 40px;
+  max-width: 16em;
+  padding: 0 8px;
+  border: 1px solid var(--sample-border);
+  border-radius: 6px;
+  background: var(--sample-surface);
+  color: var(--sample-text);
+  font: inherit;
+}
+.sample-button[aria-pressed="true"] {
+  border-color: var(--sample-accent);
+  background: var(--sample-selected);
+  color: var(--sample-accent);
+  font-weight: 600;
+}
+@media (pointer: coarse) {
+  .sample-button,
+  .sample-select {
+    min-height: 44px;
+  }
+  .sample-button {
+    min-width: 44px;
+  }
+}
+.sample :focus-visible {
+  outline: 4px solid var(--sample-focus);
+  outline-offset: 0;
+  box-shadow: 0 0 0 2px #000;
+}
+.sample-body {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  min-height: 0;
+}
+.sample-panel {
+  width: 240px;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 12px 12px;
+  background: var(--sample-surface);
+}
+.sample-panel[hidden] {
+  display: none;
+}
+/* 欄を閉じても、図面の枠が幅 0 の 1 列目に入らないよう列を決めておく */
+.sample-panel-start {
+  grid-column: 1;
+  border-right: 1px solid var(--sample-border);
+}
+.sample-panel-end {
+  grid-column: 3;
+  width: 280px;
+  border-left: 1px solid var(--sample-border);
+}
+.sample-panel h3 {
+  margin: 4px 0 8px;
+  font-size: 14px;
+  font-weight: 700;
+}
+.sample-stage {
+  grid-column: 2;
+  grid-row: 1;
+  position: relative;
+  min-width: 0;
+  min-height: 240px;
+  overflow: hidden;
+}
+.sample-layers {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.sample-layer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+.sample-layer:hover {
+  background: var(--sample-surface-muted);
+}
+.sample-layer input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  flex: none;
+  accent-color: var(--sample-accent);
+}
+.sample-layer label {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.sample-count {
+  color: var(--sample-text-muted);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
+.sample-layer-group {
+  margin: 0 0 8px;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.sample-layer-group-title {
+  width: 100%;
+  font-weight: 600;
+  background: var(--sample-surface-muted);
+}
+.sample-layer-group .sample-layers {
+  padding-left: 16px;
+}
+.sample-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.sample-row .sample-button {
+  min-height: 32px;
+  padding: 0 8px;
+  font-size: 13px;
+}
+.sample-properties {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 0;
+}
+.sample-properties dt {
+  color: var(--sample-text-muted);
+}
+.sample-properties dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.sample-notices {
+  margin-top: 16px;
+}
+.sample-notices summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.sample-notices ul {
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+.sample-notices li {
+  margin-bottom: 4px;
+}
+.sample-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  min-height: 32px;
+  align-items: center;
+  padding: 4px 12px;
+  border-top: 1px solid var(--sample-border);
+  background: var(--sample-surface-muted);
+  color: var(--sample-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.sample-status strong {
+  color: var(--sample-text);
+  font-weight: 600;
+}
+.sample-hint {
+  margin: 0;
+  color: var(--sample-text-muted);
+}
+@container (max-width: 760px) {
+  .sample-body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(280px, 1fr) auto auto;
+  }
+  .sample-stage {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .sample-panel,
+  .sample-panel-end {
+    grid-column: 1;
+    width: auto;
+    max-height: 40vh;
+    border: 0;
+    border-top: 1px solid var(--sample-border);
+  }
+  .sample-panel-start {
+    grid-row: 2;
+  }
+  .sample-panel-end {
+    grid-row: 3;
+  }
+}
+@media (forced-colors: active) {
+  .sample-button[aria-pressed="true"] {
+    outline: 2px solid Highlight;
+  }
+}
