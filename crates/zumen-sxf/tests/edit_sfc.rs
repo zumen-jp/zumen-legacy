@@ -212,30 +212,3 @@ fn the_sheet_and_tables_are_rewritten_when_changed() {
     assert_unchanged_except(&bytes, &written.bytes, &["1130", "1160", "20", "1120"]);
     assert_reads_back(&drawing, &written);
 }
-
-#[test]
-#[ignore = "調査用"]
-fn dump_new_features() {
-    let bytes = read_fixture("sfc", "sample");
-    let mut drawing = parse_sfc(&bytes).unwrap();
-    let doc = &mut drawing.document;
-    doc.layers.push(LayerDefinition { id: 0.0, name: "追加".into(), visible: true });
-    doc.sheet_members.push(line(0.0, 3.0, 300.0));
-    doc.sub_figures.set(
-        "新しい部品".into(),
-        SubFigure {
-            feature: SfigOrg { id: 0.0, name: "新しい部品".into(), flag: 4.0 },
-            members: vec![line(0.0, 1.0, 10.0)],
-        },
-    );
-    doc.composite_curves.push(zumen_sxf::CompositeCurve {
-        feature: zumen_sxf::CompositeCurveOrg { id: 0.0, color: 2.0, line_type: 1.0, line_width: 1.0, visible: true },
-        members: vec![SxfFeature::Polyline {
-            style: Styled { id: 0.0, layer: 0.0, color: 0.0, line_type: 0.0, line_width: 0.0 },
-            xs: vec![0.0, 5.0, 5.0, 0.0],
-            ys: vec![0.0, 0.0, 5.0, 0.0],
-        }],
-    });
-    let written = write_sfc(&drawing);
-    println!("{}", encoding_rs::SHIFT_JIS.decode(&written.bytes).0);
-}

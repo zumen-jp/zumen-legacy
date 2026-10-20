@@ -158,9 +158,6 @@ fn new_features_get_fresh_numbers_and_join_lists_and_layers() {
         region: Region { out_id: 2.0, in_ids: vec![] },
     });
     let written = write_p21(&drawing);
-    if let Ok(out) = std::env::var("SCRATCH_OUT") {
-        std::fs::write(out, &written.bytes).unwrap();
-    }
     let (before, after) = (instances(&bytes), instances(&written.bytes));
     // 元のインスタンスで変わるのは、用紙の要素の並び（#134）とレイヤの割り当て（#120・#121・#122）と非表示の指定（#123）だけ
     for (id, body) in &before {
@@ -195,13 +192,4 @@ fn layers_sheets_and_colours_are_rewritten_when_changed() {
     }
     assert!(after[&134].starts_with("DRAWING_SHEET_REVISION('A2_vertical'"), "{}", after[&134]);
     assert_reads_back(&drawing, &written);
-}
-
-#[test]
-#[ignore = "調査用"]
-fn dump_unchanged() {
-    let bytes = read_fixture("p21", "features");
-    let written = write_p21(&parse_p21(&bytes).unwrap());
-    println!("{:?}", written.notices);
-    std::fs::write(std::env::var("SCRATCH_OUT").unwrap(), &written.bytes).unwrap();
 }

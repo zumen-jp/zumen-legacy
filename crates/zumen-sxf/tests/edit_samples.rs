@@ -69,9 +69,6 @@ fn local_samples_are_edited_in_place() {
         let started = std::time::Instant::now();
         let written = write(&edited);
         let elapsed = started.elapsed();
-        if let Ok(out) = std::env::var("SCRATCH_OUT") {
-            std::fs::write(format!("{out}/edited-{name}"), &written.bytes).unwrap();
-        }
         let again = parse_sxf(&written.bytes, &format).unwrap();
         let ids: HashMap<u64, f64> = written.ids.iter().map(|(id, new)| (id.to_bits(), *new)).collect();
         compare_entities(&sxf_to_scene(&edited), &sxf_to_scene(&again), Some(&ids), 1e-9)

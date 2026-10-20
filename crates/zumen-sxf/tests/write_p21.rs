@@ -1,4 +1,5 @@
-//! P21 の書き出し: tests/fixtures の SFC・P21 を読んで P21 に書き、読み直すと同じ図面になる
+//! P21 の書き出し: tests/fixtures の SFC・P21 を読んで P21 に新しく書き（元のファイルを持たせずに書く）、読み直すと
+//! 同じ図面になる。元の P21 を書き換える書き方は edit_p21.rs
 
 mod common;
 
@@ -9,7 +10,8 @@ use zumen_sxf::{parse_p21, parse_sxf, sxf_to_scene, write_p21};
 #[test]
 fn written_p21_reads_back_as_the_same_drawing() {
     for (format, name) in FIXTURES {
-        let drawing = parse_sxf(&read_fixture(format, name), format).unwrap();
+        let mut drawing = parse_sxf(&read_fixture(format, name), format).unwrap();
+        drawing.source = None;
         let written = write_p21(&drawing);
         let again = parse_p21(&written.bytes).unwrap();
         let (before, after) = (sxf_to_scene(&drawing), sxf_to_scene(&again));
@@ -20,9 +22,13 @@ fn written_p21_reads_back_as_the_same_drawing() {
         if before.sheet.is_some() {
             assert_eq!(before.sheet, after.sheet, "{name}.{format}");
         }
-        // 書いた P21 を書き直しても変わらない
+        // 書いた P21 を読んで新しく書き直しても変わらない
+        let mut again = again;
+        again.source = None;
         let twice = write_p21(&again).bytes;
-        assert_eq!(write_p21(&parse_p21(&twice).unwrap()).bytes, twice, "{name}.{format}");
+        let mut third = parse_p21(&twice).unwrap();
+        third.source = None;
+        assert_eq!(write_p21(&third).bytes, twice, "{name}.{format}");
     }
 }
 
@@ -42,7 +48,8 @@ fn written_p21_of_local_samples_reads_back_as_the_same_drawing() {
         if !matches!(format.as_str(), "sfc" | "p21" | "sfz" | "p2z") {
             continue;
         }
-        let drawing = parse_sxf(&std::fs::read(&path).unwrap(), &format).unwrap();
+        let mut drawing = parse_sxf(&std::fs::read(&path).unwrap(), &format).unwrap();
+        drawing.source = None;
         let written = write_p21(&drawing);
         let again = parse_p21(&written.bytes).unwrap();
         let (before, after) = (sxf_to_scene(&drawing), sxf_to_scene(&again));

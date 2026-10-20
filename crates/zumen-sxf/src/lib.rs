@@ -58,12 +58,56 @@ pub fn write_p21(drawing: &SxfDrawing) -> SxfWritten {
     }
 }
 
-/// SXF の図面を format（sfc・p21、圧縮した sfz・p2z）で書く
+/// SXF の図面を format（sfc・p21、圧縮した sfz・p2z）で書く。読んだ図面を同じ形式に書くときは、変えていない
+/// フィーチャ・インスタンスを元の文字列のまま書く。圧縮した SXF から読んだ図面を同じ形式に書くときは、元の書庫の
+/// SXF だけを置き換え、同じ書庫のほかのファイル（属性ファイル・画像）と名前・日時を残す
 pub fn write_sxf(drawing: &SxfDrawing, format: &str) -> Result<SxfWritten, ReadError> {
-    match format {
-        "sfc" => Ok(write_sfc(drawing)),
-        "p21" => Ok(write_p21(drawing)),
-        _ => Err(ReadError::new(format!("SXF は {format} に書けません（書けるのは SFC・P21・SFZ・P2Z）"))),
+    let inner = match format {
+        "sfc" => return Ok(write_sfc(drawing)),
+        "p21" => return Ok(write_p21(drawing)),
+        "sfz" => "sfc",
+        "p2z" => "p21",
+        _ => return Err(ReadError::new(format!("SXF は {format} に書けません（書けるのは SFC・P21・SFZ・P2Z）"))),
+    };
+    let mut written = if inner == "sfc" { write_sfc(drawing) } else { write_p21(drawing) };
+    let source = drawing.source.as_ref().filter(|_| drawing.format == inner);
+    if let Some((source, archive)) = source.and_then(|source| Some((source, source.archive.as_ref()?))) {
+        if *written.bytes == *source.bytes {
+            written.bytes = archive.bytes.to_vec();
+            return Ok(written);
+        }
+        if let Some(bytes) = zip::replace_sxf(&archive.bytes, &written.bytes) {
+            written.bytes = bytes;
+            return Ok(written);
+        }
+        written.notices.push(zumen_core::Notice {
+            level: zumen_core::NoticeLevel::Warning,
+            code: "archive".into(),
+            message:
+                "元の書庫を読み直せないため、SXF だけを入れた書庫を新しく作りました（ほかのファイルは残していません）"
+                    .into(),
+            count: 1,
+        });
+    }
+    let name = archive_member_name(drawing, inner);
+    written.bytes = zip::archive(&name, &written.bytes)
+        .ok_or_else(|| ReadError::new("4 GiB を超える SXF は圧縮できません（ZIP64 には対応していません）"))?;
+    Ok(written)
+}
+
+/// 新しく作る書庫の中の SXF の名前。図面のファイル名の拡張子を、中の形式（拡張子が大文字なら大文字）にする
+fn archive_member_name(drawing: &SxfDrawing, inner: &str) -> String {
+    let name = match &drawing.source.as_ref().and_then(|source| source.archive.as_ref()) {
+        Some(archive) => archive.name.clone(),
+        None => drawing.header.file_name.clone(),
+    };
+    match name.rsplit_once('.') {
+        Some((stem, extension)) if !stem.is_empty() => {
+            let upper = extension.chars().any(|c| c.is_ascii_uppercase());
+            format!("{stem}.{}", if upper { inner.to_ascii_uppercase() } else { inner.to_string() })
+        }
+        _ if !name.is_empty() => format!("{name}.{inner}"),
+        _ => format!("drawing.{inner}"),
     }
 }
 
