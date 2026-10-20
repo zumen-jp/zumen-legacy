@@ -563,6 +563,8 @@ export interface DxfViewport extends DxfEntityBase {
   status_flags: number;
   /** このビューポートだけで凍結したレイヤ（331） */
   frozen_layer_handles: string[];
+  /** R12 の、このビューポートだけで凍結したレイヤの名前（拡張データ ACAD の MVIEW の 1003。R12 のレイヤはハンドルを持たない） */
+  frozen_layer_names: string[];
   /** 矩形でない切り抜きの図形（340） */
   clipping_boundary_handle?: string;
 }

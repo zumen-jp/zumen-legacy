@@ -245,8 +245,9 @@ cargo run --release -p zumen-cli -- create operations.json -o new.dxf --units mm
 ```
 
 `convert` writes every format as DXF of AutoCAD 2013 through the AutoCAD drawing model (`--target-version` chooses
-2000, 2004, 2007, 2010 or 2018; versions before 2007 are written in a code page, such as ANSI_932 for Japanese). DXF
-and DWG keep their handles, tables, blocks and layouts. SXF and JWW are mapped into the model with real-size model
+R12, 2000, 2004, 2007, 2010 or 2018; versions before 2007 are written in a code page, such as ANSI_932 for Japanese,
+and R12 explodes what it lacks, such as multiline text and hatches). DXF and DWG keep their handles, tables, blocks
+and layouts. SXF and JWW are mapped into the model with real-size model
 space: each SXF sub-figure and each JWW layer group scale is shown through a viewport of the sheet's layout at its
 scale, and what is drawn on the sheet itself (frames and title blocks) is in paper space. Layers, colors, line types,
 line weights, fonts, vertical text, blocks, dimensions and hatches become their AutoCAD counterparts, and the layout
