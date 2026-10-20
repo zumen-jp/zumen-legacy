@@ -216,7 +216,7 @@ impl Entity {
     }
 }
 
-/// LINE（20.4.21）
+/// LINE（20.4.21）。R13・R14 は 2 つの点を 3BD で持つ
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Line {
     pub start: [f64; 3],
@@ -227,6 +227,10 @@ pub(crate) struct Line {
 
 impl Line {
     fn read(s: &mut In<'_>) -> Read<Self> {
+        if !s.r2000() {
+            let (start, end) = (s.data.bd3()?, s.data.bd3()?);
+            return Ok(Self { start, end, thickness: s.bt()?, extrusion: s.be()? });
+        }
         let z_zero = s.data.bit()?;
         let x0 = s.data.rd()?;
         let x1 = s.data.dd(x0)?;
@@ -237,10 +241,17 @@ impl Line {
             z0 = s.data.rd()?;
             z1 = s.data.dd(z0)?;
         }
-        Ok(Self { start: [x0, y0, z0], end: [x1, y1, z1], thickness: s.data.bt(true)?, extrusion: s.data.be(true)? })
+        Ok(Self { start: [x0, y0, z0], end: [x1, y1, z1], thickness: s.bt()?, extrusion: s.be()? })
     }
 
     fn write(&self, o: &mut ObjectWriter) {
+        if !o.r2000() {
+            o.data.bd3(self.start);
+            o.data.bd3(self.end);
+            o.bt(self.thickness);
+            o.be(self.extrusion);
+            return;
+        }
         // 2 つの Z がどちらも +0.0 なら Z を書かない（-0.0 は書く）
         let z_zero = self.start[2].to_bits() == 0 && self.end[2].to_bits() == 0;
         o.data.bit(z_zero);
@@ -252,8 +263,8 @@ impl Line {
             o.data.rd(self.start[2]);
             o.data.dd(self.end[2], self.start[2]);
         }
-        o.data.bt(self.thickness);
-        o.data.be(self.extrusion);
+        o.bt(self.thickness);
+        o.be(self.extrusion);
     }
 }
 
@@ -268,19 +279,14 @@ pub(crate) struct Circle {
 
 impl Circle {
     fn read(s: &mut In<'_>) -> Read<Self> {
-        Ok(Self {
-            center: s.data.bd3()?,
-            radius: s.data.bd()?,
-            thickness: s.data.bt(true)?,
-            extrusion: s.data.be(true)?,
-        })
+        Ok(Self { center: s.data.bd3()?, radius: s.data.bd()?, thickness: s.bt()?, extrusion: s.be()? })
     }
 
     fn write(&self, o: &mut ObjectWriter) {
         o.data.bd3(self.center);
         o.data.bd(self.radius);
-        o.data.bt(self.thickness);
-        o.data.be(self.extrusion);
+        o.bt(self.thickness);
+        o.be(self.extrusion);
     }
 }
 
@@ -315,18 +321,13 @@ pub(crate) struct Point {
 
 impl Point {
     fn read(s: &mut In<'_>) -> Read<Self> {
-        Ok(Self {
-            location: s.data.bd3()?,
-            thickness: s.data.bt(true)?,
-            extrusion: s.data.be(true)?,
-            x_axis_angle: s.data.bd()?,
-        })
+        Ok(Self { location: s.data.bd3()?, thickness: s.bt()?, extrusion: s.be()?, x_axis_angle: s.data.bd()? })
     }
 
     fn write(&self, o: &mut ObjectWriter) {
         o.data.bd3(self.location);
-        o.data.bt(self.thickness);
-        o.data.be(self.extrusion);
+        o.bt(self.thickness);
+        o.be(self.extrusion);
         o.data.bd(self.x_axis_angle);
     }
 }
@@ -374,6 +375,11 @@ pub(crate) struct Face {
 
 impl Face {
     fn read(s: &mut In<'_>) -> Read<Self> {
+        // R13・R14 は 4 つの角を 3BD で持ち、見えない辺の印（BS）はいつもある
+        if !s.r2000() {
+            let corners = [s.data.bd3()?, s.data.bd3()?, s.data.bd3()?, s.data.bd3()?];
+            return Ok(Self { corners, invisible: Some(s.data.bs()?) });
+        }
         let no_flags = s.data.bit()?;
         let z_zero = s.data.bit()?;
         let x = s.data.rd()?;
@@ -389,6 +395,13 @@ impl Face {
 
     fn write(&self, o: &mut ObjectWriter) {
         let [first, second, third, fourth] = self.corners;
+        if !o.r2000() {
+            for corner in self.corners {
+                o.data.bd3(corner);
+            }
+            o.data.bs(self.invisible.unwrap_or(0));
+            return;
+        }
         o.data.bit(self.invisible.is_none());
         let z_zero = first[2].to_bits() == 0;
         o.data.bit(z_zero);
@@ -417,19 +430,19 @@ pub(crate) struct Solid {
 
 impl Solid {
     fn read(s: &mut In<'_>) -> Read<Self> {
-        let thickness = s.data.bt(true)?;
+        let thickness = s.bt()?;
         let elevation = s.data.bd()?;
         let corners = [s.data.rd2()?, s.data.rd2()?, s.data.rd2()?, s.data.rd2()?];
-        Ok(Self { thickness, elevation, corners, extrusion: s.data.be(true)? })
+        Ok(Self { thickness, elevation, corners, extrusion: s.be()? })
     }
 
     fn write(&self, o: &mut ObjectWriter) {
-        o.data.bt(self.thickness);
+        o.bt(self.thickness);
         o.data.bd(self.elevation);
         for corner in self.corners {
             o.data.rd2(corner);
         }
-        o.data.be(self.extrusion);
+        o.be(self.extrusion);
     }
 }
 
@@ -472,12 +485,15 @@ pub(crate) struct Text {
 
 impl Text {
     fn read(s: &mut In<'_>) -> Read<Self> {
+        if !s.r2000() {
+            return Self::read_r14(s);
+        }
         let flags = s.data.rc()?;
         let elevation = if flags & 0x01 == 0 { Some(s.data.rd()?) } else { None };
         let insert = s.data.rd2()?;
         let align = if flags & 0x02 == 0 { Some(s.data.dd2(insert)?) } else { None };
-        let extrusion = s.data.be(true)?;
-        let thickness = s.data.bt(true)?;
+        let extrusion = s.be()?;
+        let thickness = s.bt()?;
         let oblique = if flags & 0x04 == 0 { Some(s.data.rd()?) } else { None };
         let rotation = if flags & 0x08 == 0 { Some(s.data.rd()?) } else { None };
         let height = s.data.rd()?;
@@ -505,7 +521,65 @@ impl Text {
         })
     }
 
+    /// R13・R14（20.4.3）: 値を省かずに BD・2RD・3BD で持つ
+    fn read_r14(s: &mut In<'_>) -> Read<Self> {
+        let elevation = Some(s.data.bd()?);
+        let insert = s.data.rd2()?;
+        let align = Some(s.data.rd2()?);
+        let extrusion = s.data.bd3()?;
+        let thickness = s.data.bd()?;
+        let oblique = Some(s.data.bd()?);
+        let rotation = Some(s.data.bd()?);
+        let height = s.data.bd()?;
+        let width = Some(s.data.bd()?);
+        let value = s.text()?;
+        let generation = Some(s.data.bs()?);
+        let halign = Some(s.data.bs()?);
+        let valign = Some(s.data.bs()?);
+        let style = s.handle()?;
+        Ok(Self {
+            elevation,
+            insert,
+            align,
+            extrusion,
+            thickness,
+            oblique,
+            rotation,
+            height,
+            width,
+            value,
+            generation,
+            halign,
+            valign,
+            style,
+        })
+    }
+
+    /// R13・R14 の形（read_r14 の逆）。ない値は既定の値（幅の係数は 1。整列点は、左揃えなら AutoCAD R14 の図面と同じく
+    /// 0,0、ほかの揃え方なら挿入点）
+    fn write_r14(&self, o: &mut ObjectWriter) {
+        o.data.bd(self.elevation.unwrap_or(0.0));
+        o.data.rd2(self.insert);
+        let aligned = self.halign.unwrap_or(0) != 0 || self.valign.unwrap_or(0) != 0;
+        o.data.rd2(self.align.unwrap_or(if aligned { self.insert } else { [0.0, 0.0] }));
+        o.data.bd3(self.extrusion);
+        o.data.bd(self.thickness);
+        o.data.bd(self.oblique.unwrap_or(0.0));
+        o.data.bd(self.rotation.unwrap_or(0.0));
+        o.data.bd(self.height);
+        o.data.bd(self.width.unwrap_or(1.0));
+        o.text(&self.value);
+        for value in [self.generation, self.halign, self.valign] {
+            o.data.bs(value.unwrap_or(0));
+        }
+        o.href(self.style);
+    }
+
     fn write(&self, o: &mut ObjectWriter) {
+        if !o.r2000() {
+            self.write_r14(o);
+            return;
+        }
         let mut flags = 0u8;
         for (bit, absent) in [
             (0x01, self.elevation.is_none()),
@@ -529,8 +603,8 @@ impl Text {
         if let Some(align) = self.align {
             o.data.dd2(align, self.insert);
         }
-        o.data.be(self.extrusion);
-        o.data.bt(self.thickness);
+        o.be(self.extrusion);
+        o.bt(self.thickness);
         if let Some(oblique) = self.oblique {
             o.data.rd(oblique);
         }
@@ -705,9 +779,13 @@ impl MText {
         let extents_width = s.data.bd()?;
         let text = s.text()?;
         let style = s.handle()?;
-        let line_spacing_style = s.data.bs()?;
-        let line_spacing_factor = s.data.bd()?;
-        let unknown_bit = s.data.bit()?;
+        // 行間は R2000 から
+        let (mut line_spacing_style, mut line_spacing_factor, mut unknown_bit) = (1, 1.0, false);
+        if s.r2000() {
+            line_spacing_style = s.data.bs()?;
+            line_spacing_factor = s.data.bd()?;
+            unknown_bit = s.data.bit()?;
+        }
         let mut background_flags = 0;
         let mut background = None;
         if s.r2004() {
@@ -802,9 +880,11 @@ impl MText {
         o.data.bd(self.extents_width);
         o.text(&self.text);
         o.href(self.style);
-        o.data.bs(self.line_spacing_style);
-        o.data.bd(self.line_spacing_factor);
-        o.data.bit(self.unknown_bit);
+        if o.r2000() {
+            o.data.bs(self.line_spacing_style);
+            o.data.bd(self.line_spacing_factor);
+            o.data.bit(self.unknown_bit);
+        }
         if o.r2004() {
             o.data.bl(self.background_flags);
             if let Some((scale, color, transparency)) = &self.background {
@@ -866,6 +946,22 @@ pub(crate) struct Insert {
 }
 
 impl Insert {
+    /// R2000 以降の尺度（印の形）
+    fn read_scale(s: &mut In<'_>, flags: u8) -> Read<[f64; 3]> {
+        Ok(match flags {
+            0 => {
+                let x = s.data.rd()?;
+                [x, s.data.dd(x)?, s.data.dd(x)?]
+            }
+            1 => [1.0, s.data.dd(1.0)?, s.data.dd(1.0)?],
+            2 => {
+                let x = s.data.rd()?;
+                [x, x, x]
+            }
+            _ => [1.0, 1.0, 1.0],
+        })
+    }
+
     /// 尺度の印（AutoCAD と同じく、縮めて書ける形を選ぶ）
     pub fn scale_flags_of(scale: [f64; 3]) -> u8 {
         let one = 1f64.to_bits();
@@ -882,18 +978,13 @@ impl Insert {
 
     fn read(s: &mut In<'_>, minsert: bool) -> Read<Self> {
         let point = s.data.bd3()?;
-        let scale_flags = s.data.bb()?;
-        let scale = match scale_flags {
-            0 => {
-                let x = s.data.rd()?;
-                [x, s.data.dd(x)?, s.data.dd(x)?]
-            }
-            1 => [1.0, s.data.dd(1.0)?, s.data.dd(1.0)?],
-            2 => {
-                let x = s.data.rd()?;
-                [x, x, x]
-            }
-            _ => [1.0, 1.0, 1.0],
+        // R13・R14 は尺度を 3 つの BD で持つ（印はない。書くときに R2000 以降の形のために印を決めておく）
+        let (scale_flags, scale) = if s.r2000() {
+            let flags = s.data.bb()?;
+            (flags, Self::read_scale(s, flags)?)
+        } else {
+            let scale = s.data.bd3()?;
+            (Self::scale_flags_of(scale), scale)
         };
         let rotation = s.data.bd()?;
         let extrusion = s.data.bd3()?;
@@ -929,6 +1020,15 @@ impl Insert {
 
     fn write(&self, o: &mut ObjectWriter) {
         o.data.bd3(self.point);
+        if !o.r2000() {
+            o.data.bd3(self.scale);
+        } else {
+            self.write_scale(o);
+        }
+        self.write_rest(o);
+    }
+
+    fn write_scale(&self, o: &mut ObjectWriter) {
         o.data.bb(self.scale_flags);
         match self.scale_flags {
             0 => {
@@ -943,6 +1043,9 @@ impl Insert {
             2 => o.data.rd(self.scale[0]),
             _ => {}
         }
+    }
+
+    fn write_rest(&self, o: &mut ObjectWriter) {
         o.data.bd(self.rotation);
         o.data.bd3(self.extrusion);
         o.data.bit(self.has_attributes);
@@ -1077,9 +1180,9 @@ impl Polyline2d {
         let curve_type = s.data.bs()?;
         let start_width = s.data.bd()?;
         let end_width = s.data.bd()?;
-        let thickness = s.data.bt(true)?;
+        let thickness = s.bt()?;
         let elevation = s.data.bd()?;
-        let extrusion = s.data.be(true)?;
+        let extrusion = s.be()?;
         let count = Owned::count(s)?;
         let owned = Owned::read(s, count)?;
         Ok(Self { flags, curve_type, start_width, end_width, thickness, elevation, extrusion, owned })
@@ -1090,9 +1193,9 @@ impl Polyline2d {
         o.data.bs(self.curve_type);
         o.data.bd(self.start_width);
         o.data.bd(self.end_width);
-        o.data.bt(self.thickness);
+        o.bt(self.thickness);
         o.data.bd(self.elevation);
-        o.data.be(self.extrusion);
+        o.be(self.extrusion);
         self.owned.write_count(o);
         self.owned.write(o);
     }
@@ -1285,10 +1388,14 @@ impl Dimension {
         let horizontal_direction = s.data.bd()?;
         let insert_scale = s.data.bd3()?;
         let insert_rotation = s.data.bd()?;
-        let attachment = s.data.bs()?;
-        let line_spacing_style = s.data.bs()?;
-        let line_spacing_factor = s.data.bd()?;
-        let measurement = s.data.bd()?;
+        // 文字の配置・行間・実測値は R2000 から
+        let (mut attachment, mut line_spacing_style, mut line_spacing_factor, mut measurement) = (5, 1, 1.0, 0.0);
+        if s.r2000() {
+            attachment = s.data.bs()?;
+            line_spacing_style = s.data.bs()?;
+            line_spacing_factor = s.data.bd()?;
+            measurement = s.data.bd()?;
+        }
         let flips = if s.r2007() { [s.data.bit()?, s.data.bit()?, s.data.bit()?] } else { [false; 3] };
         let insert = s.data.rd2()?;
         let kind = match kind {
@@ -1380,10 +1487,12 @@ impl Dimension {
         o.data.bd(self.horizontal_direction);
         o.data.bd3(self.insert_scale);
         o.data.bd(self.insert_rotation);
-        o.data.bs(self.attachment);
-        o.data.bs(self.line_spacing_style);
-        o.data.bd(self.line_spacing_factor);
-        o.data.bd(self.measurement);
+        if o.r2000() {
+            o.data.bs(self.attachment);
+            o.data.bs(self.line_spacing_style);
+            o.data.bd(self.line_spacing_factor);
+            o.data.bd(self.measurement);
+        }
         if o.r2007() {
             for flip in self.flips {
                 o.data.bit(flip);
@@ -1501,10 +1610,60 @@ pub(crate) struct Viewport {
 }
 
 impl Viewport {
+    /// R13・R14 の VIEWPORT（20.4.38）: 中心と大きさと、VIEWPORT ENTITY HEADER のハンドルだけ。表示の値は拡張データ
+    /// ACAD の MVIEW に持つ。ほかの値は既定の値
+    fn read_r14(s: &mut In<'_>, center: [f64; 3], width: f64, height: f64) -> Read<Self> {
+        let none = HandleRef { code: 5, value: 0 };
+        Ok(Self {
+            center,
+            width,
+            height,
+            view_target: [0.0; 3],
+            view_direction: [0.0, 0.0, 1.0],
+            twist: 0.0,
+            view_height: height,
+            lens: 50.0,
+            front_clip: 0.0,
+            back_clip: 0.0,
+            snap_angle: 0.0,
+            view_center: [0.0, 0.0],
+            snap_base: [0.0, 0.0],
+            snap_spacing: [10.0, 10.0],
+            grid_spacing: [10.0, 10.0],
+            circle_zoom: 1000,
+            grid_major: 5,
+            status_flags: 0,
+            style_sheet: RawText::empty(s.version),
+            render_mode: 0,
+            ucs_at_origin: true,
+            ucs_per_viewport: true,
+            ucs_origin: [0.0; 3],
+            ucs_x: [1.0, 0.0, 0.0],
+            ucs_y: [0.0, 1.0, 0.0],
+            ucs_elevation: 0.0,
+            ucs_ortho: 0,
+            shade_plot_mode: 0,
+            default_lights: true,
+            lighting_type: 1,
+            brightness: 0.0,
+            contrast: 0.0,
+            ambient: None,
+            frozen_layers: Vec::new(),
+            clip_boundary: none,
+            vp_header: Some(s.handle()?),
+            named_ucs: none,
+            base_ucs: none,
+            r2007_handles: None,
+        })
+    }
+
     fn read(s: &mut In<'_>) -> Read<Self> {
         let center = s.data.bd3()?;
         let width = s.data.bd()?;
         let height = s.data.bd()?;
+        if !s.r2000() {
+            return Self::read_r14(s, center, width, height);
+        }
         let view_target = s.data.bd3()?;
         let view_direction = s.data.bd3()?;
         let twist = s.data.bd()?;
@@ -1596,6 +1755,10 @@ impl Viewport {
         o.data.bd3(self.center);
         o.data.bd(self.width);
         o.data.bd(self.height);
+        if !o.r2000() {
+            o.href(self.vp_header.unwrap_or(HandleRef { code: 5, value: 0 }));
+            return;
+        }
         o.data.bd3(self.view_target);
         o.data.bd3(self.view_direction);
         o.data.bd(self.twist);
@@ -1812,8 +1975,10 @@ impl LwPolyline {
         let id_count = if s.version >= Version::R2010 && flags & 1024 != 0 { self::count(s.data.bl()?)? } else { 0 };
         let width_count = if flags & 32 != 0 { self::count(s.data.bl()?)? } else { 0 };
         let mut points = Vec::with_capacity(count.min(1 << 16));
+        // R13・R14 はどの頂点も 2RD、R2000 以降は 2 つ目から前の頂点との差（DD）
+        let r2000 = s.r2000();
         for index in 0..count {
-            let point = if index == 0 { s.data.rd2()? } else { s.data.dd2(points[index - 1])? };
+            let point = if index == 0 || !r2000 { s.data.rd2()? } else { s.data.dd2(points[index - 1])? };
             points.push(point);
         }
         let mut bulges = Vec::with_capacity(bulge_count.min(1 << 16));
@@ -1857,8 +2022,9 @@ impl LwPolyline {
         if flags & 32 != 0 {
             o.data.bl(self.widths.len() as i32);
         }
+        let r2000 = o.r2000();
         for (index, point) in self.points.iter().enumerate() {
-            if index == 0 {
+            if index == 0 || !r2000 {
                 o.data.rd2(*point);
             } else {
                 o.data.dd2(*point, self.points[index - 1]);
@@ -1901,8 +2067,22 @@ pub(crate) struct Leader {
     pub arrowhead: bool,
     pub unknown_short: i16,
     pub unknown_bits: [bool; 2],
+    /// R13・R14 だけの値（20.4.47）
+    pub r14: Option<LeaderR14>,
     pub annotation: HandleRef,
     pub dimstyle: HandleRef,
+}
+
+/// LEADER の R13・R14 だけの値: 作ったときの DIMGAP × DIMSCALE、矢印の種類、作ったときの DIMASZ × DIMSCALE、
+/// 不明の B・B・BS、BYBLOCK の色、不明の B・B
+#[derive(Debug, Clone, PartialEq, Default)]
+pub(crate) struct LeaderR14 {
+    pub dimgap: f64,
+    pub arrowhead_type: i16,
+    pub dimasz: f64,
+    pub unknown: (bool, bool, i16),
+    pub byblock_color: i16,
+    pub unknown_bits: [bool; 2],
 }
 
 impl Leader {
@@ -1919,13 +2099,27 @@ impl Leader {
         let extrusion = s.data.bd3()?;
         let x_direction = s.data.bd3()?;
         let block_offset = s.data.bd3()?;
-        let end_projection = s.data.bd3()?;
+        // 終わりの点からのずれは R14 から、作ったときの DIMGAP は R13・R14 だけ
+        let end_projection = if s.version >= Version::R14 { s.data.bd3()? } else { [0.0; 3] };
+        let mut r14 = (!s.r2000()).then(LeaderR14::default);
+        if let Some(values) = &mut r14 {
+            values.dimgap = s.data.bd()?;
+        }
         // 枠の大きさは R2007 まで（ACadSharp と同じ。仕様書は全版とする）
         let box_size = if s.version <= Version::R2007 { Some([s.data.bd()?, s.data.bd()?]) } else { None };
         let hook_on_x = s.data.bit()?;
         let arrowhead = s.data.bit()?;
-        let unknown_short = s.data.bs()?;
-        let unknown_bits = [s.data.bit()?, s.data.bit()?];
+        let (mut unknown_short, mut unknown_bits) = (0, [false; 2]);
+        if let Some(values) = &mut r14 {
+            values.arrowhead_type = s.data.bs()?;
+            values.dimasz = s.data.bd()?;
+            values.unknown = (s.data.bit()?, s.data.bit()?, s.data.bs()?);
+            values.byblock_color = s.data.bs()?;
+            values.unknown_bits = [s.data.bit()?, s.data.bit()?];
+        } else {
+            unknown_short = s.data.bs()?;
+            unknown_bits = [s.data.bit()?, s.data.bit()?];
+        }
         Ok(Self {
             unknown_bit,
             annotation_type,
@@ -1941,6 +2135,7 @@ impl Leader {
             arrowhead,
             unknown_short,
             unknown_bits,
+            r14,
             annotation: s.handle()?,
             dimstyle: s.handle()?,
         })
@@ -1958,7 +2153,13 @@ impl Leader {
         o.data.bd3(self.extrusion);
         o.data.bd3(self.x_direction);
         o.data.bd3(self.block_offset);
-        o.data.bd3(self.end_projection);
+        if o.version >= Version::R14 {
+            o.data.bd3(self.end_projection);
+        }
+        let r14 = (!o.r2000()).then(|| self.r14.clone().unwrap_or_default());
+        if let Some(values) = &r14 {
+            o.data.bd(values.dimgap);
+        }
         if o.version <= Version::R2007 {
             let [height, width] = self.box_size.unwrap_or([0.0, 0.0]);
             o.data.bd(height);
@@ -1966,9 +2167,20 @@ impl Leader {
         }
         o.data.bit(self.hook_on_x);
         o.data.bit(self.arrowhead);
-        o.data.bs(self.unknown_short);
-        o.data.bit(self.unknown_bits[0]);
-        o.data.bit(self.unknown_bits[1]);
+        if let Some(values) = &r14 {
+            o.data.bs(values.arrowhead_type);
+            o.data.bd(values.dimasz);
+            o.data.bit(values.unknown.0);
+            o.data.bit(values.unknown.1);
+            o.data.bs(values.unknown.2);
+            o.data.bs(values.byblock_color);
+            o.data.bit(values.unknown_bits[0]);
+            o.data.bit(values.unknown_bits[1]);
+        } else {
+            o.data.bs(self.unknown_short);
+            o.data.bit(self.unknown_bits[0]);
+            o.data.bit(self.unknown_bits[1]);
+        }
         o.href(self.annotation);
         o.href(self.dimstyle);
     }

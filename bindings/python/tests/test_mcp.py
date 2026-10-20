@@ -10,11 +10,21 @@ from zumen import mcp, tools
 
 FIXTURES = pathlib.Path(__file__).parents[3] / "tests" / "fixtures"
 SFC = str(FIXTURES / "sfc" / "features.sfc")
+ROOMS = str(FIXTURES / "dxf" / "rooms.dxf")
 
 
 def test_wraps_the_functions_of_zumen_tools():
     # The functions behind the tools keep their names in zumen.mcp
-    for name in ["summary", "render", "find_texts", "find_entities", "get_entity", "measure", "compare_revisions"]:
+    for name in [
+        "summary",
+        "render",
+        "find_texts",
+        "find_entities",
+        "get_entity",
+        "measure",
+        "compare_revisions",
+        "find_regions",
+    ]:
         assert getattr(mcp, name) is getattr(tools, name)
     assert (mcp.Drawings, mcp.DrawingError, mcp.normalize) == (tools.Drawings, tools.DrawingError, tools.normalize)
     assert (mcp.MAX_LIMIT, mcp.MAX_POINTS) == (tools.MAX_LIMIT, tools.MAX_POINTS)
@@ -37,6 +47,7 @@ def test_serves_the_tools_over_mcp():
                 "find_entities",
                 "get_entity",
                 "measure_distance",
+                "find_regions",
                 "compare_drawings",
             }
             assert all(tool.annotations.read_only_hint for tool in listed.values())
@@ -65,6 +76,10 @@ def test_serves_the_tools_over_mcp():
             assert all("geometry" in item for item in listed.structured_content["entities"])
             too_many = await client.call_tool("get_entity", {"path": SFC, "id": "#600", "max_points": 10**6})
             assert too_many.is_error
+
+            rooms = await client.call_tool("find_regions", {"path": ROOMS, "layer": "wall", "named": True})
+            assert [room["texts"][0]["text"] for room in rooms.structured_content["regions"]] == ["LDK", "寝室"]
+            assert rooms.structured_content["regions"][1]["real_area_m2"] == 16.53
 
             missing = await client.call_tool("get_entity", {"path": SFC, "id": "no such id"})
             assert missing.is_error and "no such id" in missing.content[0].text

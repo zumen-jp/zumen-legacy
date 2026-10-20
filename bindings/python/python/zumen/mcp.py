@@ -1,4 +1,5 @@
-"""An MCP server that lets AI applications open, render, search, measure and compare drawings, and read their geometry.
+"""An MCP server that lets AI applications open, render, search, measure and compare drawings, read their geometry,
+and find the regions (rooms) that their lines close.
 
 Install it with ``pip install "zumen[mcp]"`` and start it with ``zumen-mcp`` (or ``python -m zumen.mcp``).
 It speaks MCP over stdio and reads drawing files from the local disk; ``--root`` limits the directories it may read.
@@ -31,6 +32,7 @@ from .tools import (
     Drawings,
     compare_revisions,
     find_entities,
+    find_regions,
     find_texts,
     get_entity,
     measure,
@@ -284,6 +286,54 @@ def create_server(drawings: Drawings | None = None) -> Any:
         the part of the drawing they sit in (a sub-figure, a layer group or a viewport)."""
         try:
             data = measure(scene_of(path, view), start, end, entity=entity)
+        except DrawingError as error:
+            raise ToolError(str(error)) from error
+        return result(data)
+
+    @server.tool(name="find_regions", annotations=read_only)
+    def find_regions_tool(
+        path: DrawingPath,
+        view: View = None,
+        region: Region = None,
+        frame_region: FrameRegion = None,
+        layer: Annotated[
+            str | None, Field(description="Use only the lines on layers whose name contains this, such as walls")
+        ] = None,
+        all_layers: AllLayers = False,
+        tolerance: Annotated[
+            float, Field(description="Ends closer than this many paper millimeters are joined", gt=0)
+        ] = 0.01,
+        min_area_m2: Annotated[
+            float, Field(description="Keep the regions of at least this real-world area in square meters", ge=0)
+        ] = 0.0,
+        named: Annotated[bool, Field(description="Keep only the regions with a text inside, such as a room name")] = (
+            False
+        ),
+        limit: Limit = DEFAULT_LIMIT,
+        offset: Offset = 0,
+        max_points: MaxPoints = DEFAULT_MAX_POINTS,
+    ) -> CallToolResult:
+        """Find the regions that the drawn lines close, such as rooms: lines, polylines, arcs, circles and solids are
+        split where they cross and joined where they meet, and every face they close is a region, with its area and
+        perimeter on the sheet and in the real world (real_area_m2, real_perimeter in millimeters), its outline and
+        holes, the entities that bound it, and the texts inside (room names, areas written on the drawing). Closed
+        shapes inside that touch no other line (columns, furniture) are holes. Which regions are rooms is left to you:
+        narrow with layer (walls), named or min_area_m2. A room whose walls leave an opening joins the next one.
+        A page ends before the points pass max_points; go on from next_offset."""
+        try:
+            data = find_regions(
+                scene_of(path, view),
+                region=region,
+                frame_region=frame_region,
+                layer=layer,
+                all_layers=all_layers,
+                tolerance=tolerance,
+                min_area_m2=min_area_m2,
+                named=named,
+                limit=limit,
+                offset=offset,
+                max_points=max_points,
+            )
         except DrawingError as error:
             raise ToolError(str(error)) from error
         return result(data)

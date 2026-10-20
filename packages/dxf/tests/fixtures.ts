@@ -871,6 +871,30 @@ export const IDS = latin1(ascii(
   0, "EOF",
 ));
 
+/**
+ * 部屋と面積（zumen_core::regions）を確かめる平面図。外壁と内壁の 2 本の線、x = 4,950 と 5,050 の間仕切り（内壁に T 字で
+ * つながる）、左の部屋の中の柱（円）、右の部屋の中の家具（別のレイヤ）、外に出た行き止まりの線と、室名の文字
+ */
+// biome-ignore format: DXF のタグ（グループコードと値）の組を 1 行に並べて読めるようにする
+export const ROOMS = new TextEncoder().encode(ascii(
+  0, "SECTION", 2, "HEADER", 9, "$ACADVER", 1, "AC1032", 9, "$INSUNITS", 70, 4, 0, "ENDSEC",
+  0, "SECTION", 2, "ENTITIES",
+  ...entity("LWPOLYLINE", "20", "WALL", [], "AcDbPolyline", 90, 4, 70, 1, 10, 0, 20, 0, 10, 8000, 20, 0, 10, 8000,
+    20, 6000, 10, 0, 20, 6000),
+  ...entity("LWPOLYLINE", "21", "WALL", [], "AcDbPolyline", 90, 4, 70, 1, 10, 100, 20, 100, 10, 7900, 20, 100,
+    10, 7900, 20, 5900, 10, 100, 20, 5900),
+  ...entity("LINE", "22", "WALL", [], "AcDbLine", 10, 4950, 20, 100, 30, 0, 11, 4950, 21, 5900, 31, 0),
+  ...entity("LINE", "23", "WALL", [], "AcDbLine", 10, 5050, 20, 100, 30, 0, 11, 5050, 21, 5900, 31, 0),
+  ...entity("LINE", "24", "WALL", [], "AcDbLine", 10, 8000, 20, 3000, 30, 0, 11, 8600, 21, 3000, 31, 0),
+  ...entity("CIRCLE", "25", "WALL", [], "AcDbCircle", 10, 2500, 20, 3000, 30, 0, 40, 200),
+  ...entity("LWPOLYLINE", "26", "FURNITURE", [], "AcDbPolyline", 90, 4, 70, 1, 10, 6000, 20, 4000, 10, 7000,
+    20, 4000, 10, 7000, 20, 5000, 10, 6000, 20, 5000),
+  ...entity("TEXT", "27", "TEXT", [], "AcDbText", 10, 1800, 20, 4500, 30, 0, 40, 250, 1, "LDK", 100, "AcDbText"),
+  ...entity("TEXT", "28", "TEXT", [], "AcDbText", 10, 5800, 20, 2500, 30, 0, 40, 250, 1, "寝室", 100, "AcDbText"),
+  ...entity("TEXT", "29", "TEXT", [], "AcDbText", 10, 8200, 20, 3200, 30, 0, 40, 250, 1, "N", 100, "AcDbText"),
+  0, "ENDSEC", 0, "EOF",
+));
+
 /** 正解ファイルにする図面と、既定の表示のほかに描く表示（レイアウト） */
 export const DRAWINGS: [string, Uint8Array, string[]][] = [
   ["codepage", CODEPAGE, []],
@@ -897,4 +921,5 @@ export const DRAWINGS: [string, Uint8Array, string[]][] = [
   ["dimstyle-defaults", DIMSTYLE_DEFAULTS, []],
   ["vertical-text", VERTICAL_TEXT, []],
   ["ids", IDS, []],
+  ["rooms", ROOMS, []],
 ];

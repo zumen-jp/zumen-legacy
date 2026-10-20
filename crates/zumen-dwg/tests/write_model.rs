@@ -19,7 +19,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use zumen_core::Scene;
 use zumen_dwg::DwgVersion;
-use zumen_dxf::{DxfDocument, DxfEntity, DxfEntityData, DxfVersion, dxf_to_scene, parse_dxf};
+use zumen_dxf::{DxfDocument, DxfEntity, DxfEntityData, DxfSpace, DxfVersion, dxf_to_scene, parse_dxf};
 
 fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures")
@@ -288,6 +288,35 @@ fn reduced(doc: &DxfDocument, version: DwgVersion) -> DxfDocument {
     doc
 }
 
+/// R13・R14 が持てない値を、DWG の書き出しと同じく落とした図面（書き出しが notices で知らせる）。線の太さ（読み取りは
+/// 図形を BYLAYER、レイヤを既定とする）、レイヤを印刷しない設定、長さの単位、ビューポートの非矩形の切り抜き、複数行の
+/// 文字の行間
+fn reduced_r14(doc: &DxfDocument) -> DxfDocument {
+    let mut doc = doc.clone();
+    doc.header.insunits = 0.0;
+    for layer in &mut doc.layers {
+        layer.plot = true;
+        layer.lineweight = -3.0;
+    }
+    fn entity(item: &mut DxfEntity) {
+        item.base.lineweight = -1.0;
+        match &mut item.data {
+            DxfEntityData::Viewport(viewport) => {
+                viewport.clipping_boundary_handle = None;
+                viewport.status_flags = f64::from(viewport.status_flags as i32 & !0x10000);
+            }
+            DxfEntityData::MText(mtext) => {
+                mtext.line_spacing_style = 1.0;
+                mtext.line_spacing_factor = 1.0;
+            }
+            DxfEntityData::Insert(insert) => insert.attribs.iter_mut().for_each(entity),
+            _ => {}
+        }
+    }
+    doc.entities.iter_mut().for_each(entity);
+    doc
+}
+
 /// ハンドルのない図形に、元の最大より後のハンドルを振った図面（DXF と DWG の書き出しが別々に振るハンドルで、比べる
 /// 図形がずれないように）
 fn with_handles(doc: &DxfDocument) -> DxfDocument {
@@ -318,7 +347,8 @@ fn with_handles(doc: &DxfDocument) -> DxfDocument {
 }
 
 /// 図面をそれぞれの版の DWG に書いて読み直し、同じ版の DXF に書いて読み直した図面（`write_dxf_as` は版が持てない値を
-/// DWG の書き出しと同じ形にする）と、すべての表示で比べる
+/// DWG の書き出しと同じ形にする）と、すべての表示で比べる。R13・R14 の DXF は書けないので、R13・R14 が持てない値を
+/// 落とした図面を 2000 の DXF に書いて読み直した図面と比べる
 fn check_as(name: &str, bytes: &[u8], version: DwgVersion) -> (usize, Vec<String>) {
     let Some(doc) = model(bytes) else { return (0, Vec::new()) };
     let doc = with_handles(&doc);
@@ -328,8 +358,10 @@ fn check_as(name: &str, bytes: &[u8], version: DwgVersion) -> (usize, Vec<String
         Err(error) => return (0, vec![format!("{name} {}: rereading: {error}", version.name())]),
     };
     assert_eq!(again.version, version.code(), "{name}");
-    let dxf = DxfVersion::parse(version.name()).unwrap();
-    let reference = parse_dxf(&zumen_dxf::write_dxf_as(&reduced(&doc, version), dxf).bytes);
+    let reference = match DxfVersion::parse(version.name()) {
+        Some(dxf) => parse_dxf(&zumen_dxf::write_dxf_as(&reduced(&doc, version), dxf).bytes),
+        None => parse_dxf(&zumen_dxf::write_dxf_as(&reduced_r14(&reduced(&doc, version)), DxfVersion::R2000).bytes),
+    };
     let skipped = fit_splines(&doc);
     let reference = expected_as(&reference, version);
     let original = dxf_to_scene(&reference, None);
@@ -526,6 +558,8 @@ fn reports_what_older_versions_cannot_hold() {
     let codes = |version: DwgVersion| -> Vec<String> {
         zumen_dwg::write_dwg_as(&doc, version).notices.into_iter().map(|notice| notice.code).collect()
     };
+    // R13・R14 は線の太さ・レイヤを印刷しない設定・長さの単位・複数行の文字の行間を持たず、R13 は HATCH を持たない
+    let before_2000 = ["version-lineweight", "version-layer-plot", "version-units", "version-line-spacing"];
     let before_2004 = ["version-color", "version-transparency", "version-gradient", "version-dimension"];
     let before_2007 = ["version-background", "version-mleader"];
     let before_2010 = ["version-mleader-2010"];
@@ -536,9 +570,33 @@ fn reports_what_older_versions_cannot_hold() {
                 assert_eq!(codes.iter().any(|known| known == code), version < since, "{code} in {}", version.name());
             }
         };
+        expected(&["version-hatch"], DwgVersion::R14);
+        expected(&before_2000, DwgVersion::R2000);
         expected(&before_2004, DwgVersion::R2004);
         expected(&before_2007, DwgVersion::R2007);
         expected(&before_2010, DwgVersion::R2010);
+    }
+    // R13・R14 が表示する紙空間は 1 つで、ビューポートの切り抜きは矩形だけ
+    let mut doc = parse_dxf(&fs::read(fixtures().join("dxf/viewports.dxf")).unwrap());
+    let boundary = doc
+        .entities
+        .iter()
+        .find(|entity| entity.base.space == DxfSpace::Paper && !matches!(entity.data, DxfEntityData::Viewport(_)))
+        .map(|entity| entity.base.handle.clone())
+        .unwrap();
+    let viewport = doc.entities.iter_mut().rev().find_map(|entity| match &mut entity.data {
+        DxfEntityData::Viewport(viewport) if entity.base.space == DxfSpace::Paper => Some(viewport),
+        _ => None,
+    });
+    viewport.unwrap().clipping_boundary_handle = Some(boundary);
+    for version in DwgVersion::ALL {
+        let written = zumen_dwg::write_dwg_as(&doc, version);
+        for code in ["version-layouts", "version-viewport-clip"] {
+            let found = written.notices.iter().any(|notice| notice.code == code);
+            assert_eq!(found, version < DwgVersion::R2000, "{code} in {}", version.name());
+        }
+        let again = zumen_dwg::read_dwg(&written.bytes).unwrap();
+        assert_eq!(again.layouts.len(), doc.layouts.len(), "{}", version.name());
     }
     // 複数行の属性は 2018 から（それより前は 1 行の属性にして知らせる）
     let doc = parse_dxf(&fs::read(fixtures().join("dxf/attributes-multiline.dxf")).unwrap());

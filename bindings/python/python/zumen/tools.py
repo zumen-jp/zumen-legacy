@@ -394,6 +394,51 @@ class EntityDetail(_EntityDetail, total=False):
     truncated: bool
 
 
+class RegionTextInfo(TypedDict):
+    """A text inside a region: the entity id, the text and the center of its box (paper millimeters)."""
+
+    id: str
+    text: str
+    point: list[float]
+
+
+class _RegionInfo(TypedDict):
+    bbox: list[float]
+    paper_area: float
+    paper_perimeter: float
+    placement: PlacementName | None
+    boundary: list[str]
+    texts: list[RegionTextInfo]
+
+
+class RegionInfo(_RegionInfo, total=False):
+    """A region that drawn lines close: its box, area (square paper millimeters, holes left out) and perimeter
+    (paper millimeters), the outline (counterclockwise) and holes (clockwise) as points, the ids of the entities
+    that bound it and the texts inside. Inside a placement, ``real_area_m2`` and ``real_perimeter`` (millimeters)
+    give the real-world size, and ``real_outline`` and ``real_holes`` repeat the points in real-world millimeters
+    unless they are the same as on the sheet. ``real_outline_area_m2`` is the area inside the outline when holes
+    were left out of ``real_area_m2``. ``outline_omitted`` is true when the points did not fit in ``max_points``."""
+
+    outline: list[list[float]]
+    holes: list[list[list[float]]]
+    real_area_m2: float
+    real_outline_area_m2: float
+    real_perimeter: float
+    real_outline: list[list[float]]
+    real_holes: list[list[list[float]]]
+    outline_omitted: bool
+    truncated: bool
+
+
+class RegionPage(TypedDict):
+    """A page of ``find_regions``: ``total`` regions match, and ``next_offset`` goes on (``None`` at the end)."""
+
+    total: int
+    offset: int
+    next_offset: int | None
+    regions: list[RegionInfo]
+
+
 class _MeasurementInfo(TypedDict):
     paper: float
     real: float | None
@@ -1098,6 +1143,111 @@ def get_entity(
     if cut:
         result["truncated"] = True
     return result
+
+
+def _ring(points: Sequence[Sequence[float]]) -> list[list[float]]:
+    return [_point(point) for point in points]
+
+
+def _m2(value: float) -> float:
+    """Square real-world millimeters as square meters, rounded to 0.0001 (one square centimeter)."""
+    rounded = round(value / 1_000_000, 4)
+    return rounded if rounded != 0 else 0.0
+
+
+def find_regions(
+    scene: Scene,
+    *,
+    region: Sequence[float] | None = None,
+    frame_region: Sequence[float] | None = None,
+    layer: str | None = None,
+    all_layers: bool = False,
+    tolerance: float = 0.01,
+    min_area_m2: float = 0.0,
+    named: bool = False,
+    limit: int = DEFAULT_LIMIT,
+    offset: int = 0,
+    max_points: int = DEFAULT_MAX_POINTS,
+    max_text_length: int | None = DEFAULT_TEXT_LENGTH,
+) -> RegionPage:
+    """The regions that drawn lines close, such as rooms, with their areas and the texts inside, in reading order
+    (top to bottom, then left to right) for each placement.
+
+    Lines (lines, polylines, arcs, circles, splines and solids, not dimensions, texts or hatches) are split where
+    they cross or meet and joined where their ends are closer than ``tolerance`` paper millimeters; every face they
+    close is a region. Lines that end nowhere close nothing, and closed shapes that touch no other line (columns,
+    fixtures) are holes of the region around them and regions of their own. Lines of placements at different scales
+    are never joined. The function does not decide what is a room: ``layer`` keeps only the lines on layers whose
+    name contains it (such as walls), ``named`` keeps the regions with a text inside, and ``min_area_m2`` keeps the
+    regions of at least that real-world area, which leaves out regions outside a placement. A region whose walls
+    have an opening (a door drawn as a gap) is joined with the next one.
+    """
+    if not (math.isfinite(tolerance) and tolerance > 0):
+        raise DrawingError("tolerance must be a positive number of millimeters")
+    if not (math.isfinite(min_area_m2) and min_area_m2 >= 0):
+        raise DrawingError("min_area_m2 must be a number of square meters, 0 or more")
+    limit, offset = _page(limit, offset)
+    budget = _max_points(max_points)
+    length = _text_length(max_text_length)
+    layers = None
+    if layer:
+        wanted = normalize(layer)
+        layers = [item["id"] for item in scene.layers if wanted in normalize(str(item["name"]))]
+    regions = scene.regions(
+        region=_region(scene, region, frame_region),
+        hidden_layers=[] if all_layers else None,
+        layers=layers,
+        tolerance=tolerance,
+    )
+    if min_area_m2 > 0:
+        regions = [item for item in regions if item["real"] and item["real"]["area"] >= min_area_m2 * 1_000_000]
+    if named:
+        regions = [item for item in regions if item["texts"]]
+    page: list[RegionInfo] = []
+    for found in regions[offset : offset + limit]:
+        placement = _placement(found["placement"]) if found["placement"] else None
+        info: RegionInfo = {
+            "bbox": _box(found["bbox"]),
+            "paper_area": _mm(found["area"]),
+            "paper_perimeter": _mm(found["perimeter"]),
+            "placement": {"name": placement["name"], "scale": placement["scale"]} if placement else None,
+            "boundary": found["boundary"],
+            "texts": [],
+        }
+        for text in found["texts"]:
+            clipped, cut = _clip(text["text"], length)
+            if cut:
+                info["truncated"] = True
+            info["texts"].append({"id": text["id"], "text": clipped, "point": _point((text["x"], text["y"]))})
+        real = found["real"]
+        if real is not None:
+            info["real_area_m2"] = _m2(real["area"])
+            if real["holes"]:
+                info["real_outline_area_m2"] = _m2(real["outline_area"])
+            info["real_perimeter"] = _mm(real["perimeter"])
+        same = found["placement"] is None or tuple(found["placement"]["inverse"]) == _SAME
+        points = len(found["outline"]) + sum(len(hole) for hole in found["holes"])
+        count = points * (1 if same else 2)
+        # The first region of a page always comes, without its points when they do not fit, so that paging goes on
+        if count > budget:
+            if page:
+                break
+            info["outline_omitted"] = True
+        else:
+            info["outline"] = _ring(found["outline"])
+            info["holes"] = [_ring(hole) for hole in found["holes"]]
+            if real is not None and not same:
+                info["real_outline"] = _ring(real["outline"])
+                info["real_holes"] = [_ring(hole) for hole in real["holes"]]
+            budget -= count
+        page.append(info)
+    following = offset + len(page)
+    return {
+        "total": len(regions),
+        "offset": offset,
+        "next_offset": following if following < len(regions) else None,
+        "regions": page,
+    }
 
 
 def _picked(scene: Scene, x: float, y: float) -> dict[str, Any] | None:

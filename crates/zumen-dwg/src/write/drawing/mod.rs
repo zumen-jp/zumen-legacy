@@ -1,4 +1,4 @@
-//! AutoCAD の図面のモデル（`DxfDocument`）を DWG に書く。版は AutoCAD 2000〜2018 から選ぶ（既定は AutoCAD 2013、
+//! AutoCAD の図面のモデル（`DxfDocument`）を DWG に書く。版は AutoCAD R13〜2018 から選ぶ（既定は AutoCAD 2013、
 //! AC1027）。DXF・DWG から読んだ図面を DWG にする変換に使う。決め方は DXF の書き出し（zumen-dxf の write.rs）と同じ:
 //!
 //! - ハンドルは元の図面のものを保ち、ないもの・重なるものには新しいハンドルを振る
@@ -10,13 +10,15 @@
 //! DWG はすべての値を持つので、モデルにない値は AutoCAD の既定の値（acad.dwt）で書く。オブジェクトは可逆の
 //! 読み書き（codec）の構造体に組み立てて書く（実物の図面を読んで書くと同じビット列になることを確かめた並び）。
 //! どの版にも同じオブジェクトを置く（AutoCAD もマテリアル・尺度・マルチ引出線のスタイルなどを古い版に保存する）。
-//! R2000 は図形を前後のつながりでたどり（20.4.1 の Nolinks）、紙空間のビューポートに VIEWPORT ENTITY HEADER（20.4.70）
-//! を置く
+//! R13〜R2000 は図形を前後のつながりでたどり（20.4.1 の Nolinks）、紙空間のビューポートに VIEWPORT ENTITY HEADER
+//! （20.4.70）を置く。R13・R14 は R2000 より前の形（線の太さ・単位などがなく、ビューポートの表示は拡張データの MVIEW）
 
 mod entities;
 mod header;
 mod objects;
 mod tables;
+
+pub(crate) use objects::class_def;
 
 use super::DwgWritten;
 use super::classes::ClassDef;
@@ -251,6 +253,9 @@ pub(super) struct Writer<'a> {
     /// 2004 より前の版で、最も近い色の番号にしたトゥルーカラーと、書かなかった透過度の数
     pub version_colors: Cell<u64>,
     pub version_transparency: Cell<u64>,
+    /// 2000 より前の版で書かなかった線の太さ（図形・レイヤ）と、レイヤの印刷しない設定の数
+    pub version_lineweights: Cell<u64>,
+    pub version_plot: Cell<u64>,
     /// R2000 の紙空間（*Paper_Space）のビューポートと、その VIEWPORT ENTITY HEADER（20.4.70）のハンドル
     pub viewport_headers: Vec<(u64, u64)>,
     /// R2000 で持ち主（POLYLINE・INSERT）の直後に並べる頂点・属性と SEQEND（AutoCAD の図面と同じ並び。持つ図形の並びの
@@ -426,6 +431,8 @@ impl<'a> Writer<'a> {
             long_texts: Cell::new(0),
             version_colors: Cell::new(0),
             version_transparency: Cell::new(0),
+            version_lineweights: Cell::new(0),
+            version_plot: Cell::new(0),
             viewport_headers: Vec::new(),
             followers: HashMap::new(),
         }
@@ -434,6 +441,11 @@ impl<'a> Writer<'a> {
     /// 2004 より前の版（トゥルーカラー・透過度・グラデーション・円弧の長さの寸法を持たない）
     pub(super) fn before_2004(&self) -> bool {
         self.version < Version::R2004
+    }
+
+    /// 2000 より前の版（R13・R14。線の太さ・印刷スタイル・長さの単位・レイアウトのオブジェクトの型を持たない）
+    pub(super) fn before_2000(&self) -> bool {
+        self.version < Version::R2000
     }
 
     /// 元のハンドルを保つ（読めないか重なれば新しく振る）。参照を付け替えられるよう、元 → 書いたハンドルを覚える
@@ -976,6 +988,40 @@ impl<'a> Writer<'a> {
                 self.version_transparency.get(),
             );
         }
+        if self.version_lineweights.get() > 0 {
+            self.notices.add_count(
+                NoticeLevel::Info,
+                "version-lineweight",
+                "線の太さは、AutoCAD 2000 より前の版にないため、書きませんでした",
+                self.version_lineweights.get(),
+            );
+        }
+        if self.version_plot.get() > 0 {
+            self.notices.add_count(
+                NoticeLevel::Info,
+                "version-layer-plot",
+                "レイヤを印刷しない設定は、AutoCAD 2000 より前の版にないため、書きませんでした",
+                self.version_plot.get(),
+            );
+        }
+        if self.before_2000() && self.doc.header.insunits != 0.0 {
+            self.notices.add(
+                NoticeLevel::Info,
+                "version-units",
+                "長さの単位は、AutoCAD 2000 より前の版にないため、書きませんでした（単位のない図面として読まれ、zumen は mm とみなします）",
+            );
+        }
+        // R13・R14 の紙空間は *Paper_Space の 1 つ。ほかのレイアウトは、AutoCAD が R14 の形に保存するときと同じく LAYOUT と
+        // *Paper_Space… のブロックに書く（AutoCAD 2000 以降と zumen は読む）
+        let other_layouts = self.layouts.len().saturating_sub(2);
+        if self.before_2000() && other_layouts > 0 {
+            self.notices.add_count(
+                NoticeLevel::Info,
+                "version-layouts",
+                "AutoCAD 2000 より前の版は紙空間を 1 つしか表示しないため、現在のレイアウトのほかのレイアウトは、AutoCAD 2000 以降が表示する形で書きました",
+                other_layouts as u64,
+            );
+        }
         let classes: Vec<ClassDef> = self
             .classes
             .iter()
@@ -1262,7 +1308,7 @@ mod tests {
                     let written = write_dwg_as(&doc, target);
                     let name = format!("{} {}", path.file_name().unwrap().to_string_lossy(), target.name());
                     match target.version() {
-                        Version::R2000 => check_r2000(&name, &written.bytes),
+                        Version::R13 | Version::R14 | Version::R2000 => check_r2000(&name, &written.bytes),
                         Version::R2007 => {
                             check_r2007(&name, &written.bytes);
                         }
@@ -1274,7 +1320,7 @@ mod tests {
         }
         assert!(failures.is_empty(), "{}", failures.join("\n"));
         assert!(counts.unknown.is_empty(), "{:?}", counts.unknown);
-        // R2000 の VIEWPORT ENTITY HEADER の表と項目も確かめた
+        // R2000 より前と R2000 の VIEWPORT ENTITY HEADER の表と項目も確かめた
         assert!(counts.checked.contains_key("70") && counts.checked.contains_key("71"), "{:?}", counts.checked);
     }
 
