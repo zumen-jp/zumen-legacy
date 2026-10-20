@@ -116,7 +116,7 @@ def test_the_schema_converts_to_json_schema():
 
 def test_summarizes_a_drawing():
     info = tools.summary(zumen.read(SFC))
-    assert (info["format"], info["version"], info["views"]) == ("sfc", "SXF 3.1", None)
+    assert (info["format"], info["version"], info["unit"], info["views"]) == ("sfc", "SXF 3.1", "millimeter", None)
     assert info["sheet"] == {"name": "平面図", "size": "A3 縦", "width": 297.0, "height": 420.0}
     assert info["bounds"] == [0.0, 0.0, 297.0, 420.0]  # the frame: the sheet and every entity
     assert info["entities"] == sum(info["types"].values()) == sum(info["kinds"].values())

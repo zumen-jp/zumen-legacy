@@ -11,6 +11,7 @@ export type {
   EntityKind,
   FillPrimitive,
   GlyphCell,
+  LengthUnit,
   Notice,
   NoticeLevel,
   Placement,
@@ -26,4 +27,4 @@ export type {
   StrokeStyle,
   TextPrimitive,
 } from "./types.js";
-export { BACKGROUND_COLOR, ENTITY_KINDS } from "./types.js";
+export { BACKGROUND_COLOR, ENTITY_KINDS, LENGTH_UNITS } from "./types.js";

@@ -41,6 +41,11 @@
   `zumen_core::limits::admit` and call `limits::tick` in loops over input records (applications set their own limits
   on bytes, entities and time), and after changing a TypeScript
   reader run `pnpm run golden` and fix the Rust side until `cargo test -p zumen` passes. Never change a golden file by hand.
+- Entity ids are a contract ([Entity ids](docs/architecture.md#entity-ids)): the same bytes give the same ids in
+  every version. `crates/zumen/tests/ids.rs` compares them with `crates/zumen/tests/ids.json`, which
+  `pnpm run golden` does not rewrite. When a fixture's bytes change or a fixture is added, check its ids and record
+  them with `ZUMEN_RECORD_IDS=1 cargo test -p zumen --test ids`; a reader change that renames the entities of
+  unchanged bytes needs a decision first.
 - Rust runtime dependencies follow the same rules as npm ones (no GPL or AGPL, works in WebAssembly) and are recorded
   with the reason in `docs/architecture.md`.
 - Work on a branch cut from the latest `origin/main` and open a pull request for every change; do not push to `main`.

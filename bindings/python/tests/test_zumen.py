@@ -30,6 +30,24 @@ def test_reads_a_drawing_from_a_path_and_returns_the_typescript_scene():
     assert json.loads(scene.to_json()) == golden
 
 
+def test_tells_the_length_unit_of_the_drawing():
+    # The unit of the drawing's own coordinates, those of values: millimeters in SXF and JWW, $INSUNITS in DXF and DWG
+    assert zumen.read(FIXTURES / "sfc" / "sample.sfc").unit == "millimeter"
+    assert zumen.read(FIXTURES / "jww" / "minimal-v700.jww").unit == "millimeter"
+    assert zumen.read(FIXTURES / "dxf" / "blocks.dxf").unit == "meter"
+    assert zumen.read(FIXTURES / "dwg" / "r2018.dwg").unit == "meter"
+    # Without $INSUNITS, the unit assumed for an imperial drawing, with a notice
+    r12 = zumen.read(FIXTURES / "dxf" / "r12.dxf")
+    assert r12.unit == "inch" and any(notice["code"] == "unit-assumed" for notice in r12.notices)
+
+
+def test_names_entities_without_a_handle_by_their_record_in_the_file():
+    # DXF files written without handles (R12) used to give every entity the id "?"
+    scene = zumen.read(FIXTURES / "dxf" / "ids.dxf")
+    assert [entity["id"] for entity in scene.entities()] == ["#7", "#9", "#10>#3", "#10>#11", "#10>#12"]
+    assert scene.entity("#10>#12")["text"] == "B"
+
+
 def test_reads_sxf_and_detects_sfc_and_p21():
     sfc = (FIXTURES / "sfc" / "sample.sfc").read_bytes()
     assert (zumen.detect(sfc), zumen.detect((FIXTURES / "p21" / "sample.p21").read_bytes())) == ("sfc", "p21")

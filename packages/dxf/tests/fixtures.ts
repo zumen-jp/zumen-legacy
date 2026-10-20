@@ -848,6 +848,29 @@ export const VERTICAL_TEXT = new TextEncoder().encode(ascii(
   0, "ENDSEC", 0, "EOF",
 ));
 
+/**
+ * ハンドルのない図形の id は、ファイルの先頭から数えたレコードの位置（docs/architecture.md の「Entity ids」）。
+ * 読まない SHAPE も数え、ブロックの中の線と INSERT の属性が重ならないことを確かめる
+ */
+// biome-ignore format: DXF のタグ（グループコードと値）の組を 1 行に並べて読めるようにする
+export const IDS = latin1(ascii(
+  0, "SECTION", 2, "BLOCKS",
+  0, "BLOCK", 8, "0", 2, "B", 70, 2, 10, 0, 20, 0, 3, "B",
+  0, "LINE", 8, "0", 10, 0, 20, 0, 11, 1, 21, 0,
+  0, "ENDBLK", 8, "0",
+  0, "ENDSEC",
+  0, "SECTION", 2, "ENTITIES",
+  0, "LINE", 8, "0", 10, 0, 20, 0, 11, 10, 21, 0,
+  0, "SHAPE", 8, "0", 10, 0, 20, 0, 40, 1, 2, "S",
+  0, "LINE", 8, "0", 10, 0, 20, 5, 11, 10, 21, 5,
+  0, "INSERT", 8, "0", 66, 1, 2, "B", 10, 20, 20, 0,
+  0, "ATTRIB", 8, "0", 10, 20, 20, 2, 40, 1, 1, "A", 2, "TAG1", 70, 0,
+  0, "ATTRIB", 8, "0", 10, 20, 20, 4, 40, 1, 1, "B", 2, "TAG2", 70, 0,
+  0, "SEQEND", 8, "0",
+  0, "ENDSEC",
+  0, "EOF",
+));
+
 /** 正解ファイルにする図面と、既定の表示のほかに描く表示（レイアウト） */
 export const DRAWINGS: [string, Uint8Array, string[]][] = [
   ["codepage", CODEPAGE, []],
@@ -873,4 +896,5 @@ export const DRAWINGS: [string, Uint8Array, string[]][] = [
   ["binary-text", BINARY_TEXT, []],
   ["dimstyle-defaults", DIMSTYLE_DEFAULTS, []],
   ["vertical-text", VERTICAL_TEXT, []],
+  ["ids", IDS, []],
 ];

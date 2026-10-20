@@ -23,12 +23,14 @@ import {
   BLOCKS,
   CODEPAGE,
   DIMSTYLE_DEFAULTS,
+  IDS,
   LAYOUT,
   LIMITS,
   latin1,
   MISALIGNED,
   MLEADER,
   MLINE,
+  R12,
   R12_SHIFT_JIS,
   VERTICAL_TEXT,
   WESTERN,
@@ -103,6 +105,34 @@ describe("DXF の単位とブロックの入れ子", () => {
     const layerA = scene.layers.find((layer) => layer.name === "A");
     expect(line?.layers).toEqual([layerA?.id]);
     expect(line?.primitives[0]).toMatchObject({ kind: "stroke", color: "#ff0000" });
+  });
+});
+
+/**
+ * id はファイルから決まり、同じファイルなら版を重ねても変わらない（docs/architecture.md の「Entity ids」）。
+ * ハンドルのない図形（R12 の図面など）は、ファイルの先頭から数えたレコード（グループコード 0）の位置で表す。
+ * 読まない種類の図形も数えるので、読める種類が増えても id は変わらず、ブロックの中と INSERT の属性でも重ならない。
+ */
+describe("DXF の id と単位", () => {
+  it("ハンドルのない図形は、ファイルの中のレコードの位置で表す", () => {
+    const drawing = IDS;
+    const doc = parseDxf(drawing);
+    expect(doc.entities.map((entity) => entity.ordinal)).toEqual([3, 7, 9, 10]);
+    expect((doc.entities[3] as DxfInsert).attribs.map((attribute) => attribute.ordinal)).toEqual([11, 12]);
+    // SHAPE（8 番目のレコード）は読まないが数える。ブロックの中の線と属性は、どれも別の id になる
+    const scene = readDrawing(drawing, [dxf]);
+    expect(scene.entities.map((entity) => entity.id)).toEqual(["#7", "#9", "#10>#3", "#10>#11", "#10>#12"]);
+    // ハンドルのある図形はハンドルで表し、位置を持たない
+    const handled = parseDxf(BLOCKS);
+    expect(handled.entities.every((entity) => entity.handle !== "" && entity.ordinal === undefined)).toBe(true);
+  });
+
+  it("$INSUNITS の単位を Scene.unit に示し、指定がなければ見なした単位にする", () => {
+    expect(readDrawing(BLOCKS, [dxf]).unit).toBe("meter");
+    expect(readDrawing(LAYOUT, [dxf]).unit).toBe("millimeter");
+    const r12 = readDrawing(R12, [dxf]);
+    expect(r12.unit).toBe("inch");
+    expect(r12.notices.some((notice) => notice.code === "unit-assumed")).toBe(true);
   });
 });
 

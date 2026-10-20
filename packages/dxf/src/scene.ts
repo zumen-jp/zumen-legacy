@@ -2,6 +2,7 @@ import {
   BACKGROUND_COLOR,
   type Box,
   type EntityKind,
+  type LengthUnit,
   NoticeList,
   type Placement,
   type Primitive,
@@ -123,6 +124,31 @@ const UNIT_NAMES: Readonly<Record<number, string>> = {
   13: "μm",
   14: "dm",
   21: "US 測量フィート",
+};
+
+/** $INSUNITS の単位の、形式によらないキー（Scene.unit） */
+const LENGTH_UNIT_OF: Readonly<Record<number, LengthUnit>> = {
+  1: "inch",
+  2: "foot",
+  3: "mile",
+  4: "millimeter",
+  5: "centimeter",
+  6: "meter",
+  7: "kilometer",
+  8: "microinch",
+  9: "mil",
+  10: "yard",
+  11: "angstrom",
+  12: "nanometer",
+  13: "micrometer",
+  14: "decimeter",
+  15: "decameter",
+  16: "hectometer",
+  17: "gigameter",
+  18: "astronomical-unit",
+  19: "light-year",
+  20: "parsec",
+  21: "us-survey-foot",
 };
 
 const RELEASES: Readonly<Record<string, string>> = {
@@ -268,6 +294,15 @@ interface Ctx {
   clip: Box | null;
   /** ビューポートで凍結したレイヤ（大文字） */
   frozen: ReadonlySet<string> | null;
+}
+
+/**
+ * id のうち図形の部分。ハンドル、ハンドルのない図形（R12 の図面など）はファイルの中の位置（#3）、
+ * どちらもなければ ?（docs/architecture.md の「Entity ids」）
+ */
+function handleOf(entity: DxfEntityBase): string {
+  if (entity.handle) return entity.handle;
+  return entity.ordinal ? `#${entity.ordinal}` : "?";
 }
 
 function fmt(value: number): string {
@@ -643,7 +678,7 @@ class Builder {
     const own = this.layer(layer);
     const layers = ctx.layers.includes(own) ? ctx.layers : [...ctx.layers, own];
     for (const id of layers) this.usedLayers.set(id, (this.usedLayers.get(id) ?? 0) + 1);
-    const id = `${ctx.path}${entity.handle || "?"}`;
+    const id = `${ctx.path}${handleOf(entity)}`;
     const linetype = entity.linetype || "BYLAYER";
     const resolved = this.linetypeName(entity, ctx);
     const common: Property[] = [
@@ -1537,7 +1572,7 @@ class Builder {
           ),
           multiply(scale(entity.xscale, entity.yscale), translate(-base[0], -base[1])),
         );
-        const path = `${ctx.path}${entity.handle || "?"}${many ? `[${r},${c}]` : ""}>`;
+        const path = `${ctx.path}${handleOf(entity)}${many ? `[${r},${c}]` : ""}>`;
         const child = this.child(entity, ctx, local, path, name);
         for (const member of contents.entities) {
           // 属性定義は、定数（2）のものだけを描く。値は ATTRIB が持つ
@@ -1555,7 +1590,7 @@ class Builder {
       }
     }
     if (entity.type === "INSERT" && entity.attribs.length > 0) {
-      const attribCtx = this.child(entity, ctx, [1, 0, 0, 1, 0, 0], `${ctx.path}${entity.handle || "?"}>`, name);
+      const attribCtx = this.child(entity, ctx, [1, 0, 0, 1, 0, 0], `${ctx.path}${handleOf(entity)}>`, name);
       for (const attrib of entity.attribs) this.emit(attrib, attribCtx);
     }
   }
@@ -1578,7 +1613,7 @@ class Builder {
     const ocs = ocsMatrix(entity.extrusion);
     const insert = entity.insert ?? [0, 0, 0];
     const local = multiply(translate(...(apply(ocs, insert[0], insert[1]) as [number, number])), ocs);
-    const child = this.child(entity, ctx, local, `${ctx.path}${entity.handle || "?"}>`, entity.anonymous_block_name);
+    const child = this.child(entity, ctx, local, `${ctx.path}${handleOf(entity)}>`, entity.anonymous_block_name);
     const start = this.entities.length;
     for (const member of contents.entities) this.emit(member, child);
     const primitives = this.takeParts(start);
@@ -1667,7 +1702,7 @@ class Builder {
     const context = entity.context;
     // 全体の尺度が 0 の引出線は、縮んで見えない（ezdxf の RenderEngine.run と同じ）
     if (!(Math.abs(context.scale) > 1e-9)) return;
-    const child = this.child(entity, ctx, IDENTITY, `${ctx.path}${entity.handle || "?"}>`, entity.type);
+    const child = this.child(entity, ctx, IDENTITY, `${ctx.path}${handleOf(entity)}>`, entity.type);
     const start = this.entities.length;
     const properties: Property[] = [];
     let text: MTextLayout | null = null;
@@ -1982,7 +2017,7 @@ class Builder {
     const top = order[count - 1] as number;
     // マルチラインの真色は使わない（CAD は無視する。ezdxf の render/mline.py の注記）。BYBLOCK の要素はマルチラインの色
     const owner: DxfMLine = { ...entity, true_color: undefined };
-    const child = this.child(owner, ctx, IDENTITY, `${ctx.path}${entity.handle || "?"}>`, entity.type);
+    const child = this.child(owner, ctx, IDENTITY, `${ctx.path}${handleOf(entity)}>`, entity.type);
     const unit = (x: number, y: number): Vec2 | null => {
       const length = Math.hypot(x, y);
       return length > 1e-12 ? [x / length, y / length] : null;
@@ -2444,6 +2479,7 @@ function partOf(
     linetype_scale: entity.linetype_scale,
     invisible: false,
   };
+  if (entity.ordinal !== undefined) part.ordinal = entity.ordinal;
   if (color.true_color !== undefined) part.true_color = color.true_color;
   if (entity.transparency !== undefined) part.transparency = entity.transparency;
   return part;
@@ -2470,16 +2506,20 @@ function reversePairs(points: number[]): number[] {
   return out;
 }
 
-function unitInfo(doc: DxfDocument, notices: NoticeList): { unit: number; name: string } {
+/** 長さの単位の mm、表示する名前、形式によらないキー（Scene.unit） */
+function unitInfo(doc: DxfDocument, notices: NoticeList): { unit: number; name: string; lengthUnit: LengthUnit } {
   const code = doc.header.insunits;
   const unit = UNIT_TO_MM[code];
-  if (unit !== undefined) return { unit, name: UNIT_NAMES[code] ?? `$INSUNITS ${code}` };
+  const lengthUnit = LENGTH_UNIT_OF[code];
+  if (unit !== undefined && lengthUnit !== undefined) {
+    return { unit, name: UNIT_NAMES[code] ?? `$INSUNITS ${code}`, lengthUnit };
+  }
   if (code === 0 && doc.header.measurement === 0) {
     notices.add("info", "unit-assumed", "長さの単位の指定がなく、ヤード・ポンド法の図面なのでインチとみなしました");
-    return { unit: 25.4, name: "インチ（指定なし）" };
+    return { unit: 25.4, name: "インチ（指定なし）", lengthUnit: "inch" };
   }
   notices.add("info", "unit-assumed", "長さの単位の指定がないため、mm とみなしました");
-  return { unit: 1, name: "mm（指定なし）" };
+  return { unit: 1, name: "mm（指定なし）", lengthUnit: "millimeter" };
 }
 
 /** 図形の代表の点（原点を寄せる位置を決める） */
@@ -2648,7 +2688,7 @@ function views(doc: DxfDocument): SceneView[] {
 export function dxfToScene(doc: DxfDocument, options: DxfSceneOptions = {}): Scene {
   const builder = new Builder(doc);
   const notices = builder.notices;
-  const { unit, name: unitName } = unitInfo(doc, notices);
+  const { unit, name: unitName, lengthUnit } = unitInfo(doc, notices);
   let view = options.layout ?? defaultView(doc, builder);
   const layout =
     view === "Model" ? undefined : doc.layouts.find((candidate) => !candidate.model && candidate.name === view);
@@ -2751,6 +2791,7 @@ export function dxfToScene(doc: DxfDocument, options: DxfSceneOptions = {}): Sce
   return {
     format: doc.format,
     version: `${formatName(doc)} ${doc.version}`,
+    unit: lengthUnit,
     views: views(doc),
     view,
     sheet,
@@ -2830,7 +2871,7 @@ function drawViewport(
     dashFactor: doc.header.psltscale === 1 ? 1 / s : 1,
     clip,
     frozen,
-    path: `${viewport.handle || "VP"}:`,
+    path: `${viewport.handle || (viewport.ordinal ? `#${viewport.ordinal}` : "VP")}:`,
   };
   for (const entity of builder.model) builder.emit(entity, ctx);
   // ビューポートの枠
