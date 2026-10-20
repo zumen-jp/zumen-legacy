@@ -3,8 +3,8 @@
 
 use crate::document::{SxfDocument, SxfDrawing};
 use crate::features::{Annotation, Arrow, ExtensionLine, HatchPattern, Region, SxfFeature};
-use crate::symbols::{arrow_primitives, marker_primitives};
 use crate::style::DEFAULT_WIDTH;
+use crate::symbols::{arrow_primitives, marker_primitives};
 use crate::tables::{
     PREDEFINED_COLORS, PREDEFINED_LINE_TYPES, arrow_name, display_name, index, marker_name, sfig_kind, sheet_size,
 };

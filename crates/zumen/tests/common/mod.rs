@@ -120,11 +120,8 @@ fn invisible(primitive: &Primitive) -> bool {
 
 /// DXF の名前に使えない文字を _ にした名前（zumen-convert と同じ規則）。重なる名前に付けた「 (2)」は除く
 fn dxf_name(name: &str) -> String {
-    let name: String = name
-        .trim()
-        .chars()
-        .map(|c| if "<>/\\\":;?*|=`".contains(c) || c.is_control() { '_' } else { c })
-        .collect();
+    let name: String =
+        name.trim().chars().map(|c| if "<>/\\\":;?*|=`".contains(c) || c.is_control() { '_' } else { c }).collect();
     name
 }
 
@@ -221,12 +218,12 @@ fn compare_text(a: &TextPrimitive, b: &TextPrimitive) -> Option<String> {
             return Some(format!("text box {ca:?} → {cb:?}"));
         }
     }
-    // 1 文字ずつの位置（字の大きさの 1/4 まで。文字間隔は文字の幅に含める）
+    // 1 文字ずつの位置（字の大きさの 1/4 まで。文字間隔は DXF に書けず文字の幅に含めるので、間隔の半分まで）
     let glyph = |text: &TextPrimitive| {
         let m = &text.matrix;
         (m[2] * text.height).hypot(m[3] * text.height).min((m[0] * text.height).hypot(m[1] * text.height))
     };
-    let tolerance = glyph(a).max(glyph(b)) * 0.25;
+    let tolerance = (glyph(a).max(glyph(b)) * 0.25).max(gap_allowance(a) + 1e-6);
     if a.cells.len() != b.cells.len() {
         return Some(format!("{} cells → {}", a.cells.len(), b.cells.len()));
     }
@@ -241,6 +238,23 @@ fn compare_text(a: &TextPrimitive, b: &TextPrimitive) -> Option<String> {
         }
     }
     None
+}
+
+/// 文字間隔（文字範囲の長さから字の並びの長さを引いた分）の半分（用紙の mm）。間隔を文字の幅に含めると、
+/// 1 文字ずつの位置がこれだけずれる
+fn gap_allowance(text: &TextPrimitive) -> f64 {
+    let (Some(first), Some(second)) = (text.cells.first(), text.cells.get(1)) else {
+        return 0.0;
+    };
+    let units: f64 = text.text.chars().map(|c| if zumen::text::is_half_width(c) { 0.5 } else { 1.0 }).sum();
+    let m = &text.matrix;
+    let vertical = (second.y - first.y).abs() > (second.x - first.x).abs();
+    let (length, unit, scale) = if vertical {
+        (text.box_height, text.height, m[2].hypot(m[3]))
+    } else {
+        (text.box_width, text.scale_x * text.height, m[0].hypot(m[1]))
+    };
+    ((length - units * unit) / 2.0).max(0.0) * scale
 }
 
 /// ハッチング線の組の向き・間隔・位置（向きの角度と、原点からの符号付きの距離の並び）
@@ -423,11 +437,10 @@ pub fn differences(original: &Scene, again: &Scene, sources: &HashMap<String, St
                 }
             }
         }
-        // ビューポートの縮尺は、元の部分図・レイヤグループの縮尺と同じ
-        let depth = id.matches('>').count();
+        // ビューポートにじかに映る図形（ブロック参照の中でない）の縮尺は、元の部分図・レイヤグループの縮尺と同じ
+        let direct = converted[0].id.split_once(':').is_some_and(|(_, path)| !path.contains('>'));
         if let (Some(before), Some(after)) = (&entity.placement, &converted[0].placement)
-            && after.name.starts_with("ビューポート")
-            && (depth == 0 || (depth == 1 && before.name.starts_with("部分図")))
+            && direct
             && !close(before.scale_x, after.scale_x, 1e-9 * before.scale_x.abs().max(1e-12))
         {
             out.push(format!("{id}: scale {} → {}", before.scale_x, after.scale_x));

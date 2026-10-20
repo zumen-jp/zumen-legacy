@@ -11,9 +11,7 @@ pub use reader::{
     JwwLayerGroup, JwwLine, JwwPoint, JwwSolid, JwwText, WidthUnit, is_jww, read_jww,
 };
 pub use scene::jww_to_scene;
-pub use style::{
-    DEFAULT_PEN_WIDTH, is_embedded_image, is_random_line, is_setting, paper_size, text_layout_input,
-};
+pub use style::{DEFAULT_PEN_WIDTH, is_embedded_image, is_random_line, is_setting, paper_size, text_layout_input};
 pub use sxf_tables::{SXF_COLORS, SXF_LINE_PITCHES};
 
 use zumen_core::{DrawingReader, ReadError, ReadOptions, Scene};

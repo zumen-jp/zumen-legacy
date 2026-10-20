@@ -167,11 +167,24 @@ fn refuses_formats_it_cannot_write() {
     let dxf = fs::read(fixtures().join("dxf/r12.dxf")).unwrap();
     let error = zumen::convert(&dxf, "sfc", &ReadDrawingOptions::default()).unwrap_err();
     assert!(error.message().contains("SFC"), "{}", error.message());
-    let jww = fs::read_dir(fixtures().join("jww"))
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
-        .find(|path| path.extension().is_some_and(|extension| extension == "jww"))
-        .unwrap();
-    let error = zumen::convert(&fs::read(jww).unwrap(), "dxf", &ReadDrawingOptions::default()).unwrap_err();
-    assert!(error.message().contains("JWW"), "{}", error.message());
+    let options = ReadDrawingOptions { format: Some("stb".into()), view: None };
+    let error = zumen::convert(&dxf, "dxf", &options).unwrap_err();
+    assert!(error.message().contains("STB"), "{}", error.message());
+}
+
+#[test]
+fn converts_sxf_and_jww_with_the_notices_of_mapping_and_writing() {
+    for path in ["sfc/features.sfc", "p21/features.p21", "jww/minimal-v700.jww"] {
+        let bytes = fs::read(fixtures().join(path)).unwrap();
+        let converted = zumen::convert(&bytes, "dxf", &ReadDrawingOptions::default()).unwrap();
+        assert_eq!(zumen::detect(&converted.bytes), Some("dxf"), "{path}");
+        let codes: Vec<&str> = converted.notices.iter().map(|notice| notice.code.as_str()).collect();
+        if path.ends_with(".jww") {
+            assert!(codes.contains(&"jw-settings"), "{codes:?}");
+        } else {
+            for code in ["sfig-insert", "sfig-cycle", "symbol", "leader", "hatch-pattern"] {
+                assert!(codes.contains(&code), "{path}: {code} not in {codes:?}");
+            }
+        }
+    }
 }

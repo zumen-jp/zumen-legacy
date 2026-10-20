@@ -111,7 +111,8 @@ pub(crate) fn separate(views: &[View], contents: &mut [Content]) -> u64 {
             let dx = ((all.max_x + size * 0.1 - area.min_x) / unit).ceil() * unit;
             let dy = ((all.min_y - area.min_y) / unit).round() * unit;
             contents[index].offset = [dx, dy];
-            area = BBox { min_x: area.min_x + dx, min_y: area.min_y + dy, max_x: area.max_x + dx, max_y: area.max_y + dy };
+            area =
+                BBox { min_x: area.min_x + dx, min_y: area.min_y + dy, max_x: area.max_x + dx, max_y: area.max_y + dy };
             moved += 1;
         }
         placed.push(area);

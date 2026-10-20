@@ -205,7 +205,8 @@ impl<'a> Mapper<'a> {
         // ブロックの最初の配置を決める（ブロックの中の線種・ブロックの定義の循環）
         for (index, entity) in doc.entities.iter().enumerate() {
             let frame = frame_of(doc.group_scale(entity.base().layer_group), &views, &contents);
-            self.walk(entity, index, &Key::Top, &multiply(&frame.to_paper, &frame.to_container), 1.0, 0, &[]);
+            let to_paper = multiply(&frame.to_paper, &frame.to_container);
+            self.walk(entity, index, &Key::Top, &to_paper, frame.scale(), 0, &[]);
         }
         self.out.layer(VIEWPORT_LAYER, true, false, false);
         overall_viewport(&mut self.out, width, height);
@@ -308,7 +309,8 @@ impl<'a> Mapper<'a> {
         }
     }
 
-    /// ブロックの最初の配置を決め、書かない配置（定義がない・深すぎる・循環する）を覚える
+    /// ブロックの最初の配置を決め、書かない配置（定義がない・深すぎる・循環する）を覚える。scale は今の座標の
+    /// 1 がモデル空間・紙空間の何倍か（最上位はレイヤグループの縮尺、ブロックの中は配置の倍率の積）
     #[allow(clippy::too_many_arguments)]
     fn walk(
         &mut self,
@@ -441,11 +443,7 @@ impl<'a> Mapper<'a> {
     }
 
     fn degenerate(&mut self) {
-        self.out.notices.add(
-            NoticeLevel::Info,
-            "degenerate",
-            "大きさが 0 の円などの、形にならない図形を省きました",
-        );
+        self.out.notices.add(NoticeLevel::Info, "degenerate", "大きさが 0 の円などの、形にならない図形を省きました");
     }
 
     fn emit(&mut self, entity: &JwwEntity, index: usize, frame: &Frame) {
@@ -453,7 +451,8 @@ impl<'a> Mapper<'a> {
         match entity {
             JwwEntity::Line(e) => {
                 let look = self.look(&e.base, frame, None);
-                let data = DxfEntityData::Line { start: xyz(frame.point(e.x1, e.y1)), end: xyz(frame.point(e.x2, e.y2)) };
+                let data =
+                    DxfEntityData::Line { start: xyz(frame.point(e.x1, e.y1)), end: xyz(frame.point(e.x2, e.y2)) };
                 self.out.add(&frame.space, &look, "LINE", data, &source);
             }
             JwwEntity::Arc(e) => {
@@ -504,11 +503,7 @@ impl<'a> Mapper<'a> {
             }
             JwwEntity::Point(e) => {
                 if e.temporary {
-                    self.out.notices.add(
-                        NoticeLevel::Info,
-                        "temporary-point",
-                        "仮点は印刷されないため書いていません",
-                    );
+                    self.out.notices.add(NoticeLevel::Info, "temporary-point", "仮点は印刷されないため書いていません");
                     return;
                 }
                 let look = self.look(&e.base, frame, None);

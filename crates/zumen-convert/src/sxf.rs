@@ -14,8 +14,8 @@
 
 use crate::Mapped;
 use crate::builder::{
-    BY_BLOCK, BY_LAYER, Builder, Color, DEFAULT_FONT, LINEWEIGHT_BY_LAYER, Look, Space, lineweight,
-    lwpolyline, polyline_path, scale_of, solid_hatch, xyz,
+    BY_BLOCK, BY_LAYER, Builder, Color, DEFAULT_FONT, LINEWEIGHT_BY_LAYER, Look, Space, lineweight, lwpolyline,
+    polyline_path, scale_of, solid_hatch, xyz,
 };
 use crate::sheet::{Content, View, boxes_by_top_id, overall_viewport, rect_of, region, separate, viewport};
 use crate::text::text_entity;
@@ -318,8 +318,7 @@ impl<'a> Mapper<'a> {
     /// 図面の情報のうち、DXF に書く場所のないもの
     fn report_document(&mut self) {
         let doc = self.doc;
-        if doc.title.as_ref().is_some_and(|title| title.values.iter().any(|value| !js::trim(&value.value).is_empty()))
-        {
+        if doc.title.as_ref().is_some_and(|title| title.values.iter().any(|value| !js::trim(&value.value).is_empty())) {
             self.out.notices.add(
                 NoticeLevel::Info,
                 "title",
@@ -434,7 +433,7 @@ impl<'a> Mapper<'a> {
                     }
                 }
                 None => {
-                    let block_name = self.out.block(&display_name(name));
+                    let block_name = self.out.block(display_name(name));
                     self.blocks.insert(
                         name.clone(),
                         BlockUse { name: block_name, geodetic, to_paper: m, scale: js::max(scale, 1e-12) },
@@ -512,7 +511,8 @@ impl<'a> Mapper<'a> {
             let (name, label) = kind.map_or(("line type", ""), |kind| (kind.name, kind.label));
             return self.out.linetype(name, label, &dashes);
         }
-        let name = index(code - 17.0).and_then(|index| self.doc.user_line_types.get(index)).map(|user| user.name.clone());
+        let name =
+            index(code - 17.0).and_then(|index| self.doc.user_line_types.get(index)).map(|user| user.name.clone());
         self.out.linetype(name.as_deref().unwrap_or("line type"), "", &dashes)
     }
 
@@ -613,7 +613,8 @@ impl<'a> Mapper<'a> {
                     self.degenerate();
                     return;
                 }
-                let flat = clothoid_points(lx, ly, *parameter, *ccw, *angle, *start_length, *end_length, segments as usize);
+                let flat =
+                    clothoid_points(lx, ly, *parameter, *ccw, *angle, *start_length, *end_length, segments as usize);
                 let points = to_container(frame, &flat);
                 let look = self.look(frame, style.layer, style.color, style.line_type, style.line_width);
                 self.out.add(&frame.space, &look, "LWPOLYLINE", lwpolyline(&points, None, false), &source);
@@ -628,8 +629,7 @@ impl<'a> Mapper<'a> {
                 let (lx, ly) = frame.local(*x, *y);
                 let (px, py) = apply(&sheet, lx, ly);
                 let hex = self.color_hex(*color);
-                let primitives =
-                    marker_primitives(*code, px, py, angle + rotation_deg(&sheet), *scale, &hex, 0.0);
+                let primitives = marker_primitives(*code, px, py, angle + rotation_deg(&sheet), *scale, &hex, 0.0);
                 let look = Look {
                     layer: self.layer(*layer),
                     color: Color::from_hex(&hex),
@@ -915,7 +915,13 @@ impl<'a> Mapper<'a> {
     }
 
     /// 円弧の寸法線の矢印。矢印の位置での接線方向（表示の arc_arrow）
-    fn arc_arrow(frame: &Frame, arrow: Option<&Arrow>, center: (f64, f64), start_side: bool, color: &str) -> Vec<Primitive> {
+    fn arc_arrow(
+        frame: &Frame,
+        arrow: Option<&Arrow>,
+        center: (f64, f64),
+        start_side: bool,
+        color: &str,
+    ) -> Vec<Primitive> {
         let Some(arrow) = arrow.filter(|arrow| arrow.code > 0.0) else {
             return Vec::new();
         };
@@ -981,8 +987,7 @@ impl<'a> Mapper<'a> {
                 let center = frame.local(d.cx, d.cy);
                 let c = frame.point(d.cx, d.cy);
                 let radius = d.radius * s;
-                let arc =
-                    DxfEntityData::Arc { center: xyz(c), radius, start_angle: d.angle0, end_angle: d.angle1 };
+                let arc = DxfEntityData::Arc { center: xyz(c), radius, start_angle: d.angle0, end_angle: d.angle1 };
                 self.out.add(&space, &line_look, "ARC", arc, "");
                 for ext in [&d.ext1, &d.ext2].into_iter().flatten() {
                     self.extension_line(&space, &line_look, frame, ext);
@@ -1083,7 +1088,8 @@ impl<'a> Mapper<'a> {
     }
 
     fn extension_line(&mut self, space: &Space, look: &Look, frame: &Frame, ext: &ExtensionLine) {
-        let data = DxfEntityData::Line { start: xyz(frame.point(ext.x1, ext.y1)), end: xyz(frame.point(ext.x2, ext.y2)) };
+        let data =
+            DxfEntityData::Line { start: xyz(frame.point(ext.x1, ext.y1)), end: xyz(frame.point(ext.x2, ext.y2)) };
         self.out.add(space, look, "LINE", data, "");
     }
 
@@ -1135,12 +1141,8 @@ impl<'a> Mapper<'a> {
                     0.0,
                     BACKGROUND_COLOR,
                 );
-                let arrow_look = Look {
-                    linetype: "Continuous".into(),
-                    lineweight: 0.0,
-                    linetype_scale: 1.0,
-                    ..look.clone()
-                };
+                let arrow_look =
+                    Look { linetype: "Continuous".into(), lineweight: 0.0, linetype_scale: 1.0, ..look.clone() };
                 self.out.primitives(&frame.space, &arrow_look, &primitives, &invert(&frame.to_paper), color, source);
             }
         }
@@ -1162,10 +1164,13 @@ impl<'a> Mapper<'a> {
     fn ring(&self, frame: &Frame, id: f64, tol: f64) -> Option<Ring> {
         let curve = index(id - 1.0).and_then(|index| self.doc.composite_curves.get(index))?;
         let local_points = |xs: &[f64], ys: &[f64]| -> Vec<f64> {
-            xs.iter().zip(ys).flat_map(|(x, y)| {
-                let (lx, ly) = frame.local(*x, *y);
-                [lx, ly]
-            }).collect()
+            xs.iter()
+                .zip(ys)
+                .flat_map(|(x, y)| {
+                    let (lx, ly) = frame.local(*x, *y);
+                    [lx, ly]
+                })
+                .collect()
         };
         let polyline = |flat: &[f64]| -> Vec<(Vec2, f64)> {
             flat.as_chunks::<2>().0.iter().map(|[x, y]| ([*x, *y], 0.0)).collect()
@@ -1274,11 +1279,7 @@ impl<'a> Mapper<'a> {
         let Region { out_id, in_ids } = region;
         let tol = TOLERANCE / js::max(mean_scale(&frame.to_sheet()), 1e-12);
         let Some(outer) = self.ring(frame, *out_id, tol) else {
-            self.out.notices.add(
-                NoticeLevel::Warning,
-                "hatch-boundary",
-                "外形の複合曲線がないハッチングを省きました",
-            );
+            self.out.notices.add(NoticeLevel::Warning, "hatch-boundary", "外形の複合曲線がないハッチングを省きました");
             return;
         };
         let mut rings = vec![outer];
@@ -1452,11 +1453,13 @@ struct Ring {
 /// 頂点と弧の膨らみの並びを逆向きにする（膨らみは区間の始まりの頂点が持ち、向きが変われば符号が変わる）
 fn reverse_piece(piece: &[(Vec2, f64)]) -> Vec<(Vec2, f64)> {
     let n = piece.len();
-    (0..n).map(|i| {
-        let point = piece[n - 1 - i].0;
-        let bulge = if i + 1 < n { -piece[n - 2 - i].1 } else { 0.0 };
-        (point, bulge)
-    }).collect()
+    (0..n)
+        .map(|i| {
+            let point = piece[n - 1 - i].0;
+            let bulge = if i + 1 < n { -piece[n - 2 - i].1 } else { 0.0 };
+            (point, bulge)
+        })
+        .collect()
 }
 
 /// 寸法の文字（1）。MTEXT の書式で読まれるので、\ と { } を書式でない文字にする
