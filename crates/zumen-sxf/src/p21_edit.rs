@@ -737,6 +737,18 @@ impl Final {
     }
 }
 
+/// 起点から強い参照を辿れるインスタンス（消すインスタンスは辿らない）
+fn reach(mut stack: Vec<u64>, strong: &HashMap<u64, Vec<u64>>, dead: &HashSet<u64>) -> HashSet<u64> {
+    let mut reached = HashSet::new();
+    while let Some(instance) = stack.pop() {
+        if dead.contains(&instance) || !reached.insert(instance) {
+            continue;
+        }
+        stack.extend(strong.get(&instance).into_iter().flatten().filter(|target| !reached.contains(*target)));
+    }
+    reached
+}
+
 /// 参照を辿って残すインスタンスを決め、元のファイルを書き換える
 fn finish(mut editor: Editor<'_, '_>, sheet: u64, bytes: &[u8]) -> SxfWritten {
     let file = editor.file;
@@ -788,14 +800,15 @@ fn finish(mut editor: Editor<'_, '_>, sheet: u64, bytes: &[u8]) -> SxfWritten {
     for entity in file.entities.values() {
         state.strong.insert(id(entity.id), strong_references(&entity.parts));
     }
+    let mut new_referenced = HashSet::new();
     for (instance, rewrite) in &editor.rewritten {
         let refs = match rewrite {
             Rewrite::Body(body) => body_references(body),
             Rewrite::Parts(parts) => strong_references(parts),
         };
+        new_referenced.extend(refs.iter().copied());
         state.strong.insert(*instance, refs);
     }
-    let mut new_referenced = HashSet::new();
     for (instance, body) in &new {
         let refs = body_references(body);
         new_referenced.extend(refs.iter().copied());
@@ -859,31 +872,34 @@ fn finish(mut editor: Editor<'_, '_>, sheet: u64, bytes: &[u8]) -> SxfWritten {
 
     // 起点（どこからも参照されていなかった元のインスタンスと、新しいインスタンス）から辿れるものを残す
     let mut referenced: HashSet<u64> = HashSet::new();
+    let mut original: HashMap<u64, Vec<u64>> = HashMap::new();
     for entity in file.entities.values() {
-        referenced.extend(strong_references(&entity.parts));
+        let refs = strong_references(&entity.parts);
+        referenced.extend(refs.iter().copied());
+        original.insert(id(entity.id), refs);
     }
-    let mut stack: Vec<u64> =
+    let roots: Vec<u64> =
         file.entities.values().map(|entity| id(entity.id)).filter(|instance| !referenced.contains(instance)).collect();
+    // 元のファイルで起点から辿れなかったインスタンス（互いに参照し合うだけのもの）は、触れずに残すので起点にする
+    let reachable = reach(roots.clone(), &original, &HashSet::new());
+    let mut stack = roots;
+    stack.extend(file.entities.values().map(|entity| id(entity.id)).filter(|instance| !reachable.contains(instance)));
     stack.extend(new.iter().map(|(instance, _)| *instance).filter(|instance| !new_referenced.contains(instance)));
-    let mut live: HashSet<u64> = HashSet::new();
-    while let Some(instance) = stack.pop() {
-        if dead.contains(&instance) || !live.insert(instance) {
-            continue;
-        }
-        stack.extend(state.strong.get(&instance).into_iter().flatten().filter(|target| !live.contains(*target)));
-    }
+    let mut live = reach(stack, &state.strong, &dead);
 
     // レイヤの割り当てと非表示の指定を、残すインスタンスにする。値を変えた要素は元のレイヤから外し、新しく入れ直す
     let mut writer = StepWriter::default();
     let mut texts: HashMap<u64, String> = HashMap::new();
     let mut empty_layers = 0;
     let mut hidden = false;
-    let weak_holders: Vec<&P21Entity> = file
+    // 要素がなくなって消すレイヤの割り当てを、非表示の指定から外せるよう、レイヤの割り当てを先に書き換える
+    let mut weak_holders: Vec<&P21Entity> = file
         .entities
         .values()
         .filter(|entity| live.contains(&id(entity.id)))
         .filter(|entity| entity.has("PRESENTATION_LAYER_ASSIGNMENT") || entity.has("INVISIBILITY"))
         .collect();
+    weak_holders.sort_by_key(|entity| !entity.has("PRESENTATION_LAYER_ASSIGNMENT"));
     for entity in weak_holders {
         let instance = id(entity.id);
         let layer = entity.has("PRESENTATION_LAYER_ASSIGNMENT");

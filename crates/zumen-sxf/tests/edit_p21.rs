@@ -203,3 +203,23 @@ fn a_source_cut_short_by_the_read_limits_is_written_anew() {
     let (written, _) = zumen_core::limits::with_limits(&limits, || write_p21(&drawing));
     assert_eq!(written.notices.first().map(|notice| notice.code.as_str()), Some("rewrite"));
 }
+
+#[test]
+fn an_emptied_layer_leaves_invisibility_even_when_listed_before_it() {
+    // INVISIBILITY を レイヤの割り当てより前に置いた P21（番号の順は読み取りの結果に影響しない）
+    let text = String::from_utf8(read_fixture("p21", "sample")).unwrap();
+    let text = text.replace("#123=INVISIBILITY((#122,#108));\n", "").replace(
+        "#120=PRESENTATION_LAYER_ASSIGNMENT",
+        "#119=INVISIBILITY((#122,#108));\n#120=PRESENTATION_LAYER_ASSIGNMENT",
+    );
+    let mut drawing = parse_p21(text.as_bytes()).unwrap();
+    // レイヤ DIM（#122）の要素（寸法 #98 の寸法線、塗り #113）を消す
+    drawing.document.sheet_members.retain(|feature| !matches!(feature.id(), 98.0 | 113.0));
+    let written = write_p21(&drawing);
+    let after = instances(&written.bytes);
+    assert!(!after.contains_key(&122), "{after:?}");
+    assert_eq!(after[&119], "INVISIBILITY((#108))");
+    assert!(written.notices.iter().any(|notice| notice.code == "empty-layer"));
+    let again = parse_p21(&written.bytes).unwrap();
+    assert_eq!(again.document.sheet_members.len(), drawing.document.sheet_members.len());
+}
