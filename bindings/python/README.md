@@ -43,9 +43,27 @@ for entity in image.entities_at(640, 480):  # boxes that contain the pixel, smal
 
 A `Rendering` shows itself as an image in Jupyter.
 
+## Comparing revisions
+
+`zumen.compare` matches entities by type, shape and text, not by id, so revisions that were saved again,
+or saved in another format, compare too:
+
+```python
+changes = zumen.compare(zumen.read("plan-rev1.jww"), zumen.read("plan-rev2.jww"))
+changes.removed, changes.added  # entities, as Scene.entities returns them
+for pair in changes.changed:  # the same entity changed, such as a dimension value
+    print(pair["before"]["text"], "->", pair["after"]["text"])
+changes.regions  # boxes around nearby changes, in the earlier revision's paper millimeters
+changes.scene.render_png(dpi=150)  # red before, blue after, gray unchanged
+```
+
+`tolerance` (0.01 paper millimeters by default) sets how close coordinates count as the same, `style=True` also
+counts changes of color, line weight, line type and layer, and a revision that moved as a whole is moved back by
+the texts both revisions share (`changes.offset`; `align=False` turns this off).
+
 ## MCP server
 
-`zumen-mcp` lets AI applications that speak the Model Context Protocol open, render, search and measure drawings
+`zumen-mcp` lets AI applications that speak the Model Context Protocol open, render, search, measure and compare drawings
 on this computer. It serves over stdio and only reads.
 
 ```bash
@@ -61,11 +79,12 @@ claude mcp add zumen -- zumen-mcp --root ~/drawings  # Claude Code; other client
 | `find_entities` | Entities in a region, by type or layer, with counts by type |
 | `get_entity` | One entity with its properties and the scale of its placement |
 | `measure_distance` | The distance between two points on the sheet and in real-world millimeters |
+| `compare_drawings` | What changed between two revisions: an image of the changes, the regions that changed and the changed entities with their texts |
 
 `--root DIR` (repeatable) limits the directories the server may read. `--max-bytes` (256 MiB by default, after
 unpacking P2Z and SFZ), `--max-entities` (2,000,000) and `--timeout` (60 seconds) limit each drawing it reads. Texts, layer names and properties come from the drawing file; clients should treat them as
 data, not as instructions. The functions behind the tools (`zumen.mcp.summary`, `render`, `find_texts`,
-`find_entities`, `get_entity`, `measure`) can be called without MCP.
+`find_entities`, `get_entity`, `measure`, `compare_revisions`) can be called without MCP.
 
 ## Drawings from others
 

@@ -9,16 +9,28 @@ format-neutral ``Scene`` in paper millimeters (Y up), the same model as the
 >>> png = scene.render_png(dpi=150)
 >>> texts = scene.texts()  # the texts with their positions, in paper millimeters
 >>> image = scene.render(size=(2000, 2000))  # a PNG and the pixel box of every entity drawn
+>>> changes = zumen.compare(zumen.read("plan-rev1.jww"), scene)  # removed, added and changed entities
 """
 
 from __future__ import annotations
 
 import os
 
-from ._zumen import LimitError, ReadError, RenderError, Rendering, Scene, __version__, detect
+from ._zumen import Comparison, LimitError, ReadError, RenderError, Rendering, Scene, __version__, compare, detect
 from ._zumen import read as _read
 
-__all__ = ["LimitError", "ReadError", "RenderError", "Rendering", "Scene", "__version__", "detect", "read"]
+__all__ = [
+    "Comparison",
+    "LimitError",
+    "ReadError",
+    "RenderError",
+    "Rendering",
+    "Scene",
+    "__version__",
+    "compare",
+    "detect",
+    "read",
+]
 
 
 def read(

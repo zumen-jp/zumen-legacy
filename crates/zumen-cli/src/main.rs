@@ -1,10 +1,12 @@
-//! zumen のコマンド。図面の形式の判定、表示用モデル（Scene）の JSON の出力、文字と図形の取り出し、PNG への描画を行う。
+//! zumen のコマンド。図面の形式の判定、表示用モデル（Scene）の JSON の出力、文字と図形の取り出し、PNG への描画、
+//! 2 つの版の比較を行う。
 #![forbid(unsafe_code)]
 
 use serde_json::{Map, Value, json};
 use std::collections::HashSet;
 use std::io::{BufWriter, Write};
 use std::process::ExitCode;
+use zumen::compare::{CompareOptions, compare_scenes, diff_scene};
 use zumen::extract::{EntityFilter, EntityText, entity_text, layer_names, scene_texts, select_entities};
 use zumen::{BBox, Background, ReadDrawingOptions, ReadLimits, Scene, SceneEntity};
 use zumen_render::{ImageSize, RenderOptions, RenderedImage};
@@ -18,6 +20,8 @@ Usage:
   zumen render <file> -o <out.png> [--dpi <n> | --size <w>x<h> [--margin <px>]] [--dpr <n>]
                [--region <x0>,<y0>,<x1>,<y1>] [--all-layers] [--map <out.json>]
                [--theme light|dark] [--thin] [--format <name>] [--view <id>]
+  zumen compare <before> <after> [--tolerance <mm>] [--style] [--all-layers] [--no-align]
+                [-o <overlay.png> [--dpi <n> | --size <w>x<h>]] [--format <name>] [--view <id>]
 
 Every command that reads takes --max-bytes <n>, --max-entities <n> and --timeout <seconds>, to stop
 reading an untrusted drawing that is too large (P2Z and SFZ after unpacking), too complex or too slow.
@@ -26,11 +30,15 @@ Reads SXF, JWW, DXF and DWG drawings into zumen's scene model.
 texts and entities write one JSON object per line, in paper millimeters (Y up) rounded to 0.001.
 --region selects a part of the sheet in paper millimeters, and --all-layers includes the layers
 that the drawing hides. --map writes the size of the image,
-the conversion between pixels and paper millimeters, and the pixel box of every entity drawn.";
+the conversion between pixels and paper millimeters, and the pixel box of every entity drawn.
+compare matches entities by shape and text (not by id) and writes the removed, added and changed
+entities and the regions that changed as JSON; -o draws them over the unchanged ones (red before,
+blue after, gray unchanged).";
 
 struct Args {
     command: String,
     file: String,
+    other: Option<String>,
     format: Option<String>,
     view: Option<String>,
     pretty: bool,
@@ -45,6 +53,9 @@ struct Args {
     all_layers: bool,
     map: Option<String>,
     limits: ReadLimits,
+    tolerance: f64,
+    style: bool,
+    align: bool,
 }
 
 fn parse_region(text: &str) -> Result<BBox, String> {
@@ -73,6 +84,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
     let mut parsed = Args {
         command,
         file: String::new(),
+        other: None,
         format: None,
         view: None,
         pretty: false,
@@ -87,6 +99,9 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
         all_layers: false,
         map: None,
         limits: ReadLimits::default(),
+        tolerance: 0.01,
+        style: false,
+        align: true,
     };
     while let Some(arg) = args.next() {
         let mut value = |name: &str| args.next().ok_or_else(|| format!("{name} needs a value"));
@@ -127,8 +142,14 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
                     std::time::Duration::try_from_secs_f64(seconds).map_err(|_| "--timeout needs seconds")?;
                 parsed.limits.max_duration = Some(duration);
             }
+            "--tolerance" => {
+                parsed.tolerance = value("--tolerance")?.parse().map_err(|_| "--tolerance needs a number")?
+            }
+            "--style" => parsed.style = true,
+            "--no-align" => parsed.align = false,
             _ if arg.starts_with('-') => return Err(format!("unknown option: {arg}\n\n{USAGE}")),
             _ if parsed.file.is_empty() => parsed.file = arg,
+            _ if parsed.command == "compare" && parsed.other.is_none() => parsed.other = Some(arg),
             _ => return Err(format!("unexpected argument: {arg}")),
         }
     }
@@ -226,14 +247,86 @@ fn write_lines(lines: impl Iterator<Item = Value>) -> Result<(), String> {
     out.flush().map_err(|error| error.to_string())
 }
 
-fn run(args: Args) -> Result<(), String> {
-    // 大きすぎるファイルは、メモリに読む前に断る
-    if let Some(max) = args.limits.max_bytes
-        && std::fs::metadata(&args.file).map_err(|error| format!("{}: {error}", args.file))?.len() > max
-    {
-        return Err(zumen::limit_error(zumen::Limit::Bytes, &args.limits).to_string());
+/// 比べた図形の要約（id、種類、外接矩形、文字）
+fn brief_json(entity: &SceneEntity) -> Value {
+    let mut object = Map::new();
+    object.insert("id".into(), json!(entity.id));
+    object.insert("type".into(), json!(entity.kind));
+    object.insert("bbox".into(), bbox_json(&entity.bbox));
+    if let Some(text) = entity_text(entity) {
+        object.insert("text".into(), json!(text.text));
     }
-    let bytes = std::fs::read(&args.file).map_err(|error| format!("{}: {error}", args.file))?;
+    Value::Object(object)
+}
+
+fn compare(args: &Args) -> Result<(), String> {
+    let other = args.other.as_ref().ok_or("compare needs two files: <before> <after>")?;
+    let options = ReadDrawingOptions { format: args.format.clone(), view: args.view.clone(), limits: args.limits };
+    let read = |path: &str| -> Result<Scene, String> {
+        let bytes = read_file(path, &args.limits)?;
+        zumen::read(&bytes, &options).map_err(|error| format!("{path}: {error}"))
+    };
+    let (before, after) = (read(&args.file)?, read(other)?);
+    let compare_options =
+        CompareOptions { tolerance: args.tolerance, style: args.style, all_layers: args.all_layers, align: args.align };
+    let diff = compare_scenes(&before, &after, &compare_options);
+    let regions: Vec<Value> = diff
+        .regions
+        .iter()
+        .map(|region| {
+            json!({
+                "bbox": bbox_json(&region.bbox),
+                "removed": region.removed,
+                "added": region.added,
+                "changed": region.changed,
+            })
+        })
+        .collect();
+    let summary = json!({
+        "unchanged": diff.unchanged.len(),
+        "removed": diff.removed.len(),
+        "added": diff.added.len(),
+        "changed": diff.changed.len(),
+        "offset": [mm(diff.offset.0), mm(diff.offset.1)],
+        "regions": regions,
+        "removedEntities": diff.removed.iter().map(|&i| brief_json(&before.entities[i])).collect::<Vec<_>>(),
+        "addedEntities": diff.added.iter().map(|&i| brief_json(&after.entities[i])).collect::<Vec<_>>(),
+        "changedEntities": diff
+            .changed
+            .iter()
+            .map(|&(a, b)| json!({ "before": brief_json(&before.entities[a]), "after": brief_json(&after.entities[b]) }))
+            .collect::<Vec<_>>(),
+    });
+    println!("{}", serde_json::to_string_pretty(&summary).map_err(|error| error.to_string())?);
+    if let Some(output) = &args.output {
+        let overlay = diff_scene(&before, &after, &diff);
+        let size = match args.size {
+            Some((width, height)) => ImageSize::Fit { width, height, margin: args.margin },
+            None => ImageSize::Dpi(args.dpi),
+        };
+        let options = RenderOptions { line_weights: !args.thin, ..RenderOptions::default() };
+        let image =
+            zumen_render::render_image(&overlay, args.region, size, &options).map_err(|error| error.to_string())?;
+        std::fs::write(output, &image.png).map_err(|error| format!("{output}: {error}"))?;
+    }
+    Ok(())
+}
+
+/// 図面のファイルを読む。上限より大きいファイルは、メモリに読む前に断る
+fn read_file(path: &str, limits: &ReadLimits) -> Result<Vec<u8>, String> {
+    if let Some(max) = limits.max_bytes
+        && std::fs::metadata(path).map_err(|error| format!("{path}: {error}"))?.len() > max
+    {
+        return Err(zumen::limit_error(zumen::Limit::Bytes, limits).to_string());
+    }
+    std::fs::read(path).map_err(|error| format!("{path}: {error}"))
+}
+
+fn run(args: Args) -> Result<(), String> {
+    if args.command == "compare" {
+        return compare(&args);
+    }
+    let bytes = read_file(&args.file, &args.limits)?;
     if args.command == "detect" {
         let format = zumen::detect(&bytes).ok_or("unknown format")?;
         println!("{format}");

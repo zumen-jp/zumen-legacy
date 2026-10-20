@@ -127,6 +127,44 @@ class Rendering:
     def entities_at(self, px: float, py: float, *, tolerance: float = 3.0) -> list[DrawnEntity]: ...
     def _repr_png_(self) -> bytes: ...
 
+class ChangedPair(TypedDict):
+    before: Entity
+    after: Entity
+
+class ChangeRegion(TypedDict):
+    bbox: Box
+    removed: int
+    added: int
+    changed: int
+
+class Comparison:
+    """Two revisions compared: entities matched by shape and text, not by id."""
+
+    @property
+    def removed(self) -> list[Entity]: ...
+    @property
+    def added(self) -> list[Entity]: ...
+    @property
+    def changed(self) -> list[ChangedPair]: ...
+    @property
+    def unchanged(self) -> int: ...
+    @property
+    def offset(self) -> tuple[float, float]: ...
+    @property
+    def regions(self) -> list[ChangeRegion]: ...
+    @property
+    def scene(self) -> Scene: ...
+    def __len__(self) -> int: ...
+
+def compare(
+    before: Scene,
+    after: Scene,
+    *,
+    tolerance: float = 0.01,
+    style: bool = False,
+    all_layers: bool = False,
+    align: bool = True,
+) -> Comparison: ...
 def detect(data: bytes) -> str | None: ...
 def read(
     data: bytes,
