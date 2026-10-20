@@ -39,8 +39,9 @@ pub(crate) struct Header {
     pub bylayer: u64,
     pub byblock: u64,
     pub continuous: u64,
-    /// 次に振るハンドル（HANDSEED）
+    /// 次に振るハンドル（HANDSEED）と、その値の節の中のビットの範囲（その場の編集が書き換える）
     pub handseed: u64,
+    pub handseed_at: (u64, u64),
     pub view_control: u64,
     pub ucs_control: u64,
     pub vport_control: u64,
@@ -151,7 +152,9 @@ fn read_variables(s: &mut Streams<'_>) -> Read<Header> {
     }
     s.cmc()?;
     // HANDSEED は R2007 以降も値の並びの中
+    let at = s.data.pos();
     h.handseed = s.data.handle()?.value;
+    h.handseed_at = (at, s.data.pos());
     // CLAYER、TEXTSTYLE、CELTYPE、（R2007 以降）CMATERIAL、DIMSTYLE、CMLSTYLE
     for _ in 0..if f.r2007() { 6 } else { 5 } {
         s.handle()?;

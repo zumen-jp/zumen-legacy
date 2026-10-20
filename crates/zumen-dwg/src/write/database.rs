@@ -31,7 +31,7 @@ pub(crate) fn has_extra(version: Version, maintenance: u8) -> bool {
 }
 
 impl Database {
-    /// 版の入れ物に並べた DWG。R2007 はまだ書けないので None
+    /// 版の入れ物に並べた DWG。R13・R14 と、テストの図面を作らない R2007（tests/writer は R2007 のオブジェクトを書かない）は None
     pub fn bytes(&self) -> Option<Vec<u8>> {
         let extra = has_extra(self.version, self.maintenance).then_some([0u8; 4]);
         let framed = |data: &[u8]| Framed { extra, data: data.to_vec(), crc_ok: true };
@@ -74,6 +74,7 @@ impl Database {
                     compressed: true,
                     encrypted: 0,
                     preview_base: None,
+                    keep_zero_pages: false,
                 };
                 let sections = vec![
                     section("", Vec::new()),

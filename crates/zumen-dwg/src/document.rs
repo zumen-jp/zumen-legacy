@@ -156,6 +156,14 @@ const MARKERS: [&str; 9] = [
 ];
 
 /// DWG の文字コードの番号（3.2.5）と DXF の $DWGCODEPAGE の名前。AutoCAD の番号の順（ACadSharp の CadUtils と同じ並び）
+/// R2007 より前の文字列の文字コード（ファイルの頭の文字コードの番号から。分からなければ Windows-1252。読み取りと同じ）
+pub(crate) fn text_encoding(codepage: u16) -> &'static encoding_rs::Encoding {
+    codepage_name(codepage)
+        .and_then(codepage_encoding)
+        .and_then(|label| encoding_rs::Encoding::for_label(label.as_bytes()))
+        .unwrap_or(encoding_rs::WINDOWS_1252)
+}
+
 fn codepage_name(number: u16) -> Option<&'static str> {
     const NAMES: [&str; 45] = [
         "",
