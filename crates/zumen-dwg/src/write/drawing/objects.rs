@@ -14,7 +14,7 @@ use crate::file::Version;
 use crate::write::classes::ClassDef;
 
 /// クラスの定義（10）。値は AutoCAD が書く値
-pub(super) fn class_def(name: &str, number: u16, instances: i32) -> Option<ClassDef> {
+pub(crate) fn class_def(name: &str, number: u16, instances: i32) -> Option<ClassDef> {
     const ODBX: &str = "ObjectDBX Classes";
     let (proxy_flags, app_name, cpp_name, entity, dwg_version, maintenance) = match name {
         "ACDBDICTIONARYWDFLT" => (0, ODBX, "AcDbDictionaryWithDefault", false, 22, 42),
@@ -27,6 +27,9 @@ pub(super) fn class_def(name: &str, number: u16, instances: i32) -> Option<Class
         "MLEADERSTYLE" => (4095, "ACDB_MLEADERSTYLE_CLASS", "AcDbMLeaderStyle", false, 33, 329),
         "MULTILEADER" => (1025, "ACDB_MLEADER_CLASS", "AcDbMLeader", true, 33, 329),
         "WIPEOUT" => (2175, "WipeOut", "AcDbWipeout", true, 33, 329),
+        // R14 では LWPOLYLINE・HATCH はクラスの型（R2000 から決まった型 77・78）
+        "LWPOLYLINE" => (0, ODBX, "AcDbPolyline", true, 0, 0),
+        "HATCH" => (0, ODBX, "AcDbHatch", true, 0, 0),
         "ARC_DIMENSION" => (1025, ODBX, "AcDbArcDimension", true, 25, 0),
         "LARGE_RADIAL_DIMENSION" => (1025, ODBX, "AcDbRadialDimensionLarge", true, 25, 0),
         _ => return None,
@@ -95,6 +98,7 @@ impl Writer<'_> {
             common: if owner == 0 { owned(0, false) } else { owned(owner, true) },
             cloning: 1,
             hard_owner: 0,
+            r14_unknown: 0,
             entries: entries.iter().map(|(name, entry)| (self.text(name), href(2, *entry))).collect(),
             default: None,
         };
@@ -164,6 +168,7 @@ impl Writer<'_> {
             common: owned(root, true),
             cloning: 1,
             hard_owner: 0,
+            r14_unknown: 0,
             entries: vec![(self.text("Normal"), href(2, fixed.placeholder))],
             default: Some(href(5, fixed.placeholder)),
         };
@@ -411,6 +416,7 @@ impl Writer<'_> {
                 common: owned(record, true),
                 cloning: 1,
                 hard_owner: 1,
+                r14_unknown: 0,
                 entries: vec![(self.text("ACAD_SORTENTS"), href(3, *table))],
                 default: None,
             };

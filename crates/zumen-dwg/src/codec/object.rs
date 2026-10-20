@@ -33,7 +33,14 @@ pub(crate) fn open_raw(objects: &[u8], offset: usize, version: Version) -> Read<
     data.set_pos(start);
     data.set_end(end);
     let kind = data.ot(r2010)?;
-    let handles_start = if r2010 { end.checked_sub(handle_bits).ok_or(Eof)? } else { start + u64::from(data.rl()?) };
+    // R13・R14 は値の並びの大きさ（RL）を拡張データ・代わりの表示の後に持ち、読んだところで分ける（In::split_handles）
+    let handles_start = if r2010 {
+        end.checked_sub(handle_bits).ok_or(Eof)?
+    } else if version >= Version::R2000 {
+        start + u64::from(data.rl()?)
+    } else {
+        end
+    };
     if handles_start > end || handles_start < data.pos() {
         return Err(Eof);
     }
@@ -63,7 +70,7 @@ pub(crate) fn open_raw(objects: &[u8], offset: usize, version: Version) -> Read<
         let app = data.handle()?;
         eed.push((app, data.bytes(size as usize)?));
     }
-    Ok(RawObject { kind, handle, eed, input: In { data, strings, handles: Some(handles), version } })
+    Ok(RawObject { kind, handle, eed, input: In { data, strings, handles: Some(handles), version, start } })
 }
 
 /// 書く枠を作る（型・ハンドル・拡張データ）
@@ -86,6 +93,7 @@ pub(crate) struct ObjectCommon {
 
 impl ObjectCommon {
     pub fn read(s: &mut In<'_>) -> Read<Self> {
+        s.split_handles()?;
         let reactors = s.data.bl()?;
         let missing = s.r2004() && s.data.bit()?;
         let ds_binary = s.version >= Version::R2013 && s.data.bit()?;
@@ -178,7 +186,55 @@ impl EntityCommon {
         } else {
             None
         };
+        s.split_handles()?;
+        if !s.r2000() {
+            return Self::read_r14(s, graphic);
+        }
         Self::read_mode(s, graphic)
+    }
+
+    /// R13・R14 の図形のモードからの値（20.4.1、20.4.2）。線種は BYLAYER の印（Isbylayerlt）とハンドル、印刷スタイル・
+    /// 線の太さはない。ハンドルはレイヤ・線種が前後の図形より先
+    fn read_r14(s: &mut In<'_>, graphic: Option<Vec<u8>>) -> Read<Self> {
+        let mode = s.data.bb()?;
+        let owner = if mode == 0 { Some(s.handle()?) } else { None };
+        let count = s.data.bl()?;
+        let mut reactors = Vec::new();
+        for _ in 0..count.clamp(0, 1 << 16) {
+            reactors.push(s.handle()?);
+        }
+        let xdictionary = Some(s.handle()?);
+        let by_layer = s.data.bit()?;
+        let nolinks = s.data.bit()?;
+        let color = EntityColor::index(s.data.bs()? as u16);
+        let linetype_scale = s.data.bd()?;
+        let invisible = s.data.bs()?;
+        let layer = s.handle()?;
+        let ltype = if by_layer { None } else { Some(s.handle()?) };
+        let links = if nolinks { None } else { Some((s.handle()?, s.handle()?)) };
+        Ok(Self {
+            graphic,
+            mode,
+            owner,
+            reactors,
+            xdictionary,
+            ds_binary: false,
+            links,
+            color,
+            book_color: None,
+            linetype_scale,
+            layer,
+            ltype_flags: if by_layer { 0 } else { 3 },
+            ltype,
+            plotstyle_flags: 0,
+            plotstyle: None,
+            material_flags: 0,
+            material: None,
+            shadow: 0,
+            visual_styles: [None; 3],
+            invisible,
+            lineweight: 29,
+        })
     }
 
     /// 図形のモード（BB）からの値（R2018 の複数行の属性の埋め込みの MTEXT はここから、20.4.4）
@@ -271,7 +327,44 @@ impl EntityCommon {
             }
             None => o.data.bit(false),
         }
+        if !o.r2000() {
+            // R13・R14 の値の並びの大きさ（RL）は代わりの表示の後
+            o.r14_size_at = o.data.bit_len();
+            self.write_r14(o);
+            return;
+        }
         self.write_mode(o);
+    }
+
+    /// R13・R14 の図形のモードからの値（read_r14 の逆）。BYLAYER でない線種はハンドルで持つ（BYBLOCK・CONTINUOUS も
+    /// 線種の表の項目のハンドル）
+    fn write_r14(&self, o: &mut ObjectWriter) {
+        o.data.bb(self.mode);
+        if self.mode == 0 {
+            let owner = self.owner.unwrap_or(HandleRef { code: 4, value: 0 });
+            o.h(owner.code, owner.value);
+        }
+        o.data.bl(self.reactors.len() as i32);
+        for reactor in &self.reactors {
+            o.h(reactor.code, reactor.value);
+        }
+        let xdictionary = self.xdictionary.unwrap_or(HandleRef { code: 3, value: 0 });
+        o.h(xdictionary.code, xdictionary.value);
+        let by_layer = self.ltype_flags == 0;
+        o.data.bit(by_layer);
+        o.data.bit(self.links.is_none());
+        o.data.bs(self.color.value as i16);
+        o.data.bd(self.linetype_scale);
+        o.data.bs(self.invisible);
+        o.h(self.layer.code, self.layer.value);
+        if !by_layer {
+            let ltype = self.ltype.unwrap_or(HandleRef { code: 5, value: 0 });
+            o.h(ltype.code, ltype.value);
+        }
+        if let Some((previous, next)) = self.links {
+            o.h(previous.code, previous.value);
+            o.h(next.code, next.value);
+        }
     }
 
     pub fn write_mode(&self, o: &mut ObjectWriter) {

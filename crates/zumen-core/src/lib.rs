@@ -14,6 +14,7 @@ pub mod limits;
 mod measure;
 mod notices;
 mod read;
+pub mod regions;
 mod sort;
 pub mod text;
 pub mod title;

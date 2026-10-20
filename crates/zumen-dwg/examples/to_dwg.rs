@@ -1,5 +1,5 @@
 //! DXF・DWG を DWG に書く（確かめるための例）。版を省くと AutoCAD 2013
-//! `cargo run --release -p zumen-dwg --example to_dwg -- in.dxf out.dwg [2000|2004|2007|2010|2013|2018]`
+//! `cargo run --release -p zumen-dwg --example to_dwg -- in.dxf out.dwg [R13|R14|2000|2004|2007|2010|2013|2018]`
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let (Some(input), Some(output)) = (args.get(1), args.get(2)) else {

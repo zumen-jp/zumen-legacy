@@ -68,7 +68,9 @@ impl Control {
         for _ in 0..count.clamp(0, 1 << 20) {
             entries.push(s.handle()?);
         }
-        let count = if kind == 68 { usize::from(s.data.rc()?) } else { Self::extra_count(kind) };
+        // DIMSTYLE_CONTROL の RC の数とハンドルは R2000 から（R14 の図面にはない）
+        let count =
+            if kind == 68 { if s.r2000() { usize::from(s.data.rc()?) } else { 0 } } else { Self::extra_count(kind) };
         let mut extra = Vec::new();
         for _ in 0..count {
             extra.push(s.handle()?);
@@ -79,7 +81,7 @@ impl Control {
     pub fn write(&self, o: &mut ObjectWriter, kind: u16) {
         self.common.write(o);
         o.data.bl(self.entries.len() as i32);
-        if kind == 68 {
+        if kind == 68 && o.r2000() {
             o.data.rc(self.extra.len().min(255) as u8);
         }
         for entry in self.entries.iter().chain(&self.extra) {
@@ -129,22 +131,27 @@ impl BlockHeader {
         let has_attributes = s.data.bit()?;
         let xref = s.data.bit()?;
         let overlaid = s.data.bit()?;
-        let loaded = s.data.bit()?;
+        // 読み込みの印・配置の数・説明・プレビュー・配置と LAYOUT のハンドルは R2000 から
+        let r2000 = s.r2000();
+        let loaded = r2000 && s.data.bit()?;
         // 仕様は R2004 以降につねに持つと書くが、外部参照のブロックは数を持たない（ACadSharp・読み取りと同じ）
         let owned = if s.r2004() && !xref && !overlaid { s.data.bl()? } else { 0 };
         let base = s.data.bd3()?;
         let xref_path = s.text()?;
         let mut insert_count = Vec::new();
-        loop {
-            let byte = s.data.rc()?;
-            if byte == 0 {
-                break;
+        let (mut description, mut preview) = (RawText::empty(s.version), Vec::new());
+        if r2000 {
+            loop {
+                let byte = s.data.rc()?;
+                if byte == 0 {
+                    break;
+                }
+                insert_count.push(byte);
             }
-            insert_count.push(byte);
+            description = s.text()?;
+            let size = s.data.bl()?;
+            preview = s.data.bytes(size.max(0) as usize)?;
         }
-        let description = s.text()?;
-        let size = s.data.bl()?;
-        let preview = s.data.bytes(size.max(0) as usize)?;
         let (mut insert_units, mut explodable, mut scaling) = (0, false, 0);
         if s.r2007() {
             insert_units = s.data.bs()?;
@@ -167,7 +174,7 @@ impl BlockHeader {
         for _ in 0..insert_count.len() {
             inserts.push(s.handle()?);
         }
-        let layout = s.handle()?;
+        let layout = if r2000 { s.handle()? } else { HandleRef { code: 5, value: 0 } };
         Ok(Self {
             common,
             name,
@@ -201,19 +208,24 @@ impl BlockHeader {
         o.data.bit(self.has_attributes);
         o.data.bit(self.xref);
         o.data.bit(self.overlaid);
-        o.data.bit(self.loaded);
+        let r2000 = o.r2000();
+        if r2000 {
+            o.data.bit(self.loaded);
+        }
         if o.r2004() && !self.xref && !self.overlaid {
             o.data.bl(self.entities.len() as i32);
         }
         o.data.bd3(self.base);
         o.text(&self.xref_path);
-        for byte in &self.insert_count {
-            o.data.rc(*byte);
+        if r2000 {
+            for byte in &self.insert_count {
+                o.data.rc(*byte);
+            }
+            o.data.rc(0);
+            o.text(&self.description);
+            o.data.bl(self.preview.len() as i32);
+            o.data.raw(&self.preview);
         }
-        o.data.rc(0);
-        o.text(&self.description);
-        o.data.bl(self.preview.len() as i32);
-        o.data.raw(&self.preview);
         if o.r2007() {
             o.data.bs(self.insert_units);
             o.data.bit(self.explodable);
@@ -232,10 +244,12 @@ impl BlockHeader {
             o.href(last);
         }
         o.href(self.endblk);
-        for insert in &self.inserts {
-            o.href(*insert);
+        if r2000 {
+            for insert in &self.inserts {
+                o.href(*insert);
+            }
+            o.href(self.layout);
         }
-        o.href(self.layout);
     }
 }
 
@@ -257,13 +271,27 @@ pub(crate) struct Layer {
 }
 
 impl Layer {
+    /// R13・R14 の 4 つの B（凍結、非表示、新しいビューポートで凍結、ロック。読み取りと同じ並び）の values の印
+    const R14_BITS: [i16; 4] = [1, 2, 4, 8];
+
     pub fn read(s: &mut In<'_>) -> Read<Self> {
         let common = ObjectCommon::read(s)?;
         let name = EntryName::read(s)?;
-        let values = s.data.bs()?;
+        let values = if s.r2000() {
+            s.data.bs()?
+        } else {
+            let mut values = 0;
+            for bit in Self::R14_BITS {
+                if s.data.bit()? {
+                    values |= bit;
+                }
+            }
+            values
+        };
         let color = s.cmc()?;
         let xref_block = s.handle()?;
-        let plotstyle = s.handle()?;
+        // 印刷スタイルは R2000 から
+        let plotstyle = if s.r2000() { s.handle()? } else { HandleRef { code: 5, value: 0 } };
         let material = if s.r2007() { Some(s.handle()?) } else { None };
         let linetype = s.handle()?;
         let unknown = if s.version >= Version::R2013 { Some(s.handle()?) } else { None };
@@ -273,10 +301,18 @@ impl Layer {
     pub fn write(&self, o: &mut ObjectWriter) {
         self.common.write(o);
         self.name.write(o);
-        o.data.bs(self.values);
+        if o.r2000() {
+            o.data.bs(self.values);
+        } else {
+            for bit in Self::R14_BITS {
+                o.data.bit(self.values & bit != 0);
+            }
+        }
         o.cmc(&self.color);
         o.href(self.xref_block);
-        o.href(self.plotstyle);
+        if o.r2000() {
+            o.href(self.plotstyle);
+        }
         if o.r2007() {
             o.href(self.material.unwrap_or(HandleRef { code: 5, value: 0 }));
         }
@@ -551,7 +587,9 @@ impl Vport {
         let front_clip = s.data.bd()?;
         let back_clip = s.data.bd()?;
         let view_mode = [s.data.bit()?, s.data.bit()?, s.data.bit()?, s.data.bit()?];
-        let render_mode = s.data.rc()?;
+        // 描画のモード、UCS の値と名前の付いた UCS のハンドルは R2000 から
+        let r2000 = s.r2000();
+        let render_mode = if r2000 { s.data.rc()? } else { 0 };
         let (mut default_lights, mut lighting_type, mut brightness, mut contrast, mut ambient) =
             (false, 0, 0.0, 0.0, None);
         if s.r2007() {
@@ -575,13 +613,18 @@ impl Vport {
         let snap_rotation = s.data.bd()?;
         let snap_base = s.data.rd2()?;
         let snap_spacing = s.data.rd2()?;
-        let unknown = s.data.bit()?;
-        let ucs_per_viewport = s.data.bit()?;
-        let ucs_origin = s.data.bd3()?;
-        let ucs_x = s.data.bd3()?;
-        let ucs_y = s.data.bd3()?;
-        let ucs_elevation = s.data.bd()?;
-        let ucs_ortho = s.data.bs()?;
+        let (mut unknown, mut ucs_per_viewport) = (false, false);
+        let (mut ucs_origin, mut ucs_x, mut ucs_y) = ([0.0; 3], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]);
+        let (mut ucs_elevation, mut ucs_ortho) = (0.0, 0);
+        if r2000 {
+            unknown = s.data.bit()?;
+            ucs_per_viewport = s.data.bit()?;
+            ucs_origin = s.data.bd3()?;
+            ucs_x = s.data.bd3()?;
+            ucs_y = s.data.bd3()?;
+            ucs_elevation = s.data.bd()?;
+            ucs_ortho = s.data.bs()?;
+        }
         let (mut grid_flags, mut grid_major) = (0, 0);
         if s.r2007() {
             grid_flags = s.data.bs()?;
@@ -594,8 +637,9 @@ impl Vport {
             visual_style = Some(s.handle()?);
             sun = Some(s.handle()?);
         }
-        let named_ucs = s.handle()?;
-        let base_ucs = s.handle()?;
+        let none = HandleRef { code: 5, value: 0 };
+        let named_ucs = if r2000 { s.handle()? } else { none };
+        let base_ucs = if r2000 { s.handle()? } else { none };
         Ok(Self {
             common,
             name,
@@ -662,7 +706,10 @@ impl Vport {
         for bit in self.view_mode {
             o.data.bit(bit);
         }
-        o.data.rc(self.render_mode);
+        let r2000 = o.r2000();
+        if r2000 {
+            o.data.rc(self.render_mode);
+        }
         if o.r2007() {
             o.data.bit(self.default_lights);
             o.data.rc(self.lighting_type);
@@ -685,13 +732,15 @@ impl Vport {
         o.data.bd(self.snap_rotation);
         o.data.rd2(self.snap_base);
         o.data.rd2(self.snap_spacing);
-        o.data.bit(self.unknown);
-        o.data.bit(self.ucs_per_viewport);
-        o.data.bd3(self.ucs_origin);
-        o.data.bd3(self.ucs_x);
-        o.data.bd3(self.ucs_y);
-        o.data.bd(self.ucs_elevation);
-        o.data.bs(self.ucs_ortho);
+        if r2000 {
+            o.data.bit(self.unknown);
+            o.data.bit(self.ucs_per_viewport);
+            o.data.bd3(self.ucs_origin);
+            o.data.bd3(self.ucs_x);
+            o.data.bd3(self.ucs_y);
+            o.data.bd(self.ucs_elevation);
+            o.data.bs(self.ucs_ortho);
+        }
         if o.r2007() {
             o.data.bs(self.grid_flags);
             o.data.bs(self.grid_major);
@@ -703,8 +752,10 @@ impl Vport {
             o.href(self.visual_style.unwrap_or(none));
             o.href(self.sun.unwrap_or(HandleRef { code: 3, value: 0 }));
         }
-        o.href(self.named_ucs);
-        o.href(self.base_ucs);
+        if r2000 {
+            o.href(self.named_ucs);
+            o.href(self.base_ucs);
+        }
     }
 }
 
@@ -795,6 +846,65 @@ const DIM_FIELDS: &[(&str, char, u8)] = &[
     ("FLAG", 'b', 0),
 ];
 
+/// R13・R14 の DIMSTYLE の値の並び（20.4.68 の「R13 & R14 Only」）。形は b・r（RC）・s・d・t、色は BS の色番号
+const DIM_FIELDS_R14: &[(&str, char)] = &[
+    ("DIMTOL", 'b'),
+    ("DIMLIM", 'b'),
+    ("DIMTIH", 'b'),
+    ("DIMTOH", 'b'),
+    ("DIMSE1", 'b'),
+    ("DIMSE2", 'b'),
+    ("DIMALT", 'b'),
+    ("DIMTOFL", 'b'),
+    ("DIMSAH", 'b'),
+    ("DIMTIX", 'b'),
+    ("DIMSOXD", 'b'),
+    ("DIMALTD", 'r'),
+    ("DIMZIN", 'r'),
+    ("DIMSD1", 'b'),
+    ("DIMSD2", 'b'),
+    ("DIMTOLJ", 'r'),
+    ("DIMJUST", 'r'),
+    ("DIMFIT", 'r'),
+    ("DIMUPT", 'b'),
+    ("DIMTZIN", 'r'),
+    ("DIMALTZ", 'r'),
+    ("DIMALTTZ", 'r'),
+    ("DIMTAD", 'r'),
+    ("DIMUNIT", 's'),
+    ("DIMAUNIT", 's'),
+    ("DIMDEC", 's'),
+    ("DIMTDEC", 's'),
+    ("DIMALTU", 's'),
+    ("DIMALTTD", 's'),
+    ("DIMSCALE", 'd'),
+    ("DIMASZ", 'd'),
+    ("DIMEXO", 'd'),
+    ("DIMDLI", 'd'),
+    ("DIMEXE", 'd'),
+    ("DIMRND", 'd'),
+    ("DIMDLE", 'd'),
+    ("DIMTP", 'd'),
+    ("DIMTM", 'd'),
+    ("DIMTXT", 'd'),
+    ("DIMCEN", 'd'),
+    ("DIMTSZ", 'd'),
+    ("DIMALTF", 'd'),
+    ("DIMLFAC", 'd'),
+    ("DIMTVP", 'd'),
+    ("DIMTFAC", 'd'),
+    ("DIMGAP", 'd'),
+    ("DIMPOST", 't'),
+    ("DIMAPOST", 't'),
+    ("DIMBLK", 't'),
+    ("DIMBLK1", 't'),
+    ("DIMBLK2", 't'),
+    ("DIMCLRD", 's'),
+    ("DIMCLRE", 's'),
+    ("DIMCLRT", 's'),
+    ("FLAG", 'b'),
+];
+
 fn dim_holds(since: u8, version: Version) -> bool {
     match since {
         7 => version >= Version::R2007,
@@ -816,9 +926,29 @@ pub(crate) struct DimStyle {
 }
 
 impl DimStyle {
-    /// 版にある値の名前と形（b・s・d・t・c）
-    pub fn fields(version: Version) -> impl Iterator<Item = (&'static str, char)> {
-        DIM_FIELDS.iter().filter(move |(_, _, since)| dim_holds(*since, version)).map(|(name, kind, _)| (*name, *kind))
+    /// 版にある値の名前と形（b・s・d・t・c、R13・R14 は b・r・s・d・t）
+    pub fn fields(version: Version) -> Box<dyn Iterator<Item = (&'static str, char)>> {
+        if version < Version::R2000 {
+            return Box::new(DIM_FIELDS_R14.iter().copied());
+        }
+        Box::new(
+            DIM_FIELDS
+                .iter()
+                .filter(move |(_, _, since)| dim_holds(*since, version))
+                .map(|(name, kind, _)| (*name, *kind)),
+        )
+    }
+
+    /// 文字列でない値の形（RC は RC、それ以外は名前の形）を読む
+    fn read_value(s: &mut In<'_>, kind: char) -> Read<DimValue> {
+        Ok(match kind {
+            'b' => DimValue::Bit(s.data.bit()?),
+            'r' => DimValue::Short(i16::from(s.data.rc()?)),
+            's' => DimValue::Short(s.data.bs()?),
+            'd' => DimValue::Double(s.data.bd()?),
+            't' => DimValue::Text(s.text()?),
+            _ => DimValue::Color(s.cmc()?),
+        })
     }
 
     pub fn get(&self, name: &str) -> Option<&DimValue> {
@@ -829,21 +959,18 @@ impl DimStyle {
         let common = ObjectCommon::read(s)?;
         let name = EntryName::read(s)?;
         let mut values = Vec::with_capacity(DIM_FIELDS.len());
-        for &(key, kind, since) in DIM_FIELDS {
-            if !dim_holds(since, s.version) {
-                continue;
-            }
-            let value = match kind {
-                'b' => DimValue::Bit(s.data.bit()?),
-                's' => DimValue::Short(s.data.bs()?),
-                'd' => DimValue::Double(s.data.bd()?),
-                't' => DimValue::Text(s.text()?),
-                _ => DimValue::Color(s.cmc()?),
-            };
-            values.push((key, value));
+        for (key, kind) in Self::fields(s.version) {
+            values.push((key, Self::read_value(s, kind)?));
         }
         let xref_block = s.handle()?;
-        let count = if s.r2007() { 8 } else { 5 };
+        // DIMTXSTY、（R2000 以降）DIMLDRBLK・DIMBLK・DIMBLK1・DIMBLK2、（R2007 以降）DIMLTYPE・DIMLTEX1・DIMLTEX2
+        let count = if s.r2007() {
+            8
+        } else if s.r2000() {
+            5
+        } else {
+            1
+        };
         let mut handles = Vec::with_capacity(count);
         for _ in 0..count {
             handles.push(s.handle()?);
@@ -854,13 +981,14 @@ impl DimStyle {
     pub fn write(&self, o: &mut ObjectWriter) {
         self.common.write(o);
         self.name.write(o);
-        for &(key, kind, since) in DIM_FIELDS {
-            if !dim_holds(since, o.version) {
-                continue;
-            }
+        for (key, kind) in Self::fields(o.version) {
             match (kind, self.get(key)) {
                 ('b', Some(DimValue::Bit(value))) => o.data.bit(*value),
+                ('r', Some(DimValue::Short(value))) => o.data.rc(*value as u8),
+                ('r', _) => o.data.rc(0),
                 ('s', Some(DimValue::Short(value))) => o.data.bs(*value),
+                // R13・R14 の色は BS の色番号
+                ('s', Some(DimValue::Color(value))) => o.data.bs(value.index),
                 ('d', Some(DimValue::Double(value))) => o.data.bd(*value),
                 ('t', Some(DimValue::Text(value))) => o.text(value),
                 ('c', Some(DimValue::Color(value))) => o.cmc(value),
@@ -872,7 +1000,13 @@ impl DimStyle {
             }
         }
         o.href(self.xref_block);
-        let count = if o.r2007() { 8 } else { 5 };
+        let count = if o.r2007() {
+            8
+        } else if o.r2000() {
+            5
+        } else {
+            1
+        };
         for index in 0..count {
             o.href(self.handles.get(index).copied().unwrap_or(HandleRef { code: 5, value: 0 }));
         }

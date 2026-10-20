@@ -2,7 +2,7 @@
 //!
 //! - `rewrite_dwg`: 読んだ DWG を、オブジェクトをビット列のまま写して同じ版で書き直す（その場の編集の土台）
 //! - `write_dwg`: AutoCAD の図面のモデルを AutoCAD 2013 の DWG（AC1027）に書く。`write_dwg_as` は版を選ぶ
-//!   （2000〜2018。その版が持てない値は近い形にして notices で知らせる）
+//!   （R13〜2018。その版が持てない値は近い形にして notices で知らせる）
 //! - 入れ物（container）・オブジェクト（object）・区切りで囲む節（sections）・圧縮（compress）は、どの書き方にも使う
 
 pub(crate) mod bits;

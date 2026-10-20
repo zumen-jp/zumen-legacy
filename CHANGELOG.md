@@ -4,6 +4,17 @@ All packages share one version during 0.x.
 
 ## Unreleased
 
+- Rust: `zumen_dwg::write_dwg_as` writes AutoCAD R13, R14, 2000, 2004, 2007, 2010, 2013 or 2018 DWG, with
+  notices for values an older version cannot hold. `write_dwg` and facade conversion still default to 2013.
+  R13 and R14 drawings can also be rewritten and edited in their own version, including through Rust and Python
+  `edit`. See [DWG writing](docs/formats/dwg.md).
+- Rust, Python, the command line and the MCP server: find the regions that drawn lines close, such as rooms, with
+  their areas ([decision 0015](docs/decisions/0015-analysis-in-zumen-core.md)). Lines are split where they cross or
+  meet and joined where their ends are within a tolerance, lines that end nowhere close nothing, and closed shapes
+  inside that touch no other line are holes. Each region has its outline, holes, area and perimeter on the sheet and,
+  inside a placement, in real-world millimeters, the entities that bound it and the texts inside.
+  `zumen_core::regions::closed_regions`, `Scene.regions` and `zumen.tools.find_regions` in Python (areas in square
+  meters, filters by layer, text and area), `zumen regions` and the `find_regions` MCP tool.
 - Reader: `ReaderWorker` gets the scene from the worker as JSON and parses it on the page, instead of structured
   cloning the scene with its point arrays. A 16.6 MB SFC with 227,139 entities now reads in 2.9 s instead of 14.5 s in
   Chromium (0.9 s of it on the page).

@@ -1,4 +1,4 @@
-//! DWG を読み、図形の種類ごとの数と、寸法のブロックの有無を表示する（開発用）
+//! DWG を読み、図形の種類ごとの数、寸法のブロックの有無とレイアウトを表示する（開発用）
 fn main() {
     let path = std::env::args().nth(1).unwrap();
     let doc = zumen_dwg::read_dwg(&std::fs::read(&path).unwrap()).unwrap();
@@ -14,5 +14,7 @@ fn main() {
     }
     println!("{counts:?}");
     println!("blocks {:?}", doc.blocks.iter().map(|block| block.name.clone()).collect::<Vec<_>>());
+    let layouts: Vec<_> = doc.layouts.iter().map(|layout| (&layout.name, &layout.block, layout.paper_units)).collect();
+    println!("layouts {layouts:?}");
     println!("notices {:?}", doc.notices);
 }

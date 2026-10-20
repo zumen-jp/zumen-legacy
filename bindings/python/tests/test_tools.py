@@ -14,6 +14,7 @@ from zumen import tools
 
 FIXTURES = pathlib.Path(__file__).parents[3] / "tests" / "fixtures"
 SFC = str(FIXTURES / "sfc" / "features.sfc")
+ROOMS = FIXTURES / "dxf" / "rooms.dxf"
 
 
 def conforms(value: typing.Any, hint: typing.Any, path: str = "result") -> None:
@@ -98,6 +99,8 @@ def test_every_result_follows_the_documented_schema(tmp_path):
         check(page, tools.EntityPage)
         for entity in scene.entities(hidden_layers=[]):
             check(tools.get_entity(scene, entity["id"], max_points=tools.MAX_POINTS), tools.EntityDetail)
+        check(tools.find_regions(scene, all_layers=True, max_points=tools.MAX_POINTS), tools.RegionPage)
+    check(tools.find_regions(zumen.read(ROOMS)), tools.RegionPage)
     scene = zumen.read(SFC)
     line = scene.entity("#810>#260>#220")
     x0, y0, x1, y1 = line["bbox"]
@@ -110,7 +113,14 @@ def test_every_result_follows_the_documented_schema(tmp_path):
 
 def test_the_schema_converts_to_json_schema():
     pydantic = pytest.importorskip("pydantic")
-    for hint in [tools.Summary, tools.RenderInfo, tools.TextPage, tools.EntityPage, tools.EntityDetail]:
+    for hint in [
+        tools.Summary,
+        tools.RenderInfo,
+        tools.TextPage,
+        tools.EntityPage,
+        tools.EntityDetail,
+        tools.RegionPage,
+    ]:
         assert pydantic.TypeAdapter(hint).json_schema()["type"] == "object"
     detail = tools.get_entity(zumen.read(SFC), "#810>#290")
     assert pydantic.TypeAdapter(tools.EntityDetail).validate_python(detail) == detail
@@ -305,6 +315,41 @@ def test_measures_real_lengths_through_the_scale_of_a_placement():
         tools.measure(scene, [0, 0], [1], entity=None)
     with pytest.raises(tools.DrawingError):
         tools.measure(scene, [0, 0], ["1", 2])
+
+
+def test_finds_the_rooms_of_a_floor_plan_with_their_real_areas():
+    scene = zumen.read(ROOMS)
+    page = tools.find_regions(scene, layer="wall")
+    assert page["total"] == 5 and page["next_offset"] is None
+    rooms = tools.find_regions(scene, layer="WALL", named=True)["regions"]
+    assert [[text["text"] for text in room["texts"]] for room in rooms] == [["LDK"], ["寝室"]]
+    living, bedroom = rooms
+    # 4.85 m × 5.8 m, less the column of radius 0.2 m drawn as a polygon
+    assert living["real_outline_area_m2"] == 28.13
+    assert 28.0 < living["real_area_m2"] < 28.01
+    assert len(living["holes"]) == 1 and living["boundary"] == ["21", "22", "25"]
+    assert (bedroom["real_area_m2"], bedroom["real_perimeter"]) == (16.53, 17300.0)
+    assert bedroom["outline"] == [[5050.0, 100.0], [7900.0, 100.0], [7900.0, 5900.0], [5050.0, 5900.0]]
+    # Model space in millimeters has the same coordinates on the sheet and in the real world
+    assert "real_outline" not in bedroom and bedroom["placement"] == {"name": "モデル空間（mm）", "scale": "1:1"}
+    # The furniture on another layer is a hole of the bedroom when every layer is used
+    every = tools.find_regions(scene, named=True)["regions"]
+    assert every[1]["real_area_m2"] == 15.53
+    assert tools.find_regions(scene, min_area_m2=20)["total"] == 1
+    # A page ends before its points pass max_points, and the first region comes without them when they do not fit
+    small = tools.find_regions(scene, layer="wall", max_points=10)
+    assert small["regions"][0]["outline"] and small["next_offset"] == 1
+    first = tools.find_regions(scene, layer="wall", offset=1, max_points=10)
+    assert first["regions"][0]["outline_omitted"] and "outline" not in first["regions"][0]
+    with pytest.raises(tools.DrawingError):
+        tools.find_regions(scene, tolerance=0)
+
+
+def test_gives_real_areas_through_the_scale_of_a_viewport():
+    scene = zumen.read(FIXTURES / "dxf" / "viewports.dxf")
+    region = next(item for item in tools.find_regions(scene)["regions"] if item["placement"]["scale"] == "1:500")
+    assert region["real_area_m2"] == round(region["paper_area"] * 0.25, 4)
+    assert region["real_outline"] != region["outline"]
 
 
 def test_renders_a_region_with_its_long_edge_in_pixels():

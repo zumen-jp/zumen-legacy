@@ -66,6 +66,16 @@ impl ObjectWriter {
         self.version >= Version::R2018
     }
 
+    /// BT（2.10）。R2000 以降は 0 を 1 ビットに縮め、R13・R14 は BD
+    pub fn bt(&mut self, value: f64) {
+        if self.r2000() { self.data.bt(value) } else { self.data.bd(value) }
+    }
+
+    /// BE（2.8）。R2000 以降は (0, 0, 1) を 1 ビットに縮め、R13・R14 は 3BD
+    pub fn be(&mut self, value: [f64; 3]) {
+        if self.r2000() { self.data.be(value) } else { self.data.bd3(value) }
+    }
+
     /// TV。R2007 以降は文字列の並びに BS の文字の数と UTF-16、それより前は値の並びに BS のバイト数と図面の文字コード
     pub fn tv(&mut self, text: &str) {
         if self.r2007() {

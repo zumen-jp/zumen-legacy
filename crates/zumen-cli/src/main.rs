@@ -1,5 +1,5 @@
 //! zumen のコマンド。図面の形式の判定、表示用モデル（Scene）の JSON の出力、文字と図形の取り出し、PNG への描画、
-//! 2 つの版の比較、DXF への書き出しを行う。
+//! 線で閉じた領域（部屋）と面積の取り出し、2 つの版の比較、DXF への書き出しを行う。
 #![forbid(unsafe_code)]
 
 use serde_json::{Map, Value, json};
@@ -10,6 +10,7 @@ use zumen::compare::{CompareOptions, compare_scenes, diff_scene};
 use zumen::extract::{
     EntityFilter, EntityText, Shape, entity_shapes, entity_text, layer_names, real_shapes, scene_texts, select_entities,
 };
+use zumen::regions::{ClosedRegion, RegionOptions, RegionShape, closed_regions};
 use zumen::title::{TitleKey, title_block, title_fields};
 use zumen::{BBox, Background, ReadDrawingOptions, ReadLimits, Scene, SceneEntity};
 use zumen_render::{ImageSize, RenderOptions, RenderedImage};
@@ -22,6 +23,8 @@ Usage:
   zumen entities <file> [--region <x0>,<y0>,<x1>,<y1>] [--all-layers] [--geometry] [--format <name>]
                  [--view <id>]
   zumen title <file> [--format <name>] [--view <id>]
+  zumen regions <file> [--region <x0>,<y0>,<x1>,<y1>] [--layer <name>]... [--tolerance <mm>]
+                [--min-area <mm2>] [--all-layers] [--format <name>] [--view <id>]
   zumen render <file> -o <out.png|out.svg|out.pdf> [--dpi <n> | --size <w>x<h> [--margin <px>]] [--dpr <n>]
                [--region <x0>,<y0>,<x1>,<y1>] [--all-layers] [--map <out.json>]
                [--theme light|dark] [--thin] [--format <name>] [--view <id>]
@@ -40,6 +43,10 @@ texts and entities write one JSON object per line, in paper millimeters (Y up) r
 parts; curves as the polyline drawn), with real for the same coordinates in real-world millimeters
 when the entity sits in a scaled placement.
 title finds the drawing number, revision, title, project, scale and date in the title block.
+regions writes, one JSON object per line, the regions that drawn lines close (rooms, when a text names them):
+the outline and holes, the area (mm²) and perimeter on the sheet and in real-world millimeters, the entities
+that bound them and the texts inside. --layer keeps the lines on layers whose name contains the text (walls),
+--tolerance (default 0.01 paper mm) joins ends that nearly meet, and --min-area leaves out smaller regions.
 render writes SVG or PDF when the output ends in .svg or .pdf: the sheet (or --region) at its real size,
 with text that can be searched. --dpi, --size, --dpr and --map are for PNG only.
 --region selects a part of the sheet in paper millimeters, and --all-layers includes the layers
@@ -79,6 +86,8 @@ struct Args {
     geometry: bool,
     map: Option<String>,
     tolerance: f64,
+    layers: Vec<String>,
+    min_area: f64,
     units: String,
     target_version: Option<String>,
     style: bool,
@@ -128,6 +137,8 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
         geometry: false,
         map: None,
         tolerance: 0.01,
+        layers: Vec::new(),
+        min_area: 0.0,
         units: "mm".into(),
         target_version: None,
         style: false,
@@ -164,6 +175,8 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
             "--tolerance" => {
                 parsed.tolerance = value("--tolerance")?.parse().map_err(|_| "--tolerance needs a number")?
             }
+            "--layer" => parsed.layers.push(value("--layer")?),
+            "--min-area" => parsed.min_area = value("--min-area")?.parse().map_err(|_| "--min-area needs a number")?,
             "--style" => parsed.style = true,
             "--units" => parsed.units = value("--units")?,
             "--target-version" => parsed.target_version = Some(value("--target-version")?),
@@ -350,6 +363,43 @@ fn map_json(scene: &Scene, image: &RenderedImage, options: &RenderOptions) -> Va
         "region": bbox_json(&image.view.visible_region(image.width, image.height)),
         "entities": entities,
     })
+}
+
+fn ring_json(ring: &[f64]) -> Value {
+    Value::Array(ring.as_chunks::<2>().0.iter().map(|[x, y]| json!([mm(*x), mm(*y)])).collect())
+}
+
+fn region_shape_json(shape: &RegionShape) -> Value {
+    json!({
+        "area": mm(shape.area),
+        "outlineArea": mm(shape.outline_area),
+        "perimeter": mm(shape.perimeter),
+        "outline": ring_json(&shape.outline),
+        "holes": shape.holes.iter().map(|hole| ring_json(hole)).collect::<Vec<_>>(),
+    })
+}
+
+/// 閉じた領域。用紙の mm の形と大きさに、配置の中なら real（実寸の mm）、境界の図形と中の文字を添える
+fn region_json(region: &ClosedRegion) -> Value {
+    let Value::Object(mut object) = region_shape_json(&region.paper) else { unreachable!() };
+    object.insert("bbox".into(), bbox_json(&region.bbox));
+    object.insert(
+        "placement".into(),
+        json!(region.placement.as_ref().map(|placement| json!({
+            "name": placement.name,
+            "scaleX": placement.scale_x,
+            "scaleY": placement.scale_y,
+        }))),
+    );
+    object.insert("real".into(), json!(region.real.as_ref().map(region_shape_json)));
+    object.insert("boundary".into(), json!(region.boundary));
+    let texts: Vec<Value> = region
+        .texts
+        .iter()
+        .map(|text| json!({ "id": text.entity, "text": text.text, "x": mm(text.x), "y": mm(text.y) }))
+        .collect();
+    object.insert("texts".into(), Value::Array(texts));
+    Value::Object(object)
 }
 
 fn write_lines(lines: impl Iterator<Item = Value>) -> Result<(), String> {
@@ -543,6 +593,25 @@ fn run(args: Args) -> Result<(), String> {
                 .collect();
             object.insert("fields".into(), Value::Array(fields));
             println!("{}", serde_json::to_string_pretty(&Value::Object(object)).map_err(|error| error.to_string())?);
+        }
+        "regions" => {
+            let layers = (!args.layers.is_empty()).then(|| {
+                let wanted: Vec<String> = args.layers.iter().map(|name| name.to_lowercase()).collect();
+                scene
+                    .layers
+                    .iter()
+                    .filter(|layer| wanted.iter().any(|name| layer.name.to_lowercase().contains(name)))
+                    .map(|layer| layer.id)
+                    .collect()
+            });
+            let options = RegionOptions {
+                filter: filter.clone(),
+                layers,
+                tolerance: args.tolerance,
+                min_area: args.min_area,
+                ..RegionOptions::default()
+            };
+            write_lines(closed_regions(&scene, &options).iter().map(region_json))?
         }
         "entities" => write_lines(
             select_entities(&scene, &filter).into_iter().map(|entity| entity_json(&scene, entity, args.geometry)),
