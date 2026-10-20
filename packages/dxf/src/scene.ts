@@ -2862,6 +2862,7 @@ function drawViewport(
     const layer = doc.layers.find((candidate) => candidate.handle === handle);
     if (layer) frozen.add(layer.name.toUpperCase());
   }
+  for (const name of viewport.frozen_layer_names) frozen.add(name.toUpperCase());
   const ctx: Ctx = {
     ...root,
     m,

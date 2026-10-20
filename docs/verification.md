@@ -519,8 +519,27 @@ Checked on 2026-10-20 on macOS 27 (Apple Silicon) with Rust 1.99.0, Python 3.14.
   ANSI_932 without any `\U+XXXX`. `farmhouse.dwg`, whose texts have simplified Chinese, is written as ANSI_936, with
   `\U+XXXX` only for the characters that GBK lacks (`²`, `®` and line separators). Unit tests pin the choice for
   Japanese, simplified Chinese, Korean, Cyrillic, Greek and Central European texts and for declared code pages.
-- Not checked: opening the files in AutoCAD or other CAD programs of those versions, and how AutoCAD reads the two
-  `\U+XXXX` of a character outside the Basic Multilingual Plane.
+- R12: each of the 26 fixtures is written as R12, read again with its original `$INSUNITS` added (R12 has no length
+  unit) and compared with the original in model space and in the current layout (`crates/zumen/tests/convert_r12.rs`).
+  Each entity is compared with the same entity or with the parts it was exploded into: lines, text (its place, size
+  and direction on the sheet) and points the same to 1e-9; fills by their even-odd area (within 1 %, as curves are
+  flattened for the largest scale at which a block is inserted) and box; hatch pattern lines inside the boundary;
+  ellipses and splines by their box. Multiline attributes and text in a vertical `@` font compare by their string, and
+  colors, line weights and dashes are not compared. The 42 local samples find no other difference
+  (`ZUMEN_SAMPLES=… cargo test -p zumen --release --test convert_r12 -- --ignored`). The R12 layout is compared with
+  the sheet scaled by the paper unit: the inch layout of `farmhouse.dwg`, which a reader of R12 takes as millimeters,
+  is flattened 25.4 times coarser through its viewports, so its curves and fills are compared within 10 %.
+- ezdxf reads every fixture and sample written as R12 strictly (AC1009); its audit finds nothing in the samples and, in
+  the fixtures, only what `features.dxf` and `limits.dxf` pin (without the transparency and the LEADER with one vertex,
+  which R12 does not keep). Unit tests check that R12 has no classes, objects, block records, subclass markers or
+  owner handles, that only entities have handles, and that viewports keep their view and frozen layers in `MVIEW`.
+- Reading: the layers frozen in an R12 viewport (`MVIEW`, 1003) are now hidden in it by both readers; the scene of
+  `r12.dxf` no longer draws the two entities of layer `WALL` through the viewport that freezes it, and the TypeScript and
+  Rust readers give the same scenes for the 68 R12 files written from the fixtures and samples (95 views, `pnpm run
+  parity`).
+- Not checked: opening the files in AutoCAD or other CAD programs of those versions, in particular R12 programs with
+  the non-ASCII names of layers and styles that zumen keeps, and how AutoCAD reads the two `\U+XXXX` of a character
+  outside the Basic Multilingual Plane.
 
 ## SXF and JWW to DXF
 
