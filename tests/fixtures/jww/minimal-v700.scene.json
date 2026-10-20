@@ -90,7 +90,8 @@
         {
           "key": "layer",
           "label": "レイヤ",
-          "value": "平面 / 0-0 通り芯"
+          "value": "平面 / 0-0 通り芯",
+          "raw": 1
         },
         {
           "key": "scale",
@@ -189,7 +190,8 @@
         {
           "key": "layer",
           "label": "レイヤ",
-          "value": "平面 / 0-2"
+          "value": "平面 / 0-2",
+          "raw": 3
         },
         {
           "key": "scale",
@@ -312,7 +314,8 @@
         {
           "key": "layer",
           "label": "レイヤ",
-          "value": "平面 / 0-1"
+          "value": "平面 / 0-1",
+          "raw": 2
         },
         {
           "key": "scale",
@@ -434,7 +437,8 @@
         {
           "key": "layer",
           "label": "レイヤ",
-          "value": "平面 / 0-0 通り芯"
+          "value": "平面 / 0-0 通り芯",
+          "raw": 1
         },
         {
           "key": "scale",
@@ -528,7 +532,8 @@
         {
           "key": "layer",
           "label": "レイヤ",
-          "value": "平面 / 0-0 通り芯"
+          "value": "平面 / 0-0 通り芯",
+          "raw": 1
         },
         {
           "key": "scale",

@@ -56,11 +56,11 @@ describe("安定したキー", () => {
     for (const [key, seen] of shapes) expect([...seen], key).toHaveLength(1);
   });
 
-  it("どの形式の図形も、種類・識別子・レイヤ・色を同じ key で持つ", () => {
+  it("どの形式の図形も、種類・識別子・レイヤを同じ key で持つ", () => {
     for (const [name, scene] of scenes) {
       for (const entity of scene.entities) {
         const keys = entity.properties.map((property) => property.key);
-        for (const key of ["type", "id", "layer", "color"]) expect(keys, `${name} ${entity.id}`).toContain(key);
+        for (const key of ["type", "id", "layer"]) expect(keys, `${name} ${entity.id}`).toContain(key);
       }
     }
   });

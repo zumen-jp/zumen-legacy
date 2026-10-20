@@ -107,15 +107,167 @@ fn tagged_strokes<S: Serializer>(strokes: &[StrokePrimitive], serializer: S) -> 
     serializer.collect_seq(strokes.iter().map(|stroke| Tagged { kind: "stroke", stroke }))
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+/// 図形の種類の、形式によらない英語のキー（`@zumenjs/core` の EntityKind と同じ）。どの形式の図形がどれになるかは
+/// docs/architecture.md の「Stable keys」の表のとおり
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum EntityKind {
+    Line,
+    ConstructionLine,
+    Polyline,
+    Multiline,
+    Mesh,
+    Arc,
+    Circle,
+    Ellipse,
+    EllipseArc,
+    Spline,
+    Clothoid,
+    Helix,
+    Point,
+    Text,
+    Attribute,
+    AttributeDefinition,
+    Dimension,
+    Leader,
+    Balloon,
+    Hatch,
+    Solid,
+    Symbol,
+    Image,
+    Wipeout,
+    Viewport,
+}
+
+impl EntityKind {
+    pub const ALL: [EntityKind; 25] = [
+        EntityKind::Line,
+        EntityKind::ConstructionLine,
+        EntityKind::Polyline,
+        EntityKind::Multiline,
+        EntityKind::Mesh,
+        EntityKind::Arc,
+        EntityKind::Circle,
+        EntityKind::Ellipse,
+        EntityKind::EllipseArc,
+        EntityKind::Spline,
+        EntityKind::Clothoid,
+        EntityKind::Helix,
+        EntityKind::Point,
+        EntityKind::Text,
+        EntityKind::Attribute,
+        EntityKind::AttributeDefinition,
+        EntityKind::Dimension,
+        EntityKind::Leader,
+        EntityKind::Balloon,
+        EntityKind::Hatch,
+        EntityKind::Solid,
+        EntityKind::Symbol,
+        EntityKind::Image,
+        EntityKind::Wipeout,
+        EntityKind::Viewport,
+    ];
+
+    /// JSON での名前（line、construction-line など）
+    pub fn name(self) -> &'static str {
+        match self {
+            EntityKind::Line => "line",
+            EntityKind::ConstructionLine => "construction-line",
+            EntityKind::Polyline => "polyline",
+            EntityKind::Multiline => "multiline",
+            EntityKind::Mesh => "mesh",
+            EntityKind::Arc => "arc",
+            EntityKind::Circle => "circle",
+            EntityKind::Ellipse => "ellipse",
+            EntityKind::EllipseArc => "ellipse-arc",
+            EntityKind::Spline => "spline",
+            EntityKind::Clothoid => "clothoid",
+            EntityKind::Helix => "helix",
+            EntityKind::Point => "point",
+            EntityKind::Text => "text",
+            EntityKind::Attribute => "attribute",
+            EntityKind::AttributeDefinition => "attribute-definition",
+            EntityKind::Dimension => "dimension",
+            EntityKind::Leader => "leader",
+            EntityKind::Balloon => "balloon",
+            EntityKind::Hatch => "hatch",
+            EntityKind::Solid => "solid",
+            EntityKind::Symbol => "symbol",
+            EntityKind::Image => "image",
+            EntityKind::Wipeout => "wipeout",
+            EntityKind::Viewport => "viewport",
+        }
+    }
+}
+
+/// 整形する前の属性の値。座標は [x, y]、範囲は [始め, 終わり] のような数の並び
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(untagged)]
+pub enum PropertyRaw {
+    Number(f64),
+    Text(String),
+    Bool(bool),
+    Numbers(Vec<f64>),
+}
+
+impl From<f64> for PropertyRaw {
+    fn from(value: f64) -> Self {
+        PropertyRaw::Number(value)
+    }
+}
+
+impl From<String> for PropertyRaw {
+    fn from(value: String) -> Self {
+        PropertyRaw::Text(value)
+    }
+}
+
+impl From<&str> for PropertyRaw {
+    fn from(value: &str) -> Self {
+        PropertyRaw::Text(value.to_string())
+    }
+}
+
+impl From<bool> for PropertyRaw {
+    fn from(value: bool) -> Self {
+        PropertyRaw::Bool(value)
+    }
+}
+
+impl From<Vec<f64>> for PropertyRaw {
+    fn from(value: Vec<f64>) -> Self {
+        PropertyRaw::Numbers(value)
+    }
+}
+
+impl<const N: usize> From<[f64; N]> for PropertyRaw {
+    fn from(value: [f64; N]) -> Self {
+        PropertyRaw::Numbers(value.to_vec())
+    }
+}
+
+/// 図形・図面の属性。label と value は人に見せる日本語と整形した文字列で、アプリケーションは key で属性を選ぶ。
+/// key の一覧と、raw の形は docs/architecture.md の「Stable keys」の表のとおり
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Property {
+    /// 形式によらない英語のキー（layer、color、start など）。1 つの図形の中では重ならない
+    pub key: &'static str,
     pub label: String,
     pub value: String,
+    /// 整形する前の値（数・座標・形式の番号など）。value が文字列そのものなら省く
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw: Option<PropertyRaw>,
 }
 
 impl Property {
-    pub fn new(label: impl Into<String>, value: impl Into<String>) -> Self {
-        Self { label: label.into(), value: value.into() }
+    pub fn new(key: &'static str, label: impl Into<String>, value: impl Into<String>) -> Self {
+        Self { key, label: label.into(), value: value.into(), raw: None }
+    }
+
+    /// 整形する前の値を足す
+    pub fn raw(mut self, raw: impl Into<PropertyRaw>) -> Self {
+        self.raw = Some(raw.into());
+        self
     }
 }
 
@@ -135,9 +287,11 @@ pub struct Placement {
 pub struct SceneEntity {
     /// 形式内での識別子（SXF はインスタンス番号 #nn、配置の中では配置の番号を前に付ける）
     pub id: String,
-    /// 日本語の種類名（線分、文字、直線寸法など）
+    /// 形式によらない種類（line、text、dimension など）。アプリケーションはこれで図形を選ぶ
+    pub kind: EntityKind,
+    /// 日本語の種類名（線分、文字、直線寸法など）。人に見せる
     #[serde(rename = "type")]
-    pub kind: String,
+    pub type_name: String,
     /// 元の形式での名前（line_feature など）
     pub source: String,
     /// 自分と、配置元の部分図・部品のレイヤ。すべて表示のときだけ見える

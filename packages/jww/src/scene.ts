@@ -226,6 +226,7 @@ class Builder {
           key: "layer",
           label: "レイヤ",
           value: `${groupName(this.doc, base.layerGroup & 0x0f)} / ${layerName(this.doc, base.layerGroup & 0x0f, base.layer & 0x0f)}`,
+          raw: layer,
         },
         { key: "scale", label: "縮尺", value: `1/${number(scale)}`, raw: scale },
         { key: "color", label: "線色", value: String(base.penColor), raw: base.penColor },
