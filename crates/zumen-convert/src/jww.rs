@@ -208,7 +208,6 @@ impl<'a> Mapper<'a> {
             let to_paper = multiply(&frame.to_paper, &frame.to_container);
             self.walk(entity, index, &Key::Top, &to_paper, frame.scale(), 0, &[]);
         }
-        self.out.layer(VIEWPORT_LAYER, true, false, false);
         overall_viewport(&mut self.out, width, height);
         let mut extents = empty_box();
         for (index, view) in views.iter().enumerate() {

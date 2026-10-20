@@ -4,6 +4,26 @@ All packages share one version during 0.x.
 
 ## Unreleased (0.1.0)
 
+- Rust and Python: convert SXF (SFC and P21) and JWW drawings to DXF through the AutoCAD drawing model. The new crate
+  `zumen-convert` maps them into a `DxfDocument` (`sxf_to_dxf`, `jww_to_dxf`, re-exported as `zumen::mapping`), and
+  `zumen::convert`, `zumen convert <file> -o <out.dxf>` and `zumen.convert` in Python write it
+  ([decisions 0007](docs/decisions/0007-mapping-crate-between-formats.md) and
+  [0008](docs/decisions/0008-sheets-and-scales-in-the-autocad-model.md)). Model space is at real size: each SXF
+  sub-figure and each JWW layer group scale is shown through a viewport of the sheet's layout at its scale and
+  rotation, and what is drawn on the sheet itself is in paper space; the DXF opens in that layout. Layers (with the
+  states of JWW layer groups), colors (ACI where the color is one, true color otherwise), line types, line weights,
+  fonts and vertical text, arcs, ellipses and splines, hatches and fills, blocks (SXF drawing parts and groups, JWW
+  blocks) and dimensions (DIMENSION with their drawn block) become their AutoCAD counterparts. What cannot be mapped as
+  it was (character spacing, clothoids as polylines, leaders as separate lines, arrows and text, pattern hatches as
+  their outline, title blocks, temporary points …) is reported in `notices`. The layout of the written DXF draws the
+  same scene as the source, entity by entity, on the fixtures and local samples, and ezdxf reads and audits the files.
+- `@zumenjs/dxf` and `zumen-dxf`: TEXT and MTEXT in a vertical font (a TrueType font whose name starts with `@`, such as
+  `@ＭＳ 明朝`) are drawn as a column of upright characters, as AutoCAD draws the vertical Japanese text that it and
+  Jw_cad write. New fixture `tests/fixtures/dxf/vertical-text.dxf`.
+- `zumen-sxf` and `zumen-jww`: the code tables and the rules that turn codes into colors, line types, widths, layer
+  names and text layout are public (`SxfDocument::color`, `dashes`, `width`, `font`, `zumen_sxf::tables`,
+  `zumen_sxf::parse_sxf`; `JwwDocument::pen_color`, `line_dashes`, `line_width`, `group_scale`, `layer_name`,
+  `zumen_jww::paper_size`, `text_layout_input`), and the scenes use them. The scenes do not change.
 - Rust and Python: write DXF and DWG drawings as DXF of AutoCAD 2013 in UTF-8 through the AutoCAD drawing model
   (`zumen::convert` and `zumen_dxf::write_dxf`, `zumen convert <file> -o <out.dxf>`, `zumen.convert` and `Converted` in
   Python; [decision 0006](docs/decisions/0006-write-through-the-autocad-model.md)). Handles, tables, blocks, layouts and

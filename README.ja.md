@@ -171,7 +171,7 @@ image = scene.render(size=(2000, 2000))  # PNG と、画像の px と用紙の m
 for entity in image.entities_at(640, 480):  # その画素に描いた図形（外接矩形の小さい順）
     print(entity["id"], entity["box"], entity["text"])
 
-zumen.convert("plan.dwg", "dxf").save("plan.dxf")  # DXF・DWG を AutoCAD 2013 の DXF に。変えた内容は notices で分かる
+zumen.convert("plan.jww", "dxf").save("plan.dxf")  # どの形式も AutoCAD 2013 の DXF に。変えた内容は notices で分かる
 ```
 
 AI のアプリは、Python のパッケージの MCP サーバー（`pip install "zumen[mcp]"` の後に `zumen-mcp --root <フォルダ>`）で
@@ -181,8 +181,14 @@ AI のアプリは、Python のパッケージの MCP サーバー（`pip instal
 ```bash
 cargo run --release -p zumen-cli -- render plan.jww -o plan.png --dpi 150 --map plan.json
 cargo run --release -p zumen-cli -- texts plan.jww --region 100,50,200,120  # 1 行に 1 つの JSON
-cargo run --release -p zumen-cli -- convert plan.dwg -o plan.dxf
+cargo run --release -p zumen-cli -- convert plan.sfc -o plan.dxf
 ```
+
+`convert` は、どの形式の図面も AutoCAD の図面のモデルを経て AutoCAD 2013 の DXF に書く。DXF・DWG はハンドル・表・
+ブロック・レイアウトを保つ。SXF・JWW はモデル空間を実寸にして写す。SXF の部分図・JWW のレイヤグループの縮尺ごとに、
+用紙のレイアウトのビューポートがその縮尺で見せ、用紙にじかに描いたもの（図枠・表題欄）は紙空間に置く。レイヤ・色・線種・
+線の太さ・フォント・縦書き・ブロック・寸法・ハッチングを AutoCAD の図形にし、レイアウトは元の図面と同じに描ける
+（[決定 0008（英語）](docs/decisions/0008-sheets-and-scales-in-the-autocad-model.md)）。
 
 | クレート | 中身 |
 | --- | --- |
@@ -191,7 +197,8 @@ cargo run --release -p zumen-cli -- convert plan.dwg -o plan.dxf
 | `zumen-jww` | `read_jww`（JWW のままのモデル）、`jww_to_scene`、読み取りの `JWW` |
 | `zumen-dxf` | `parse_dxf`（DWG と共有する AutoCAD の図形モデル）、`dxf_to_scene`、読み取りの `DXF`、`write_dxf`（モデルを AutoCAD 2013 の DXF に書く） |
 | `zumen-dwg` | `read_dwg`（DWG 2000〜2018 を `zumen-dxf` の AutoCAD の図形モデルにする）、読み取りの `DWG` |
-| `zumen` | すべての読み取りをまとめた `read`・`detect` と、`convert`（DXF・DWG を DXF に書き直す） |
+| `zumen-convert` | `sxf_to_dxf`・`jww_to_dxf`（SXF・JWW を AutoCAD の図形モデルに写し、DXF に書けるようにする） |
+| `zumen` | すべての読み取りをまとめた `read`・`detect` と、`convert`（どの形式も DXF に書き直す） |
 | `zumen-render` | ブラウザの描画と同じ規則で PNG に描き、描いた図形の画像の上の位置を返す。日本語の文字は同梱の BIZ UDゴシックで描く |
 | `zumen-cli` | `zumen` コマンド（`detect`、`scene` で JSON、`texts`・`entities` で 1 行 1 つの JSON、`render` で PNG、`convert` で DXF） |
 

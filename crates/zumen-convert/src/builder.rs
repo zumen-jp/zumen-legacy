@@ -232,6 +232,9 @@ impl Builder {
             builder.linetype_names.reserve(name);
         }
         builder.layer("0", false, false, true);
+        // ビューポートの枠は、ezdxf と同じく VIEWPORTS のレイヤに置き、表示も印刷もしない（中のモデル空間は見える）。
+        // 元の図面のレイヤと名前が重ならないよう先に作る
+        builder.layer(VIEWPORT_LAYER, true, false, false);
         builder.style(DEFAULT_FONT, false);
         let handle = builder.handle();
         builder.doc.dimstyles.push(DxfDimStyle {

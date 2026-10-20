@@ -181,7 +181,7 @@ image = scene.render(size=(2000, 2000))  # a PNG with the conversion between pix
 for entity in image.entities_at(640, 480):  # the entities drawn under a pixel, smallest first
     print(entity["id"], entity["box"], entity["text"])
 
-zumen.convert("plan.dwg", "dxf").save("plan.dxf")  # DXF and DWG as DXF of AutoCAD 2013, with notices of what changed
+zumen.convert("plan.jww", "dxf").save("plan.dxf")  # any format as DXF of AutoCAD 2013, with notices of what changed
 ```
 
 AI applications can read drawings through the MCP server of the Python package (`pip install "zumen[mcp]"`, then
@@ -191,8 +191,15 @@ AI applications can read drawings through the MCP server of the Python package (
 ```bash
 cargo run --release -p zumen-cli -- render plan.jww -o plan.png --dpi 150 --map plan.json
 cargo run --release -p zumen-cli -- texts plan.jww --region 100,50,200,120  # one JSON object per line
-cargo run --release -p zumen-cli -- convert plan.dwg -o plan.dxf
+cargo run --release -p zumen-cli -- convert plan.sfc -o plan.dxf
 ```
+
+`convert` writes every format as DXF of AutoCAD 2013 through the AutoCAD drawing model. DXF and DWG keep their
+handles, tables, blocks and layouts. SXF and JWW are mapped into the model with real-size model space: each SXF
+sub-figure and each JWW layer group scale is shown through a viewport of the sheet's layout at its scale, and what is
+drawn on the sheet itself (frames and title blocks) is in paper space. Layers, colors, line types, line weights, fonts,
+vertical text, blocks, dimensions and hatches become their AutoCAD counterparts, and the layout draws the same as the
+original drawing ([decision 0008](docs/decisions/0008-sheets-and-scales-in-the-autocad-model.md)).
 
 | Crate | Contents |
 | --- | --- |
@@ -201,7 +208,8 @@ cargo run --release -p zumen-cli -- convert plan.dwg -o plan.dxf
 | [`zumen-jww`](crates/zumen-jww) | `read_jww` (the JWW document model), `jww_to_scene`, the `JWW` reader |
 | [`zumen-dxf`](crates/zumen-dxf) | `parse_dxf` (the AutoCAD drawing model, shared with DWG), `dxf_to_scene`, the `DXF` reader, and `write_dxf` (the model as DXF of AutoCAD 2013) |
 | [`zumen-dwg`](crates/zumen-dwg) | `read_dwg` (DWG 2000 to 2018 into the AutoCAD drawing model of `zumen-dxf`), the `DWG` reader |
-| [`zumen`](crates/zumen) | `read` and `detect` over every reader, and `convert` (DXF and DWG to DXF) |
+| [`zumen-convert`](crates/zumen-convert) | `sxf_to_dxf` and `jww_to_dxf` (SXF and JWW into the AutoCAD drawing model, to be written as DXF) |
+| [`zumen`](crates/zumen) | `read` and `detect` over every reader, and `convert` (every format to DXF) |
 | [`zumen-render`](crates/zumen-render) | PNG rendering with the rules of the browser renderer, and the pixel box of every entity drawn; BIZ UDGothic is bundled for Japanese text |
 | [`zumen-cli`](crates/zumen-cli) | The `zumen` command: `detect`, `scene` (JSON), `texts` and `entities` (JSON lines), `render` (PNG) and `convert` (DXF) |
 
@@ -228,8 +236,8 @@ sending them anywhere.
 3. Rust readers with Python and WebAssembly bindings, and PNG rendering on servers (JWW, SXF and DXF done).
 4. DWG, read into the same AutoCAD object model (2000 to 2018 done in Rust and in the browser through WebAssembly;
    R13 and R14 are next).
-5. Writing and converting drawings (DXF and DWG to DXF done in Rust; SXF and JWW next), analysis (tables, rooms and
-   areas, revision comparison), markup and PDF drawings.
+5. Writing and converting drawings (SXF, JWW, DXF and DWG to DXF done in Rust; SFC, P21 and JWW writers next),
+   analysis (tables, rooms and areas, revision comparison), markup and PDF drawings.
 6. Plan and elevation drawings of ST-Bridge models as scenes, to view, measure and render them like drawings.
 
 ## Documentation

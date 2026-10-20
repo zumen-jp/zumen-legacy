@@ -14,7 +14,8 @@
 - Dependency directions: `@zumenjs/react` → `@zumenjs/core`, and each format package → `@zumenjs/core` only.
   Keep format knowledge out of `@zumenjs/core`, and keep format packages from importing each other.
   DWG has no TypeScript reader: `zumen-dwg` reads it in Rust into the AutoCAD drawing model of `zumen-dxf` and draws it
-  with `dxf_to_scene`, the one crate that depends on another format crate. `@zumenjs/dwg` wraps its WebAssembly build
+  with `dxf_to_scene`, the one format crate that depends on another format crate. `zumen-convert`, which maps SXF and
+  JWW into that model for writing, is not a format crate and depends on several of them. `@zumenjs/dwg` wraps its WebAssembly build
   (`packages/dwg/wasm`, built by `scripts/wasm.mjs`, not in Git) and depends only on `@zumenjs/core`.
 - Parsing (`parse*`, `read*` and everything below them) must not depend on the DOM, React or the renderer, and uses
   only the types and `NoticeList` from `@zumenjs/core`. The `*ToScene` conversions use the geometry and text helpers.

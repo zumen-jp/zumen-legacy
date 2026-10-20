@@ -1,8 +1,8 @@
 //! SXF の図面（`SxfDrawing`）を AutoCAD の図面のモデルに写す（docs/formats/sxf.md「DXF への変換」）。
 //!
 //! - 用紙に配置した部分図（数学・測地座標系、縦横の縮尺が同じもの）は、モデル空間に実寸で置き、用紙のレイアウトに
-//!   その配置の位置・縮尺・回転のビューポートを置く。測地座標系の部分図は、X と Y を入れ替えて表示の向きにする
-//!   （フィーチャ仕様編 3-5。表示と同じく、円弧の角度・文字の向きは入れ替えない）。
+//!   その配置の位置・縮尺・回転のビューポートを置く（決定 0008）。測地座標系（X が北、Y が東）の部分図は、表示と同じく
+//!   X と Y を入れ替えて表示の向きにする（円弧の角度・文字の向きは入れ替えない）。
 //! - 用紙にじかに描いた要素は紙空間に置く。部分図がない図面は、用紙の座標のままモデル空間に置き、1:1 の
 //!   ビューポートで見せる。
 //! - 作図部品・作図グループ・縦横の縮尺が違う部分図は、ブロック（複合図形定義）とその配置（INSERT）にする。
@@ -126,7 +126,7 @@ struct ContentPlan {
     weight: usize,
 }
 
-/// 書いた要素の形の種類（知らせる内容）
+/// SXF の図面を写す途中の値
 struct Mapper<'a> {
     doc: &'a SxfDocument,
     out: Builder,
@@ -188,9 +188,6 @@ impl<'a> Mapper<'a> {
 
         let (width, height, sheet_name, size_name) = self.sheet();
         let has_views = !self.plans.is_empty();
-        if has_views {
-            self.out.layer(crate::builder::VIEWPORT_LAYER, true, false, false);
-        }
         // ビューポート（モデル空間のまとまりの置き場所を先に決める）
         let mut views: Vec<View> = Vec::new();
         let mut contents: Vec<Content> =
@@ -262,7 +259,6 @@ impl<'a> Mapper<'a> {
                 union_box(&mut bounds, bbox);
             }
             if let Some(rect) = rect_of(&bounds) {
-                self.out.layer(crate::builder::VIEWPORT_LAYER, true, false, false);
                 overall_viewport(&mut self.out, width, height);
                 let view = View { content: 0, scale: 1.0, angle: 0.0, origin: [0.0, 0.0], rect };
                 add_viewport(&mut self.out, &view, [0.0, 0.0], 2.0, "");
@@ -744,7 +740,7 @@ impl<'a> Mapper<'a> {
         self.out.add(&frame.space, &look, "ELLIPSE", data, source);
     }
 
-    /// 3 次ベジェ曲線（制御点 3n + 1 個、フィーチャ仕様編 3-3）。区間の境の節点を 3 重にした NURBS にし、
+    /// 3 次ベジェ曲線（spline_feature、制御点 3n + 1 個）。区間の境の節点を 3 重にした NURBS にし、
     /// 表示が折線でつなぐ余りの点は LWPOLYLINE にする
     fn spline(&mut self, frame: &Frame, style: &zumen_sxf::Styled, xs: &[f64], ys: &[f64], source: &str) {
         let points: Vec<Vec2> = xs.iter().zip(ys).map(|(x, y)| frame.point(*x, *y)).collect();
