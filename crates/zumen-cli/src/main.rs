@@ -26,7 +26,8 @@ texts and entities write one JSON object per line, in paper millimeters (Y up) r
 --region selects a part of the sheet in paper millimeters, and --all-layers includes the layers
 that the drawing hides. --map writes the size of the image,
 the conversion between pixels and paper millimeters, and the pixel box of every entity drawn.
-convert writes a DXF or DWG drawing as DXF (AutoCAD 2013, UTF-8) and reports what it could not write.";
+convert writes a drawing as DXF (AutoCAD 2013, UTF-8) and reports what it could not write. SXF and JWW are
+mapped into the AutoCAD model: model space at real size, the sheet as a layout with a viewport for each scale.";
 
 struct Args {
     command: String,
