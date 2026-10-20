@@ -38,7 +38,7 @@ fn assert_same_bytes(name: &str, bytes: &[u8]) {
 
 #[test]
 fn rewrites_the_fixtures_byte_for_byte() {
-    for name in ["minimal-v600.jww", "minimal-v700.jww"] {
+    for name in ["minimal-v600.jww", "minimal-v700.jww", "solids-v600.jww", "solids-v700.jww"] {
         assert_same_bytes(name, &fixture(name));
     }
 }
