@@ -1,4 +1,5 @@
-//! SFC の書き出し: tests/fixtures の SFC・P21 を読んで SFC に書き、読み直すと同じ図面になる
+//! SFC の書き出し: tests/fixtures の SFC・P21 を読んで SFC に新しく書き（元のファイルを持たせずに書く）、読み直すと
+//! 同じ図面になる。元の SFC を書き換える書き方は edit_sfc.rs
 
 use std::path::{Path, PathBuf};
 use zumen_sxf::{SxfDrawing, parse_sxf, sxf_to_scene, write_sfc, written_ids};
@@ -29,7 +30,8 @@ fn written_sfc_reads_back_as_the_same_drawing() {
     for (folder, format) in [("sfc", "sfc"), ("p21", "p21")] {
         for name in ["features", "nosheet", "sample"] {
             let bytes = std::fs::read(fixtures().join(folder).join(format!("{name}.{format}"))).unwrap();
-            let drawing = parse_sxf(&bytes, format).unwrap();
+            let mut drawing = parse_sxf(&bytes, format).unwrap();
+            drawing.source = None;
             if sxf_to_scene(&drawing).entities.is_empty() {
                 // フィーチャのない図面（nosheet.p21 は円が用紙に置かれていない）は、読み直せる SFC にならない
                 continue;
@@ -53,9 +55,13 @@ fn written_sfc_reads_back_as_the_same_drawing() {
             }
             assert_eq!(before.layers, after.layers, "{name}.{format}");
             assert_eq!(before.sheet, after.sheet, "{name}.{format}");
-            // 書いた SFC を書き直しても変わらない（循環する配置の複合図形は、1 度目に並べ替わることがある）
+            // 書いた SFC を読んで新しく書き直しても変わらない（循環する配置の複合図形は、1 度目に並べ替わることがある）
+            let mut again = again;
+            again.source = None;
             let twice = write_sfc(&again).bytes;
-            assert_eq!(write_sfc(&zumen_sxf::parse_sfc(&twice).unwrap()).bytes, twice, "{name}.{format}");
+            let mut third = zumen_sxf::parse_sfc(&twice).unwrap();
+            third.source = None;
+            assert_eq!(write_sfc(&third).bytes, twice, "{name}.{format}");
         }
     }
 }
@@ -75,7 +81,8 @@ SXF*/
 #30 = line_feature('0','1','1','11','0','10','10','0')
 SXF*/
 ENDSEC;\nEND-ISO-10303-21;";
-    let drawing = zumen_sxf::parse_sfc(source).unwrap();
+    let mut drawing = zumen_sxf::parse_sfc(source).unwrap();
+    drawing.source = None;
     let written = write_sfc(&drawing);
     let text = String::from_utf8(written.bytes.clone()).unwrap();
     let standard = text.find("width_feature('0.18')").expect("used predefined width must be declared");
@@ -85,4 +92,20 @@ ENDSEC;\nEND-ISO-10303-21;";
     assert_eq!(again.document.user_widths.len(), 1);
     assert_eq!(again.document.width(2.0), Some(0.18));
     assert_eq!(again.document.width(11.0), Some(0.42));
+}
+
+#[test]
+fn drawings_beyond_the_sxf_limits_are_reported() {
+    let mut drawing = parse_sxf(&std::fs::read(fixtures().join("sfc/sample.sfc")).unwrap(), "sfc").unwrap();
+    drawing.source = None;
+    for index in 0..300 {
+        drawing.document.layers.push(zumen_sxf::LayerDefinition { id: 0.0, name: format!("L{index}"), visible: true });
+    }
+    drawing.document.sheet.as_mut().unwrap().name = "長".repeat(200);
+    for written in [write_sfc(&drawing), zumen_sxf::write_p21(&drawing)] {
+        let limit = written.notices.iter().find(|notice| notice.code == "sxf-limit").expect("上限の知らせ");
+        // レイヤは 302 で 46 多い。用紙の名前は CP932 で 400 バイト
+        assert_eq!(limit.count, 47);
+        assert!(limit.message.contains("レイヤ 46") && limit.message.contains("文字列 1"), "{}", limit.message);
+    }
 }

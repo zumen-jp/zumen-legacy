@@ -74,6 +74,7 @@ impl Database {
                     compressed: true,
                     encrypted: 0,
                     preview_base: None,
+                    keep_zero_pages: false,
                 };
                 let sections = vec![
                     section("", Vec::new()),

@@ -41,7 +41,7 @@ pub(crate) fn mleader(s: &mut Streams<'_>) -> Read<DxfMLeader> {
     if s.format.r2010() {
         s.data.bs()?;
     }
-    let context = context(s)?;
+    let (context, line_arrows) = context(s)?;
     let style_handle = hex(s.handle()?.value);
     s.data.bl()?;
     let leader_type = f64::from(s.data.bs()?);
@@ -67,7 +67,8 @@ pub(crate) fn mleader(s: &mut Streams<'_>) -> Read<DxfMLeader> {
     s.data.bd()?;
     s.data.bs()?;
     s.data.bit()?;
-    let mut arrow_heads = Vec::new();
+    // R2010 以降は、矢印を上書きした引出線ごとの矢印（DXF の 94・345 と同じ）
+    let mut arrow_heads = line_arrows;
     if !s.format.r2010() {
         // R2007 まで: 引出線ごとの矢印（既定か、ブロックのハンドル）。番号は並びの順とする
         for index in 0..count(s.data.bl()?)? {
@@ -117,10 +118,12 @@ pub(crate) fn mleader(s: &mut Streams<'_>) -> Read<DxfMLeader> {
     })
 }
 
-fn context(s: &mut Streams<'_>) -> Read<DxfMLeaderContext> {
+/// 表示の値と、R2010 以降の矢印を上書きした引出線の矢印
+fn context(s: &mut Streams<'_>) -> Read<(DxfMLeaderContext, Vec<DxfMLeaderArrowHead>)> {
     let mut leaders = Vec::new();
+    let mut arrows = Vec::new();
     for _ in 0..count(s.data.bl()?)? {
-        leaders.push(leader(s)?);
+        leaders.push(leader(s, &mut arrows)?);
     }
     let scale = s.data.bd()?;
     let base_point = s.data.bd3()?;
@@ -199,11 +202,14 @@ fn context(s: &mut Streams<'_>) -> Read<DxfMLeaderContext> {
         s.data.bs()?;
         s.data.bs()?;
     }
-    Ok(DxfMLeaderContext { scale, base_point, char_height, arrow_head_size, landing_gap_size, mtext, block, leaders })
+    Ok((
+        DxfMLeaderContext { scale, base_point, char_height, arrow_head_size, landing_gap_size, mtext, block, leaders },
+        arrows,
+    ))
 }
 
 /// 引出線のまとまり（LeaderRoot）
-fn leader(s: &mut Streams<'_>) -> Read<DxfMLeaderLeader> {
+fn leader(s: &mut Streams<'_>, arrows: &mut Vec<DxfMLeaderArrowHead>) -> Read<DxfMLeaderLeader> {
     let has_last_leader_line = s.data.bit()?;
     let has_dogleg_vector = s.data.bit()?;
     let last_leader_point = s.data.bd3()?;
@@ -216,7 +222,7 @@ fn leader(s: &mut Streams<'_>) -> Read<DxfMLeaderLeader> {
     let dogleg_length = s.data.bd()?;
     let mut lines = Vec::new();
     for _ in 0..count(s.data.bl()?)? {
-        lines.push(line(s)?);
+        lines.push(line(s, arrows)?);
     }
     let attachment_direction = if s.format.r2010() { f64::from(s.data.bs()?) } else { 0.0 };
     Ok(DxfMLeaderLeader {
@@ -232,8 +238,9 @@ fn leader(s: &mut Streams<'_>) -> Read<DxfMLeaderLeader> {
     })
 }
 
-/// 引出線の 1 本（LeaderLine）。R2010 以降は線ごとの種類・色・線種・太さ・矢印を持つ
-fn line(s: &mut Streams<'_>) -> Read<DxfMLeaderLine> {
+/// 引出線の 1 本（LeaderLine）。R2010 以降は線ごとの種類・色・線種・太さ・矢印を持つ。上書きの印の 32 が立った
+/// 線の矢印は arrows に加える
+fn line(s: &mut Streams<'_>, arrows: &mut Vec<DxfMLeaderArrowHead>) -> Read<DxfMLeaderLine> {
     let mut vertices = Vec::new();
     for _ in 0..count(s.data.bl()?)? {
         vertices.push(s.data.bd3()?);
@@ -253,8 +260,11 @@ fn line(s: &mut Streams<'_>) -> Read<DxfMLeaderLine> {
         s.handle()?;
         s.data.bl()?;
         s.data.bd()?;
-        s.handle()?;
-        s.data.bl()?;
+        let arrow = s.handle()?.value;
+        let overrides = s.data.bl()?;
+        if overrides & 32 != 0 && arrow != 0 {
+            arrows.push(DxfMLeaderArrowHead { index, handle: hex(arrow) });
+        }
     }
     Ok(DxfMLeaderLine { vertices, breaks, index, color })
 }

@@ -1,6 +1,7 @@
 //! 圧縮した SXF（P2Z・SFZ）。ZIP の書庫に P21・SFC のファイルが 1 つ入っている。
 //! 中央ディレクトリから、名前が .p21・.sfc で終わる最初のファイルを探して展開する（APPNOTE 4.3.7・4.3.12・4.3.16）。
 //! 展開した後の大きさは読み取りの上限（`zumen_core::limits`）まで、上限がなければ 2 GiB までにする（ZIP 爆弾）。
+//! 書き出しは、SXF のファイルを deflate で入れた書庫を作るか、元の書庫の SXF だけを置き換える（ほかのファイルはそのまま）。
 
 use zumen_core::ReadError;
 use zumen_core::limits::{self, Limit};
@@ -160,6 +161,191 @@ fn crc32(data: &[u8]) -> u32 {
     !data.iter().fold(!0u32, |crc, byte| TABLE[((crc ^ u32::from(*byte)) & 0xff) as usize] ^ (crc >> 8))
 }
 
+/// MS-DOS の日時（1980-01-01 00:00:00）。新しく作る書庫の日時（同じ図面から同じ書庫を作る）
+const DOS_DATE: u16 = (1 << 5) | 1;
+
+/// ローカルファイルヘッダ（APPNOTE 4.3.7）と、中央ディレクトリのヘッダ（4.3.12）
+struct Header<'a> {
+    flags: u16,
+    method: u16,
+    time: u16,
+    date: u16,
+    crc: u32,
+    compressed: u32,
+    size: u32,
+    name: &'a [u8],
+}
+
+impl Header<'_> {
+    fn local(&self, out: &mut Vec<u8>) {
+        out.extend(LOCAL_HEADER.to_le_bytes());
+        self.common(out);
+        out.extend(self.name);
+    }
+
+    fn central(&self, offset: u32, out: &mut Vec<u8>) {
+        out.extend(CENTRAL_HEADER.to_le_bytes());
+        // 作成したシステムと版（MS-DOS、2.0）
+        out.extend(20u16.to_le_bytes());
+        self.common(out);
+        // コメントの長さ、開始ディスク、内部属性、外部属性、ローカルファイルヘッダの位置
+        out.extend([0u8; 10]);
+        out.extend(offset.to_le_bytes());
+        out.extend(self.name);
+    }
+
+    fn common(&self, out: &mut Vec<u8>) {
+        out.extend(20u16.to_le_bytes());
+        out.extend(self.flags.to_le_bytes());
+        out.extend(self.method.to_le_bytes());
+        out.extend(self.time.to_le_bytes());
+        out.extend(self.date.to_le_bytes());
+        out.extend(self.crc.to_le_bytes());
+        out.extend(self.compressed.to_le_bytes());
+        out.extend(self.size.to_le_bytes());
+        out.extend((self.name.len() as u16).to_le_bytes());
+        out.extend(0u16.to_le_bytes());
+    }
+}
+
+fn end_of_central(count: u16, size: u32, offset: u32, comment: &[u8], out: &mut Vec<u8>) {
+    out.extend(END_OF_CENTRAL.to_le_bytes());
+    out.extend([0u8; 4]);
+    out.extend(count.to_le_bytes());
+    out.extend(count.to_le_bytes());
+    out.extend(size.to_le_bytes());
+    out.extend(offset.to_le_bytes());
+    out.extend((comment.len() as u16).to_le_bytes());
+    out.extend(comment);
+}
+
+/// 書庫の中の名前。ASCII でなければ Shift_JIS（日本の SXF のソフトの書き方）、Shift_JIS にない文字があれば
+/// UTF-8 にして UTF-8 の印（汎用フラグの 11 ビット目）を付ける
+fn archive_name(name: &str) -> (Vec<u8>, u16) {
+    if name.is_ascii() {
+        return (name.as_bytes().to_vec(), 0);
+    }
+    let (bytes, _, unmappable) = encoding_rs::SHIFT_JIS.encode(name);
+    if unmappable { (name.as_bytes().to_vec(), 0x800) } else { (bytes.into_owned(), 0) }
+}
+
+/// deflate で圧縮する。4 GiB を超えるもの（ZIP64）は書けないので None
+fn compress(content: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
+    let size = u32::try_from(content.len()).ok()?;
+    let data = miniz_oxide::deflate::compress_to_vec(content, 6);
+    let compressed = u32::try_from(data.len()).ok()?;
+    Some((data, compressed, size))
+}
+
+/// SXF のファイルを 1 つ deflate で入れた書庫（P2Z・SFZ）を作る
+pub(crate) fn archive(name: &str, content: &[u8]) -> Option<Vec<u8>> {
+    let (name, flags) = archive_name(name);
+    let (data, compressed, size) = compress(content)?;
+    let header =
+        Header { flags, method: 8, time: 0, date: DOS_DATE, crc: crc32(content), compressed, size, name: &name };
+    let mut out = Vec::with_capacity(data.len() + 2 * name.len() + 100);
+    header.local(&mut out);
+    out.extend(&data);
+    let central = out.len() as u32;
+    header.central(0, &mut out);
+    let central_size = out.len() as u32 - central;
+    end_of_central(1, central_size, central, &[], &mut out);
+    Some(out)
+}
+
+/// 元の書庫の SXF（名前が .p21・.sfc で終わる最初のファイル）を content に置き換える。ほかのファイルは
+/// ローカルファイルヘッダとデータをそのまま写し、中央ディレクトリの位置だけを直す。SXF の名前と日時は元のまま。
+/// 書庫を読めない（壊れている・ZIP64・暗号化した SXF）なら None
+pub(crate) fn replace_sxf(bytes: &[u8], content: &[u8]) -> Option<Vec<u8>> {
+    let earliest = bytes.len().saturating_sub(22 + 65_535);
+    let end = (earliest..=bytes.len().checked_sub(22)?).rev().find(|&at| u32_at(bytes, at) == Some(END_OF_CENTRAL))?;
+    let count = u16_at(bytes, end + 10)?;
+    let comment = bytes.get(end + 22..end + 22 + usize::from(u16_at(bytes, end + 20)?))?;
+    let mut at = u32_at(bytes, end + 16)? as usize;
+    let mut locals = Vec::new();
+    let mut centrals = Vec::new();
+    let mut replaced = false;
+    for _ in 0..count {
+        if u32_at(bytes, at)? != CENTRAL_HEADER {
+            return None;
+        }
+        let flags = u16_at(bytes, at + 8)?;
+        let compressed = u32_at(bytes, at + 20)?;
+        let size = u32_at(bytes, at + 24)?;
+        let name_length = usize::from(u16_at(bytes, at + 28)?);
+        let extra_length = usize::from(u16_at(bytes, at + 30)?);
+        let comment_length = usize::from(u16_at(bytes, at + 32)?);
+        let local = u32_at(bytes, at + 42)?;
+        if compressed == u32::MAX || size == u32::MAX || local == u32::MAX {
+            return None;
+        }
+        let entry_end = at + 46 + name_length + extra_length + comment_length;
+        let central = bytes.get(at..entry_end)?;
+        let name = bytes.get(at + 46..at + 46 + name_length)?;
+        let local = local as usize;
+        if u32_at(bytes, local)? != LOCAL_HEADER {
+            return None;
+        }
+        let local_header = 30 + usize::from(u16_at(bytes, local + 26)?) + usize::from(u16_at(bytes, local + 28)?);
+        let mut local_end = local.checked_add(local_header)?.checked_add(compressed as usize)?;
+        if flags & 0x8 != 0 {
+            // データ記述子（印は省けるので、あれば 16 バイト、なければ 12 バイト）
+            local_end += if u32_at(bytes, local_end) == Some(0x0807_4b50) { 16 } else { 12 };
+        }
+        let lower = name.to_ascii_lowercase();
+        let sxf = !replaced && (lower.ends_with(b".p21") || lower.ends_with(b".sfc"));
+        if sxf {
+            if flags & 0x1 != 0 {
+                return None;
+            }
+            replaced = true;
+            let time = u16_at(bytes, at + 12)?;
+            let date = u16_at(bytes, at + 14)?;
+            locals.push(Err((name, flags & 0x800, time, date)));
+        } else {
+            locals.push(Ok(bytes.get(local..local_end)?));
+        }
+        centrals.push(central);
+        at = entry_end;
+    }
+    if !replaced {
+        return None;
+    }
+    let (data, compressed, size) = compress(content)?;
+    let crc = crc32(content);
+    let mut out = Vec::with_capacity(bytes.len() + data.len());
+    let mut offsets = Vec::new();
+    for local in &locals {
+        offsets.push(u32::try_from(out.len()).ok()?);
+        match local {
+            Ok(record) => out.extend(*record),
+            Err((name, flags, time, date)) => {
+                let header = Header { flags: *flags, method: 8, time: *time, date: *date, crc, compressed, size, name };
+                header.local(&mut out);
+                out.extend(&data);
+            }
+        }
+    }
+    let central = u32::try_from(out.len()).ok()?;
+    for ((local, record), offset) in locals.iter().zip(&centrals).zip(&offsets) {
+        match local {
+            Ok(_) => {
+                // 元の中央ディレクトリのヘッダのまま、ローカルファイルヘッダの位置だけを直す
+                let start = out.len();
+                out.extend(*record);
+                out[start + 42..start + 46].copy_from_slice(&offset.to_le_bytes());
+            }
+            Err((name, flags, time, date)) => {
+                let header = Header { flags: *flags, method: 8, time: *time, date: *date, crc, compressed, size, name };
+                header.central(*offset, &mut out);
+            }
+        }
+    }
+    let central_size = u32::try_from(out.len()).ok()? - central;
+    end_of_central(count, central_size, central, comment, &mut out);
+    Some(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -220,6 +406,48 @@ mod tests {
         assert_eq!(find_sxf(&zip("平面図.SFC".as_bytes(), b"x", 0, 0x800)).unwrap().format, "sfc");
         assert!(find_sxf(&zip(b"readme.txt", b"x", 0, 0)).is_none());
         assert!(find_sxf(b"ISO-10303-21;").is_none());
+    }
+
+    #[test]
+    fn writes_archives_the_reader_extracts() {
+        let content = b"ISO-10303-21;\nDATA;\nENDSEC;\n".repeat(50);
+        for name in ["D0001.P21", "平面図.sfc", "𠮷.p21"] {
+            let written = archive(name, &content).unwrap();
+            let member = find_sxf(&written).unwrap();
+            assert_eq!(member.name, name);
+            assert_eq!(extract(&written, &member).unwrap(), content);
+        }
+        // 元の書庫の SXF だけを置き換え、ほかのファイルと名前・日時は元のまま
+        let mut original = zip(b"readme.txt", b"hello", 0, 0);
+        let sxf = zip(b"DRAWING/D0001.SFC", b"old", 8, 0);
+        original = join(&original, &sxf);
+        let replaced = replace_sxf(&original, &content).unwrap();
+        let member = find_sxf(&replaced).unwrap();
+        assert_eq!(
+            (member.name.as_str(), extract(&replaced, &member).unwrap()),
+            ("DRAWING/D0001.SFC", content.clone())
+        );
+        assert!(replaced.windows(5).any(|window| window == b"hello"));
+        assert_eq!(&replaced[..30 + 10 + 5], &original[..30 + 10 + 5]);
+        assert!(replace_sxf(&zip(b"readme.txt", b"x", 0, 0), &content).is_none());
+        assert!(replace_sxf(b"ISO-10303-21;", &content).is_none());
+    }
+
+    /// 2 つの書庫（1 つずつファイルを入れたもの）を 1 つにする
+    fn join(first: &[u8], second: &[u8]) -> Vec<u8> {
+        let split = |archive: &[u8]| {
+            let central = u32_at(archive, archive.len() - 22 + 16).unwrap() as usize;
+            (archive[..central].to_vec(), archive[central..archive.len() - 22].to_vec())
+        };
+        let ((local1, central1), (local2, mut central2)) = (split(first), split(second));
+        central2[42..46].copy_from_slice(&(local1.len() as u32).to_le_bytes());
+        let mut out = local1.clone();
+        out.extend(&local2);
+        let central = out.len() as u32;
+        out.extend(&central1);
+        out.extend(&central2);
+        end_of_central(2, (central1.len() + central2.len()) as u32, central, &[], &mut out);
+        out
     }
 
     #[test]
