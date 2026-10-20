@@ -335,8 +335,8 @@ fn dump_object_types() {
     }
 }
 
-/// 読み書きできるオブジェクトの種類と、読んで書く関数
-type Codec = fn(&mut crate::codec::In<'_>, u16, &mut crate::write::object::ObjectWriter) -> crate::bits::Read<()>;
+/// 読み書きできるオブジェクトの種類と、読んで書く関数（型の番号、図形の種類の名前）
+type Codec = fn(&mut crate::codec::In<'_>, u16, &str, &mut crate::write::object::ObjectWriter) -> crate::bits::Read<()>;
 
 /// 型の番号とクラスの DXF の名前（500 から）から、読んで書く関数
 fn codec(kind: u16, class: &str) -> Option<Codec> {
@@ -344,14 +344,14 @@ fn codec(kind: u16, class: &str) -> Option<Codec> {
     use crate::codec::tables::*;
     macro_rules! with {
         ($read:expr) => {
-            |s, _, o| {
+            |s, _, _, o| {
                 $read(s)?.write(o);
                 Ok(())
             }
         };
     }
     Some(match (kind, class) {
-        (48 | 50 | 52 | 56 | 60 | 62 | 64 | 66 | 68 | 70, _) => |s, kind, o| {
+        (48 | 50 | 52 | 56 | 60 | 62 | 64 | 66 | 68 | 70, _) => |s, kind, _, o| {
             Control::read(s, kind)?.write(o, kind);
             Ok(())
         },
@@ -362,7 +362,7 @@ fn codec(kind: u16, class: &str) -> Option<Codec> {
         (65, _) => with!(Vport::read),
         (67, _) => with!(Appid::read),
         (69, _) => with!(DimStyle::read),
-        (42, _) => |s, _, o| {
+        (42, _) => |s, _, _, o| {
             Dictionary::read(s, false)?.write(o);
             Ok(())
         },
@@ -371,7 +371,7 @@ fn codec(kind: u16, class: &str) -> Option<Codec> {
         (79, _) | (_, "XRECORD") => with!(XRecord::read),
         (80, _) | (_, "ACDBPLACEHOLDER") => with!(Placeholder::read),
         (82, _) | (_, "LAYOUT") => with!(Layout::read),
-        (_, "ACDBDICTIONARYWDFLT") => |s, _, o| {
+        (_, "ACDBDICTIONARYWDFLT") => |s, _, _, o| {
             Dictionary::read(s, true)?.write(o);
             Ok(())
         },
@@ -380,8 +380,17 @@ fn codec(kind: u16, class: &str) -> Option<Codec> {
         (_, "SORTENTSTABLE") => with!(SortEntsTable::read),
         (_, "MLEADERSTYLE") => with!(MLeaderStyle::read),
         (_, "MATERIAL") => with!(Material::read),
+        _ if crate::codec::entities::Entity::knows(entity_name(kind, class)) => |s, _, name, o| {
+            crate::codec::entities::Entity::read(s, name)?.ok_or(crate::bits::Eof)?.write(o);
+            Ok(())
+        },
         _ => return None,
     })
+}
+
+/// 図形の種類の名前（固定の型の名前か、クラスの DXF の名前）
+fn entity_name<'a>(kind: u16, class: &'a str) -> &'a str {
+    crate::codec::entities::fixed_name(kind).unwrap_or(class)
 }
 
 /// 図面のオブジェクトの節とオブジェクトの表
@@ -406,6 +415,7 @@ fn objects_of_real_drawings_are_written_back_unchanged() {
     use crate::codec::object::{open_raw, writer};
     let mut checked: std::collections::BTreeMap<String, usize> = Default::default();
     let mut failures: Vec<String> = Vec::new();
+    let mut unknown: std::collections::BTreeMap<String, usize> = Default::default();
     for (name, bytes) in samples() {
         let Some(version) = Version::from_magic(&bytes[..6]) else { continue };
         if !matches!(version, Version::R2000 | Version::R2004 | Version::R2010 | Version::R2013 | Version::R2018) {
@@ -417,17 +427,25 @@ fn objects_of_real_drawings_are_written_back_unchanged() {
         } else {
             crate::bits::TextCodec::Bytes(encoding_rs::WINDOWS_1252)
         };
-        let classes =
-            crate::write::classes::read_class_defs(&framed_section(&bytes, version, 1, "AcDb:Classes").data, version, codec_text);
+        let classes = crate::write::classes::read_class_defs(
+            &framed_section(&bytes, version, 1, "AcDb:Classes").data,
+            version,
+            codec_text,
+        );
         let mut handles: Vec<(&u64, &usize)> = map.iter().collect();
         handles.sort();
         for (handle, &offset) in handles {
             let Ok(mut raw) = open_raw(&objects, offset, version) else { continue };
-            let class = classes.iter().find(|class| class.number == raw.kind).map_or("", |class| class.dxf_name.as_str());
-            let Some(codec) = codec(raw.kind, class) else { continue };
+            let class =
+                classes.iter().find(|class| class.number == raw.kind).map_or("", |class| class.dxf_name.as_str());
+            let Some(codec) = codec(raw.kind, class) else {
+                *unknown.entry(if class.is_empty() { raw.kind.to_string() } else { class.to_string() }).or_default() +=
+                    1;
+                continue;
+            };
             let kind = raw.kind;
             let mut out = writer(version, kind, raw.handle, &raw.eed);
-            if codec(&mut raw.input, kind, &mut out).is_err() {
+            if codec(&mut raw.input, kind, entity_name(kind, class), &mut out).is_err() {
                 failures.push(format!("{name} {handle:X} type {kind} {class}: read"));
                 continue;
             }
@@ -456,5 +474,112 @@ fn objects_of_real_drawings_are_written_back_unchanged() {
         }
     }
     println!("checked {checked:?}");
+    println!("not checked {unknown:?}");
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+#[ignore]
+fn debug_one_object() {
+    use crate::codec::In;
+    use crate::codec::object::{EntityCommon, open_raw};
+    let wanted = std::env::var("ZUMEN_DEBUG_OBJECT").unwrap_or_default();
+    let (file, handle) = wanted.split_once(':').unwrap();
+    let handle = u64::from_str_radix(handle, 16).unwrap();
+    for (name, bytes) in samples() {
+        if name != file {
+            continue;
+        }
+        let version = Version::from_magic(&bytes[..6]).unwrap();
+        let (objects, map) = objects_of(&bytes, version);
+        let offset = map[&handle];
+        let mut raw = open_raw(&objects, offset, version).unwrap();
+        println!("kind {} eed {:?}", raw.kind, raw.eed);
+        println!(
+            "data {} strings {:?} handles {:?}",
+            raw.input.data.remaining(),
+            raw.input.strings.as_ref().map(crate::bits::Bits::remaining),
+            raw.input.handles.as_ref().map(crate::bits::Bits::remaining)
+        );
+        let mut probe = In { data: raw.input.data.clone(), strings: None, handles: raw.input.handles.clone(), version };
+        let s = &mut probe;
+        let graphic = s.data.bit();
+        let mode = s.data.bb();
+        println!("graphic {graphic:?} mode {mode:?}");
+        if mode == Ok(0) {
+            println!("owner {:?}", s.handle());
+        }
+        let reactors = s.data.bl();
+        println!("reactors {reactors:?}");
+        for _ in 0..reactors.unwrap_or(0).clamp(0, 10) {
+            println!("  reactor {:?}", s.handle());
+        }
+        let missing = s.data.bit();
+        println!("xdict missing {missing:?}");
+        if missing == Ok(false) {
+            println!("xdict {:?}", s.handle());
+        }
+        let color = s.data.bs();
+        println!("color {color:?} (as u16 {:x?})", color.map(|c| c as u16));
+        let common = EntityCommon::read(&mut raw.input);
+        println!("common {common:#?}");
+        println!(
+            "data {} handles {:?}",
+            raw.input.data.remaining(),
+            raw.input.handles.as_ref().map(crate::bits::Bits::remaining)
+        );
+        let mut values = Vec::new();
+        while raw.input.data.remaining() >= 2 {
+            match raw.input.data.bd() {
+                Ok(value) => values.push(value),
+                Err(_) => break,
+            }
+        }
+        println!("BDs {values:?} left {}", raw.input.data.remaining());
+    }
+}
+
+#[test]
+#[ignore]
+fn dump_splines() {
+    use crate::codec::object::{EntityCommon, open_raw};
+    let mut seen: std::collections::BTreeMap<(String, i32, i32, i32, bool), usize> = Default::default();
+    for (name, bytes) in samples() {
+        let Some(version) = Version::from_magic(&bytes[..6]) else { continue };
+        if version < Version::R2013 {
+            continue;
+        }
+        let (objects, map) = objects_of(&bytes, version);
+        for &offset in map.values() {
+            let Ok(mut raw) = open_raw(&objects, offset, version) else { continue };
+            if raw.kind != 36 {
+                continue;
+            }
+            let s = &mut raw.input;
+            if EntityCommon::read(s).is_err() {
+                continue;
+            }
+            let scenario = s.data.bl().unwrap();
+            let flags1 = s.data.bl().unwrap();
+            let knot = s.data.bl().unwrap();
+            let _degree = s.data.bl().unwrap();
+            // 当てはめ点の読み方で読み切れるか
+            let mut probe = s.data.clone();
+            let fit = (|| -> crate::bits::Read<bool> {
+                probe.bd()?;
+                probe.bd3()?;
+                probe.bd3()?;
+                let count = probe.bl()?;
+                for _ in 0..count.clamp(0, 100000) {
+                    probe.bd3()?;
+                }
+                Ok(probe.remaining() == 0)
+            })()
+            .unwrap_or(false);
+            *seen.entry((name.clone(), scenario, flags1, knot, fit)).or_default() += 1;
+        }
+    }
+    for (key, count) in seen {
+        println!("{key:?}: {count}");
+    }
 }

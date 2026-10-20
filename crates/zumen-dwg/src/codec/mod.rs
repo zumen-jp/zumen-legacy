@@ -2,6 +2,7 @@
 //! 持つので、読んだ図面の値を変えて書き直す（その場の編集）と、新しい図面を AutoCAD の図面と同じ並びで書く
 //! （実物の図面を読んで書くと同じビット列になることで並びを確かめる）のに使う
 
+pub(crate) mod entities;
 pub(crate) mod header;
 pub(crate) mod object;
 pub(crate) mod objects;
@@ -138,13 +139,7 @@ pub(crate) struct Out {
 
 impl Out {
     pub fn new(version: Version, inline_handles: bool) -> Self {
-        Self {
-            data: BitWriter::new(),
-            strings: BitWriter::new(),
-            handles: BitWriter::new(),
-            version,
-            inline_handles,
-        }
+        Self { data: BitWriter::new(), strings: BitWriter::new(), handles: BitWriter::new(), version, inline_handles }
     }
 
     pub fn r2004(&self) -> bool {

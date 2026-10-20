@@ -134,7 +134,7 @@ impl ObjectCommon {
 pub(crate) struct EntityColor {
     /// BS の値。R2004 以降は上位のビットが印（0x8000 RGB、0x4000 色見本の色、0x2000 透過度）と、下位が色番号
     pub value: u16,
-    /// RGB の BL（0x8000 のとき）
+    /// RGB の BL（0x8000 だけのとき。色見本の色 0x4000 は持たない）
     pub rgb: Option<u32>,
     /// 透過度の BL（0x2000 のとき）
     pub transparency: Option<u32>,
@@ -209,11 +209,11 @@ impl EntityCommon {
         let mut color = EntityColor::index(value);
         let mut book_color = None;
         if s.r2004() {
-            if value & 0x8000 != 0 {
-                color.rgb = Some(s.data.bl()? as u32);
-            }
+            // 色見本の色（0x4000、0x8000 も立つ）は RGB の BL を持たず、DBCOLOR のハンドルを持つ
             if value & 0x4000 != 0 {
                 book_color = Some(s.handle()?);
+            } else if value & 0x8000 != 0 {
+                color.rgb = Some(s.data.bl()? as u32);
             }
             if value & 0x2000 != 0 {
                 color.transparency = Some(s.data.bl()? as u32);
@@ -317,14 +317,14 @@ impl EntityCommon {
         }
         o.data.bs(self.color.value as i16);
         if o.r2004() {
-            if let Some(rgb) = self.color.rgb.filter(|_| self.color.value & 0x8000 != 0) {
-                o.data.bl(rgb as i32);
-            }
-            if let Some(book) = self.book_color.filter(|_| self.color.value & 0x4000 != 0) {
+            if self.color.value & 0x4000 != 0 {
+                let book = self.book_color.unwrap_or(HandleRef { code: 5, value: 0 });
                 o.h(book.code, book.value);
+            } else if self.color.value & 0x8000 != 0 {
+                o.data.bl(self.color.rgb.unwrap_or(0) as i32);
             }
-            if let Some(transparency) = self.color.transparency.filter(|_| self.color.value & 0x2000 != 0) {
-                o.data.bl(transparency as i32);
+            if self.color.value & 0x2000 != 0 {
+                o.data.bl(self.color.transparency.unwrap_or(0) as i32);
             }
         }
         o.data.bd(self.linetype_scale);
