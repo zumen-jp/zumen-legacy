@@ -26,8 +26,8 @@ fn close(a: &Value, b: &Value) -> bool {
     }
 }
 
-/// 比べる値。形を変えて書く図形（changed）は種類を比べない
-fn shape(scene: &Scene, entity: &Value, changed: bool) -> Value {
+/// 比べる値。形を変えて書く図形（changed）は種類を比べず、色を比べないとき（colors が false）は、描く要素の色（color）を除く
+fn shape_with(scene: &Scene, entity: &Value, changed: bool, colors: bool) -> Value {
     let layers: Vec<String> = entity["layers"]
         .as_array()
         .unwrap()
@@ -41,16 +41,39 @@ fn shape(scene: &Scene, entity: &Value, changed: bool) -> Value {
                 .map_or(String::new(), |layer| layer.name.clone())
         })
         .collect();
+    let mut primitives = entity["primitives"].clone();
+    if !colors {
+        strip_colors(&mut primitives);
+    }
     json!({
         "type": if changed { Value::Null } else { entity["type"].clone() },
         "layers": layers,
         "bbox": entity["bbox"],
-        "primitives": entity["primitives"],
+        "primitives": primitives,
     })
 }
 
-/// 元の図形ごとに、書き直した図面の同じ図形（同じ id、なければ同じ順の図形）と比べる
-fn differences(original: &Scene, again: &Scene) -> Vec<String> {
+fn strip_colors(value: &mut Value) {
+    match value {
+        Value::Object(object) => {
+            object.remove("color");
+            for item in object.values_mut() {
+                strip_colors(item);
+            }
+        }
+        Value::Array(items) => items.iter_mut().for_each(strip_colors),
+        _ => {}
+    }
+}
+
+/// 元の図形ごとに、書き直した図面の同じ図形（同じ id、なければ同じ順の図形）と比べる。version は書いた版（None は既定の
+/// 2013）。版にない値は notices で知らせて書かないので、比べない: 2004 より前の色（トゥルーカラー・透過度）、2007 より前の
+/// 文字の背景の塗り（複数行の文字と、寸法などのブロックの中の複数行の文字）、2004 より前の円弧の長さ・大きい半径の寸法
+/// （寸法のブロックの参照として、その中の図形が描かれる）
+fn differences_with(original: &Scene, again: &Scene, version: Option<&str>) -> Vec<String> {
+    let before_2004 = matches!(version, Some("2000"));
+    let before_2007 = matches!(version, Some("2000" | "2004"));
+    let colors = !before_2004;
     let entities = |scene: &Scene| serde_json::to_value(&scene.entities).unwrap().as_array().unwrap().clone();
     let (before, after) = (entities(original), entities(again));
     let mut out = Vec::new();
@@ -64,25 +87,63 @@ fn differences(original: &Scene, again: &Scene) -> Vec<String> {
             }
             continue;
         }
-        // 読めないハンドル（ない、16 進でない、重なる）は書き直すときに振り直す
-        let changed = matches!(source, "HELIX" | "MPOLYGON" | "ATTRIB");
-        match same_id.or_else(|| after.get(index)) {
-            None => out.push(format!("{id}: missing")),
-            Some(other) if !close(&shape(original, entity, changed), &shape(again, other, changed)) => {
-                out.push(format!("{id} ({}): differs", entity["type"]))
+        if before_2004 && matches!(source, "ARC_DIMENSION" | "LARGE_RADIAL_DIMENSION") {
+            let prefix = format!("{id}>");
+            if !after.iter().any(|other| other["id"].as_str().is_some_and(|other| other.starts_with(&prefix))) {
+                out.push(format!("{id}: the block of the dimension is not drawn"));
             }
-            _ => {}
+            continue;
+        }
+        // 読めないハンドル（ない、16 進でない、重なる）は書き直すときに振り直す
+        let Some(other) = same_id.or_else(|| after.get(index)) else {
+            out.push(format!("{id}: missing"));
+            continue;
+        };
+        let (mut entity, mut other) = (entity.clone(), other.clone());
+        if before_2007 {
+            without_backgrounds(&mut entity, &mut other);
+        }
+        let changed = matches!(source, "HELIX" | "MPOLYGON" | "ATTRIB");
+        if !close(&shape_with(original, &entity, changed, colors), &shape_with(again, &other, changed, colors)) {
+            out.push(format!("{id} ({}): differs", entity["type"]));
         }
     }
     out
 }
 
+/// 2007 より前の版は複数行の文字の背景を書かない。元の描く要素から、文字のすぐ前の塗り（ビューポート越しには切り取られた
+/// 四角）のうち書き直した図形にないものを除き、背景を含む外接矩形は比べない
+fn without_backgrounds(entity: &mut Value, other: &mut Value) {
+    let before = entity["primitives"].as_array().cloned().unwrap_or_default();
+    let after = other["primitives"].as_array().cloned().unwrap_or_default();
+    let mut kept = Vec::new();
+    for (index, primitive) in before.iter().enumerate() {
+        let background =
+            primitive["kind"] == "fill" && before.get(index + 1).is_some_and(|next| next["kind"] == "text");
+        if background && after.get(kept.len()).is_none_or(|next| next["kind"] != "fill") {
+            continue;
+        }
+        kept.push(primitive.clone());
+    }
+    if kept.len() < before.len() {
+        entity["primitives"] = Value::Array(kept);
+        entity["bbox"] = Value::Null;
+        other["bbox"] = Value::Null;
+    }
+}
+
 /// 図面を DXF に書き直し、すべての表示で元と比べる。比べた表示の数と、違いを返す（読めない図面は比べない）
 fn check(name: &str, bytes: &[u8]) -> (usize, Vec<String>) {
+    check_version(name, bytes, None)
+}
+
+/// 版を選んで書き直して比べる。2004 より前の版はトゥルーカラー・透過度を持たないので、色は比べない
+fn check_version(name: &str, bytes: &[u8], version: Option<&str>) -> (usize, Vec<String>) {
     let Ok(original) = zumen::read(bytes, &ReadDrawingOptions::default()) else {
         return (0, Vec::new());
     };
-    let converted = match zumen::convert(bytes, "dxf", &ReadDrawingOptions::default()) {
+    let write = zumen::WriteOptions { version: version.map(str::to_string) };
+    let converted = match zumen::convert_with(bytes, "dxf", &ReadDrawingOptions::default(), &write) {
         Ok(converted) => converted,
         Err(error) => return (0, vec![format!("{name}: {error}")]),
     };
@@ -96,9 +157,11 @@ fn check(name: &str, bytes: &[u8]) -> (usize, Vec<String>) {
         let options = ReadDrawingOptions { view: view.clone(), ..ReadDrawingOptions::default() };
         let original = zumen::read(bytes, &options).unwrap();
         match zumen::read(&converted.bytes, &options) {
-            Ok(again) => {
-                out.extend(differences(&original, &again).into_iter().map(|line| format!("{name} ({view:?}) {line}")))
-            }
+            Ok(again) => out.extend(
+                differences_with(&original, &again, version)
+                    .into_iter()
+                    .map(|line| format!("{name} {version:?} ({view:?}) {line}")),
+            ),
             Err(error) => out.push(format!("{name} ({view:?}): rereading: {error}")),
         }
     }
@@ -131,6 +194,78 @@ fn converted_drawings_draw_the_same() {
         }
     }
     assert!(checked >= 20, "checked only {checked} views");
+}
+
+/// AutoCAD 2000〜2018 のどの版に書いても、読み直すと元と同じに描ける（2000 は色を除く）
+#[test]
+fn drawings_written_in_every_version_draw_the_same() {
+    let mut problems = Vec::new();
+    for version in ["2000", "2004", "2007", "2010", "2018"] {
+        for format in ["dxf", "dwg"] {
+            for file in drawings(&fixtures().join(format)) {
+                let name = file.file_name().unwrap().to_string_lossy().to_string();
+                let (_, differences) = check_version(&name, &fs::read(&file).unwrap(), Some(version));
+                problems.extend(differences);
+            }
+        }
+    }
+    assert!(problems.is_empty(), "{problems:#?}");
+}
+
+/// Git に入れない図面で、どの版に書いても同じに描けることを確かめる。
+/// `ZUMEN_SAMPLES=<folder> cargo test -p zumen --release --test convert -- --ignored`
+#[test]
+#[ignore = "needs drawings in ZUMEN_SAMPLES"]
+fn samples_written_in_every_version_draw_the_same() {
+    let folder = std::env::var("ZUMEN_SAMPLES").expect("set ZUMEN_SAMPLES to a folder of drawings");
+    let mut failures = Vec::new();
+    for version in ["2000", "2004", "2007", "2010", "2018"] {
+        for file in drawings(Path::new(&folder)) {
+            let name = file.file_name().unwrap().to_string_lossy().to_string();
+            let (views, differences) = check_version(&name, &fs::read(&file).unwrap(), Some(version));
+            println!("{version} {name}: {views} views, {} differences", differences.len());
+            failures.extend(differences.into_iter().take(5));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+#[test]
+fn writes_the_version_asked_for_in_its_code_page() {
+    let bytes = fs::read(fixtures().join("dxf/r12-shift-jis.dxf")).unwrap();
+    let options = ReadDrawingOptions::default();
+    for (version, code) in
+        [("R12", "AC1009"), ("2000", "AC1015"), ("R2004", "AC1018"), ("AC1021", "AC1021"), ("2018", "AC1032")]
+    {
+        let write = zumen::WriteOptions { version: Some(version.into()) };
+        let converted = zumen::convert_with(&bytes, "dxf", &options, &write).unwrap();
+        let text = String::from_utf8_lossy(&converted.bytes).into_owned();
+        assert!(text.contains(&format!("$ACADVER\r\n  1\r\n{code}")), "{version}");
+        let old = matches!(code, "AC1009" | "AC1015" | "AC1018");
+        // 2007 より前は図面のコードページ（Shift_JIS）、それ以降は UTF-8
+        assert_eq!(std::str::from_utf8(&converted.bytes).is_ok(), !old, "{version}");
+        if old {
+            assert!(text.contains("$DWGCODEPAGE\r\n  3\r\nANSI_932"), "{version}");
+        }
+        let original = zumen::read(&bytes, &options).unwrap();
+        let again = zumen::read(&converted.bytes, &options).unwrap();
+        let texts = |scene: &Scene| {
+            zumen::extract::scene_texts(scene, &Default::default())
+                .into_iter()
+                .map(|(_, text)| text.text)
+                .collect::<Vec<_>>()
+        };
+        if code == "AC1009" {
+            // R12 は複数行の文字を行ごとの 1 行の文字にする
+            let joined = |scene: &Scene| texts(scene).concat().replace('\n', "");
+            assert_eq!(joined(&original), joined(&again), "{version}");
+        } else {
+            assert_eq!(texts(&original), texts(&again), "{version}");
+        }
+    }
+    let error =
+        zumen::convert_with(&bytes, "dxf", &options, &zumen::WriteOptions { version: Some("R13".into()) }).unwrap_err();
+    assert!(error.message().contains("R13"), "{}", error.message());
 }
 
 /// Git に入れない図面（ZUMEN_SAMPLES のフォルダーの DXF・DWG）で確かめる。
