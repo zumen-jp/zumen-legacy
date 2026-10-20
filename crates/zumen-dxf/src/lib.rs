@@ -5,6 +5,7 @@
 
 mod colors;
 mod curves;
+mod edit;
 mod model;
 mod mtext;
 mod parse;
@@ -13,6 +14,7 @@ mod tags;
 mod write;
 
 pub use colors::{ACI, aci_color, is_transparent, true_color};
+pub use edit::edit_dxf;
 pub use model::*;
 pub use mtext::{
     ParagraphAlign, RunColor, RunFont, RunStack, TextParagraph, TextRun, mtext_plain_text, parse_mtext,
