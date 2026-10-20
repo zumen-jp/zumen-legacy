@@ -250,12 +250,13 @@ cargo run --release -p zumen-cli -- edit plan.dxf operations.json -o edited.dxf
 cargo run --release -p zumen-cli -- create operations.json -o new.dxf --units mm
 ```
 
-`convert` writes every format as DXF of AutoCAD 2013 through the AutoCAD drawing model. DXF and DWG keep their
-handles, tables, blocks and layouts. SXF and JWW are mapped into the model with real-size model space: each SXF
-sub-figure and each JWW layer group scale is shown through a viewport of the sheet's layout at its scale, and what is
-drawn on the sheet itself (frames and title blocks) is in paper space. Layers, colors, line types, line weights, fonts,
-vertical text, blocks, dimensions and hatches become their AutoCAD counterparts, and the layout draws the same as the
-original drawing ([decision 0008](docs/decisions/0008-sheets-and-scales-in-the-autocad-model.md)).
+`convert` writes every format as DXF of AutoCAD 2013 through the AutoCAD drawing model (`--target-version` chooses
+2000, 2004, 2007, 2010 or 2018; versions before 2007 are written in a code page, such as ANSI_932 for Japanese). DXF
+and DWG keep their handles, tables, blocks and layouts. SXF and JWW are mapped into the model with real-size model
+space: each SXF sub-figure and each JWW layer group scale is shown through a viewport of the sheet's layout at its
+scale, and what is drawn on the sheet itself (frames and title blocks) is in paper space. Layers, colors, line types,
+line weights, fonts, vertical text, blocks, dimensions and hatches become their AutoCAD counterparts, and the layout
+draws the same as the original drawing ([decision 0008](docs/decisions/0008-sheets-and-scales-in-the-autocad-model.md)).
 `convert` also writes every format as SXF (SFC of SXF Ver.3.1) from the same model: the layout that the drawing opens in
 is the sheet, each viewport a sub-figure at real size placed at its scale, and each block a drawing part. What SXF has
 no feature for (multiline texts, leaders, dimensions, solids) is written as the lines, fills and texts that zumen draws
