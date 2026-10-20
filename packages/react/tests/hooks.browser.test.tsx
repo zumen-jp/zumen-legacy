@@ -35,6 +35,7 @@ function scene(format = "test"): Scene {
     entities: [
       {
         id: "a",
+        kind: "line",
         type: "線分",
         source: "line",
         layers: [0],

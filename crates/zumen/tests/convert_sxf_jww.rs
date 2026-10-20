@@ -178,7 +178,7 @@ fn places_sub_figures_in_real_size_model_space_and_shows_them_through_viewports(
     assert_eq!(style.font_family.as_deref(), Some("@ＭＳ 明朝"));
     // モデル空間の表示は実寸
     let model = zumen::dxf::dxf_to_scene(&doc, Some("Model"));
-    let circle = model.entities.iter().find(|entity| entity.kind == "円").unwrap();
+    let circle = model.entities.iter().find(|entity| entity.kind == zumen::EntityKind::Circle).unwrap();
     assert!((circle.bbox.max_x - circle.bbox.min_x - 200.0).abs() < 0.1);
 }
 

@@ -4,6 +4,22 @@ All packages share one version during 0.x.
 
 ## Unreleased (0.1.0)
 
+- Rust, Python and MCP: the shapes that an entity draws, for AI clients and data pipelines to compute with
+  ([decision 0009](docs/decisions/0009-geometry-for-ai-clients.md)). `zumen_core::extract::entity_shapes` gives
+  polylines (curves as drawn), segments, fills, hatched areas, points and text parts in paper millimeters, and
+  `real_shapes` the same through the entity's placement, in the coordinates of the drawing itself (real-world
+  millimeters). `Scene.entity(id, geometry=True)` and `Scene.entities(..., geometry=True)` in Python, and
+  `zumen entities --geometry`. In the MCP server, `get_entity` returns the geometry, `find_entities` returns it with
+  `geometry` (pages bounded by `max_points`, with `next_offset`), and `open_drawing` lists the placements drawn at a
+  scale with their box and the conversion from paper to real-world millimeters.
+- Stable keys in the scene model, the same in TypeScript, Rust and every format: `SceneEntity.kind` (`line`, `arc`,
+  `text`, `dimension`, … listed in `ENTITY_KINDS`) next to the Japanese `type`, and `Property.key` (`layer`, `color`,
+  `start`, `radius`, `dimensionType`, …) next to the Japanese `label`, with the unformatted value in `Property.raw`
+  (numbers, `[x, y]`, format codes). The title block and the comparison read properties by key. Python entities have
+  `kind` and `values` (key to value), scenes `metadata_values`, the Arrow table a `kind` column and property keys, and
+  the MCP server returns kinds and keys and finds entities by kind, and the JSON lines of `zumen entities` have `kind`
+  and `values`. The kinds and keys are listed in
+  [the architecture notes](docs/architecture.md#stable-keys).
 - Rust and Python: compare two revisions of a drawing. `zumen_core::compare` matches entities by shape and text, not
   by id, so revisions saved again or in another format compare too. It reports the removed, added and changed entities
   and the regions that changed, aligns a revision that moved as a whole by its texts, and draws the result as a scene

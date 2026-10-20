@@ -75,6 +75,80 @@ bytes ─▶ readStb ─▶ StructureModel ─▶ StructureView (three.js) ─�
 - A drawing can hold several views, such as DXF model space and layouts. `Scene.views` lists them and `Scene.view` is the one drawn;
   `readDrawing(bytes, readers, { view })` passes the choice to the reader (`DrawingReader.read(bytes, format, { view })`).
   Formats with a single view leave both out.
+- Entities and properties carry text for people next to stable keys for applications, as described below.
+
+### Stable keys
+
+Applications pick entities and attributes by keys that are the same in every format and do not change with the
+wording, and show the Japanese text to people ([decision 0005](decisions/0005-browser-packages-for-embedding.md)).
+`SceneEntity.kind` is one of `ENTITY_KINDS` (`EntityKind` in Rust) and `SceneEntity.type` the Japanese name;
+`SceneEntity.source` keeps the name in the format. Each `Property` (of an entity and of `Scene.metadata`) has a `key`,
+the Japanese `label`, the formatted `value` and, where the value was formatted from numbers or a code, the unformatted
+`raw`: a number, a string, or numbers such as `[x, y]`. Keys are camelCase and distinct within an entity, and a key
+has the same shape of `raw` in every format (`packages/core/tests/keys.test.ts` checks both on every golden file).
+The MCP server returns `kind`, `key` and the values by key next to the Japanese text.
+
+| `kind` | SXF | JWW | DXF and DWG |
+| --- | --- | --- | --- |
+| `line` | `line_feature` | 線 (`CDataSen`) | `LINE` |
+| `construction-line` | | | `XLINE`, `RAY` |
+| `polyline` | `polyline_feature` | | `LWPOLYLINE`, `POLYLINE` (2D and 3D) |
+| `multiline` | | | `MLINE` |
+| `mesh` | | | `POLYLINE` (polyface and polygon meshes), `3DFACE` |
+| `arc`, `circle` | `arc_feature`, `circle_feature` | 円弧, 円 (`CDataEnko`) | `ARC`, `CIRCLE` |
+| `ellipse`, `ellipse-arc` | `ellipse_feature`, `ellipse_arc_feature` | 楕円 (`CDataEnko`, full or not) | `ELLIPSE` (full or not) |
+| `spline` | `spline_feature` | | `SPLINE` |
+| `clothoid` | `clothoid_feature` | | |
+| `helix` | | | `HELIX` |
+| `point` | `point_marker_feature` | 点 (`CDataTen`) | `POINT` |
+| `text` | `text_string_feature` | 文字 (`CDataMoji`) | `TEXT`, `MTEXT` |
+| `attribute`, `attribute-definition` | | | `ATTRIB`, `ATTDEF` |
+| `dimension` | `linear_dim_feature`, `curve_dim_feature`, `angular_dim_feature`, `radius_dim_feature`, `diameter_dim_feature` | 寸法 (`CDataSunpou`) | `DIMENSION`, `ARC_DIMENSION`, `LARGE_RADIAL_DIMENSION` |
+| `leader` | `label_feature` | | `LEADER`, `MULTILEADER` |
+| `balloon` | `balloon_feature` | | |
+| `hatch` | `fill_area_style_colour_feature`, `fill_area_style_hatching_feature`, `fill_area_style_tiles_feature`, `externally_defined_hatch_feature` | | `HATCH`, `MPOLYGON` |
+| `solid` | | ソリッド, 円ソリッド (`CDataSolid`) | `SOLID`, `TRACE` |
+| `symbol` | `externally_defined_symbol_feature` | | |
+| `image`, `wipeout`, `viewport` | | | `IMAGE`, `WIPEOUT`, `VIEWPORT` (the frame in a layout) |
+
+Placements of sub-figures, parts and blocks are resolved, so there is no kind for them: the entities inside carry the
+`placement` (SXF) or `block` (DXF and DWG) property and `SceneEntity.placement`.
+
+The keys that every format uses for the same meaning:
+
+| `key` | `raw` | Meaning |
+| --- | --- | --- |
+| `type` | | The Japanese type, the first property of every entity |
+| `id` | | The entity id (SXF and JWW number, DXF and DWG handle), as `SceneEntity.id` |
+| `layer` | number | The layer name; `raw` is the `SceneLayer.id` |
+| `color` | number | The color; `raw` is the format's color number (SXF color code, JWW pen color, DXF ACI) when there is one |
+| `lineType` | number | The line type; `raw` is the code in SXF and JWW |
+| `lineWidth` | number | The line width in millimeters (SXF 線幅, DXF and DWG 線の太さ when given) |
+| `start`, `end`, `center`, `position` | `[x, y]` | Points in the drawing's own coordinates (JWW: real-world) |
+| `length`, `radius` | number | |
+| `angle` | `[from, to]` | The angles of an arc in degrees, counterclockwise |
+| `text`, `font` | | The text of an entity and its font |
+| `vertexCount`, `controlPointCount` | number | |
+| `dimensionType` | string | `linear`, `aligned`, `angular`, `angular-3-point`, `radius`, `diameter`, `ordinate`, `arc-length` or `jogged-radius` (not in JWW) |
+| `dimensionText` | number | The dimension text; `raw` is the measurement when the file stores it (DXF and DWG) |
+| `pattern` | string | The hatch pattern; `raw` is the pattern name in DXF and DWG (`SOLID` for a fill) |
+| `scale` | number | The `N` of a scale 1/N: JWW layer groups and DXF and DWG viewports |
+
+Keys of one format: `placement`, `rotation`, `textBox`, `marker`, `name`, `radii`, `parameter`, `curveLength`,
+`dimensionLine`, `dimensionArc`, `arrows`, `holeCount` and `hatchLines` in SXF; `textSize` (`[width, height,
+spacing]`) in JWW; `block`, `height`, `textStyle`, `tag`, `wrapWidth`, `majorRadius`, `ratio`, `degree`, `width`,
+`faceCount`, `meshSize`, `dimensionStyle`, `contentBlock`, `leaderCount`, `style`, `widthScale`, `justification`,
+`patternScale`, `patternAngle`, `imageSize`, `viewCenter`, `viewHeight` and `twistAngle` in DXF and DWG; and
+`comparison` (`unchanged`, `removed`, `changed-before`, `added`, `changed-after`) in the scene of
+`zumen_core::compare`.
+
+`Scene.metadata` uses `format`, `sheet` and `blockCount` in every format that has them; `software`, `library`,
+`figureCount`, `archive` and the title block attributes of SXF (`businessName`, `constructionName`, `contractType`,
+`drawingName`, `drawingNumber`, `drawingType`, `scale`, `year`, `month`, `day`, `contractor`, `client`); `scale`
+(`raw` the list of N), `memo` and `settings` in JWW; `encoding`, `units`, `layouts`, `view` (`raw` the view id),
+`viewOrigin` and `viewportScales` in DXF and DWG.
+
+A new key is added where a format first needs it, with a name that another format can reuse for the same meaning.
 
 ## The structural model
 
@@ -132,8 +206,8 @@ the state, the input handlers and the tools are separate, and each can be used o
 - **React.** `useDrawingViewer`, `useViewerState(viewer, selector)`, `useViewerEvent(viewer, type, listener)` and
   `useDrawing(file, readers, options)`.
 - **Text.** The engine has none: the canvas label (`label`, `setLabel`) and every other text come from the
-  application. Scenes still carry Japanese entity types, property labels and notice messages; stable keys next to them
-  are a later step of decision 0005.
+  application. Scenes carry Japanese entity types, property labels and notice messages for people, and next to them
+  the stable keys of [Stable keys](#stable-keys) (`kind`, `key`, `raw` and `Notice.code`) for applications.
 
 The playground's 2D sample (`playground/drawing-sample.tsx`, with `layer-list.tsx` and `drawing-sample.css`) is a
 complete viewer, with a toolbar, a layer list, properties, notices and a status bar, written only against this API.
@@ -225,6 +299,12 @@ conversion between pixels and paper millimeters, and `drawn_entities` with `View
 entity drawn, in pixels. An application can then show the entity that a model refers to, or render the part of the
 sheet around it. These work on the scene, so every format gets them at once. There is no TypeScript counterpart yet.
 
+`extract::entity_shapes` gives the shapes that an entity draws, from its primitives: polylines (curves as the
+polyline drawn), segments, fills, hatched areas (their rings, without the hatch lines), points and text parts.
+`real_shapes` gives the same shapes through the inverse of the entity's placement, in the coordinates of the drawing
+itself (real-world millimeters), so that a client can compute lengths, areas and distances between entities without
+reading every format's properties ([decision 0009](decisions/0009-geometry-for-ai-clients.md)).
+
 `zumen_core::compare` compares two revisions of a drawing. Entity ids change when some formats are saved again, so
 entities are matched by type, shape and text instead, in three passes: shapes equal after rounding coordinates to the
 tolerance (0.01 mm by default; the direction of a line and the start of a ring do not matter), shapes split by the
@@ -245,9 +325,10 @@ folding and removing spaces and punctuation; a bare 番号 or `NO` is not taken 
 has several title blocks, the one nearest the bottom right of the sheet comes first. Every candidate is kept with
 its source, label and entities, so an application can show where a value came from.
 
-`zumen.mcp` serves them to AI applications as MCP tools over stdio (`zumen-mcp`): open a drawing, render a region,
-find texts and entities, show one entity, measure in real-world millimeters through the scale of a placement and
-compare two revisions. The
+`zumen.mcp` serves them to AI applications as MCP tools over stdio (`zumen-mcp`): open a drawing (with its
+placements and their conversion to real-world millimeters), render a region, find texts and entities, show one
+entity with its shapes, measure in real-world millimeters through the scale of a placement and compare two
+revisions. The
 tools only read, take local paths limited by `--root`, and bound file sizes, image sizes and result counts
 ([decision 0004](decisions/0004-mcp-server-in-the-python-package.md)).
 

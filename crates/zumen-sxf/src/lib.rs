@@ -119,7 +119,9 @@ impl DrawingReader for Sxf {
             let mut scene = self.read(&content, inner, _options)?;
             // 形式の次に、展開した書庫と中のファイルの名前を示す
             let at = usize::from(!scene.metadata.is_empty());
-            scene.metadata.insert(at, Property::new("圧縮", format!("{}（{}）", format.to_uppercase(), name)));
+            scene
+                .metadata
+                .insert(at, Property::new("archive", "圧縮", format!("{}（{}）", format.to_uppercase(), name)));
             return Ok(scene);
         }
         Ok(sxf_to_scene(&parse_sxf(bytes, format)?))

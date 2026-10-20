@@ -20,8 +20,8 @@ use zumen_core::geometry::{
 };
 use zumen_core::text::{TextLayoutInput, font_family_for, is_half_width, layout_text};
 use zumen_core::{
-    BACKGROUND_COLOR, BBox, Background, ClippedPrimitive, DotPrimitive, FillPrimitive, Matrix, NoticeLevel, NoticeList,
-    Placement, Primitive, Property, Scene, SceneEntity, SceneLayer, SceneView, Sheet, StrokePrimitive, js,
+    BACKGROUND_COLOR, BBox, Background, ClippedPrimitive, DotPrimitive, EntityKind, FillPrimitive, Matrix, NoticeLevel,
+    NoticeList, Placement, Primitive, Property, Scene, SceneEntity, SceneLayer, SceneView, Sheet, StrokePrimitive, js,
 };
 
 /// $INSUNITS の単位の mm（DXF Reference「HEADER Section Group Codes」の $INSUNITS）
@@ -125,8 +125,39 @@ fn type_name(kind: &str) -> Option<&'static str> {
     })
 }
 
+/// 図形の、形式によらない種類（docs/architecture.md の「Stable keys」）
+fn entity_kind(kind: &str) -> Option<EntityKind> {
+    Some(match kind {
+        "LINE" => EntityKind::Line,
+        "CIRCLE" => EntityKind::Circle,
+        "ARC" => EntityKind::Arc,
+        "ELLIPSE" => EntityKind::Ellipse,
+        "POINT" => EntityKind::Point,
+        "LWPOLYLINE" | "POLYLINE" => EntityKind::Polyline,
+        "SPLINE" => EntityKind::Spline,
+        "HELIX" => EntityKind::Helix,
+        "TEXT" | "MTEXT" => EntityKind::Text,
+        "ATTRIB" => EntityKind::Attribute,
+        "ATTDEF" => EntityKind::AttributeDefinition,
+        "DIMENSION" | "ARC_DIMENSION" | "LARGE_RADIAL_DIMENSION" => EntityKind::Dimension,
+        "HATCH" | "MPOLYGON" => EntityKind::Hatch,
+        "SOLID" | "TRACE" => EntityKind::Solid,
+        "3DFACE" => EntityKind::Mesh,
+        "LEADER" | "MULTILEADER" | "MLEADER" => EntityKind::Leader,
+        "MLINE" => EntityKind::Multiline,
+        "VIEWPORT" => EntityKind::Viewport,
+        "XLINE" | "RAY" => EntityKind::ConstructionLine,
+        "IMAGE" => EntityKind::Image,
+        "WIPEOUT" => EntityKind::Wipeout,
+        _ => return None,
+    })
+}
+
 const DIMENSION_KINDS: [&str; 7] =
     ["長さ寸法", "平行寸法", "角度寸法", "直径寸法", "半径寸法", "3 点角度寸法", "座標寸法"];
+/// 寸法の種類の、形式によらないキー（70 の下位 3 ビット、ARC_DIMENSION、LARGE_RADIAL_DIMENSION）
+const DIMENSION_TYPES: [&str; 7] =
+    ["linear", "aligned", "angular", "diameter", "radius", "angular-3-point", "ordinate"];
 
 /// 弦と弧のずれの許容（表示用の図面の mm）。大きい円は半径に比例して粗くする
 const TOLERANCE: f64 = 0.02;
@@ -199,6 +230,21 @@ fn fmt(value: f64) -> String {
 
 fn point2(x: f64, y: f64) -> String {
     format!("{}, {}", fmt(x), fmt(y))
+}
+
+/// 座標の属性。raw は [x, y]
+fn point_property(key: &'static str, label: &str, x: f64, y: f64) -> Property {
+    Property::new(key, label, point2(x, y)).raw([x, y])
+}
+
+/// 数の属性
+fn number_property(key: &'static str, label: &str, value: f64) -> Property {
+    Property::new(key, label, fmt(value)).raw(value)
+}
+
+/// 「n 点」のように数える属性
+fn count_property(key: &'static str, label: &str, count: usize, value: String) -> Property {
+    Property::new(key, label, value).raw(count as f64)
 }
 
 fn translate(x: f64, y: f64) -> Matrix {
@@ -683,12 +729,20 @@ impl<'a> Builder<'a> {
         ctx: &Ctx,
         primitives: Vec<Primitive>,
         properties: Vec<Property>,
-        kind: Option<&str>,
+        name: Option<(&str, EntityKind)>,
     ) {
         if primitives.is_empty() {
             return;
         }
-        let kind = kind.map_or_else(|| type_name(&entity.kind).unwrap_or(&entity.kind).to_string(), str::to_string);
+        // 種類の名前と、形式によらない種類（楕円弧・メッシュ・寸法の種類など、DXF の名前だけでは決まらないもの）
+        let (kind, entity_kind) = match name {
+            Some((name, kind)) => (name.to_string(), kind),
+            // 描く図形はどれも entity_kind にある
+            None => (
+                type_name(&entity.kind).unwrap_or(&entity.kind).to_string(),
+                entity_kind(&entity.kind).unwrap_or(EntityKind::Line),
+            ),
+        };
         let mut parts = primitives;
         let mut bbox = empty_box();
         for primitive in &parts {
@@ -728,15 +782,17 @@ impl<'a> Builder<'a> {
         let linetype = if entity.linetype.is_empty() { "BYLAYER" } else { entity.linetype.as_str() };
         let resolved = self.linetype_name(entity, ctx);
         let mut common = vec![
-            Property::new("種類", format!("{kind}（{}）", entity.kind)),
-            Property::new("ハンドル", id.clone()),
-            Property::new("レイヤ", layer),
+            Property::new("type", "種類", format!("{kind}（{}）", entity.kind)),
+            Property::new("id", "ハンドル", id.clone()),
+            Property::new("layer", "レイヤ", layer).raw(f64::from(own)),
         ];
         if !ctx.blocks.is_empty() {
-            common.push(Property::new("ブロック", ctx.blocks.join(" › ")));
+            common.push(Property::new("block", "ブロック", ctx.blocks.join(" › ")));
         }
-        common.push(Property::new("色", Self::color_label(entity)));
+        let color = Property::new("color", "色", Self::color_label(entity));
+        common.push(if entity.true_color.is_some() { color } else { color.raw(entity.color_index) });
         common.push(Property::new(
+            "lineType",
             "線種",
             if linetype.to_uppercase() == resolved.to_uppercase() {
                 linetype.to_string()
@@ -744,7 +800,8 @@ impl<'a> Builder<'a> {
                 format!("{linetype}（{resolved}）")
             },
         ));
-        common.push(Property::new("線の太さ", Self::lineweight_label(entity.lineweight)));
+        let lineweight = Property::new("lineWidth", "線の太さ", Self::lineweight_label(entity.lineweight));
+        common.push(if entity.lineweight >= 0.0 { lineweight.raw(entity.lineweight / 100.0) } else { lineweight });
         common.extend(properties);
         // 読み取りの上限（zumen_core::limits）。上限を超えたら図形を加えない
         if !zumen_core::limits::admit() {
@@ -752,7 +809,8 @@ impl<'a> Builder<'a> {
         }
         self.entities.push(SceneEntity {
             id,
-            kind,
+            kind: entity_kind,
+            type_name: kind,
             source: entity.kind.clone(),
             layers,
             primitives: parts,
@@ -870,9 +928,9 @@ impl<'a> Builder<'a> {
                     ctx,
                     vec![Primitive::Stroke(stroke)],
                     vec![
-                        Property::new("始点", point2(x1, y1)),
-                        Property::new("終点", point2(x2, y2)),
-                        Property::new("長さ", fmt(js::hypot2(x2 - x1, y2 - y1))),
+                        point_property("start", "始点", x1, y1),
+                        point_property("end", "終点", x2, y2),
+                        number_property("length", "長さ", js::hypot2(x2 - x1, y2 - y1)),
                     ],
                     None,
                 );
@@ -905,11 +963,11 @@ impl<'a> Builder<'a> {
                     ctx,
                     vec![Primitive::Stroke(stroke)],
                     vec![
-                        Property::new("中心", point2(wx, wy)),
-                        Property::new("長軸の半径", fmt(radius * mean_scale(&ctx.local))),
-                        Property::new("短軸 / 長軸", fmt(*ratio)),
+                        point_property("center", "中心", wx, wy),
+                        number_property("majorRadius", "長軸の半径", radius * mean_scale(&ctx.local)),
+                        number_property("ratio", "短軸 / 長軸", *ratio),
                     ],
-                    Some(if full { "楕円" } else { "楕円弧" }),
+                    Some(if full { ("楕円", EntityKind::Ellipse) } else { ("楕円弧", EntityKind::EllipseArc) }),
                 );
             }
             DxfEntityData::Point { location, .. } => {
@@ -920,7 +978,7 @@ impl<'a> Builder<'a> {
                     base,
                     ctx,
                     vec![Primitive::Dot(DotPrimitive { x, y, color })],
-                    vec![Property::new("位置", point2(wx, wy))],
+                    vec![point_property("position", "位置", wx, wy)],
                     None,
                 );
             }
@@ -951,8 +1009,13 @@ impl<'a> Builder<'a> {
                     ctx,
                     vec![Primitive::Stroke(stroke)],
                     vec![
-                        Property::new("次数", js::number_to_string(spline.degree)),
-                        Property::new("制御点", format!("{} 点", spline.control_points.len())),
+                        Property::new("degree", "次数", js::number_to_string(spline.degree)).raw(spline.degree),
+                        count_property(
+                            "controlPointCount",
+                            "制御点",
+                            spline.control_points.len(),
+                            format!("{} 点", spline.control_points.len()),
+                        ),
                     ],
                     None,
                 );
@@ -1028,10 +1091,13 @@ impl<'a> Builder<'a> {
             points.truncate(points.len().saturating_sub(2));
         }
         let (wx, wy) = apply(&multiply(&ctx.local, &ocs), cx, cy);
-        let mut properties =
-            vec![Property::new("中心", point2(wx, wy)), Property::new("半径", fmt(radius * mean_scale(&ctx.local)))];
+        let mut properties = vec![
+            point_property("center", "中心", wx, wy),
+            number_property("radius", "半径", radius * mean_scale(&ctx.local)),
+        ];
         if let Some((start, end)) = arc {
-            properties.push(Property::new("角度", format!("{}° → {}°", fmt(start), fmt(end))));
+            properties
+                .push(Property::new("angle", "角度", format!("{}° → {}°", fmt(start), fmt(end))).raw([start, end]));
         }
         let stroke = self.stroke(base, ctx, &m, &points, full);
         self.add(base, ctx, vec![Primitive::Stroke(stroke)], properties, None);
@@ -1091,10 +1157,18 @@ impl<'a> Builder<'a> {
             stroke.width = 0.0;
         }
         primitives.push(Primitive::Stroke(stroke));
-        let mut properties =
-            vec![Property::new("頂点", format!("{} 点{}", points.len(), if closed { "（閉じる）" } else { "" }))];
+        let mut properties = vec![count_property(
+            "vertexCount",
+            "頂点",
+            points.len(),
+            format!("{} 点{}", points.len(), if closed { "（閉じる）" } else { "" }),
+        )];
         if wide {
-            properties.push(Property::new("幅", if constant > 0.0 { fmt(constant) } else { "頂点ごと".into() }));
+            properties.push(if constant > 0.0 {
+                number_property("width", "幅", constant)
+            } else {
+                Property::new("width", "幅", "頂点ごと")
+            });
         }
         self.add(base, ctx, primitives, properties, None);
     }
@@ -1129,8 +1203,8 @@ impl<'a> Builder<'a> {
                     base,
                     ctx,
                     vec![Primitive::Stroke(stroke)],
-                    vec![Property::new("面", format!("{faces} 面"))],
-                    Some("ポリフェースメッシュ"),
+                    vec![count_property("faceCount", "面", faces, format!("{faces} 面"))],
+                    Some(("ポリフェースメッシュ", EntityKind::Mesh)),
                 );
             }
             return;
@@ -1179,11 +1253,15 @@ impl<'a> Builder<'a> {
                     base,
                     ctx,
                     vec![Primitive::Stroke(stroke)],
-                    vec![Property::new(
-                        "頂点",
-                        format!("{} × {}", js::number_to_string(m_count), js::number_to_string(n_count)),
-                    )],
-                    Some("ポリゴンメッシュ"),
+                    vec![
+                        Property::new(
+                            "meshSize",
+                            "頂点",
+                            format!("{} × {}", js::number_to_string(m_count), js::number_to_string(n_count)),
+                        )
+                        .raw([m_count, n_count]),
+                    ],
+                    Some(("ポリゴンメッシュ", EntityKind::Mesh)),
                 );
             }
             return;
@@ -1203,8 +1281,13 @@ impl<'a> Builder<'a> {
                 base,
                 ctx,
                 vec![Primitive::Stroke(stroke)],
-                vec![Property::new("頂点", format!("{} 点{}", keep.len(), if closed { "（閉じる）" } else { "" }))],
-                Some("3D ポリライン"),
+                vec![count_property(
+                    "vertexCount",
+                    "頂点",
+                    keep.len(),
+                    format!("{} 点{}", keep.len(), if closed { "（閉じる）" } else { "" }),
+                )],
+                Some(("3D ポリライン", EntityKind::Polyline)),
             );
             return;
         }
@@ -1504,12 +1587,12 @@ impl<'a> Builder<'a> {
         }
         self.count_shx(shx);
         let plain: String = runs.iter().map(|run| run.text.as_str()).collect();
-        let mut properties = vec![Property::new("文字列", plain)];
+        let mut properties = vec![Property::new("text", "文字列", plain)];
         if kind != "TEXT" {
-            properties.push(Property::new("タグ", tag.unwrap_or("")));
+            properties.push(Property::new("tag", "タグ", tag.unwrap_or("")));
         }
-        properties.push(Property::new("高さ", fmt(height * mean_scale(&ctx.local))));
-        properties.push(Property::new("文字スタイル", style_label(style, &entity.style)));
+        properties.push(number_property("height", "高さ", height * mean_scale(&ctx.local)));
+        properties.push(Property::new("textStyle", "文字スタイル", style_label(style, &entity.style)));
         self.add(base, ctx, primitives, properties, None);
     }
 
@@ -1728,14 +1811,14 @@ impl<'a> Builder<'a> {
             }
         }
         self.count_shx(shx);
-        let mut properties = vec![Property::new("文字列", entity.text.clone())];
+        let mut properties = vec![Property::new("text", "文字列", entity.text.clone())];
         if let Some(tag) = tag {
-            properties.push(Property::new("タグ", tag));
+            properties.push(Property::new("tag", "タグ", tag));
         }
-        properties.push(Property::new("高さ", fmt(base_height * mean_scale(&ctx.local))));
-        properties.push(Property::new("文字スタイル", style_label(style, &entity.style)));
+        properties.push(number_property("height", "高さ", base_height * mean_scale(&ctx.local)));
+        properties.push(Property::new("textStyle", "文字スタイル", style_label(style, &entity.style)));
         if wrap != 0.0 {
-            properties.push(Property::new("折り返しの幅", fmt(wrap * mean_scale(&ctx.local))));
+            properties.push(number_property("wrapWidth", "折り返しの幅", wrap * mean_scale(&ctx.local)));
         }
         self.add(base, ctx, primitives, properties, None);
         Some(MTextLayout {
@@ -1881,6 +1964,11 @@ impl<'a> Builder<'a> {
             type_name(&base.kind)
         }
         .unwrap_or("寸法");
+        let dimension_type = match base.kind.as_str() {
+            "DIMENSION" => DIMENSION_TYPES.get((js::to_int32(entity.dimtype) & 7) as usize).copied(),
+            "ARC_DIMENSION" => Some("arc-length"),
+            _ => Some("jogged-radius"),
+        };
         let value = if !entity.text.is_empty() && entity.text != "<>" && !entity.text.contains("<>") {
             entity.text.clone()
         } else if let Some(measurement) = entity.actual_measurement {
@@ -1893,11 +1981,17 @@ impl<'a> Builder<'a> {
             ctx,
             primitives,
             vec![
-                Property::new("寸法の種類", kind),
-                Property::new("寸法値", value),
-                Property::new("寸法スタイル", entity.dimstyle.clone()),
+                match dimension_type {
+                    Some(raw) => Property::new("dimensionType", "寸法の種類", kind).raw(raw),
+                    None => Property::new("dimensionType", "寸法の種類", kind),
+                },
+                match entity.actual_measurement {
+                    Some(measurement) => Property::new("dimensionText", "寸法値", value).raw(measurement),
+                    None => Property::new("dimensionText", "寸法値", value),
+                },
+                Property::new("dimensionStyle", "寸法スタイル", entity.dimstyle.clone()),
             ],
-            Some(kind),
+            Some((kind, EntityKind::Dimension)),
         );
     }
 
@@ -1956,7 +2050,14 @@ impl<'a> Builder<'a> {
                 );
             }
         }
-        self.add(base, ctx, primitives, vec![Property::new("頂点", format!("{} 点", entity.points.len()))], None);
+        let count = entity.points.len();
+        self.add(
+            base,
+            ctx,
+            primitives,
+            vec![count_property("vertexCount", "頂点", count, format!("{count} 点"))],
+            None,
+        );
     }
 
     // --- マルチ引出線・マルチライン ---------------------------------------------
@@ -1980,12 +2081,12 @@ impl<'a> Builder<'a> {
             let part = part_of(base, raw_color(mtext.color), "CONTINUOUS");
             text = self.mleader_text(mtext, context, &part, &child);
             text_part = Some(part);
-            properties.push(Property::new("文字列", mtext_plain_text(&mtext.default_content)));
-            properties.push(Property::new("高さ", fmt(context.char_height * mean_scale(&ctx.local))));
+            properties.push(Property::new("text", "文字列", mtext_plain_text(&mtext.default_content)));
+            properties.push(number_property("height", "高さ", context.char_height * mean_scale(&ctx.local)));
         } else if let Some(block) = &context.block {
             let name = self.mleader_block(base, entity, block, &child);
             if !name.is_empty() {
-                properties.push(Property::new("内容のブロック", name));
+                properties.push(Property::new("contentBlock", "内容のブロック", name));
             }
         } else if entity.content_type == 3.0 {
             self.notices.add(
@@ -2018,7 +2119,7 @@ impl<'a> Builder<'a> {
             let stroke = self.stroke(part, &child, &multiply(&child.m, &text.frame), &frame, true);
             lines.push(Primitive::Stroke(stroke));
         }
-        properties.push(Property::new("引出線", format!("{count} 本")));
+        properties.push(Property::new("leaderCount", "引出線", format!("{count} 本")).raw(count as f64));
         let mut primitives = self.take_parts(start);
         primitives.extend(lines);
         self.add(base, ctx, primitives, properties, None);
@@ -2618,20 +2719,20 @@ impl<'a> Builder<'a> {
         }
         primitives.extend(strokes);
         let justification = match entity.justification {
-            0.0 => "上".to_string(),
-            1.0 => "ゼロ".to_string(),
-            2.0 => "下".to_string(),
-            value => js::number_to_string(value),
+            0.0 => Property::new("justification", "位置合わせ", "上").raw("top"),
+            1.0 => Property::new("justification", "位置合わせ", "ゼロ").raw("zero"),
+            2.0 => Property::new("justification", "位置合わせ", "下").raw("bottom"),
+            value => Property::new("justification", "位置合わせ", js::number_to_string(value)).raw(value),
         };
         self.add(
             base,
             ctx,
             primitives,
             vec![
-                Property::new("スタイル", style.name.clone()),
-                Property::new("尺度", fmt(entity.scale * mean_scale(&ctx.local))),
-                Property::new("位置合わせ", justification),
-                Property::new("頂点", format!("{n} 点{}", if closed { "（閉じる）" } else { "" })),
+                Property::new("style", "スタイル", style.name.clone()),
+                number_property("widthScale", "尺度", entity.scale * mean_scale(&ctx.local)),
+                justification,
+                count_property("vertexCount", "頂点", n, format!("{n} 点{}", if closed { "（閉じる）" } else { "" })),
             ],
             None,
         );
@@ -2725,16 +2826,16 @@ impl<'a> Builder<'a> {
         }
         let rings: Vec<Vec<f64>> = local.iter().map(|ring| transform_points(&m, ring)).collect();
         let color = self.color(base, ctx);
-        let mut properties = vec![Property::new(
-            "模様",
-            if entity.solid_fill {
-                "塗りつぶし".to_string()
-            } else if entity.pattern_name.is_empty() {
+        let mut properties = vec![if entity.solid_fill {
+            Property::new("pattern", "模様", "塗りつぶし").raw("SOLID")
+        } else {
+            let name = if entity.pattern_name.is_empty() {
                 "（名前なし）".to_string()
             } else {
                 entity.pattern_name.clone()
-            },
-        )];
+            };
+            Property::new("pattern", "模様", name).raw(entity.pattern_name.clone())
+        }];
         if entity.gradient.is_some() {
             self.notices.add(NoticeLevel::Info, "hatch-gradient", "グラデーションのハッチングは 1 色で塗りました");
             let first = entity.gradient_colors.as_ref().and_then(|colors| colors.first()).copied();
@@ -2746,8 +2847,11 @@ impl<'a> Builder<'a> {
             self.add(base, ctx, vec![Primitive::Fill(FillPrimitive { color, rings })], properties, None);
             return;
         }
-        properties.push(Property::new("模様の尺度", fmt(entity.pattern_scale)));
-        properties.push(Property::new("模様の角度", format!("{}°", fmt(entity.pattern_angle))));
+        properties.push(number_property("patternScale", "模様の尺度", entity.pattern_scale));
+        properties.push(
+            Property::new("patternAngle", "模様の角度", format!("{}°", fmt(entity.pattern_angle)))
+                .raw(entity.pattern_angle),
+        );
         let mut bbox = empty_box();
         for ring in &local {
             extend_box_with_points(&mut bbox, ring);
@@ -2861,7 +2965,7 @@ impl<'a> Builder<'a> {
             base,
             ctx,
             vec![Primitive::Stroke(stroke_primitive(points, true, color))],
-            vec![Property::new("画素", format!("{} × {}", fmt(w), fmt(h)))],
+            vec![Property::new("imageSize", "画素", format!("{} × {}", fmt(w), fmt(h))).raw([w, h])],
             None,
         );
     }
@@ -3206,6 +3310,7 @@ fn metadata_base(doc: &DxfDocument, unit_name: &str) -> Vec<Property> {
     };
     let mut metadata = vec![
         Property::new(
+            "format",
             "形式",
             if doc.format == "dwg" {
                 format!("DWG {format}（{}）", doc.version)
@@ -3213,16 +3318,16 @@ fn metadata_base(doc: &DxfDocument, unit_name: &str) -> Vec<Property> {
                 format!("DXF {format}（{}、{}）", doc.version, if doc.binary { "バイナリ" } else { "テキスト" })
             },
         ),
-        Property::new("文字コード", format!("{encoding}（{source}）")),
-        Property::new("単位", unit_name),
+        Property::new("encoding", "文字コード", format!("{encoding}（{source}）")).raw(doc.encoding),
+        Property::new("units", "単位", unit_name),
     ];
     if blocks > 0 {
-        metadata.push(Property::new("ブロック", format!("{blocks} 件")));
+        metadata.push(count_property("blockCount", "ブロック", blocks, format!("{blocks} 件")));
     }
     let layouts: Vec<&str> =
         doc.layouts.iter().filter(|layout| !layout.model).map(|layout| layout.name.as_str()).collect();
     if !layouts.is_empty() {
-        metadata.push(Property::new("レイアウト", layouts.join("・")));
+        metadata.push(Property::new("layouts", "レイアウト", layouts.join("・")));
     }
     metadata
 }
@@ -3315,10 +3420,16 @@ pub fn dxf_to_scene(doc: &DxfDocument, layout: Option<&str>) -> Scene {
             for entity in model.iter() {
                 builder.emit(entity, &root);
             }
-            metadata.push(Property::new("表示", "モデル空間"));
+            metadata.push(Property::new("view", "表示", "モデル空間").raw("Model"));
             if ox != 0.0 || oy != 0.0 {
-                metadata
-                    .push(Property::new("表示の原点", format!("{}（座標の大きい図面のため寄せた）", point2(ox, oy))));
+                metadata.push(
+                    Property::new(
+                        "viewOrigin",
+                        "表示の原点",
+                        format!("{}（座標の大きい図面のため寄せた）", point2(ox, oy)),
+                    )
+                    .raw([ox, oy]),
+                );
             }
             let paper = doc
                 .entities
@@ -3404,9 +3515,11 @@ pub fn dxf_to_scene(doc: &DxfDocument, layout: Option<&str>) -> Scene {
                     scales.push(label);
                 }
             }
-            metadata.push(Property::new("表示", format!("レイアウト {}", layout.name)));
+            metadata
+                .push(Property::new("view", "表示", format!("レイアウト {}", layout.name)).raw(layout.name.clone()));
             if let Some(sheet) = &sheet {
                 metadata.push(Property::new(
+                    "sheet",
                     "用紙",
                     format!("{}（{}×{} mm）", sheet.size, fmt(sheet.width), fmt(sheet.height)),
                 ));
@@ -3418,7 +3531,7 @@ pub fn dxf_to_scene(doc: &DxfDocument, layout: Option<&str>) -> Scene {
                         unique.push(scale);
                     }
                 }
-                metadata.push(Property::new("ビューポートの縮尺", unique.join("・")));
+                metadata.push(Property::new("viewportScales", "ビューポートの縮尺", unique.join("・")));
             }
         }
     }
@@ -3544,18 +3657,20 @@ fn draw_viewport(
     ];
     let stroke = builder.stroke(base, root, &root.m, &frame, true);
     let mut properties = vec![
-        Property::new("縮尺", label.clone()),
-        Property::new(
+        Property::new("scale", "縮尺", label.clone()).raw(1.0 / paper_per_real),
+        point_property(
+            "viewCenter",
             "表示の中心（モデル）",
-            point2(
-                viewport.view_target[0] + viewport.view_center[0],
-                viewport.view_target[1] + viewport.view_center[1],
-            ),
+            viewport.view_target[0] + viewport.view_center[0],
+            viewport.view_target[1] + viewport.view_center[1],
         ),
-        Property::new("表示の高さ（モデル）", fmt(viewport.view_height)),
+        number_property("viewHeight", "表示の高さ（モデル）", viewport.view_height),
     ];
     if truthy(viewport.view_twist_angle) {
-        properties.push(Property::new("ねじれの角度", format!("{}°", fmt(viewport.view_twist_angle))));
+        properties.push(
+            Property::new("twistAngle", "ねじれの角度", format!("{}°", fmt(viewport.view_twist_angle)))
+                .raw(viewport.view_twist_angle),
+        );
     }
     builder.add(base, root, vec![Primitive::Stroke(stroke)], properties, None);
     Some(label)

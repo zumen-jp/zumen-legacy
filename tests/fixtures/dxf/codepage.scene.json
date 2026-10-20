@@ -25,6 +25,7 @@
   "entities": [
     {
       "id": "10",
+      "kind": "text",
       "type": "文字",
       "source": "TEXT",
       "layers": [
@@ -85,38 +86,50 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "文字（TEXT）"
         },
         {
+          "key": "id",
           "label": "ハンドル",
           "value": "10"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "平面図"
+          "value": "平面図",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "BYLAYER"
+          "value": "BYLAYER",
+          "raw": 256
         },
         {
+          "key": "lineType",
           "label": "線種",
           "value": "BYLAYER（CONTINUOUS）"
         },
         {
+          "key": "lineWidth",
           "label": "線の太さ",
           "value": "BYLAYER"
         },
         {
+          "key": "text",
           "label": "文字列",
           "value": "表示ソ能平"
         },
         {
+          "key": "height",
           "label": "高さ",
-          "value": "2.5"
+          "value": "2.5",
+          "raw": 2.5
         },
         {
+          "key": "textStyle",
           "label": "文字スタイル",
           "value": "STANDARD"
         }
@@ -137,6 +150,7 @@
     },
     {
       "id": "11",
+      "kind": "text",
       "type": "複数行文字",
       "source": "MTEXT",
       "layers": [
@@ -207,38 +221,50 @@
       },
       "properties": [
         {
+          "key": "type",
           "label": "種類",
           "value": "複数行文字（MTEXT）"
         },
         {
+          "key": "id",
           "label": "ハンドル",
           "value": "11"
         },
         {
+          "key": "layer",
           "label": "レイヤ",
-          "value": "平面図"
+          "value": "平面図",
+          "raw": 1
         },
         {
+          "key": "color",
           "label": "色",
-          "value": "BYLAYER"
+          "value": "BYLAYER",
+          "raw": 256
         },
         {
+          "key": "lineType",
           "label": "線種",
           "value": "BYLAYER（CONTINUOUS）"
         },
         {
+          "key": "lineWidth",
           "label": "線の太さ",
           "value": "BYLAYER"
         },
         {
+          "key": "text",
           "label": "文字列",
           "value": "表\n能ソ"
         },
         {
+          "key": "height",
           "label": "高さ",
-          "value": "2.5"
+          "value": "2.5",
+          "raw": 2.5
         },
         {
+          "key": "textStyle",
           "label": "文字スタイル",
           "value": "STANDARD"
         }
@@ -274,20 +300,26 @@
   ],
   "metadata": [
     {
+      "key": "format",
       "label": "形式",
       "value": "DXF AutoCAD 2000（AC1015、テキスト）"
     },
     {
+      "key": "encoding",
       "label": "文字コード",
-      "value": "Shift_JIS（CP932）（$DWGCODEPAGE ANSI_932）"
+      "value": "Shift_JIS（CP932）（$DWGCODEPAGE ANSI_932）",
+      "raw": "shift_jis"
     },
     {
+      "key": "units",
       "label": "単位",
       "value": "mm（指定なし）"
     },
     {
+      "key": "view",
       "label": "表示",
-      "value": "モデル空間"
+      "value": "モデル空間",
+      "raw": "Model"
     }
   ],
   "background": "dark"

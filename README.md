@@ -186,6 +186,12 @@ const sheet = dxfToScene(doc, { layout: "Layout1" }); // or the default view (mo
 
 A `Scene` uses paper millimeters with the Y axis up. Placements of sub-figures and blocks are resolved,
 and each entity keeps its properties and, inside a scaled placement, the transform back to real-world coordinates.
+Pick entities and attributes by keys that are the same in every format, and show the Japanese text to people:
+
+```ts
+const circles = scene.entities.filter((entity) => entity.kind === "circle"); // entity.type is 円
+const radius = circles[0]?.properties.find((property) => property.key === "radius")?.raw; // label 半径, value "25"
+```
 
 Structural models (ST-Bridge): `useStbFile` reads the file and `StbViewer` shows it in 3D. `readStb` alone works in Node.js.
 
@@ -236,8 +242,8 @@ zumen.convert("plan.dwg", "sfc").save("plan.sfc")  # or as SXF (SFC of SXF Ver.3
 ```
 
 AI applications can read drawings through the MCP server of the Python package (`pip install "zumen[mcp]"`, then
-`zumen-mcp --root <dir>`): open, render a region, find texts and entities, measure in real-world units and
-compare revisions. See
+`zumen-mcp --root <dir>`): open, render a region, find texts and entities, read the shapes of entities in paper and
+real-world millimeters, measure in real-world units and compare revisions. See
 [bindings/python](bindings/python/README.md#mcp-server).
 
 ```bash

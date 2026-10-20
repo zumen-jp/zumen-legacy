@@ -8,6 +8,7 @@ export type {
   ClippedPrimitive,
   DotPrimitive,
   DrawingFormat,
+  EntityKind,
   FillPrimitive,
   GlyphCell,
   Notice,
@@ -15,6 +16,7 @@ export type {
   Placement,
   Primitive,
   Property,
+  PropertyRaw,
   Scene,
   SceneEntity,
   SceneLayer,
@@ -24,4 +26,4 @@ export type {
   StrokeStyle,
   TextPrimitive,
 } from "./types.js";
-export { BACKGROUND_COLOR } from "./types.js";
+export { BACKGROUND_COLOR, ENTITY_KINDS } from "./types.js";
