@@ -90,7 +90,7 @@ pub(crate) fn map_arc(
 
 /// 節点の両端が次数 + 1 重（端を通る B スプライン）か
 fn clamped(knots: &[f64], degree: usize) -> bool {
-    knots.len() > 2 * (degree + 1)
+    knots.len() >= 2 * (degree + 1)
         && knots[..=degree].iter().all(|knot| *knot == knots[0])
         && knots[knots.len() - degree - 1..].iter().all(|knot| *knot == knots[knots.len() - 1])
 }
