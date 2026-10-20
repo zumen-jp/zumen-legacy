@@ -3,14 +3,14 @@
 //! ACAD_VISUALSTYLE・AcDbVariableDictionary）、LAYOUT、MLINESTYLE、MLEADERSTYLE、MATERIAL、SCALE、
 //! DICTIONARYVAR、ACDBPLACEHOLDER、描画順（SORTENTSTABLE）と、クラスの定義（10）
 
-use super::tables::cmc;
-use super::{VERSION, Writer, href, owned, rad, upper};
+use super::{Writer, href, owned, rad, upper};
 use crate::codec::RawText;
 use crate::codec::object::ObjectCommon;
 use crate::codec::objects::{
     Dictionary, DictionaryVar, Layout, MLeaderStyle, MLineElement, MLineStyle, Material, MaterialColor, MaterialMap,
     Placeholder, Scale, SortEntsTable,
 };
+use crate::file::Version;
 use crate::write::classes::ClassDef;
 
 /// クラスの定義（10）。値は AutoCAD が書く値
@@ -55,7 +55,7 @@ fn mline_flags(dxf: f64) -> i16 {
 }
 
 /// 標準の MATERIAL（ByBlock・ByLayer・Global）の値（AutoCAD が書く値）
-fn material(common: ObjectCommon, name: &str, map_scale: f64) -> Material {
+fn material(common: ObjectCommon, name: RawText, empty: RawText, map_scale: f64) -> Material {
     let color = MaterialColor { method: 0, factor: 1.0, rgb: None };
     let map = |scale: f64| MaterialMap {
         blend: 1.0,
@@ -64,15 +64,15 @@ fn material(common: ObjectCommon, name: &str, map_scale: f64) -> Material {
         auto_transform: 1,
         matrix: [scale, 0.0, 0.0, 0.0, 0.0, scale, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0],
         source: 1,
-        file: Some(RawText::empty(VERSION)),
+        file: Some(empty.clone()),
     };
     let mut refraction_map = map(1.0);
     refraction_map.source = 0;
     refraction_map.file = None;
     Material {
         common,
-        name: RawText::new(name, VERSION, encoding_rs::UTF_8),
-        description: RawText::empty(VERSION),
+        name,
+        description: empty.clone(),
         ambient: color.clone(),
         diffuse: color.clone(),
         diffuse_map: map(map_scale),
@@ -185,7 +185,7 @@ impl Writer<'_> {
         ] {
             let number = self.class_number("MATERIAL");
             let mut out = self.object(number, handle);
-            material(owned(fixed.material_dict, true), name, scale).write(&mut out);
+            material(owned(fixed.material_dict, true), self.text(name), self.empty(), scale).write(&mut out);
             self.push(&out);
         }
         let number = self.class_number("SCALE");
@@ -224,12 +224,13 @@ impl Writer<'_> {
             let viewports: Vec<u64> =
                 block.entities.iter().copied().filter(|entity| self.viewports.contains(entity)).collect();
             let last_viewport = if tab == 0 { fixed.vport } else { viewports.first().copied().unwrap_or(0) };
-            // LAYOUT のクラスは数えるだけ（R2004 以降の LAYOUT は決まった型 82）
-            self.class_number("LAYOUT");
+            // R2004 以降の LAYOUT は決まった型 82（クラスは数えるだけ）、R2000 はクラスの型（AutoCAD と同じ）
+            let class = self.class_number("LAYOUT");
+            let kind = if self.version < Version::R2004 { class } else { 82 };
             let scale = source.map_or([1.0, 1.0], |layout| layout.plot_scale);
             let layout = Layout {
                 common: owned(fixed.layout_dict, true),
-                page_setup: RawText::empty(VERSION),
+                page_setup: self.empty(),
                 printer: self.text("none_device"),
                 plot_flags: if tab == 0 { 1024 } else { 0 },
                 margins: source.map_or([7.5, 20.0, 7.5, 20.0], |layout| layout.margins),
@@ -244,7 +245,7 @@ impl Writer<'_> {
                 plot_view_name: None,
                 real_units: if scale[0] > 0.0 { scale[0] } else { 1.0 },
                 drawing_units: if scale[1] > 0.0 { scale[1] } else { 1.0 },
-                style_sheet: RawText::empty(VERSION),
+                style_sheet: self.empty(),
                 scale_type: 16,
                 scale_factor: 1.0,
                 paper_image_origin: [0.0, 0.0],
@@ -272,13 +273,14 @@ impl Writer<'_> {
                 named_ucs: href(5, 0),
                 viewports: viewports.into_iter().map(|viewport| href(4, viewport)).collect(),
             };
-            let mut out = self.object(82, handle);
+            let mut out = self.object(kind, handle);
             layout.write(&mut out);
             self.push(&out);
         }
     }
 
-    /// MLINESTYLE（20.4.73）。R2018 より前の要素の線種は、線種の表の番号（32767 BYLAYER、32766 BYBLOCK）
+    /// MLINESTYLE（20.4.73）。R2018 より前の要素の線種は、線種の表の番号（32767 BYLAYER、32766 BYBLOCK）、R2018 以降は
+    /// 線種のハンドル
     fn write_mline_styles(&mut self, fixed: &super::Fixed) {
         let entries: Vec<String> = self
             .linetypes
@@ -306,11 +308,23 @@ impl Writer<'_> {
                         "BYBLOCK" => 32766,
                         _ => entries.iter().position(|entry| *entry == name).map_or(32767, |index| index as i16),
                     };
+                    // R2018 以降は線種のハンドル（BYLAYER・BYBLOCK も線種の表の項目）
+                    let key = if name.is_empty() { "BYLAYER".to_string() } else { name };
+                    let linetype = (self.version >= Version::R2018).then(|| {
+                        href(
+                            5,
+                            self.linetype_handles
+                                .get(&key)
+                                .or(self.linetype_handles.get("BYLAYER"))
+                                .copied()
+                                .unwrap_or(0),
+                        )
+                    });
                     MLineElement {
                         offset: element.offset,
-                        color: cmc(element.color, None),
+                        color: self.cmc(element.color, None),
                         linetype_index,
-                        linetype: None,
+                        linetype,
                     }
                 })
                 .collect();
@@ -319,7 +333,7 @@ impl Writer<'_> {
                 name: self.text(&style.name),
                 description: self.text(&style.description),
                 flags: mline_flags(style.flags),
-                fill_color: cmc(style.fill_color, None),
+                fill_color: self.cmc(style.fill_color, None),
                 start_angle: rad(style.start_angle),
                 end_angle: rad(style.end_angle),
                 elements,
@@ -333,7 +347,7 @@ impl Writer<'_> {
     /// マルチ引出線のスタイル Standard（DXF の書き出しと同じ値）。マルチ引出線はすべての値を図形で上書きする
     fn write_mleader_style(&mut self, fixed: &super::Fixed) {
         let text_style = self.style_handles.get("STANDARD").copied().unwrap_or(0);
-        let by_block = super::tables::cmc(0.0, None);
+        let by_block = self.cmc(0.0, None);
         let linetype = self.linetype_handles.get("BYBLOCK").copied().unwrap_or(0);
         let style = MLeaderStyle {
             common: owned(fixed.mleader_dict, true),
@@ -355,7 +369,7 @@ impl Writer<'_> {
             description: self.text("Standard"),
             arrow: href(5, 0),
             arrow_size: 4.0,
-            text_default: RawText::empty(VERSION),
+            text_default: self.empty(),
             text_style: href(5, text_style),
             left_attachment: 1,
             right_attachment: 1,

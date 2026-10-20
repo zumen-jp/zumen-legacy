@@ -398,10 +398,29 @@ fn read_tail_handles(s: &mut Streams<'_>, mut h: Header) -> Read<Header> {
     Ok(h)
 }
 
-/// MEASUREMENT（22「AcDb:Template」）。説明の長さ（RS）・説明・MEASUREMENT（RS）
-pub(crate) fn read_measurement(section: &[u8]) -> Option<f64> {
+/// MEASUREMENT（22「AcDb:Template」）。説明の長さ（RS）・説明・MEASUREMENT（RS）。R2007 以降の説明は UTF-16 で、
+/// 長さは文字の数（AutoCAD の図面は終わりの 0 の 1 文字を書く。仕様はバイトの数と書く）
+pub(crate) fn read_measurement(section: &[u8], version: crate::file::Version) -> Option<f64> {
     let mut reader = Bits::new(section);
-    let length = reader.rs().ok()?;
-    reader.skip(u64::from(length) * 8).ok()?;
+    let length = u64::from(reader.rs().ok()?);
+    let unit = if version >= crate::file::Version::R2007 { 16 } else { 8 };
+    reader.skip(length * unit).ok()?;
     reader.rs().ok().map(f64::from)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::file::Version;
+
+    /// R2007 以降の Template の説明は UTF-16（AutoCAD の図面は終わりの 0 の 1 文字を書く）。それより前はバイト
+    #[test]
+    fn measurement_follows_the_description_of_the_template() {
+        assert_eq!(read_measurement(&[1, 0, 0, 0, 1, 0], Version::R2007), Some(1.0));
+        assert_eq!(read_measurement(&[1, 0, 0, 0, 0, 0], Version::R2018), Some(0.0));
+        assert_eq!(read_measurement(&[0, 0, 1, 0], Version::R2013), Some(1.0));
+        assert_eq!(read_measurement(&[0, 0, 1, 0], Version::R2004), Some(1.0));
+        assert_eq!(read_measurement(&[1, 0, 0x41, 1, 0], Version::R2000), Some(1.0));
+        assert_eq!(read_measurement(&[], Version::R2007), None);
+    }
 }
