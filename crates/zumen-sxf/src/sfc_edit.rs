@@ -182,6 +182,16 @@ struct Editor<'a, 'd> {
     skipped: u64,
 }
 
+/// 元のファイルを書き換えられず、新しく書いたことの知らせ
+pub(crate) fn rewrite_notice(format: &str) -> zumen_core::Notice {
+    zumen_core::Notice {
+        level: NoticeLevel::Warning,
+        code: "rewrite".into(),
+        message: format!("元の {format} を読み直し切れない（読み取りの上限）ため、新しく書きました"),
+        count: 1,
+    }
+}
+
 /// 数を 10 の倍数に切り上げる
 fn round_up(value: f64) -> f64 {
     (value / 10.0).ceil() * 10.0
@@ -354,6 +364,12 @@ impl Editor<'_, '_> {
 /// 元の SFC（source）を書き換えて、図面を書く
 pub(crate) fn write_sfc_edit(drawing: &SxfDrawing, bytes: &[u8]) -> SxfWritten {
     let source = Source::read(bytes);
+    // 読み取りの上限（zumen_core::limits）で元のファイルを読み直し切れなければ、書き換えられないので新しく書く
+    if zumen_core::limits::stopped() {
+        let mut written = crate::write::write_sfc_new(drawing);
+        written.notices.insert(0, rewrite_notice("SFC"));
+        return written;
+    }
     let layout = layout(&source.features);
     // DATA 節の初め（最初のフィーチャの前）と終わり（最後のフィーチャの後の ENDSEC; の前）
     let data = bytes.windows(5).position(|window| window == b"DATA;").map_or(0, |at| at + 5);
@@ -441,11 +457,12 @@ fn edit(editor: &mut Editor<'_, '_>, layout: &Layout) {
 
     // 複合曲線。番号は出現順なので、並びの順に対応させる
     let sources: Vec<usize> = layout.composites.iter().map(|(index, _)| *index).collect();
+    let members_of: HashMap<usize, &Vec<usize>> =
+        layout.composites.iter().map(|(index, members)| (*index, members)).collect();
     let pairing = pair(records, &sources, doc.composite_curves.iter().map(|curve| curve.feature.id));
     for index in &pairing.unmatched {
         editor.delete(*index);
-        let (_, members) = layout.composites.iter().find(|(definition, _)| definition == index).expect("複合曲線");
-        for member in members {
+        for member in members_of[index] {
             editor.delete(*member);
         }
     }
@@ -459,9 +476,7 @@ fn edit(editor: &mut Editor<'_, '_>, layout: &Layout) {
                     let (name, version, params) = definition(Definition::Composite(&curve.feature));
                     editor.rewrite(index, name, version, params);
                 }
-                let (_, members) =
-                    layout.composites.iter().find(|(definition, _)| *definition == index).expect("複合曲線");
-                let pairing = pair(records, members, curve.members.iter().map(SxfFeature::id));
+                let pairing = pair(records, members_of[&index], curve.members.iter().map(SxfFeature::id));
                 editor.members(Members { pairing, current: &curve.members, anchor: Anchor::Before(index) });
                 anchor = Anchor::After(index);
             }

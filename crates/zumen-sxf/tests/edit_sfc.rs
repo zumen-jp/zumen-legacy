@@ -212,3 +212,15 @@ fn the_sheet_and_tables_are_rewritten_when_changed() {
     assert_unchanged_except(&bytes, &written.bytes, &["1130", "1160", "20", "1120"]);
     assert_reads_back(&drawing, &written);
 }
+
+#[test]
+fn a_source_cut_short_by_the_read_limits_is_written_anew() {
+    let bytes = read_fixture("sfc", "sample");
+    let drawing = parse_sfc(&bytes).unwrap();
+    let limits = zumen_core::ReadLimits { max_duration: Some(std::time::Duration::ZERO), ..Default::default() };
+    let (written, _) = zumen_core::limits::with_limits(&limits, || write_sfc(&drawing));
+    assert_eq!(written.notices.first().map(|notice| notice.code.as_str()), Some("rewrite"));
+    assert_ne!(written.bytes, bytes);
+    let again = parse_sfc(&written.bytes).unwrap();
+    assert_eq!(again.document.sheet_members.len(), drawing.document.sheet_members.len());
+}

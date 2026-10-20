@@ -193,3 +193,13 @@ fn layers_sheets_and_colours_are_rewritten_when_changed() {
     assert!(after[&134].starts_with("DRAWING_SHEET_REVISION('A2_vertical'"), "{}", after[&134]);
     assert_reads_back(&drawing, &written);
 }
+
+#[test]
+fn a_source_cut_short_by_the_read_limits_is_written_anew() {
+    let bytes = read_fixture("p21", "sample");
+    let mut drawing = parse_p21(&bytes).unwrap();
+    drawing.document.sheet_members.pop();
+    let limits = zumen_core::ReadLimits { max_duration: Some(std::time::Duration::ZERO), ..Default::default() };
+    let (written, _) = zumen_core::limits::with_limits(&limits, || write_p21(&drawing));
+    assert_eq!(written.notices.first().map(|notice| notice.code.as_str()), Some("rewrite"));
+}

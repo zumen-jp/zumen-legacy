@@ -66,6 +66,7 @@ struct Counts {
     unknown_code: u64,
     skipped: u64,
     empty_layer: u64,
+    spline_points: u64,
 }
 
 /// P21 のインスタンスを組み立てる。書き出し（このファイル）と、元の P21 の編集（p21_edit.rs）が使う
@@ -490,7 +491,11 @@ impl<'a> Graph<'a> {
                 self.trimmed(ellipse, start * PI / 180.0, end * PI / 180.0, *ccw)
             }
             SxfFeature::Spline { closed, xs, ys, .. } => {
-                // 3 次ベジェの区間をつないだ曲線は、1 つの BEZIER_CURVE（次数 3、制御点 3n+1）で表せる（ISO 10303-42）
+                // 3 次ベジェの区間をつないだ曲線は、1 つの BEZIER_CURVE（次数 3、制御点 3n+1）で表せる（ISO 10303-42）。
+                // 3n+1 でない制御点は区間にならないが、SFC と同じ点のまま書く（読み取りと表示は SFC と同じに扱う）
+                if xs.len() < 4 || (xs.len() - 1) % 3 != 0 {
+                    self.counts.spline_points += 1;
+                }
                 let points: Vec<u64> = xs.iter().zip(ys).map(|(x, y)| self.point(*x, *y)).collect();
                 self.add(
                     "BEZIER_CURVE",
@@ -1228,6 +1233,14 @@ impl<'a> Graph<'a> {
                 "not-written",
                 "定義のない複合図形・複合曲線を参照する要素と、要素にならないフィーチャを書いていません",
                 counts.skipped,
+            );
+        }
+        if counts.spline_points > 0 {
+            notices.add_count(
+                NoticeLevel::Warning,
+                "spline-points",
+                "制御点が 3n+1 でないスプラインを、そのままの点で BEZIER_CURVE に書きました（AP202 では区間にならない）",
+                counts.spline_points,
             );
         }
         if counts.empty_layer > 0 {

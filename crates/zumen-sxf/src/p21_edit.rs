@@ -309,7 +309,7 @@ fn rewrite_all(drawing: &SxfDrawing, reason: &str) -> SxfWritten {
         0,
         Notice {
             level: NoticeLevel::Warning,
-            code: "p21-rewrite".into(),
+            code: "rewrite".into(),
             message: format!("元の P21 を書き換えられないため、新しく書きました（{reason}）"),
             count: 1,
         },
@@ -342,6 +342,9 @@ pub(crate) fn write_p21_edit(drawing: &SxfDrawing, bytes: &[u8]) -> SxfWritten {
     let Ok((original, file, roots)) = convert_p21(bytes) else {
         return rewrite_all(drawing, "元のファイルを読めない");
     };
+    if zumen_core::limits::stopped() {
+        return rewrite_all(drawing, "読み取りの上限で、元のファイルを読み直し切れない");
+    }
     // 何も変えていなければ、元のファイルのまま
     if original.document == drawing.document {
         return SxfWritten { bytes: bytes.to_vec(), notices: Vec::new(), ids: Vec::new() };
