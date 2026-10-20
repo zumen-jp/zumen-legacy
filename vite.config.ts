@@ -39,8 +39,6 @@ export default defineConfig({
   preview: { host: "127.0.0.1", port: serverPort, strictPort: true },
   plugins: [samples()],
   build: {
-    // 構造モデル（ST-Bridge）の表示は three.js を含み、500 KB を超えるので、警告の閾値を上げる
-    chunkSizeWarningLimit: 1200,
     rolldownOptions: {
       // "use client" は Next.js で使うときの指定。試用画面のバンドルでは意味を持たないので警告を出さない
       onwarn(warning, warn) {
