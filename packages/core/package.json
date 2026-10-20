@@ -22,7 +22,8 @@
   "license": "MIT",
   "sideEffects": false,
   "files": [
-    "dist"
+    "dist",
+    "src"
   ],
   "exports": {
     ".": {

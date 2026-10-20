@@ -9,6 +9,8 @@ All packages share one version during 0.x.
   font, and `bindings/python/scripts/check_dist.py` fails a build without them. `CODE_OF_CONDUCT.md` adapts the
   Contributor Covenant 2.1; its contact is still to be filled in. The npm packages stay private and the Python package
   keeps `Private :: Do Not Upload` until the last step of [docs/releasing.md](docs/releasing.md).
+- The npm packages ship `src` next to `dist`, so that the source maps and the declaration maps (which point at `src`)
+  resolve.
 - A tag `v*` can publish: `python-wheels.yml` uploads the wheels and the sdist to PyPI by trusted publishing, with
   attestations, and the new `npm-release.yml` publishes the npm packages in dependency order with provenance, from
   tarballs that its first job built and checked. Each waits for a repository variable (`PUBLISH_TO_PYPI`,

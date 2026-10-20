@@ -18,8 +18,9 @@ Release for every tag.)
 3. **Code of conduct.** Written in [CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md). Replace `[INSERT CONTACT METHOD]` with
    the way to reach the person who handles reports. If you prefer one for every repository of the organization, move the
    file to its `.github` repository.
-4. **Source maps.** The packages ship `dist` only, but the source maps point at `src`. Either add `src` to `files`
-   or stop emitting `declarationMap` and `sourceMap` in the published build.
+4. **Source maps.** Done. The packages ship `src` next to `dist`, so the source maps and the declaration maps point at
+   files that are in the package (all 140 references resolve in the packed tarballs). The first job of `npm-release.yml`
+   fails when an entry of `files` is missing.
 5. **GitHub.** Make the repository public, enable private vulnerability reporting, protect `main` with the CI check,
    choose "GitHub Actions" as the Pages source, and set the repository variable `DEPLOY_DEMO` to `true`. Create the
    environments `pypi` and `npm` and add yourself as a required reviewer of each, so that a tag alone does not publish.

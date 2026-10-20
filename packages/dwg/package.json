@@ -25,6 +25,7 @@
   "sideEffects": false,
   "files": [
     "dist",
+    "src",
     "wasm/zumen_wasm.js",
     "wasm/zumen_wasm.d.ts",
     "wasm/zumen_wasm_bg.wasm"

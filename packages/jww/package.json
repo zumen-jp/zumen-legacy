@@ -25,6 +25,7 @@
   "sideEffects": false,
   "files": [
     "dist",
+    "src",
     "THIRD_PARTY_NOTICES.md"
   ],
   "exports": {
