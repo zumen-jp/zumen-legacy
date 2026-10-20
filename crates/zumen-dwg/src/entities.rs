@@ -1216,6 +1216,7 @@ fn viewport(s: &mut Streams<'_>) -> Read<DxfViewport> {
         view_twist_angle,
         status_flags,
         frozen_layer_handles,
+        frozen_layer_names: Vec::new(),
         clipping_boundary_handle: (clip != 0).then(|| hex(clip)),
     })
 }

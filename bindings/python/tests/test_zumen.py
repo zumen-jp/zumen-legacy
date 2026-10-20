@@ -457,3 +457,45 @@ def test_converted_dxf_reads_in_ezdxf_and_passes_its_audit(tmp_path):
         auditor = ezdxf.readfile(path).audit()
         found = {entry.code for entry in [*auditor.errors, *auditor.fixes]}
         assert found == pinned.get(source.name, set()), source.name
+
+
+def test_writes_every_dxf_version_that_ezdxf_audits(tmp_path):
+    """Every fixture written as DXF R12 and 2000 to 2018 reads in ezdxf with the version asked for, and its audit finds
+    only what features.dxf and limits.dxf pin on purpose (as in the test of the default version)."""
+    ezdxf = pytest.importorskip("ezdxf")
+    from ezdxf.audit import AuditError
+
+    pinned = {
+        "features.dxf": {
+            AuditError.INVALID_BLOCK_REFERENCE_CYCLE,
+            AuditError.INVALID_COLOR_INDEX,
+            AuditError.INVALID_TRANSPARENCY,
+            AuditError.INVALID_VERTEX_COUNT,
+        },
+        "limits.dxf": {AuditError.INVALID_BLOCK_REFERENCE_CYCLE},
+    }
+    sources = [*sorted((FIXTURES / "dxf").glob("*.dxf")), *sorted((FIXTURES / "dwg").glob("*.dwg"))]
+    for version, code in [
+        ("R12", "AC1009"),
+        ("2000", "AC1015"),
+        ("2004", "AC1018"),
+        ("2007", "AC1021"),
+        ("2010", "AC1024"),
+        ("2018", "AC1032"),
+    ]:
+        for source in sources:
+            path = tmp_path / f"{source.name}.{version}.dxf"
+            zumen.convert(source, "dxf", version=version).save(path)
+            doc = ezdxf.readfile(path)
+            assert doc.dxfversion == code, (source.name, version)
+            auditor = doc.audit()
+            found = {entry.code for entry in [*auditor.errors, *auditor.fixes]}
+            # 2004 より前は透過度を書かないので、透過度の誤りも出ない。R12 は引出線を線にするので、頂点の数の誤りも出ない
+            expected = pinned.get(source.name, set())
+            if version in ("R12", "2000"):
+                expected = expected - {AuditError.INVALID_TRANSPARENCY}
+            if version == "R12":
+                expected = expected - {AuditError.INVALID_VERTEX_COUNT}
+            assert found == expected, (source.name, version, found)
+    with pytest.raises(zumen.ReadError):
+        zumen.convert(FIXTURES / "dxf" / "r12.dxf", "dxf", version="R13")

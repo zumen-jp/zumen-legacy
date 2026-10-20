@@ -522,6 +522,9 @@ pub struct DxfViewport {
     pub status_flags: f64,
     /// このビューポートだけで凍結したレイヤ（331）
     pub frozen_layer_handles: Vec<String>,
+    /// R12 の、このビューポートだけで凍結したレイヤの名前（拡張データ ACAD の MVIEW の 1003。R12 のレイヤはハンドルを
+    /// 持たない）
+    pub frozen_layer_names: Vec<String>,
     /// 矩形でない切り抜きの図形（340）
     pub clipping_boundary_handle: Option<String>,
 }
