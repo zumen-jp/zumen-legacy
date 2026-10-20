@@ -1,6 +1,7 @@
 {
   "format": "sfc",
   "version": "SXF 3.0",
+  "unit": "millimeter",
   "sheet": null,
   "bounds": {
     "minX": 0,

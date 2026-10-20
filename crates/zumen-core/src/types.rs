@@ -200,6 +200,87 @@ impl EntityKind {
     }
 }
 
+/// 長さの単位の、形式によらない英語のキー（`@zumenjs/core` の LengthUnit と同じ）。図面の座標（属性の raw の点・長さ）の
+/// 単位を `Scene::unit` で示す。DXF・DWG の $INSUNITS の単位をすべて持つ
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum LengthUnit {
+    Millimeter,
+    Centimeter,
+    Decimeter,
+    Meter,
+    Decameter,
+    Hectometer,
+    Kilometer,
+    Gigameter,
+    Micrometer,
+    Nanometer,
+    Angstrom,
+    Inch,
+    Foot,
+    Yard,
+    Mile,
+    Microinch,
+    Mil,
+    UsSurveyFoot,
+    AstronomicalUnit,
+    LightYear,
+    Parsec,
+}
+
+impl LengthUnit {
+    pub const ALL: [LengthUnit; 21] = [
+        LengthUnit::Millimeter,
+        LengthUnit::Centimeter,
+        LengthUnit::Decimeter,
+        LengthUnit::Meter,
+        LengthUnit::Decameter,
+        LengthUnit::Hectometer,
+        LengthUnit::Kilometer,
+        LengthUnit::Gigameter,
+        LengthUnit::Micrometer,
+        LengthUnit::Nanometer,
+        LengthUnit::Angstrom,
+        LengthUnit::Inch,
+        LengthUnit::Foot,
+        LengthUnit::Yard,
+        LengthUnit::Mile,
+        LengthUnit::Microinch,
+        LengthUnit::Mil,
+        LengthUnit::UsSurveyFoot,
+        LengthUnit::AstronomicalUnit,
+        LengthUnit::LightYear,
+        LengthUnit::Parsec,
+    ];
+
+    /// JSON での名前（millimeter、us-survey-foot など）
+    pub fn name(self) -> &'static str {
+        match self {
+            LengthUnit::Millimeter => "millimeter",
+            LengthUnit::Centimeter => "centimeter",
+            LengthUnit::Decimeter => "decimeter",
+            LengthUnit::Meter => "meter",
+            LengthUnit::Decameter => "decameter",
+            LengthUnit::Hectometer => "hectometer",
+            LengthUnit::Kilometer => "kilometer",
+            LengthUnit::Gigameter => "gigameter",
+            LengthUnit::Micrometer => "micrometer",
+            LengthUnit::Nanometer => "nanometer",
+            LengthUnit::Angstrom => "angstrom",
+            LengthUnit::Inch => "inch",
+            LengthUnit::Foot => "foot",
+            LengthUnit::Yard => "yard",
+            LengthUnit::Mile => "mile",
+            LengthUnit::Microinch => "microinch",
+            LengthUnit::Mil => "mil",
+            LengthUnit::UsSurveyFoot => "us-survey-foot",
+            LengthUnit::AstronomicalUnit => "astronomical-unit",
+            LengthUnit::LightYear => "light-year",
+            LengthUnit::Parsec => "parsec",
+        }
+    }
+}
+
 /// 整形する前の属性の値。座標は [x, y]、範囲は [始め, 終わり] のような数の並び
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(untagged)]
@@ -360,6 +441,11 @@ pub struct Scene {
     pub format: String,
     /// 形式の版（SXF 3.1、JWW 700 など）
     pub version: String,
+    /// 図面の座標（属性の raw の点・長さ）の長さの単位。SXF・JWW は millimeter、DXF・DWG は $INSUNITS
+    /// （指定がなければ、notices の unit-assumed とともに見なした単位）。DXF・DWG のレイアウトでは、紙空間の図形
+    /// （配置のない図形）の座標はレイアウトの用紙の単位になる。読み取りを経ずに作った図面では None
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unit: Option<LengthUnit>,
     /// 選べる表示。1 つしかない形式では省略する
     #[serde(skip_serializing_if = "Option::is_none")]
     pub views: Option<Vec<SceneView>>,
@@ -375,4 +461,20 @@ pub struct Scene {
     /// 表題欄・ファイルの情報
     pub metadata: Vec<Property>,
     pub background: Background,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn length_units_have_the_names_of_their_json() {
+        let mut names: Vec<&str> = LengthUnit::ALL.iter().map(|unit| unit.name()).collect();
+        for unit in LengthUnit::ALL {
+            assert_eq!(serde_json::to_value(unit).unwrap(), unit.name());
+        }
+        names.sort_unstable();
+        names.dedup();
+        assert_eq!(names.len(), LengthUnit::ALL.len());
+    }
 }

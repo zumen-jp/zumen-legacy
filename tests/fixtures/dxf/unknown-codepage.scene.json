@@ -1,6 +1,7 @@
 {
   "format": "dxf",
   "version": "DXF AC1015",
+  "unit": "millimeter",
   "views": [
     {
       "id": "Model",
@@ -24,7 +25,7 @@
   ],
   "entities": [
     {
-      "id": "?",
+      "id": "#4",
       "kind": "text",
       "type": "文字",
       "source": "TEXT",
@@ -98,7 +99,7 @@
         {
           "key": "id",
           "label": "ハンドル",
-          "value": "?"
+          "value": "#4"
         },
         {
           "key": "layer",

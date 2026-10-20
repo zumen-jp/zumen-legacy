@@ -704,6 +704,7 @@ mod tests {
         Scene {
             format: "test".into(),
             version: "1".into(),
+            unit: None,
             views: None,
             view: None,
             sheet: None,
@@ -824,6 +825,7 @@ mod vector_tests {
         Scene {
             format: "test".into(),
             version: "1".into(),
+            unit: None,
             views: None,
             view: None,
             sheet: Some(Sheet { name: "平面図".into(), size: "A3".into(), width: 420.0, height: 297.0 }),

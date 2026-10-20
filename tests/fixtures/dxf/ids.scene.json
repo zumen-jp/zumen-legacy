@@ -1,0 +1,617 @@
+{
+  "format": "dxf",
+  "version": "DXF AC1009",
+  "unit": "millimeter",
+  "views": [
+    {
+      "id": "Model",
+      "name": "モデル"
+    }
+  ],
+  "view": "Model",
+  "sheet": null,
+  "bounds": {
+    "minX": 0,
+    "minY": 0,
+    "maxX": 21,
+    "maxY": 5.222222222222222
+  },
+  "layers": [
+    {
+      "id": 1,
+      "name": "0",
+      "visible": true
+    }
+  ],
+  "entities": [
+    {
+      "id": "#7",
+      "kind": "line",
+      "type": "線分",
+      "source": "LINE",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            0,
+            10,
+            0
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 0,
+        "minY": 0,
+        "maxX": 10,
+        "maxY": 0
+      },
+      "properties": [
+        {
+          "key": "type",
+          "label": "種類",
+          "value": "線分（LINE）"
+        },
+        {
+          "key": "id",
+          "label": "ハンドル",
+          "value": "#7"
+        },
+        {
+          "key": "layer",
+          "label": "レイヤ",
+          "value": "0",
+          "raw": 1
+        },
+        {
+          "key": "color",
+          "label": "色",
+          "value": "BYLAYER",
+          "raw": 256
+        },
+        {
+          "key": "lineType",
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "key": "lineWidth",
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "key": "start",
+          "label": "始点",
+          "value": "0, 0",
+          "raw": [
+            0,
+            0
+          ]
+        },
+        {
+          "key": "end",
+          "label": "終点",
+          "value": "10, 0",
+          "raw": [
+            10,
+            0
+          ]
+        },
+        {
+          "key": "length",
+          "label": "長さ",
+          "value": "10",
+          "raw": 10
+        }
+      ],
+      "placement": {
+        "name": "モデル空間（mm（指定なし））",
+        "scaleX": 1,
+        "scaleY": 1,
+        "inverse": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": "#9",
+      "kind": "line",
+      "type": "線分",
+      "source": "LINE",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            5,
+            10,
+            5
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 0,
+        "minY": 5,
+        "maxX": 10,
+        "maxY": 5
+      },
+      "properties": [
+        {
+          "key": "type",
+          "label": "種類",
+          "value": "線分（LINE）"
+        },
+        {
+          "key": "id",
+          "label": "ハンドル",
+          "value": "#9"
+        },
+        {
+          "key": "layer",
+          "label": "レイヤ",
+          "value": "0",
+          "raw": 1
+        },
+        {
+          "key": "color",
+          "label": "色",
+          "value": "BYLAYER",
+          "raw": 256
+        },
+        {
+          "key": "lineType",
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "key": "lineWidth",
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "key": "start",
+          "label": "始点",
+          "value": "0, 5",
+          "raw": [
+            0,
+            5
+          ]
+        },
+        {
+          "key": "end",
+          "label": "終点",
+          "value": "10, 5",
+          "raw": [
+            10,
+            5
+          ]
+        },
+        {
+          "key": "length",
+          "label": "長さ",
+          "value": "10",
+          "raw": 10
+        }
+      ],
+      "placement": {
+        "name": "モデル空間（mm（指定なし））",
+        "scaleX": 1,
+        "scaleY": 1,
+        "inverse": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": "#10>#3",
+      "kind": "line",
+      "type": "線分",
+      "source": "LINE",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            20,
+            0,
+            21,
+            0
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 20,
+        "minY": 0,
+        "maxX": 21,
+        "maxY": 0
+      },
+      "properties": [
+        {
+          "key": "type",
+          "label": "種類",
+          "value": "線分（LINE）"
+        },
+        {
+          "key": "id",
+          "label": "ハンドル",
+          "value": "#10>#3"
+        },
+        {
+          "key": "layer",
+          "label": "レイヤ",
+          "value": "0",
+          "raw": 1
+        },
+        {
+          "key": "block",
+          "label": "ブロック",
+          "value": "B"
+        },
+        {
+          "key": "color",
+          "label": "色",
+          "value": "BYLAYER",
+          "raw": 256
+        },
+        {
+          "key": "lineType",
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "key": "lineWidth",
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "key": "start",
+          "label": "始点",
+          "value": "20, 0",
+          "raw": [
+            20,
+            0
+          ]
+        },
+        {
+          "key": "end",
+          "label": "終点",
+          "value": "21, 0",
+          "raw": [
+            21,
+            0
+          ]
+        },
+        {
+          "key": "length",
+          "label": "長さ",
+          "value": "1",
+          "raw": 1
+        }
+      ],
+      "placement": {
+        "name": "モデル空間（mm（指定なし））",
+        "scaleX": 1,
+        "scaleY": 1,
+        "inverse": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": "#10>#11",
+      "kind": "attribute",
+      "type": "属性",
+      "source": "ATTRIB",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "text",
+          "text": "A",
+          "color": "#ffffff",
+          "fontFamily": "\"MS Gothic\", \"Hiragino Kaku Gothic ProN\", \"Hiragino Sans\", \"Yu Gothic\", \"Noto Sans JP\", \"Noto Sans CJK JP\", sans-serif",
+          "height": 1.3888888888888888,
+          "scaleX": 1,
+          "cells": [
+            {
+              "char": "A",
+              "x": 0.3472222222222222,
+              "y": 0.6944444444444444
+            }
+          ],
+          "boxWidth": 0.6944444444444444,
+          "boxHeight": 1.3888888888888888,
+          "matrix": [
+            1,
+            0,
+            0,
+            1,
+            20,
+            1.8333333333333333
+          ]
+        }
+      ],
+      "bbox": {
+        "minX": 20,
+        "minY": 1.8333333333333333,
+        "maxX": 20.694444444444443,
+        "maxY": 3.2222222222222223
+      },
+      "properties": [
+        {
+          "key": "type",
+          "label": "種類",
+          "value": "属性（ATTRIB）"
+        },
+        {
+          "key": "id",
+          "label": "ハンドル",
+          "value": "#10>#11"
+        },
+        {
+          "key": "layer",
+          "label": "レイヤ",
+          "value": "0",
+          "raw": 1
+        },
+        {
+          "key": "block",
+          "label": "ブロック",
+          "value": "B"
+        },
+        {
+          "key": "color",
+          "label": "色",
+          "value": "BYLAYER",
+          "raw": 256
+        },
+        {
+          "key": "lineType",
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "key": "lineWidth",
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "key": "text",
+          "label": "文字列",
+          "value": "A"
+        },
+        {
+          "key": "tag",
+          "label": "タグ",
+          "value": "TAG1"
+        },
+        {
+          "key": "height",
+          "label": "高さ",
+          "value": "1",
+          "raw": 1
+        },
+        {
+          "key": "textStyle",
+          "label": "文字スタイル",
+          "value": "STANDARD"
+        }
+      ],
+      "placement": {
+        "name": "モデル空間（mm（指定なし））",
+        "scaleX": 1,
+        "scaleY": 1,
+        "inverse": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": "#10>#12",
+      "kind": "attribute",
+      "type": "属性",
+      "source": "ATTRIB",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "text",
+          "text": "B",
+          "color": "#ffffff",
+          "fontFamily": "\"MS Gothic\", \"Hiragino Kaku Gothic ProN\", \"Hiragino Sans\", \"Yu Gothic\", \"Noto Sans JP\", \"Noto Sans CJK JP\", sans-serif",
+          "height": 1.3888888888888888,
+          "scaleX": 1,
+          "cells": [
+            {
+              "char": "B",
+              "x": 0.3472222222222222,
+              "y": 0.6944444444444444
+            }
+          ],
+          "boxWidth": 0.6944444444444444,
+          "boxHeight": 1.3888888888888888,
+          "matrix": [
+            1,
+            0,
+            0,
+            1,
+            20,
+            3.8333333333333335
+          ]
+        }
+      ],
+      "bbox": {
+        "minX": 20,
+        "minY": 3.8333333333333335,
+        "maxX": 20.694444444444443,
+        "maxY": 5.222222222222222
+      },
+      "properties": [
+        {
+          "key": "type",
+          "label": "種類",
+          "value": "属性（ATTRIB）"
+        },
+        {
+          "key": "id",
+          "label": "ハンドル",
+          "value": "#10>#12"
+        },
+        {
+          "key": "layer",
+          "label": "レイヤ",
+          "value": "0",
+          "raw": 1
+        },
+        {
+          "key": "block",
+          "label": "ブロック",
+          "value": "B"
+        },
+        {
+          "key": "color",
+          "label": "色",
+          "value": "BYLAYER",
+          "raw": 256
+        },
+        {
+          "key": "lineType",
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "key": "lineWidth",
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "key": "text",
+          "label": "文字列",
+          "value": "B"
+        },
+        {
+          "key": "tag",
+          "label": "タグ",
+          "value": "TAG2"
+        },
+        {
+          "key": "height",
+          "label": "高さ",
+          "value": "1",
+          "raw": 1
+        },
+        {
+          "key": "textStyle",
+          "label": "文字スタイル",
+          "value": "STANDARD"
+        }
+      ],
+      "placement": {
+        "name": "モデル空間（mm（指定なし））",
+        "scaleX": 1,
+        "scaleY": 1,
+        "inverse": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ]
+      }
+    }
+  ],
+  "notices": [
+    {
+      "level": "info",
+      "code": "skipped-types",
+      "message": "読み取りに対応していない図形を表示していません（SHAPE 1）",
+      "count": 1
+    },
+    {
+      "level": "info",
+      "code": "unit-assumed",
+      "message": "長さの単位の指定がないため、mm とみなしました",
+      "count": 1
+    },
+    {
+      "level": "info",
+      "code": "shx-font",
+      "message": "SHX フォント（txt）は同梱していないため、代わりのフォントで描きました",
+      "count": 2
+    }
+  ],
+  "metadata": [
+    {
+      "key": "format",
+      "label": "形式",
+      "value": "DXF AutoCAD R12（AC1009、テキスト）"
+    },
+    {
+      "key": "encoding",
+      "label": "文字コード",
+      "value": "西欧（Windows-1252）（指定なし）",
+      "raw": "windows-1252"
+    },
+    {
+      "key": "units",
+      "label": "単位",
+      "value": "mm（指定なし）"
+    },
+    {
+      "key": "blockCount",
+      "label": "ブロック",
+      "value": "1 件",
+      "raw": 1
+    },
+    {
+      "key": "view",
+      "label": "表示",
+      "value": "モデル空間",
+      "raw": "Model"
+    }
+  ],
+  "background": "dark"
+}

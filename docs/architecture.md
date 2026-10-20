@@ -76,6 +76,39 @@ bytes ─▶ readStb ─▶ StructureModel ─▶ StructureView (three.js) ─�
   `readDrawing(bytes, readers, { view })` passes the choice to the reader (`DrawingReader.read(bytes, format, { view })`).
   Formats with a single view leave both out.
 - Entities and properties carry text for people next to stable keys for applications, as described below.
+- `Scene.unit` is the length unit of the drawing's own coordinates, those of the `raw` points and lengths of the
+  properties: `millimeter` in SXF and JWW, and in DXF and DWG the unit of `$INSUNITS`, or the one assumed with the
+  `unit-assumed` notice when the file gives none. It is one of `LENGTH_UNITS` (`LengthUnit` in Rust), every unit that
+  `$INSUNITS` can name (`millimeter`, `meter`, `inch`, `foot`, `us-survey-foot` …). In a DXF or DWG layout, the
+  entities drawn on the sheet itself (paper space, without a placement) have coordinates in the paper units of the
+  layout. Placements turn paper coordinates into real-world millimeters whatever the unit.
+- Entity ids come from the file and are kept for the same bytes, as described in [Entity ids](#entity-ids).
+
+### Entity ids
+
+`SceneEntity.id` names an entity by what the file gives it, so that an application can keep an id (in a citation, a
+link or a database) and find the entity again by reading the same file:
+
+- **SXF**: the instance number of the feature (`#120`). Inside a sub-figure or part, the instance numbers of the
+  placements it sits in come first, each followed by `>` (`#810>#260>#220`).
+- **JWW**: the position of the record in the file's list of entities, from 1 (`#5`). Inside a block, the position of
+  the block reference comes first (`#12>#3`, the third entity of the block).
+- **DXF and DWG**: the handle (`1F`, in upper case). Inside a block reference, the handles of the references come first,
+  each followed by `>` (`2A>1F`), with the row and column of a multiple insert (`2A[0,1]>1F`); the attributes of a
+  reference follow its handle in the same way. Inside a viewport of a layout, the viewport's handle and a colon come
+  first (`4C:2A>1F`). The parts of a dimension or a multileader are merged into it and have its id. An entity without a
+  handle (DXF files written without handles, such as many R12 files) is `#n`, where n counts the records of the file
+  (group code 0: sections, table entries, blocks, entities, vertices) up to the entity's own, from 1. Every record is
+  counted, also those of entity types that zumen does not read, so the number does not change when a later version
+  reads more types, and it is unique in the file like a handle.
+
+The same bytes give the same ids in every version of zumen and in every language (TypeScript, Rust, Python,
+WebAssembly), for each view. `crates/zumen/tests/ids.rs` checks the ids of every fixture and view against a record,
+`crates/zumen/tests/ids.json`, that `pnpm run golden` does not rewrite; a change of the readers that gives the same
+bytes other ids is a breaking change and needs a decision. Ids are unique within a scene when the file's handles or
+instance numbers are (`packages/core/tests/keys.test.ts` checks every golden file), and `Scene.entity(id)` in Python
+returns the first entity with an id. An id does not survive saving the drawing again in another program, which may
+renumber handles and records; `zumen_core::compare` matches revisions by shape and text for that reason.
 
 ### Stable keys
 
@@ -86,7 +119,7 @@ wording, and show the Japanese text to people ([decision 0005](decisions/0005-br
 the Japanese `label`, the formatted `value` and, where the value was formatted from numbers or a code, the unformatted
 `raw`: a number, a string, or numbers such as `[x, y]`. Keys are camelCase and distinct within an entity, and a key
 has the same shape of `raw` in every format (`packages/core/tests/keys.test.ts` checks both on every golden file).
-The MCP server returns `kind`, `key` and the values by key next to the Japanese text.
+`zumen.tools` and the MCP server return `kind`, `key` and the values by key next to the Japanese text.
 
 | `kind` | SXF | JWW | DXF and DWG |
 | --- | --- | --- | --- |
@@ -229,15 +262,15 @@ bytes ─▶ zumen-sxf, zumen-jww, zumen-dxf, zumen-dwg ─▶ Scene (zumen-core
 | Crate | Responsibility |
 | --- | --- |
 | `zumen-core` | The `Scene` types (serde, the same JSON as `sceneToJson`), `NoticeList`, `DrawingReader` and `read_drawing`, geometry (`geometry`), text layout (`text`), measurement, texts and entities for servers (`extract`), the fields of the title block (`title`), the comparison of two revisions (`compare`), read limits (`limits`), and JavaScript-compatible number handling (`js`). |
-| `zumen-sxf` | SFC and P21 parsing into the SXF feature model (`parse_sfc`, `parse_p21` → `SxfDrawing`), conversion to a scene (`sxf_to_scene`), and the `SXF` reader. The code tables and the rules that turn codes into colors, line types, widths and text (`SxfDocument::color` …) are public, for the conversion. |
+| `zumen-sxf` | SFC and P21 parsing into the SXF feature model (`parse_sfc`, `parse_p21` → `SxfDrawing`), conversion to a scene (`sxf_to_scene`), the `SXF` reader, and writing the feature model as SFC (`write_sfc`). The code tables and the rules that turn codes into colors, line types, widths and text (`SxfDocument::color` …) are public, for the conversion. |
 | `zumen-jww` | JWW parsing into the JWW document model (`read_jww`), conversion to a scene (`jww_to_scene`), and the `JWW` reader. The rules for pen colors, line types, widths, layer names and text (`JwwDocument::pen_color` …) are public, for the conversion. |
-| `zumen-dxf` | DXF parsing (ASCII and binary) into the AutoCAD drawing model (`parse_dxf` → `DxfDocument`), conversion of model space or a layout to a scene (`dxf_to_scene`), the `DXF` reader, and writing the model as DXF (`write_dxf`). |
+| `zumen-dxf` | DXF parsing (ASCII and binary) into the AutoCAD drawing model (`parse_dxf` → `DxfDocument`), conversion of model space or a layout to a scene (`dxf_to_scene`), the `DXF` reader, and writing the model as DXF (`write_dxf`). The draw order of each space (`draw_order`) and the drawing unit (`drawing_unit`) are public, for the conversion to SXF. |
 | `zumen-dwg` | DWG decoding (AutoCAD 2000 to 2018) into the AutoCAD drawing model of `zumen-dxf` (`read_dwg` → `DxfDocument`), drawn with `dxf_to_scene`, and the `DWG` reader. |
-| `zumen-convert` | Maps SXF and JWW into the AutoCAD drawing model (`sxf_to_dxf`, `jww_to_dxf` → `Mapped`: the `DxfDocument`, the notices, and the source of each entity), so that they can be written as DXF ([decision 0007](decisions/0007-mapping-crate-between-formats.md)). |
-| `zumen` | `read` and `detect` over every reader, with limits for untrusted drawings (`ReadDrawingOptions::limits`), and `convert` (every format to DXF through the AutoCAD model; `mapping` re-exports `zumen-convert`). The entry point for applications. |
+| `zumen-convert` | Maps SXF and JWW into the AutoCAD drawing model (`sxf_to_dxf`, `jww_to_dxf` → `Mapped`: the `DxfDocument`, the notices, and the source of each entity), so that they can be written as DXF ([decision 0007](decisions/0007-mapping-crate-between-formats.md)), and maps the AutoCAD drawing model into the SXF feature model (`dxf_to_sxf` → `MappedSxf`), so that it can be written as SFC ([decision 0010](decisions/0010-write-sxf-from-the-autocad-model.md)). |
+| `zumen` | `read` and `detect` over every reader, with limits for untrusted drawings (`ReadDrawingOptions::limits`), and `convert` (every format to DXF and SFC through the AutoCAD model; `mapping` re-exports `zumen-convert`). The entry point for applications. |
 | `zumen-render` | Draws a scene to PNG with the rules of `render.ts` in `@zumenjs/viewer` (color inversion, line weights with a 1 px minimum, dash rules, even-odd fills, clipping, per-character text, small text as a line), and reports which entities it drew and where (`render_image`, `drawn_entities`, `View::pixel_box`). It also writes SVG (`render_svg`) and one-page PDF (`render_pdf`) with the same colors, fills, clipping and text placement. |
 | `zumen-cli` | The `zumen` command (`detect`, `scene`, `texts`, `entities`, `title`, `render`, `compare`, `convert`). |
-| `bindings/python` | PyO3 bindings, built with maturin as an abi3 wheel for Python 3.10 and later. The GIL is released while reading, rendering and converting. `Scene.to_arrow` needs pyarrow (Apache-2.0, `zumen[arrow]`), and the MCP server `zumen.mcp` needs the MCP SDK (MIT, `zumen[mcp]`); both are optional dependencies. |
+| `bindings/python` | PyO3 bindings, built with maturin as an abi3 wheel for Python 3.10 and later. The GIL is released while reading, rendering and converting. `Scene.to_arrow` needs pyarrow (Apache-2.0, `zumen[arrow]`), and the MCP server `zumen.mcp` needs the MCP SDK (MIT, `zumen[mcp]`); both are optional dependencies. `zumen.tools`, the functions behind the MCP tools, needs neither. |
 | `bindings/wasm` | wasm-bindgen bindings that detect the format (`detect`) and return scene JSON (`readSceneJson`). `scripts/wasm.mjs` builds them into `packages/dwg/wasm` for `@zumenjs/dwg`. |
 
 The dependency rules follow the TypeScript packages: format crates depend only on `zumen-core` and never on each other
@@ -325,11 +358,13 @@ folding and removing spaces and punctuation; a bare 番号 or `NO` is not taken 
 has several title blocks, the one nearest the bottom right of the sheet comes first. Every candidate is kept with
 its source, label and entities, so an application can show where a value came from.
 
-`zumen.mcp` serves them to AI applications as MCP tools over stdio (`zumen-mcp`): open a drawing (with its
-placements and their conversion to real-world millimeters), render a region, find texts and entities, show one
-entity with its shapes, measure in real-world millimeters through the scale of a placement and compare two
-revisions. The
-tools only read, take local paths limited by `--root`, and bound file sizes, image sizes and result counts
+`zumen.tools` gives them to AI agents as functions with JSON results: summarize a drawing (with its placements and
+their conversion to real-world millimeters), render a region, find texts and entities, show one entity with its
+shapes, measure in real-world millimeters through the scale of a placement and compare two revisions. The results
+follow `TypedDict` classes that are part of the API, are bounded by the arguments (items, characters of a text, points
+of shapes, pixels), and take regions in paper millimeters or as fractions of the frame (the scene's `bounds`, origin at
+the top left) ([decision 0011](decisions/0011-tool-functions-for-agents.md)). `zumen.mcp` serves the same functions as
+MCP tools over stdio (`zumen-mcp`), reading local paths limited by `--root` with limits on file sizes
 ([decision 0004](decisions/0004-mcp-server-in-the-python-package.md)).
 
 ### Limits for untrusted drawings
@@ -349,13 +384,16 @@ are unpacked up to `max_bytes`, or 2 GiB without it, so that a small archive can
 
 Drawings are written through the AutoCAD drawing model ([decision 0006](decisions/0006-write-through-the-autocad-model.md)).
 `zumen::convert` reads a DXF or DWG drawing into a `DxfDocument`, or maps an SXF or JWW drawing into one with
-`zumen-convert`, and `zumen_dxf::write_dxf` writes it as DXF of AutoCAD 2013 in UTF-8. Writers of SFC, P21 and JWW
-will start from the same model.
+`zumen-convert`, and `zumen_dxf::write_dxf` writes it as DXF of AutoCAD 2013 in UTF-8. For SFC, `dxf_to_sxf` maps the
+model into the SXF feature model (`SxfDrawing`) and `zumen_sxf::write_sfc` writes it
+([decision 0010](decisions/0010-write-sxf-from-the-autocad-model.md)). Writers of P21 and JWW will start from the same
+model.
 
 ```text
-DXF, DWG ──────────────────────────▶ DxfDocument (zumen-dxf) ─▶ write_dxf ─▶ DXF (AutoCAD 2013, UTF-8)
-SXF, JWW ─▶ sxf_to_dxf, jww_to_dxf ─▶      ▲                                     │ read again: the same scene
-            (zumen-convert)                └─────────────────────────────────────┘
+DXF, DWG ──────────────────────────▶ DxfDocument (zumen-dxf) ─┬▶ write_dxf ─▶ DXF (AutoCAD 2013, UTF-8)
+SXF, JWW ─▶ sxf_to_dxf, jww_to_dxf ─▶      ▲                  └▶ dxf_to_sxf ─▶ SxfDrawing ─▶ write_sfc ─▶ SFC
+            (zumen-convert)                │                     (zumen-convert)            (zumen-sxf)
+                                           └ read again, each output draws the same scene ┘
 ```
 
 SXF and JWW are sheets in paper millimeters with scales for parts of the sheet. The mapping puts every scale at real
@@ -372,6 +410,11 @@ file are unique and resolve (`crates/zumen/tests/convert.rs`, `write::tests`). e
 the written fixtures in the Python tests; it is a development dependency only (MIT), not a dependency of the package.
 What the writer leaves out or writes differently is reported in `notices`, with the same `Notice` type as the readers.
 The writer has no TypeScript counterpart.
+
+The SXF writer is tested the same way, through the SXF reader: an SXF or JWW drawing converted to DXF and then to SFC,
+and every DXF and DWG fixture converted to SFC, draw the scene of the drawing they came from entity by entity
+(`crates/zumen/tests/convert_to_sxf.rs`), within the difference in curve flattening and the losses reported in
+`notices`. Writing a read SFC again gives the same drawing (`crates/zumen-sxf/tests/write.rs`).
 
 ### Keeping the two implementations equal
 

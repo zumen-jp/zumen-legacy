@@ -704,6 +704,8 @@ pub fn diff_scene(before: &Scene, after: &Scene, diff: &SceneDiff) -> Scene {
     Scene {
         format: "diff".into(),
         version: "比較".into(),
+        // 2 つの版の単位が違えば、属性の値の単位は 1 つに決まらない
+        unit: if before.unit == after.unit { before.unit } else { None },
         views: None,
         view: None,
         sheet: before.sheet.clone().or_else(|| after.sheet.clone()),
@@ -827,6 +829,7 @@ mod tests {
         Scene {
             format: "test".into(),
             version: "1".into(),
+            unit: None,
             views: None,
             view: None,
             sheet: Some(Sheet { name: String::new(), size: "A3".into(), width: 420.0, height: 297.0 }),
