@@ -93,3 +93,19 @@ fn a_compressed_drawing_keeps_its_archive_and_the_other_files() {
     let inner = again.source.as_ref().unwrap().bytes.clone();
     assert!(inner.windows(30).any(|window| window == &p21[p21.len() - 200..p21.len() - 170]));
 }
+
+#[test]
+fn changing_version_preserves_other_archive_members() {
+    use zumen_sxf::{SxfVersion, write_sxf_version};
+    for (format, compressed) in [("sfc", "sfz"), ("p21", "p2z")] {
+        let source = read_fixture(format, "features");
+        let name = format!("DRAWING/source.{format}");
+        let archive = stored_zip(&[("metadata.txt", b"keep-this-metadata"), (&name, &source)]);
+        let drawing = parse_sxf(&archive, compressed).unwrap();
+        let written = write_sxf_version(&drawing, compressed, SxfVersion::V2_0).unwrap();
+        assert!(written.bytes.windows(18).any(|bytes| bytes == b"keep-this-metadata"));
+        let again = parse_sxf(&written.bytes, compressed).unwrap();
+        assert_eq!(SxfVersion::of(&again), Some(SxfVersion::V2_0));
+        assert_eq!(again.source.unwrap().archive.unwrap().name, name);
+    }
+}
