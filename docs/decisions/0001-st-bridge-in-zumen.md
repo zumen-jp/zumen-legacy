@@ -3,13 +3,13 @@
 | Item | Value |
 | --- | --- |
 | Date | 2026-10-19 |
-| Status | Accepted |
+| Status | Superseded by [0013](0013-st-bridge-out-of-zumen.md) |
 
 ## Context
 
 An ST-Bridge viewer was written next to zumen, with the same layering: it reads `.stb` files of versions 2.0 and 2.1,
 builds a 3D structural model and shows it with three.js and React. The first plan was to move it to a separate
-repository of the organization (`zumenjs/stb`) and to port its reader to Rust for Python and WebAssembly, as zumen does
+repository of the organization and to port its reader to Rust for Python and WebAssembly, as zumen does
 for drawings.
 
 Checked on 2026-10-19:

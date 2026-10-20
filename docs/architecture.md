@@ -17,13 +17,6 @@ DWG is read by the Rust reader built to WebAssembly, which returns the scene as 
 bytes ─▶ dwg (@zumenjs/dwg) ─▶ WebAssembly: zumen-dwg ─▶ DxfDocument ─▶ dxf_to_scene ─▶ JSON ─▶ sceneFromJson ─▶ Scene
 ```
 
-Structural models (ST-Bridge) are not drawings. They take a separate 3D path inside `@zumenjs/stb`:
-
-```text
-bytes ─▶ readStb ─▶ StructureModel ─▶ StructureView (three.js) ─▶ StbViewer (React)
-         (@zumenjs/stb)                (@zumenjs/stb/three)        (@zumenjs/stb/react)
-```
-
 ## Packages and dependency rules
 
 | Package | Responsibility |
@@ -35,7 +28,6 @@ bytes ─▶ readStb ─▶ StructureModel ─▶ StructureView (three.js) ─�
 | `@zumenjs/dxf` | DXF parsing (ASCII and binary) into the AutoCAD drawing model (`parseDxf` → `DxfDocument`), conversion of model space or a layout to a scene (`dxfToScene`), and the `dxf` reader. Their Rust port (`zumen-dxf`) also draws DWG. |
 | `@zumenjs/dwg` | The `dwg` reader, which reads DWG with the WebAssembly build of the Rust reader (`initDwg` loads it), and `isDwg`. It has no DWG reader of its own. |
 | `@zumenjs/react` | Hooks only: `useDrawingViewer` (the engine on an element), `useViewerState` (a part of its state), `useViewerEvent` (its events) and `useDrawing` (read a file, waiting for readers that load). |
-| `@zumenjs/stb` | ST-Bridge parsing into a 3D structural model (`isStb`, `readStb` → `StructureModel`) and member filters (`isMemberVisible`, `membersOnAxis`). `@zumenjs/stb/three` draws the model with three.js (`StructureView`, tessellation and picking), and `@zumenjs/stb/react` adds `StbViewer` and `useStbFile`. |
 
 1. Format packages depend only on `@zumenjs/core`, never on each other.
    For example, `@zumenjs/jww` keeps its own copy of the SXF-compatible colors and line types.
@@ -55,13 +47,6 @@ bytes ─▶ readStb ─▶ StructureModel ─▶ StructureView (three.js) ─�
    they create the engine, read its state and events, and read files. The packages ship no CSS and no text for
    people; the interface belongs to the application, and the playground has a sample written only against the public
    API ([decision 0005](decisions/0005-browser-packages-for-embedding.md)).
-5. `@zumenjs/stb` is a separate line for 3D structural models and depends on no other package. Inside it, parsing
-   (`src/`, `src/xml/`, `src/stb/`) does not use the DOM, three.js or React, drawing lives in `src/three/` and React in
-   `src/react/`, and the imports go react → three → parsing only. When plan and elevation drawings of a structure are
-   added, they convert the model to a `Scene`, and `@zumenjs/stb` then depends on `@zumenjs/core` only
-   (see [decision 0001](decisions/0001-st-bridge-in-zumen.md)). Its React component `StbViewer` still keeps the
-   interaction state; the 3D step of decision 0005 moves it into the engine of `@zumenjs/stb/three` on the contract
-   of the 2D engine, and the component into the playground.
 
 ## The scene model
 
@@ -182,18 +167,6 @@ spacing]`) in JWW; `block`, `height`, `textStyle`, `tag`, `wrapWidth`, `majorRad
 `viewOrigin` and `viewportScales` in DXF and DWG.
 
 A new key is added where a format first needs it, with a name that another format can reuse for the same meaning.
-
-## The structural model
-
-- `StructureModel` (`@zumenjs/stb`) is a 3D model in global millimeters with the Z axis up, separate from `Scene`.
-- Each member has a solid (a 2D section outline extruded along a direction, or a list of 3D outlines), a list of
-  properties to show and the original XML attributes. Members with the same section share the outline, and
-  triangulation happens in `@zumenjs/stb/three`.
-- `notices` list what was not drawn, drawn differently or inferred, by kind and count, as in a scene.
-- three.js (MIT) is an optional peer dependency used only by `./three` and `./react`, for WebGL rendering with
-  `OrbitControls` and `CSS2DRenderer` from its `examples/jsm`. Parsing needs no dependency, so applications that only
-  read models do not install it. How the format is read is described in [How ST-Bridge is handled](formats/st-bridge.md)
-  (Japanese).
 
 ## Adding a format
 
@@ -500,8 +473,8 @@ a Japanese gothic close to the MS Gothic that SXF and Jw_cad drawings assume. Ch
 - `scripts/wasm.mjs` builds the WebAssembly reader into `packages/dwg/wasm`, which is not in Git, with cargo and
   `wasm-bindgen-cli`. `pnpm dev` and `pnpm run check` run it first; `pnpm test`, the type checker and the builds need
   its output. When the Rust code has not changed, it takes well under a second.
-- `pnpm run build` compiles the packages in dependency order (core, then viewer, sxf, jww, dxf and dwg, then react,
-  then stb, which depends on none of them) into each `dist`.
+- `pnpm run build` compiles the packages in dependency order (core, then viewer, sxf, jww, dxf and dwg, then react)
+  into each `dist`.
 - `pnpm test` runs two Vitest projects: the unit tests in Node.js, and the tests of the engine and the hooks
   (`*.browser.test.*`) in Chromium through Playwright, with synthetic pointer, wheel and key events and the pixels of
   the canvas. The Chromium headless shell of the Playwright version in `package.json` is installed with

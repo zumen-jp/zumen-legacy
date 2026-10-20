@@ -31,8 +31,7 @@ format, version, authoring software, and the notices the viewer shows.
   `playground` port in
   [config/local-ports.json](config/local-ports.json) (24100); set `PORT` to override it.
   To open drawings that are not in Git, set `ZUMEN_SAMPLES` to their folder and visit `/?sample=<file name>`.
-  ST-Bridge models open the same way; the playground tells them from drawings by their contents. Drawings are shown by
-  the 2D sample (`playground/drawing-sample.tsx`), which uses only the public API of `@zumenjs/react` and
+  Drawings are shown by the 2D sample (`playground/drawing-sample.tsx`), which uses only the public API of `@zumenjs/react` and
   `@zumenjs/viewer`.
 
 ## How the code is organized
@@ -40,8 +39,7 @@ format, version, authoring software, and the notices the viewer shows.
 Read [docs/architecture.md](docs/architecture.md) first. In short: format packages and `@zumenjs/viewer` depend only
 on `@zumenjs/core`, parsing and `@zumenjs/core` never touch the DOM, interaction belongs in the engine
 (`DrawingViewer` of `@zumenjs/viewer`), `@zumenjs/react` has hooks only, and the packages ship no CSS and no text for
-people: the interface is the application's, and the playground has a sample. Structural models (`@zumenjs/stb`) are a
-separate 3D line with its own model and a three.js view.
+people: the interface is the application's, and the playground has a sample.
 
 - Follow the public specification of each format and cite the section in a comment.
   Write down behavior you had to infer in `docs/formats/`.
