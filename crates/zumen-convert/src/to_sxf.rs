@@ -1,4 +1,4 @@
-//! AutoCAD の図面のモデル（`DxfDocument`）を SXF の図面（`SxfDrawing`）に写す（決定 0006・0007・0008・0009、
+//! AutoCAD の図面のモデル（`DxfDocument`）を SXF の図面（`SxfDrawing`）に写す（決定 0006・0007・0008・0010、
 //! docs/formats/sxf.md「SXF への書き出し」）。SXF から DXF への写し方（sxf.rs）の逆で、表示（zumen-dxf の scene.rs）と
 //! 同じ順・同じ規則で辿り、表示と同じ所に同じ形を描く SXF にする。
 //!

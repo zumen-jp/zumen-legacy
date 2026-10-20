@@ -37,3 +37,4 @@ Choices made before this folder existed are described in [the architecture notes
 - [0006: Write drawings through the AutoCAD drawing model, starting with AutoCAD 2013 DXF](0006-write-through-the-autocad-model.md) (2026-10-20, Accepted)
 - [0007: Map SXF and JWW into the AutoCAD drawing model in a crate of its own, zumen-convert](0007-mapping-crate-between-formats.md) (2026-10-20, Accepted)
 - [0008: Real-size model space, and the sheet as a layout with a viewport for each scale](0008-sheets-and-scales-in-the-autocad-model.md) (2026-10-20, Accepted)
+- [0010: Write SXF from the AutoCAD drawing model, with viewports as sub-figures and drawn shapes for what SXF lacks](0010-write-sxf-from-the-autocad-model.md) (2026-10-20, Accepted)

@@ -57,6 +57,15 @@ for notice in converted.notices:  # what could not be written as it was, such as
     print(notice["code"], notice["message"], notice["count"])
 ```
 
+They can also be written as SXF (SFC of SXF Ver.3.1). The sheet of the layout that the drawing opens in becomes the SXF
+sheet, each viewport a sub-figure at real size placed at its scale, and each block a drawing part. What SXF has no
+feature for, such as multiline texts, leaders and dimensions, is written as the lines, fills and texts that zumen draws
+for it, and read again, the SFC draws the same:
+
+```python
+zumen.convert("plan.dwg", "sfc").save("plan.sfc")
+```
+
 ## Comparing revisions
 
 `zumen.compare` matches entities by type, shape and text, not by id, so revisions that were saved again,

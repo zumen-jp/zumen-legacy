@@ -155,12 +155,12 @@ bytes ─▶ zumen-sxf, zumen-jww, zumen-dxf, zumen-dwg ─▶ Scene (zumen-core
 | Crate | Responsibility |
 | --- | --- |
 | `zumen-core` | The `Scene` types (serde, the same JSON as `sceneToJson`), `NoticeList`, `DrawingReader` and `read_drawing`, geometry (`geometry`), text layout (`text`), measurement, texts and entities for servers (`extract`), the fields of the title block (`title`), the comparison of two revisions (`compare`), read limits (`limits`), and JavaScript-compatible number handling (`js`). |
-| `zumen-sxf` | SFC and P21 parsing into the SXF feature model (`parse_sfc`, `parse_p21` → `SxfDrawing`), conversion to a scene (`sxf_to_scene`), and the `SXF` reader. The code tables and the rules that turn codes into colors, line types, widths and text (`SxfDocument::color` …) are public, for the conversion. |
+| `zumen-sxf` | SFC and P21 parsing into the SXF feature model (`parse_sfc`, `parse_p21` → `SxfDrawing`), conversion to a scene (`sxf_to_scene`), the `SXF` reader, and writing the feature model as SFC (`write_sfc`). The code tables and the rules that turn codes into colors, line types, widths and text (`SxfDocument::color` …) are public, for the conversion. |
 | `zumen-jww` | JWW parsing into the JWW document model (`read_jww`), conversion to a scene (`jww_to_scene`), and the `JWW` reader. The rules for pen colors, line types, widths, layer names and text (`JwwDocument::pen_color` …) are public, for the conversion. |
-| `zumen-dxf` | DXF parsing (ASCII and binary) into the AutoCAD drawing model (`parse_dxf` → `DxfDocument`), conversion of model space or a layout to a scene (`dxf_to_scene`), the `DXF` reader, and writing the model as DXF (`write_dxf`). |
+| `zumen-dxf` | DXF parsing (ASCII and binary) into the AutoCAD drawing model (`parse_dxf` → `DxfDocument`), conversion of model space or a layout to a scene (`dxf_to_scene`), the `DXF` reader, and writing the model as DXF (`write_dxf`). The draw order of each space (`draw_order`) and the drawing unit (`drawing_unit`) are public, for the conversion to SXF. |
 | `zumen-dwg` | DWG decoding (AutoCAD 2000 to 2018) into the AutoCAD drawing model of `zumen-dxf` (`read_dwg` → `DxfDocument`), drawn with `dxf_to_scene`, and the `DWG` reader. |
-| `zumen-convert` | Maps SXF and JWW into the AutoCAD drawing model (`sxf_to_dxf`, `jww_to_dxf` → `Mapped`: the `DxfDocument`, the notices, and the source of each entity), so that they can be written as DXF ([decision 0007](decisions/0007-mapping-crate-between-formats.md)). |
-| `zumen` | `read` and `detect` over every reader, with limits for untrusted drawings (`ReadDrawingOptions::limits`), and `convert` (every format to DXF through the AutoCAD model; `mapping` re-exports `zumen-convert`). The entry point for applications. |
+| `zumen-convert` | Maps SXF and JWW into the AutoCAD drawing model (`sxf_to_dxf`, `jww_to_dxf` → `Mapped`: the `DxfDocument`, the notices, and the source of each entity), so that they can be written as DXF ([decision 0007](decisions/0007-mapping-crate-between-formats.md)), and maps the AutoCAD drawing model into the SXF feature model (`dxf_to_sxf` → `MappedSxf`), so that it can be written as SFC ([decision 0010](decisions/0010-write-sxf-from-the-autocad-model.md)). |
+| `zumen` | `read` and `detect` over every reader, with limits for untrusted drawings (`ReadDrawingOptions::limits`), and `convert` (every format to DXF and SFC through the AutoCAD model; `mapping` re-exports `zumen-convert`). The entry point for applications. |
 | `zumen-render` | Draws a scene to PNG with the rules of `render.ts` in `@zumenjs/viewer` (color inversion, line weights with a 1 px minimum, dash rules, even-odd fills, clipping, per-character text, small text as a line), and reports which entities it drew and where (`render_image`, `drawn_entities`, `View::pixel_box`). It also writes SVG (`render_svg`) and one-page PDF (`render_pdf`) with the same colors, fills, clipping and text placement. |
 | `zumen-cli` | The `zumen` command (`detect`, `scene`, `texts`, `entities`, `title`, `render`, `compare`, `convert`). |
 | `bindings/python` | PyO3 bindings, built with maturin as an abi3 wheel for Python 3.10 and later. The GIL is released while reading, rendering and converting. `Scene.to_arrow` needs pyarrow (Apache-2.0, `zumen[arrow]`), and the MCP server `zumen.mcp` needs the MCP SDK (MIT, `zumen[mcp]`); both are optional dependencies. |
@@ -268,13 +268,16 @@ are unpacked up to `max_bytes`, or 2 GiB without it, so that a small archive can
 
 Drawings are written through the AutoCAD drawing model ([decision 0006](decisions/0006-write-through-the-autocad-model.md)).
 `zumen::convert` reads a DXF or DWG drawing into a `DxfDocument`, or maps an SXF or JWW drawing into one with
-`zumen-convert`, and `zumen_dxf::write_dxf` writes it as DXF of AutoCAD 2013 in UTF-8. Writers of SFC, P21 and JWW
-will start from the same model.
+`zumen-convert`, and `zumen_dxf::write_dxf` writes it as DXF of AutoCAD 2013 in UTF-8. For SFC, `dxf_to_sxf` maps the
+model into the SXF feature model (`SxfDrawing`) and `zumen_sxf::write_sfc` writes it
+([decision 0010](decisions/0010-write-sxf-from-the-autocad-model.md)). Writers of P21 and JWW will start from the same
+model.
 
 ```text
-DXF, DWG ──────────────────────────▶ DxfDocument (zumen-dxf) ─▶ write_dxf ─▶ DXF (AutoCAD 2013, UTF-8)
-SXF, JWW ─▶ sxf_to_dxf, jww_to_dxf ─▶      ▲                                     │ read again: the same scene
-            (zumen-convert)                └─────────────────────────────────────┘
+DXF, DWG ──────────────────────────▶ DxfDocument (zumen-dxf) ─┬▶ write_dxf ─▶ DXF (AutoCAD 2013, UTF-8)
+SXF, JWW ─▶ sxf_to_dxf, jww_to_dxf ─▶      ▲                  └▶ dxf_to_sxf ─▶ SxfDrawing ─▶ write_sfc ─▶ SFC
+            (zumen-convert)                │                     (zumen-convert)            (zumen-sxf)
+                                           └ read again, each output draws the same scene ┘
 ```
 
 SXF and JWW are sheets in paper millimeters with scales for parts of the sheet. The mapping puts every scale at real
@@ -291,6 +294,11 @@ file are unique and resolve (`crates/zumen/tests/convert.rs`, `write::tests`). e
 the written fixtures in the Python tests; it is a development dependency only (MIT), not a dependency of the package.
 What the writer leaves out or writes differently is reported in `notices`, with the same `Notice` type as the readers.
 The writer has no TypeScript counterpart.
+
+The SXF writer is tested the same way, through the SXF reader: an SXF or JWW drawing converted to DXF and then to SFC,
+and every DXF and DWG fixture converted to SFC, draw the scene of the drawing they came from entity by entity
+(`crates/zumen/tests/convert_to_sxf.rs`), within the difference in curve flattening and the losses reported in
+`notices`. Writing a read SFC again gives the same drawing (`crates/zumen-sxf/tests/write.rs`).
 
 ### Keeping the two implementations equal
 
