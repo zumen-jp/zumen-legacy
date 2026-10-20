@@ -9,6 +9,7 @@ import {
 } from "@zumenjs/core";
 import { HitIndex, type SnapPoint } from "./pick.js";
 import {
+  centeredView,
   fitView,
   type HighlightLayer,
   renderHighlights,
@@ -16,6 +17,7 @@ import {
   toPaper,
   toScreen,
   type View,
+  visibleBounds,
   zoomAt,
 } from "./render.js";
 import {
@@ -68,11 +70,14 @@ export interface Camera {
   readonly center: readonly [number, number];
   /** 倍率。1 は用紙の 1 mm を画面の 1 mm（96 dpi 換算）で表示する */
   readonly zoom: number;
+  /** 画面の上で図面を時計回りに回す角度（度、0 以上 360 未満）。省略すると 0（jumpTo では今のまま） */
+  readonly rotation?: number;
 }
 
 /** 今の表示範囲 */
 export interface ViewerView extends Camera {
-  /** 見えている用紙の範囲（mm） */
+  readonly rotation: number;
+  /** 見えている用紙の範囲（mm）。回しているときは、見えている四角形を囲む範囲 */
   readonly bounds: Box;
   /** 表示領域の大きさ（CSS px）。要素に大きさが付く前は 0 */
   readonly width: number;
@@ -150,6 +155,14 @@ interface InternalCamera {
   cx: number;
   cy: number;
   zoom: number;
+  /** 時計回りの角度（度、0 以上 360 未満） */
+  rotation: number;
+}
+
+/** 角度を 0 以上 360 未満にする */
+function normalizeRotation(degrees: number): number {
+  const value = ((degrees % 360) + 360) % 360;
+  return Math.abs(value - 360) < 1e-9 ? 0 : value;
 }
 
 const BUILT_IN_TOOLS: Readonly<Record<string, () => ViewerTool>> = {
@@ -339,7 +352,7 @@ export class DrawingViewer {
     this.schedule(true);
     if (isEmpty(scene.bounds)) {
       this.fitTarget = null;
-      this.setCamera(this.initialCamera(scene.bounds), true, null);
+      this.setCamera(this.initialCamera(scene.bounds, this.camera.rotation), true, null);
     } else this.fitTo(scene.bounds, undefined, true, null);
   }
 
@@ -433,19 +446,41 @@ export class DrawingViewer {
 
   /** 今の表示範囲 */
   getView(): ViewerView {
-    const { cx, cy, zoom } = this.camera;
+    const { cx, cy, zoom, rotation } = this.camera;
     const { width, height } = this.size;
-    const view = this.transform();
-    const [minX, maxY] = toPaper(view, 0, 0);
-    const [maxX, minY] = toPaper(view, width, height);
-    return { center: [cx, cy], zoom, bounds: { minX, minY, maxX, maxY }, width, height };
+    return { center: [cx, cy], zoom, rotation, bounds: visibleBounds(this.transform(), width, height), width, height };
   }
 
-  /** 中央の点と倍率を変える（省略したものは今のまま） */
+  /** 中央の点・倍率・角度を変える（省略したものは今のまま） */
   jumpTo(camera: Partial<Camera>): void {
     this.fitTarget = null;
     const [cx, cy] = camera.center ?? [this.camera.cx, this.camera.cy];
-    this.setCamera({ cx, cy, zoom: camera.zoom ?? this.camera.zoom }, true, null);
+    this.setCamera(
+      {
+        cx,
+        cy,
+        zoom: camera.zoom ?? this.camera.zoom,
+        rotation: normalizeRotation(camera.rotation ?? this.camera.rotation),
+      },
+      true,
+      null,
+    );
+  }
+
+  /**
+   * 図面を表示領域の中央の周りに、画面の上で時計回りに degrees 度回す（負なら反時計回り）。
+   * fit・fitBounds で収めた範囲を表示しているときは、回した向きで収め直す
+   */
+  rotateBy(degrees: number): void {
+    const rotation = normalizeRotation(this.camera.rotation + degrees);
+    if (this.fitTarget) {
+      this.camera = { ...this.camera, rotation };
+      const camera = this.fitCamera();
+      if (camera) this.setCamera(camera, true, null);
+      else this.schedule(true);
+      return;
+    }
+    this.setCamera({ ...this.camera, rotation }, true, null);
   }
 
   /**
@@ -609,37 +644,47 @@ export class DrawingViewer {
   private readonly visible = (entity: SceneEntity): boolean => isEntityVisible(entity, this.state.hiddenLayers);
 
   /** 用紙の mm から CSS px への変換 */
-  private transform(): View {
-    const scale = this.camera.zoom * PX_PER_MM;
-    return {
-      scale,
-      offsetX: this.size.width / 2 - this.camera.cx * scale,
-      offsetY: this.size.height / 2 + this.camera.cy * scale,
-    };
+  private transform(camera: InternalCamera = this.camera): View {
+    const { width, height } = this.size;
+    return centeredView(camera.cx, camera.cy, camera.zoom * PX_PER_MM, width, height, camera.rotation);
   }
 
   private fromTransform(view: View): InternalCamera {
-    return {
-      cx: (this.size.width / 2 - view.offsetX) / view.scale,
-      cy: (view.offsetY - this.size.height / 2) / view.scale,
-      zoom: view.scale / PX_PER_MM,
-    };
+    const [cx, cy] = toPaper(view, this.size.width / 2, this.size.height / 2);
+    return { cx, cy, zoom: view.scale / PX_PER_MM, rotation: normalizeRotation(view.rotation ?? 0) };
   }
 
   /** 大きさが分かる前の表示範囲。範囲の中央を倍率 1 で示す */
-  private initialCamera(box: Box): InternalCamera {
+  private initialCamera(box: Box, rotation = 0): InternalCamera {
     return isEmpty(box)
-      ? { cx: 0, cy: 0, zoom: 1 }
-      : { cx: (box.minX + box.maxX) / 2, cy: (box.minY + box.maxY) / 2, zoom: 1 };
+      ? { cx: 0, cy: 0, zoom: 1, rotation }
+      : { cx: (box.minX + box.maxX) / 2, cy: (box.minY + box.maxY) / 2, zoom: 1, rotation };
   }
 
   /** 表示範囲を変え、変わったら move（end なら moveend も）を送る */
   private setCamera(next: InternalCamera, end: boolean, originalEvent: Event | null): void {
     const scale = Math.min(Math.max(next.zoom * PX_PER_MM, MIN_SCALE), MAX_SCALE);
-    const camera = { cx: next.cx, cy: next.cy, zoom: scale === next.zoom * PX_PER_MM ? next.zoom : scale / PX_PER_MM };
-    if (!Number.isFinite(camera.cx) || !Number.isFinite(camera.cy) || !Number.isFinite(camera.zoom)) return;
+    const camera = {
+      cx: next.cx,
+      cy: next.cy,
+      zoom: scale === next.zoom * PX_PER_MM ? next.zoom : scale / PX_PER_MM,
+      rotation: next.rotation,
+    };
+    if (
+      !Number.isFinite(camera.cx) ||
+      !Number.isFinite(camera.cy) ||
+      !Number.isFinite(camera.zoom) ||
+      !Number.isFinite(camera.rotation)
+    )
+      return;
     const current = this.camera;
-    if (camera.cx === current.cx && camera.cy === current.cy && camera.zoom === current.zoom) return;
+    if (
+      camera.cx === current.cx &&
+      camera.cy === current.cy &&
+      camera.zoom === current.zoom &&
+      camera.rotation === current.rotation
+    )
+      return;
     this.camera = camera;
     this.schedule(true);
     if (this.size.width === 0 || this.size.height === 0) return;
@@ -665,7 +710,9 @@ export class DrawingViewer {
     const target = this.fitTarget;
     const { width, height } = this.size;
     if (!target || width === 0 || height === 0) return null;
-    return this.fromTransform(fitView(target.box, width, height, target.padding ?? this.style.fitPadding));
+    return this.fromTransform(
+      fitView(target.box, width, height, target.padding ?? this.style.fitPadding, this.camera.rotation),
+    );
   }
 
   private swapTool(next: ViewerTool): void {
@@ -692,8 +739,9 @@ export class DrawingViewer {
 
   private panFrom(from: InternalCamera, dx: number, dy: number, end: boolean, originalEvent: Event | null): void {
     this.fitTarget = null;
-    const scale = from.zoom * PX_PER_MM;
-    this.setCamera({ cx: from.cx - dx / scale, cy: from.cy + dy / scale, zoom: from.zoom }, end, originalEvent);
+    // 画面で dx・dy 動かすと、中央に来る用紙の点は表示領域の (中央 − dx, 中央 − dy) の点になる
+    const [cx, cy] = toPaper(this.transform(from), this.size.width / 2 - dx, this.size.height / 2 - dy);
+    this.setCamera({ ...from, cx, cy }, end, originalEvent);
   }
 
   private readStyle(): void {
@@ -762,6 +810,7 @@ export class DrawingViewer {
       before.cx !== this.camera.cx ||
       before.cy !== this.camera.cy ||
       before.zoom !== this.camera.zoom ||
+      before.rotation !== this.camera.rotation ||
       previous.width !== rect.width ||
       previous.height !== rect.height;
     if (changed && rect.width > 0 && rect.height > 0) {

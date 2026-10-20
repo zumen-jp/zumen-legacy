@@ -4,6 +4,12 @@ All packages share one version during 0.x.
 
 ## Unreleased
 
+- Viewer: rotate the drawing on screen. `rotateBy(degrees)` turns it clockwise around the center of the view and refits
+  a fitted box, `jumpTo({ rotation })` sets the angle and `getView().rotation` reads it. `toPaper`, `toScreen`, hit
+  testing, snapping, measurement, dragging and pinching follow the rotation, `View` (of overlay painters) gains
+  `rotation`, and `bounds` is the paper box around the visible area. The playground sample has buttons to turn the
+  drawing by 90 degrees.
+
 ## 0.1.0 — 2026-10-20
 
 - First public release under the MIT license, with third-party license notices, four npm packages
