@@ -478,7 +478,8 @@ fn drawing(version: Old) -> Vec<u8> {
         for value in [0.0, 297.0, 210.0, 148.5] {
             eed.u8(40).f64(value);
         }
-        eed.u8(2).u8(0).u8(2).u8(1).u8(2).u8(1);
+        // 凍結したレイヤの並び（1003 は層の表の番号。非表示は 2）
+        eed.u8(2).u8(0).u8(3).i16(2).u8(2).u8(1).u8(2).u8(1);
         d.entities.push(enc(E { paper: true, eed: eed.0, handle: Some(0x50), ..e(kind::VIEWPORT, 0, &viewport) }));
         d.entities.push(enc(E {
             paper: true,
@@ -537,7 +538,7 @@ fn dxf() -> Vec<u8> {
         "0|SEQEND|8|0",
         "0|VIEWPORT|5|50|8|0|67|1|10|210|20|148.5|30|0|40|420|41|297|68|1|69|1",
         "1001|ACAD|1000|MVIEW|1002|{|1070|16|1010|0|1020|0|1030|0|1010|0|1020|0|1030|1",
-        "1040|0|1040|297|1040|210|1040|148.5|1002|{|1002|}|1002|}",
+        "1040|0|1040|297|1040|210|1040|148.5|1002|{|1003|非表示|1002|}|1002|}",
         "0|LINE|5|51|8|0|67|1|10|10|20|10|30|0|11|100|21|10|31|0",
         "0|ENDSEC|0|EOF",
     ]
@@ -630,6 +631,12 @@ fn an_r12_drawing_reads_like_its_dxf() {
         let out = scene_differences(&dwg, &dxf, view);
         assert!(out.is_empty(), "{view:?}\n{}", out.join("\n"));
     }
+    let DxfEntityData::Viewport(viewport) =
+        &dwg.entities.iter().find(|entity| entity.base.kind == "VIEWPORT").unwrap().data
+    else {
+        panic!("VIEWPORT")
+    };
+    assert_eq!(viewport.frozen_layer_names, ["非表示"]);
 }
 
 /// 表示用の図面から、図形の id（ハンドルか記録の番号）を除く
