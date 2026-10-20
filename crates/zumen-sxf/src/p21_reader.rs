@@ -71,6 +71,20 @@ pub struct P21File {
     pub header: SxfHeader,
     /// 読めなかったインスタンスの数
     pub skipped: u64,
+    /// DATA 節のすべてのインスタンス（読めなかったもの・番号が重なるものも）の、番号とファイルの中の位置。
+    /// 書き出しが元の文字列を残すのに使う
+    pub spans: Vec<InstanceSpan>,
+    /// DATA 節の終わり（ENDSEC; の位置）
+    pub data_end: usize,
+}
+
+/// インスタンスのファイルの中の位置（#n から ; まで）
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct InstanceSpan {
+    /// インスタンス番号。読めなかったインスタンスは None
+    pub id: Option<f64>,
+    pub start: usize,
+    pub end: usize,
 }
 
 /// ISO 8859-1 として 1 バイトを 1 文字にする
@@ -406,6 +420,7 @@ pub fn read_p21(bytes: &[u8]) -> Result<P21File, ReadError> {
     let mut lexer = Lexer { text: bytes, pos: data_start + 5, end };
     let mut entities = Entities::default();
     let mut skipped = 0;
+    let mut spans = Vec::new();
     while lexer.peek() == Some(b'#') {
         // 読み取りの上限（zumen_core::limits）
         if zumen_core::limits::tick() {
@@ -413,14 +428,18 @@ pub fn read_p21(bytes: &[u8]) -> Result<P21File, ReadError> {
         }
         let start = lexer.pos;
         match instance(&mut lexer) {
-            Ok(entity) => entities.insert(entity),
+            Ok(entity) => {
+                spans.push(InstanceSpan { id: Some(entity.id), start, end: lexer.pos });
+                entities.insert(entity);
+            }
             Err(StepError::Syntax) => {
                 skipped += 1;
                 // 次のインスタンスまで読み飛ばす
                 lexer.pos = find(bytes, b';', start).map_or(end, |next| next + 1);
+                spans.push(InstanceSpan { id: None, start, end: lexer.pos.min(end) });
             }
             Err(StepError::Fatal(message)) => return Err(ReadError::new(message)),
         }
     }
-    Ok(P21File { entities, header: header_strings(bytes)?, skipped })
+    Ok(P21File { entities, header: header_strings(bytes)?, skipped, spans, data_end: end })
 }
