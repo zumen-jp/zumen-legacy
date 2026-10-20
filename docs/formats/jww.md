@@ -16,8 +16,10 @@ follows MFC (Technical Note 2, *Persistent Object Data Format*).
   left corner, and real coordinates and distances come from the scale of the layer group (1/100 and so on).
 - The header gives the names and visibility of layer groups and layers, the screen colors of the pen colors (1–9, and
   the SXF colors 100–356), the line types (bit patterns with the printer pitch, and the lengths of the SXF line types)
-  and the line widths (in 1/100 mm, or printer dots converted with the dpi). Older versions whose header cannot be read
-  are drawn with Jw_cad's default colors and line types, with a notice.
+  and the line widths (in 1/100 mm, or printer dots converted with the dpi). Versions before 3.00 are read the same
+  way: the fields they lack before the pen colors (the sky diagram, mark jumps 5–8 and the layer group of each jump,
+  and the text drawing state) are skipped as the notes of jwdatafmt.txt describe. A header that cannot be read is drawn
+  with Jw_cad's default colors and line types, with a notice.
 - The entity list is found from the registration of the first entity class (`CData…`). Class and object numbers are
   shared by the entity list, the block definitions and the entities in them.
 - A negative arc angle runs clockwise; flatness and tilt make ellipses and elliptical arcs. Blocks are placed, nested,
@@ -133,7 +135,8 @@ of the sheet; `JwwDocument::paper_factor(group)` turns the real coordinates of a
   kind of composite figure from 4.10, line widths of entities from 3.51, SXF colors and line types and the extension
   lines and points of dimensions from 4.20, the dpi of printer widths from 6.00. What an older version cannot hold is
   written the nearest way it can and reported: a point symbol becomes a plain point, a circle solid becomes triangular
-  solids (its outline as drawn, from the center for sectors), the kind of composite figure leaves a block name.
+  solids (its outline as drawn, from the center for sectors), a custom solid color (pen color 10, from 2.30) becomes
+  the pen color with the nearest screen color, the kind of composite figure leaves a block name.
 - **Settings the document does not hold** take the values of a new Jw_cad drawing: dimension settings, printer origin
   and scale, grid, shadow (latitude 36°), view, parallel line distances, printer pens, random lines, 2.5D views, text
   styles 1–10 (2 mm to 10 mm), and the SXF tables (the 16 SXF colors and 15 line types with their names).
@@ -169,6 +172,7 @@ Notices when writing:
 | `entity-width` | Versions before 3.51 have no line widths of entities; they draw with the width of their pen color |
 | `point-symbol` | Versions before 2.52 have no point symbols (arrows, markers); they became plain points |
 | `circle-solid` | Versions before 2.30 have no circle solids; they became triangular solids |
+| `solid-color` | Versions before 2.30 have no custom solid colors; those solids took the pen color with the nearest screen color |
 | `block-name` | Versions before 4.10 have no kind of composite figure after a block name; it was left out |
 | `embedded-image` | The files of embedded images are not in the drawing content (and versions before 7.00 have none); only the text that places an image was written |
 

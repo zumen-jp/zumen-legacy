@@ -414,13 +414,13 @@ pub(crate) fn file_from_document(doc: &JwwDocument, notices: &mut NoticeList) ->
     }
     let mut file = JwwFile::new(version, header);
     let mut older = Older::default();
-    file.entities = older.fit(&doc.entities, version).into_iter().map(JwwRecord::new).collect();
+    file.entities = older.fit(doc, &doc.entities, version).into_iter().map(JwwRecord::new).collect();
     let referenced = referenced_blocks(doc);
     file.blocks = doc
         .blocks
         .iter()
         .map(|block: &JwwBlockDefinition| {
-            let entities = older.fit(&block.entities, version).into_iter().map(JwwRecord::new).collect();
+            let entities = older.fit(doc, &block.entities, version).into_iter().map(JwwRecord::new).collect();
             // 版 410 より前のブロック名は、後ろに複合図形の種別（"@@SfigorgFlag@@" と番号）を持たない
             let name = match block.name.split_once("@@SfigorgFlag@@") {
                 Some((name, _)) if version < 410 => {
@@ -447,6 +447,8 @@ struct Older {
     symbols: u64,
     /// 版 230 より前: 円のソリッド（多角形のソリッドにする）
     circle_solids: u64,
+    /// 版 230 より前: ソリッドの任意色（線色 10。画面色が最も近い線色にする）
+    solid_colors: u64,
     /// 版 410 より前: ブロック名の複合図形の種別
     block_names: u64,
     /// 同梱画像の配置（画像のファイルは図面の内容が持たない）
@@ -454,7 +456,7 @@ struct Older {
 }
 
 impl Older {
-    fn fit(&mut self, entities: &[JwwEntity], version: u32) -> Vec<JwwEntity> {
+    fn fit(&mut self, doc: &JwwDocument, entities: &[JwwEntity], version: u32) -> Vec<JwwEntity> {
         let mut out = Vec::with_capacity(entities.len());
         for entity in entities {
             if let JwwEntity::Text(text) = entity
@@ -473,12 +475,28 @@ impl Older {
                 }
                 JwwEntity::CircleSolid(solid) if version < 230 => {
                     self.circle_solids += 1;
-                    out.extend(circle_solid_parts(solid));
+                    for part in circle_solid_parts(solid) {
+                        out.push(self.solid_color(doc, part));
+                    }
                 }
+                JwwEntity::Solid(_) if version < 230 => out.push(self.solid_color(doc, entity.clone())),
                 other => out.push(other.clone()),
             }
         }
         out
+    }
+
+    /// 版 230 より前のソリッドの任意色（線色 10）を、画面色が最も近い線色 1〜9 にする
+    fn solid_color(&mut self, doc: &JwwDocument, entity: JwwEntity) -> JwwEntity {
+        match entity {
+            JwwEntity::Solid(solid) if solid.base.pen_color == 10 => {
+                self.solid_colors += 1;
+                let custom = doc.pen_color(&solid.base, solid.color);
+                let pen_color = doc.nearest_pen_color(custom.as_deref());
+                JwwEntity::Solid(JwwSolid { base: JwwBase { pen_color, ..solid.base }, color: None, ..solid })
+            }
+            other => other,
+        }
     }
 
     fn report(&self, notices: &mut NoticeList) {
@@ -489,6 +507,11 @@ impl Older {
                 self.circle_solids,
                 "circle-solid",
                 "版 230 より前の JWW は円のソリッドを持たないため、三角形のソリッドに分けました",
+            ),
+            (
+                self.solid_colors,
+                "solid-color",
+                "版 230 より前の JWW はソリッドの任意色を持たないため、画面色が最も近い線色にしました",
             ),
             (
                 self.block_names,

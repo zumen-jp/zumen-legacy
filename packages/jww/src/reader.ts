@@ -474,9 +474,14 @@ interface DisplaySettings {
   widthUnit: JwwDocument["widthUnit"];
 }
 
-/** レイヤ名の後の、画面色・線幅・線種の設定（版 300 以上） */
+/**
+ * レイヤ名の後の、画面色・線幅・線種の設定。版 300 より前は天空図（16 バイト）、マークジャンプ 5〜8 とジャンプの
+ * レイヤグループ（ジャンプは 24 バイトが 4 つ）、文字の描画状態（56 バイト）がない（jwdatafmt.txt の注記）
+ */
 function readDisplaySettings(reader: Reader, version: number, maxDrawWidth: number): DisplaySettings {
-  reader.skip(28 + 16 + 4 + 24 + 24 + 224 + 56 + 80 + 8);
+  // 日影、天空図、2.5D の単位、画面と範囲記憶の倍率・原点、マークジャンプ、文字の描画状態、複線の間隔と留線出
+  const [sky, jumps, text]: [number, number, number] = version >= 300 ? [16, 8 * 28, 56] : [0, 4 * 24, 0];
+  reader.skip(28 + sky + 4 + 24 + 24 + jumps + text + 80 + 8);
   const penColors: string[] = [];
   for (let i = 0; i < 10; i++) {
     penColors.push(colorref(reader.u32()));
@@ -568,17 +573,15 @@ export function readJww(bytes: Uint8Array): JwwDocument {
     groups.push({ name: "", state, scale, layers });
   }
   let settings: DisplaySettings | null = null;
-  if (version >= 300) {
-    try {
-      reader.skip((14 + 5 + 1) * 4);
-      const maxDrawWidth = reader.i32();
-      reader.skip(16 + 8 + 4 + 4 + 8 + 16 + 16);
-      for (const group of groups) for (const layer of group.layers) layer.name = reader.cstring();
-      for (const group of groups) group.name = reader.cstring();
-      settings = readDisplaySettings(reader, version, maxDrawWidth);
-    } catch {
-      settings = null;
-    }
+  try {
+    reader.skip((14 + 5 + 1) * 4);
+    const maxDrawWidth = reader.i32();
+    reader.skip(16 + 8 + 4 + 4 + 8 + 16 + 16);
+    for (const group of groups) for (const layer of group.layers) layer.name = reader.cstring();
+    for (const group of groups) group.name = reader.cstring();
+    settings = readDisplaySettings(reader, version, maxDrawWidth);
+  } catch {
+    settings = null;
   }
   groups.forEach((group, g) => {
     if (!group.name) group.name = `グループ ${g.toString(16).toUpperCase()}`;

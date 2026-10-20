@@ -387,8 +387,16 @@ fn fits_what_older_versions_cannot_hold() {
     )));
     let written = write_jww(&doc);
     let codes: Vec<&str> = written.notices.iter().map(|notice| notice.code.as_str()).collect();
-    assert_eq!(codes, ["entity-width", "point-symbol", "circle-solid", "block-name", "embedded-image"]);
+    assert_eq!(codes, ["entity-width", "point-symbol", "circle-solid", "solid-color", "block-name", "embedded-image"]);
     let read = read_jww(&written.bytes).unwrap();
+    // 任意色（線色 10、#ff8000）のソリッドは、画面色が最も近い線色にする
+    assert!(read.entities.iter().all(|entity| entity.base().pen_color != 10));
+    let colors: Vec<u16> = read
+        .entities
+        .iter()
+        .filter_map(|entity| if let JwwEntity::Solid(solid) = entity { Some(solid.base.pen_color) } else { None })
+        .collect();
+    assert_eq!(colors[0], doc.nearest_pen_color(Some("#ff8000")));
     // 円のソリッド（90° の扇形）は、中心からの三角形のソリッドに分ける
     let solids = read.entities.iter().filter(|entity| matches!(entity, JwwEntity::Solid(_))).count();
     assert_eq!(solids, 2 + 8);
@@ -396,4 +404,9 @@ fn fits_what_older_versions_cannot_hold() {
     // 記号の点はふつうの点に、ブロック名は複合図形の種別を除く
     assert!(read.entities.iter().all(|entity| entity.base().pen_style != 100));
     assert_eq!(read.blocks[1].name, "小部品");
+    // 版 300 より前も、レイヤグループ・レイヤの名前と状態、線色、線幅、線種を読む
+    assert_eq!(read.groups, doc.groups);
+    assert_eq!((&read.pen_colors, &read.pen_widths), (&doc.pen_colors, &doc.pen_widths));
+    assert!(read.line_types.range(..30).eq(doc.line_types.range(..30)));
+    assert!(read.line_types.contains_key(&2) && !read.line_types.contains_key(&31));
 }

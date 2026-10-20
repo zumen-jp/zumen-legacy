@@ -38,12 +38,13 @@ fn assert_same_bytes(name: &str, bytes: &[u8]) {
 
 #[test]
 fn rewrites_the_fixtures_byte_for_byte() {
-    for name in ["minimal-v600.jww", "minimal-v700.jww"] {
+    for (name, version) in [("minimal-v200.jww", 200), ("minimal-v600.jww", 600), ("minimal-v700.jww", 700)] {
         assert_same_bytes(name, &fixture(name));
-        // fixtures は文字の設定の欄を持たない（その前までは型つき）
+        // fixtures は文字の設定の欄を持たない（その前までは型つき。SXF の欄は版 420 から）
         let header = JwwFile::read(&fixture(name)).unwrap().header;
         let settings = header.settings.as_ref().unwrap();
-        assert!(settings.sxf.is_some() && settings.text.is_none() && header.rest.is_empty(), "{name}");
+        assert!(settings.display.is_some() && settings.text.is_none() && header.rest.is_empty(), "{name}");
+        assert_eq!(settings.sxf.is_some(), version >= 420, "{name}");
     }
 }
 

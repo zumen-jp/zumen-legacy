@@ -86,7 +86,8 @@ export function build(version: number): Uint8Array {
   w.zeros(72);
   for (let i = 0; i < 256; i++) w.cstring(i === 0 ? "通り芯" : "");
   for (let g = 0; g < 16; g++) w.cstring(g === 0 ? "平面" : "");
-  w.zeros(464);
+  // 日影から複線まで。版 300 より前は天空図、マークジャンプ 5〜8 とジャンプのレイヤグループ、文字の描画状態がない
+  w.zeros(version >= 300 ? 464 : 264);
   const screen = [0xffffff, 0xc0c000, 0x000000, 0x00c000, 0x00c0c0, 0xc000c0, 0xff0000, 0x808000, 0x8000ff, 0xc0c0c0];
   for (const color of screen) {
     w.u32(color);
@@ -103,17 +104,23 @@ export function build(version: number): Uint8Array {
   w.u32(1);
   w.u32(32);
   w.zeros(7 * 16 + 5 * 20 + 4 * 16);
-  w.zeros(11 * 4 + 20 + 40 + 32 + 8);
-  for (let i = 0; i < 257; i++) w.zeros(8);
-  for (let i = 0; i < 257; i++) {
-    w.cstring("");
-    w.zeros(16);
-  }
-  w.zeros(33 * 16);
-  for (let i = 0; i < 33; i++) {
-    w.cstring("");
-    w.u32(0);
-    w.zeros(80);
+  // 印刷の設定。作図時間と 2.5D の視点は版 223、最終値は 225、ソリッドの任意色は 230、SXF 対応の色と線種は 420 から
+  w.zeros(11 * 4);
+  if (version >= 223) w.zeros(20 + 40);
+  if (version >= 225) w.zeros(32);
+  if (version >= 230) w.zeros(8);
+  if (version >= 420) {
+    for (let i = 0; i < 257; i++) w.zeros(8);
+    for (let i = 0; i < 257; i++) {
+      w.cstring("");
+      w.zeros(16);
+    }
+    w.zeros(33 * 16);
+    for (let i = 0; i < 33; i++) {
+      w.cstring("");
+      w.u32(0);
+      w.zeros(80);
+    }
   }
   // 図形の一覧（クラス番号: CDataSen 1、CDataMoji 4、CDataEnko 6、CDataBlock 8、CDataList 11）
   w.u16(6);
