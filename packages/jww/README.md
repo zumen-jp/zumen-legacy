@@ -1,6 +1,7 @@
 # @zumenjs/jww
 
-Reads Jw_cad JWW drawings (versions 600 and 700) for [zumen](https://github.com/zumenjs/zumen).
+Reads Jw_cad JWW drawings for [zumen](https://github.com/zumenjs/zumen): every data version, with the fields of each
+version as Jw_cad's format description notes them (checked on drawings that Jw_cad saved in versions 6.00 and 7.00).
 Written in TypeScript without WebAssembly; works in browsers and Node.js.
 
 ```ts
@@ -12,5 +13,5 @@ const doc = readJww(bytes); // or keep the JWW document model
 ```
 
 How the format is handled is described in
-[docs/formats/jww.md](https://github.com/zumenjs/zumen/blob/main/docs/formats/jww.md) (Japanese).
+[docs/formats/jww.md](https://github.com/zumenjs/zumen/blob/main/docs/formats/jww.md).
 The file layout follows [ezjww](https://github.com/monozukuri-ai/ezjww) (MIT); see THIRD_PARTY_NOTICES.md.

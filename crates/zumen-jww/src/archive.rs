@@ -11,7 +11,8 @@ pub(crate) type Result<T> = std::result::Result<T, ReadError>;
 
 pub(crate) const END_OF_DATA: &str = "データが途中で終わっています";
 
-/// 文字列を UTF-16LE で書く版（Jw_cad 7 以降の Unicode の版）
+/// 新しい図面の文字列を UTF-16LE で書く版。Jw_cad 10.01 以降は版 700 の文字列を UTF-16LE で書き、それより前の
+/// Jw_cad は版 700 でも Shift_JIS で書く（読んだ図面は、その図面の書き方に合わせる）
 pub(crate) const UNICODE_VERSION: u32 = 700;
 
 /// 新しいクラスのタグ（wNewClassTag）
@@ -26,11 +27,13 @@ const BIG_CLASS_TAG: u32 = 0x8000_0000;
 pub(crate) struct Reader<'a> {
     bytes: &'a [u8],
     pos: usize,
+    /// 最初に読んだ CString が UTF-16LE だったか（読んでいなければ None）
+    pub(crate) unicode: Option<bool>,
 }
 
 impl<'a> Reader<'a> {
     pub(crate) fn new(bytes: &'a [u8], start: usize) -> Self {
-        Self { bytes, pos: start }
+        Self { bytes, pos: start, unicode: None }
     }
 
     pub(crate) fn pos(&self) -> usize {
@@ -77,7 +80,7 @@ impl<'a> Reader<'a> {
     }
 
     /// MFC の CString。長さは BYTE、0xFF なら WORD、0xFFFF なら DWORD。
-    /// WORD の 0xFFFE は Unicode の印で、その後に長さを改めて書き、本文は UTF-16LE（JWW 700）
+    /// WORD の 0xFFFE は Unicode の印で、その後に長さを改めて書き、本文は UTF-16LE（Jw_cad 10.01 以降の JWW 700）
     pub(crate) fn cstring(&mut self) -> Result<String> {
         self.cstring_span().map(|(text, _)| text)
     }
@@ -102,6 +105,7 @@ impl<'a> Reader<'a> {
                 length = self.u32()?;
             }
         }
+        self.unicode.get_or_insert(unicode);
         let size = if unicode { u64::from(length) * 2 } else { u64::from(length) };
         let slice = self.take(usize::try_from(size).map_err(|_| ReadError::new(END_OF_DATA))?)?;
         Ok((decode(slice, unicode), start..self.pos))
@@ -167,7 +171,7 @@ pub(crate) fn encode_cstring(text: &str, unicode: bool) -> (Vec<u8>, usize) {
 }
 
 /// Shift_JIS にする。表せない文字は ? にし、その数も返す
-fn encode_shift_jis(text: &str) -> (Vec<u8>, usize) {
+pub(crate) fn encode_shift_jis(text: &str) -> (Vec<u8>, usize) {
     let mut encoder = SHIFT_JIS.new_encoder();
     let mut out = Vec::with_capacity(text.len() * 2);
     let mut buffer = [0u8; 1024];
@@ -188,20 +192,27 @@ fn encode_shift_jis(text: &str) -> (Vec<u8>, usize) {
     }
 }
 
-/// 書く版で文字列を UTF-16LE にするか
+/// 新しい図面を、その版で書くときに文字列を UTF-16LE にするか
 pub(crate) fn unicode(version: u32) -> bool {
     version >= UNICODE_VERSION
 }
 
 pub(crate) struct Writer {
     pub(crate) bytes: Vec<u8>,
+    /// 文字列を UTF-16LE で書く（そうでなければ Shift_JIS）
+    pub(crate) unicode: bool,
     /// Shift_JIS で表せず ? にした文字の数
     pub(crate) replaced: usize,
 }
 
 impl Writer {
+    #[cfg(test)]
     pub(crate) fn new() -> Self {
-        Self { bytes: Vec::new(), replaced: 0 }
+        Self::with_unicode(false)
+    }
+
+    pub(crate) fn with_unicode(unicode: bool) -> Self {
+        Self { bytes: Vec::new(), unicode, replaced: 0 }
     }
 
     pub(crate) fn raw(&mut self, bytes: &[u8]) {
