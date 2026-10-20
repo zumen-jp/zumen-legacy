@@ -6,7 +6,7 @@
 use crate::bits::{Bits, Read};
 use crate::compress::{decompress_r18, decompress_r21, deinterleave};
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use zumen_core::{NoticeLevel, NoticeList};
 
 /// DWG の版（3.2.1）
@@ -392,22 +392,66 @@ fn r21_system_page(bytes: &[u8], offset: u64, compressed: u64, uncompressed: u64
     Some(decompress_r21(&data, 0, compressed, uncompressed))
 }
 
-struct Page21 {
-    offset: u64,
-    id: i64,
-    uncompressed: u64,
-    compressed: u64,
+/// 5.2 の節の表のページ
+#[derive(Debug, Clone)]
+pub(crate) struct Page21 {
+    /// 節の中の位置
+    pub offset: u64,
+    pub id: i64,
+    pub uncompressed: u64,
+    pub compressed: u64,
+    /// 伸長したデータの検査の値（5.4.1）と、圧縮したデータの CRC。読み取りは使わない（samples.rs で確かめる）
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub checksum: u64,
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub crc: u64,
 }
 
-struct Section21 {
-    size: u64,
-    encoding: u64,
-    pages: Vec<Page21>,
+/// 5.2 の節の表の節
+#[derive(Debug, Clone)]
+pub(crate) struct Section21 {
+    pub name: String,
+    pub size: u64,
+    /// ページの大きさ（伸長した後）
+    pub max_size: u64,
+    pub encryption: u64,
+    pub hash: u64,
+    /// 1 は Reed-Solomon の組を順に並べる、4 は交互に並べる（5.13）
+    pub encoding: u64,
+    pub pages: Vec<Page21>,
 }
 
-fn r2007_sections<'a>(bytes: &'a [u8], notices: &mut NoticeList) -> Result<Sections<'a>, String> {
+/// R2007 のファイルの頭のデータ（5.2）の値の位置（8 バイトずつ 34 個、0x110 バイト）
+pub(crate) mod r21 {
+    pub const PAGES_MAP_FACTOR: usize = 3;
+    pub const PAGES_MAP_OFFSET: usize = 7;
+    pub const PAGES_MAP_SIZE_COMPRESSED: usize = 10;
+    pub const PAGES_MAP_SIZE_UNCOMPRESSED: usize = 11;
+    pub const SECTIONS_MAP_SIZE_COMPRESSED: usize = 22;
+    pub const SECTIONS_MAP_ID: usize = 24;
+    pub const SECTIONS_MAP_SIZE_UNCOMPRESSED: usize = 25;
+    pub const SECTIONS_MAP_FACTOR: usize = 27;
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub const HEADER2_OFFSET: usize = 9;
+    pub const RANDOM_SEED: usize = 32;
+    pub const FIELDS: usize = 34;
+}
+
+/// R2007 の入れ物を開いたところ。ファイルの頭（5.2）、ページの表と節の表
+pub(crate) struct R2007Container<'a> {
+    bytes: &'a [u8],
+    /// ファイルの頭のデータの値
+    pub header: [u64; r21::FIELDS],
+    /// ページの番号 → (0x480 からの位置, 大きさ)
+    pages: HashMap<i64, (u64, u64)>,
+    /// 節の表に並ぶ順の節（名前のあるもの）
+    pub sections: Vec<Section21>,
+}
+
+/// 0x80 からの 0x400 バイトのページ（5.2）を解いた 3 × 239 バイトと、伸長したファイルの頭のデータ（0x110 バイト）
+pub(crate) fn r2007_file_header(bytes: &[u8]) -> Result<(Vec<u8>, Vec<u8>), String> {
     let broken = || "DWG（AutoCAD 2007）のページの表が読めません".to_string();
-    // 0x80 からの 0x400 バイトのうち、0x3D8 バイトが Reed-Solomon（255, 239）の 3 つの組（5.2）
+    // 0x80 からの 0x400 バイトのうち、初めの 3 × 255 バイトが Reed-Solomon（255, 239）の 3 つの組
     let encoded = bytes.get(0x80..0x80 + 0x3d8).ok_or_else(broken)?;
     let decoded = deinterleave(encoded, 3, 239, 3 * 239);
     let mut reader = Bits::new(&decoded);
@@ -418,109 +462,130 @@ fn r2007_sections<'a>(bytes: &'a [u8], notices: &mut NoticeList) -> Result<Secti
     } else {
         decompress_r21(&decoded, 32, length as usize, 0x110)
     };
-    let mut reader = Bits::new(&header);
-    let mut values = [0u64; 34];
-    for value in &mut values {
-        *value = reader.rll().map_err(|_| broken())?;
-    }
-    let [
-        _header_size,
-        _file_size,
-        _pages_crc,
-        pages_factor,
-        _pages_seed,
-        _pages2_offset,
-        _pages2_id,
-        pages_offset,
-        _pages_id,
-        _header2_offset,
-        pages_compressed,
-        pages_uncompressed,
-        _pages_amount,
-        _pages_max_id,
-        _x20,
-        _x40,
-        _pages_crc_uncompressed,
-        _xf800,
-        _x4,
-        _x1,
-        _sections_amount,
-        _sections_crc_uncompressed,
-        sections_compressed,
-        _sections2_id,
-        sections_id,
-        sections_uncompressed,
-        _sections_crc_compressed,
-        sections_factor,
-        ..,
-    ] = values;
+    Ok((decoded, header))
+}
 
-    // ページの表: 大きさと番号の組。位置は大きさを足していく
-    let page_map =
-        r21_system_page(bytes, pages_offset, pages_compressed, pages_uncompressed, pages_factor).ok_or_else(broken)?;
-    let mut pages: HashMap<i64, (u64, u64)> = HashMap::new();
-    let mut reader = Bits::new(&page_map);
-    let mut offset = 0u64;
-    while reader.remaining() >= 128 {
-        let (Ok(size), Ok(id)) = (reader.rll(), reader.rll()) else { break };
-        pages.entry((id as i64).wrapping_abs()).or_insert((offset, size));
-        offset = offset.saturating_add(size);
-    }
-
-    // 節の表（5.2 の Section Map）
-    let &(map_offset, _) = pages.get(&(sections_id as i64)).ok_or_else(broken)?;
-    let section_map = r21_system_page(bytes, map_offset, sections_compressed, sections_uncompressed, sections_factor)
-        .ok_or_else(broken)?;
-    let mut sections: HashMap<String, Section21> = HashMap::new();
-    let mut reader = Bits::new(&section_map);
-    while reader.remaining() >= 64 * 8 {
-        let Ok((name, section)) = (|| -> Read<(String, Section21)> {
-            let size = reader.rll()?;
-            let _max_size = reader.rll()?;
-            let _encryption = reader.rll()?;
-            let _hash = reader.rll()?;
-            let name_length = reader.rll()?;
-            let _unknown = reader.rll()?;
-            let encoding = reader.rll()?;
-            let page_count = reader.rll()?;
-            // 名前の長さはバイトの数（終わりの 2 バイトの 0 を含む）。仕様は文字の数と書くが、ACadSharp と同じく
-            // バイトの数として読むと、続くページの値が揃う
-            let mut name = String::new();
-            if name_length > 0 {
-                let units: Vec<u16> = reader
-                    .bytes(name_length.min(512) as usize)?
-                    .as_chunks::<2>()
-                    .0
-                    .iter()
-                    .map(|pair| u16::from_le_bytes(*pair))
-                    .take_while(|unit| *unit != 0)
-                    .collect();
-                name = String::from_utf16_lossy(&units);
-            }
-            let mut pages = Vec::new();
-            for _ in 0..page_count.min(1 << 20) {
-                let offset = reader.rll()?;
-                let _size = reader.rll()?;
-                let id = reader.rll()? as i64;
-                let uncompressed = reader.rll()?;
-                let compressed = reader.rll()?;
-                let _checksum = reader.rll()?;
-                let _crc = reader.rll()?;
-                pages.push(Page21 { offset, id, uncompressed, compressed });
-            }
-            Ok((name, Section21 { size, encoding, pages }))
-        })() else {
-            break;
-        };
-        if !name.is_empty() {
-            sections.entry(name).or_insert(section);
+impl<'a> R2007Container<'a> {
+    pub fn open(bytes: &'a [u8]) -> Result<Self, String> {
+        let broken = || "DWG（AutoCAD 2007）のページの表が読めません".to_string();
+        let (_, data) = r2007_file_header(bytes)?;
+        let mut reader = Bits::new(&data);
+        let mut header = [0u64; r21::FIELDS];
+        for value in &mut header {
+            *value = reader.rll().map_err(|_| broken())?;
         }
+
+        // ページの表: 大きさと番号の組。位置は大きさを足していく
+        let page_map = r21_system_page(
+            bytes,
+            header[r21::PAGES_MAP_OFFSET],
+            header[r21::PAGES_MAP_SIZE_COMPRESSED],
+            header[r21::PAGES_MAP_SIZE_UNCOMPRESSED],
+            header[r21::PAGES_MAP_FACTOR],
+        )
+        .ok_or_else(broken)?;
+        let mut pages: HashMap<i64, (u64, u64)> = HashMap::new();
+        let mut reader = Bits::new(&page_map);
+        let mut offset = 0u64;
+        while reader.remaining() >= 128 {
+            if zumen_core::limits::tick() {
+                return Err(broken());
+            }
+            let (Ok(size), Ok(id)) = (reader.rll(), reader.rll()) else { break };
+            pages.entry((id as i64).wrapping_abs()).or_insert((offset, size));
+            offset = offset.saturating_add(size);
+        }
+
+        // 節の表（5.2 の Section Map）
+        let &(map_offset, _) = pages.get(&(header[r21::SECTIONS_MAP_ID] as i64)).ok_or_else(broken)?;
+        let section_map = r21_system_page(
+            bytes,
+            map_offset,
+            header[r21::SECTIONS_MAP_SIZE_COMPRESSED],
+            header[r21::SECTIONS_MAP_SIZE_UNCOMPRESSED],
+            header[r21::SECTIONS_MAP_FACTOR],
+        )
+        .ok_or_else(broken)?;
+        let mut sections: Vec<Section21> = Vec::new();
+        let mut names = HashSet::new();
+        let mut reader = Bits::new(&section_map);
+        while reader.remaining() >= 64 * 8 {
+            if zumen_core::limits::tick() {
+                return Err(broken());
+            }
+            let Ok(section) = (|| -> Read<Section21> {
+                let size = reader.rll()?;
+                let max_size = reader.rll()?;
+                let encryption = reader.rll()?;
+                let hash = reader.rll()?;
+                let name_length = reader.rll()?;
+                let _unknown = reader.rll()?;
+                let encoding = reader.rll()?;
+                let page_count = reader.rll()?;
+                // 名前の長さはバイトの数（終わりの 2 バイトの 0 を含む）。仕様は文字の数と書くが、ACadSharp と同じく
+                // バイトの数として読むと、続くページの値が揃う
+                let mut name = String::new();
+                if name_length > 0 {
+                    let units: Vec<u16> = reader
+                        .bytes(name_length.min(512) as usize)?
+                        .as_chunks::<2>()
+                        .0
+                        .iter()
+                        .map(|pair| u16::from_le_bytes(*pair))
+                        .take_while(|unit| *unit != 0)
+                        .collect();
+                    name = String::from_utf16_lossy(&units);
+                }
+                let mut pages = Vec::new();
+                for _ in 0..page_count.min(1 << 20) {
+                    if zumen_core::limits::tick() {
+                        break;
+                    }
+                    let offset = reader.rll()?;
+                    let _size = reader.rll()?;
+                    pages.push(Page21 {
+                        offset,
+                        id: reader.rll()? as i64,
+                        uncompressed: reader.rll()?,
+                        compressed: reader.rll()?,
+                        checksum: reader.rll()?,
+                        crc: reader.rll()?,
+                    });
+                }
+                Ok(Section21 { name, size, max_size, encryption, hash, encoding, pages })
+            })() else {
+                break;
+            };
+            if !section.name.is_empty() && names.insert(section.name.clone()) {
+                sections.push(section);
+            }
+        }
+        Ok(Self { bytes, header, pages, sections })
     }
 
-    let mut section = |name: &str| -> Option<Vec<u8>> {
-        let info = sections.get(name)?;
-        Some(r21_section(bytes, &pages, info, name, notices))
-    };
+    pub fn info(&self, name: &str) -> Option<&Section21> {
+        self.sections.iter().find(|section| section.name == name)
+    }
+
+    /// 名前の節を、ページを順に伸長してつなげる。ないなら None
+    pub fn section(&self, name: &str, notices: &mut NoticeList) -> Option<Vec<u8>> {
+        Some(self.data(self.info(name)?, notices))
+    }
+
+    pub fn data(&self, info: &Section21, notices: &mut NoticeList) -> Vec<u8> {
+        r21_section(self.bytes, &self.pages, info, &info.name, notices)
+    }
+
+    /// ページの番号のページの、ファイルの中の位置と大きさ
+    pub fn page(&self, id: i64) -> Option<(usize, usize)> {
+        let &(offset, size) = self.pages.get(&id)?;
+        Some((usize::try_from(offset.checked_add(0x480)?).ok()?, usize::try_from(size).ok()?))
+    }
+}
+
+fn r2007_sections<'a>(bytes: &'a [u8], notices: &mut NoticeList) -> Result<Sections<'a>, String> {
+    let container = R2007Container::open(bytes)?;
+    let mut section = |name: &str| container.section(name, notices);
     let missing = |name: &str| format!("DWG の節（{name}）が見つかりません");
     Ok(Sections {
         header: Cow::Owned(section("AcDb:Header").ok_or_else(|| missing("AcDb:Header"))?),
