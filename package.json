@@ -9,14 +9,15 @@
     "node": ">=24 <25"
   },
   "scripts": {
-    "build": "node scripts/clean.mjs && tsc -p packages/core/tsconfig.build.json && tsc -p packages/viewer/tsconfig.build.json && tsc -p packages/sxf/tsconfig.build.json && tsc -p packages/jww/tsconfig.build.json && tsc -p packages/dxf/tsconfig.build.json && tsc -p packages/dwg/tsconfig.build.json && tsc -p packages/react/tsconfig.build.json",
-    "check": "pnpm run lint && pnpm run wasm && pnpm run typecheck && pnpm test && pnpm audit && pnpm run build && pnpm run playground:build && pnpm run check:rust && pnpm run check:python",
+    "build": "node scripts/clean.mjs && tsc -p packages/core/tsconfig.build.json && tsc -p packages/viewer/tsconfig.build.json && tsc -p packages/sxf/tsconfig.build.json && tsc -p packages/jww/tsconfig.build.json && tsc -p packages/dxf/tsconfig.build.json && tsc -p packages/reader/tsconfig.build.json && tsc -p packages/react/tsconfig.build.json",
+    "check": "pnpm run lint && pnpm run wasm && pnpm run typecheck && pnpm test && pnpm audit && pnpm run build && pnpm run playground:build && pnpm run check:rust && pnpm run check:scripts && pnpm run check:python",
+    "check:scripts": "cargo build -p zumen-cli && node --test scripts/tests/*.test.mjs",
     "check:python": "uv run --project bindings/python --frozen ruff check bindings/python && uv run --project bindings/python --frozen ruff format --check bindings/python && uv run --project bindings/python --frozen maturin develop --uv -m bindings/python/Cargo.toml && uv run --project bindings/python --frozen pytest bindings/python/tests -q",
     "check:rust": "cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace --exclude zumen-python && cargo build -p zumen-wasm --target wasm32-unknown-unknown --release",
     "dev": "node scripts/wasm.mjs && vite",
     "format": "biome check --write .",
     "fuzz": "node --max-old-space-size=8192 scripts/fuzz-parity.mjs",
-    "golden": "UPDATE_GOLDEN=1 vitest run --project node",
+    "golden": "node scripts/golden.mjs",
     "lint": "biome check .",
     "parity": "node scripts/parity.mjs",
     "playground:build": "vite build --outDir ../playground-dist --emptyOutDir",
@@ -27,7 +28,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
     "@zumenjs/core": "workspace:*",
-    "@zumenjs/dwg": "workspace:*",
+    "@zumenjs/reader": "workspace:*",
     "@zumenjs/dxf": "workspace:*",
     "@zumenjs/jww": "workspace:*",
     "@zumenjs/react": "workspace:*",

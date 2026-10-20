@@ -258,7 +258,7 @@ impl Editor {
             *sharing.entry(*item).or_default() += 1;
         }
         let largest = index.keys().copied().max().unwrap_or(0);
-        let seed = tables.handseed.max(largest + 1);
+        let seed = tables.handseed.max(largest.saturating_add(1));
         let mut editor = Self {
             version,
             encoding,
@@ -356,9 +356,13 @@ impl Editor {
 
     /// 新しいハンドル。$HANDSEED をその場で書き換える図面は、元の値のバイトの数に収まる間だけ振れる
     fn next_handle(&mut self, index: usize) -> Result<u64, EditError> {
+        let next = self
+            .seed
+            .checked_add(1)
+            .ok_or_else(|| EditError::at(index, "handle-exhausted", "DWG に追加する図形のハンドルを確保できません"))?;
         if let HeaderForm::Patch { at } = self.header {
             let bytes = (at.1.saturating_sub(at.0) / 8).saturating_sub(1);
-            if bytes < 8 && (self.seed + 1) >> (bytes * 8) != 0 {
+            if bytes < 8 && next >> (bytes * 8) != 0 {
                 return Err(EditError::at(
                     index,
                     "unreadable",
@@ -367,7 +371,7 @@ impl Editor {
             }
         }
         let handle = self.seed;
-        self.seed += 1;
+        self.seed = next;
         self.seed_used = true;
         Ok(handle)
     }

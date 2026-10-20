@@ -330,6 +330,10 @@ fn open_r2004(bytes: &[u8], version: Version, notices: &mut NoticeList) -> Resul
         if info.size >= MAX_SECTION_BYTES as u64 {
             return Err(format!("DWG の節 {} が大きすぎるため、書き直せません", info.name));
         }
+        // ODA section map: reject untrusted page sizes before padding or allocating a page.
+        if info.max_size > MAX_SECTION_BYTES {
+            return Err(format!("DWG の節 {} のページが大きすぎるため、書き直せません", info.name));
+        }
         let mut data = container.data(info, notices);
         // 0 だけのページは書かれていない（4.5）。ページのない節も、節の大きさの 0 として写す
         data.resize(info.size as usize, 0);
@@ -424,6 +428,10 @@ fn open_r2007(bytes: &[u8], notices: &mut NoticeList) -> Result<Source, String> 
         }
         if info.encryption == 1 {
             return Err(format!("DWG の節 {} は暗号化されているため、書き直せません", info.name));
+        }
+        // ODA section map: reject untrusted page sizes before padding or allocating a page.
+        if info.max_size > MAX_SECTION_BYTES as u64 {
+            return Err(format!("DWG の節 {} のページが大きすぎるため、書き直せません", info.name));
         }
         let mut data = container.data(info, notices);
         data.resize(info.size as usize, 0);
@@ -599,5 +607,47 @@ mod tests {
             }
             assert!(start.elapsed().as_secs() < 5, "round {round} took too long");
         }
+    }
+    #[test]
+    fn an_unbounded_page_size_is_refused_before_rewriting() {
+        let mut head = [0; 0x80];
+        head[..6].copy_from_slice(b"AC1032");
+        // An empty section lets us build a malformed section map without allocating its declared page.
+        let bytes = container::write_r2004(&R2004 {
+            head,
+            sections: vec![DataSection {
+                name: "AcDb:Header".into(),
+                data: Vec::new(),
+                page_size: u32::MAX as usize,
+                compressed: false,
+                encrypted: 0,
+                preview_base: None,
+                keep_zero_pages: false,
+            }],
+            stream_order: vec![0],
+        });
+        let error = rewrite_dwg(&bytes).unwrap_err();
+        assert!(error.contains("ページが大きすぎる"), "{error}");
+    }
+    #[test]
+    fn an_unbounded_r2007_page_size_is_refused_before_rewriting() {
+        let mut head = [0; 0x80];
+        head[..6].copy_from_slice(b"AC1021");
+        let bytes = write_r2007(&R2007 {
+            head,
+            sections: vec![DataSection21 {
+                name: "AcDb:Header".into(),
+                data: Vec::new(),
+                max_size: usize::MAX,
+                encryption: 0,
+                hash: 0,
+                encoding: 4,
+                preview_base: None,
+            }],
+            stream_order: vec![0],
+            random_seed: 0,
+        });
+        let error = rewrite_dwg(&bytes).unwrap_err();
+        assert!(error.contains("ページが大きすぎる"), "{error}");
     }
 }

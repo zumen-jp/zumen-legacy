@@ -524,7 +524,7 @@ impl<'a> Mapper<'a> {
             JwwEntity::Solid(e) => {
                 let look = self.look(&e.base, frame, e.color);
                 let p = |i: usize| xyz(frame.point(e.points[i * 2], e.points[i * 2 + 1]));
-                // JWW の四角形は 始点 → 第 2 点 → 第 3 点 → 終点。SOLID は 1 → 2 → 4 → 3 の順に塗る
+                // points は輪郭順。DXF Reference「SOLID」の頂点は 1 → 2 → 4 → 3 の順に塗る。
                 let data =
                     DxfEntityData::Solid { vtx0: p(0), vtx1: p(1), vtx2: p(3), vtx3: p(2), invisible_edges: None };
                 self.out.add(&frame.space, &look, "SOLID", data, &source);

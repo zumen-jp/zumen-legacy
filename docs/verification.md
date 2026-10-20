@@ -2,6 +2,38 @@
 
 Sample drawings are not part of this repository, because their terms of use do not allow redistribution or have not been confirmed.
 
+## Windows native verification
+
+Checked on 2026-10-20 with Windows 11, PowerShell 7, Node.js 24.21.0, Rust 1.99.0 MSVC,
+wasm-bindgen 0.2.129, Python 3.14.8 and Jw_cad 10.3.6. Samples and exported drawings stayed outside the repository.
+
+- `pnpm run check` passes, including Chromium, native Rust, WebAssembly and Python. The Python suite reports
+  42 passed and one skip: this account cannot create symlinks. Its separate directory-junction containment test
+  passes without enabling Developer Mode. A conversion test now compares viewport scale ratios with a relative
+  tolerance of 1e-12: MSVC's `hypot` differed by one ULP for equal X and Y scales.
+- The release `cp310-abi3-win_amd64` wheel installs into a fresh virtual environment in a Japanese path with spaces.
+  The installed extension imports, reads a Japanese drawing filename, returns the same JSON as reading its bytes,
+  and renders PNG outside the source tree.
+- All 15 JWW samples bundled with Jw_cad give the same scenes in TypeScript and native Rust. Script tests also
+  run a copied CLI from a Japanese path, compare every DXF view, and require missing executables, malformed drawings
+  and zero comparisons to fail instead of silently passing.
+- The installed MS Gothic and MS Mincho fonts are exercised in Chromium with Japanese text, half-width katakana,
+  punctuation, vertical writing and 30-degree rotation. Tests check visible glyph pixels and hit areas. They use the
+  normal fallback families on systems without those fonts; they do not prove identical platform font metrics.
+- Jw_cad's bundled apartment plan (1,754 entities) exposed crossed rectangular wall solids in both readers.
+  Preserving the JWW serialized boundary order fixes them in the playground and in the DXF opened by Jw_cad.
+  Synthetic rectangles, skewed quadrilaterals and triangles in versions 600 and 700 pin the rule in both readers.
+- Exporting that plan to SFC initially lost strokes using predefined widths when opened in Jw_cad. Its own SFC
+  export declares those widths; adding the declarations restores the walls, arcs and fills. Re-saving the imported
+  drawing as JWW preserves all 215 arcs/circles/ellipses, 56 texts and 10 points. Jw_cad expands the hatches into
+  many lines (509,215 scene entities after import), so raw entity counts cannot be used as a round-trip oracle.
+  The writer regression explicitly checks the declarations, since our own reader accepts the missing declarations.
+
+Limits: Jw_cad imports the DXF model at its chosen scale (1:50 here) and maps some cyan truecolor entities to yellow;
+this is not a successful paper-layout or color-fidelity check. SFC retains the sheet appearance but its hatch
+expansion makes editing expensive. AutoCAD was not installed, so native DWG/DXF rendering and AutoCAD round trips
+remain unverified. No claim of pixel-identical text or complete CAD interoperability follows from these checks.
+
 ## SXF and JWW
 
 Checked on 2026-10-18 on macOS (Apple Silicon), Node.js 24.21.0 and Chromium.
@@ -261,7 +293,7 @@ TypeScript DWG reader, so each DWG is compared with the DXF that AutoCAD wrote f
   - The three layouts give the same scenes in every version. Model space differs only in the ids of the three entities
     with new handles. Against binary DXF of 2004 and later, four MTEXT also differed, because the DXF reader kept their
     line feeds instead of breaking paragraphs (fixed since).
-  - The AC1014 (R14) file is refused with a message.
+  - At this stage AC1014 (R14) was refused; see the later R13/R14 verification below.
 - The Yokosuka City survey plan as DWG 2018 (0.4 MB, read locally), against the DXF of the same drawing used in
   [DXF](#dxf): all 9,260 entities equal those of the DXF value for value, including the Japanese layer names and texts,
   and so do the tables, except the index that DXF adds to two layers with a true color and the dimension style defaults
@@ -304,7 +336,7 @@ Chromium 152. Times are medians of seven runs after a warm-up.
   R2000 in `ANSI_932` and as R2018 in UTF-16, 3.3 and 3.7 KB) give the same scenes in model space and in `Layout1`
   through `@zumenjs/dwg` in Node.js (the golden files), natively (`crates/zumen/tests/golden.rs`) and in
   `scripts/wasm-check.mjs` with the other 31 fixtures. Reading before `initDwg` throws an error that names it, a failed
-  load is retried, `isDwg` agrees with the WebAssembly `detect` on every fixture and 11 short inputs, an R14 file
+  load is retried, `isDwg` agrees with the WebAssembly `detect` on every fixture and 11 short inputs, an unsupported version
   throws the reader's message, and point lists are `Float64Array`.
 - Size: the module (`packages/dwg/wasm/zumen_wasm_bg.wasm`, all four readers, no `wasm-opt`) is 1,560,473 bytes
   (gzip −9: 630,299, brotli −11: 493,835), and the JavaScript glue 8,483 bytes. `pnpm pack` of `@zumenjs/dwg` is
@@ -327,8 +359,8 @@ Chromium 152. Times are medians of seven runs after a warm-up.
 - In the playground: `sample_AC1032.dwg` in model space and in its three layouts, from the view menu and from
   `?view=Layout1`. In the `Layout1` viewport (1:1.442, inches), a line measures 57.6 mm on paper and 83.1 mm in real
   units, the same as in `sample_AC1032_ascii.dxf` at the same points. The Yokosuka plan (UTF-16, 15 layers with
-  Japanese names) in model space, where the left sheet frame measures 574.0 mm, as in its DXF. `sample_AC1014.dwg`
-  shows 「対応していない DWG の版です（AC1014、AutoCAD R13・R14）。R2000 以降の DWG を読めます」. A JWW opened after a
+  Japanese names) in model space, where the left sheet frame measures 574.0 mm, as in its DXF. At this stage `sample_AC1014.dwg`
+  showed 「対応していない DWG の版です（AC1014、AutoCAD R13・R14）。R2000 以降の DWG を読めます」. A JWW opened after a
   DWG reads as before.
 - The packed `@zumenjs/core` and `@zumenjs/dwg`, installed in a separate Vite app: `initDwg()` without an argument
   loads the module in the development server (from `node_modules`, after dependency pre-bundling) and in a build
@@ -336,6 +368,47 @@ Chromium 152. Times are medians of seven runs after a warm-up.
   in Node.js.
 - Not checked: Firefox and Safari, webpack and other bundlers, Web Workers, slow networks and devices, and pages with a
   Content Security Policy.
+
+## The readers in the browser
+
+Checked on 2026-10-20 on macOS (Apple M2 Pro) with Rust 1.99.0, Node.js 24.21.0, wasm-bindgen 0.2.129, Vite 8.3.4 and
+Chromium, for `@zumenjs/reader`. Times are the best of five runs in Node.js, each on a fresh copy of the bytes (the
+TypeScript DXF reader keeps the parsed document of a byte array it has seen).
+
+- Every fixture (33 drawings in `tests/fixtures`, SFC, P21, JWW, DXF and DWG) reads through WebAssembly into the scene
+  of its golden file (`packages/reader/tests/reader.test.ts`). `detectDrawing` returns what the WebAssembly `detect`
+  returns for every fixture and for edge cases: DWG version strings, DXF comments and BOM, the SXF `feature_mode`
+  description, P2Z and SFZ archives with upper-case, UTF-8 and Shift_JIS names, an archive comment, an archive without
+  SXF and a truncated one.
+- Local samples, WebAssembly against the TypeScript readers (all scenes the same by `compareScenes`):
+
+  | Drawing | Size | Entities | WebAssembly | TypeScript |
+  | --- | --- | --- | --- | --- |
+  | Yokosuka survey plan (DXF R2018) | 2,681 KB | 9,260 | 111 ms | 78 ms |
+  | AC1021 ASCII DXF sample | 2,571 KB | 208 | 13 ms | 18 ms |
+  | D0LS004Z (P21) | 1,387 KB | 1,201 | 31 ms | 62 ms |
+  | D0LS004Z (SFC) | 249 KB | 1,201 | 17 ms | 11 ms |
+  | Test6 (JWW) | 125 KB | 1,962 | 17 ms | 8 ms |
+  | Ａマンション平面例 (JWW) | 110 KB | 1,754 | 14 ms | 6 ms |
+  | Yokosuka survey plan (DWG) | 383 KB | 9,260 | 93 ms | — |
+  | farmhouse (DWG) | 1,884 KB | 25,873 | 414 ms | — |
+
+  `sceneFromJson` takes about a third of a read: 31 of 110 ms for the Yokosuka plan (8.7 MB of JSON), 6 of 17 ms for
+  Test6 and 137 of 403 ms for `farmhouse.dwg` (39.8 MB).
+- Limits: `maxBytes` and `maxEntities` throw a `LimitError` with `limit` set to `bytes` or `entities` and the message
+  of the Rust reader; within the limits the scene is the same as without them.
+- `ReaderWorker` in Chromium (`packages/reader/tests/worker.browser.test.ts`): the scene comes back with
+  `Float64Array` point lists; a read of a DXF of 50,000 lines (about 250 ms) with `timeout: 20` is rejected with a
+  `LimitError` (`time`) and the next read runs in a new worker; aborting a waiting read removes it and aborting the
+  running one terminates the worker; a module that fails to load rejects the read and the next read creates a new
+  worker.
+- A separate Vite 8.3.4 build of a page whose worker file only imports `@zumenjs/reader/worker` (the built packages,
+  not the sources): the build emits the worker chunk (8 KB) and the `.wasm`, and the page read `r2018.dwg` in the
+  worker.
+- Size: the module is 1,607,157 bytes (gzip −9: 655,787, brotli −11: 507,428).
+- The playground (`pnpm dev`) opened SFC, JWW and DWG samples through `@zumenjs/reader` with no console errors.
+- Not checked: Firefox and Safari, webpack and Turbopack builds of the worker, and reading drawings larger than
+  `farmhouse.dwg` in a worker.
 
 ## The 2D engine to embed
 
@@ -423,6 +496,50 @@ Checked on 2026-10-20 on macOS 27 (Apple Silicon) with Rust 1.99.0, Python 3.14.
   (2.7 MB) 27 ms, the 2.6 MB ASCII samples 10 to 11 ms, the 1.4 MB binary samples 44 to 45 ms.
 - Not checked: opening edited files in AutoCAD; the check on the Windows host with ODA File Converter and DWG TrueView
   is to come.
+
+## DXF versions
+
+Checked on 2026-10-20 on macOS 27 (Apple Silicon) with Rust 1.99.0, Python 3.14.8 and ezdxf 1.4.5.
+
+- Each of the 26 DXF and DWG drawings in `tests/fixtures` is written as DXF 2000, 2004, 2007, 2010 and 2018, read again
+  and compared in every view as in "DXF writing" (`crates/zumen/tests/convert.rs`). The only differences allowed are
+  the ones that each version reports in `notices`: in 2000 the colors (true colors become the nearest ACI) and the
+  ARC_DIMENSION and LARGE_RADIAL_DIMENSION, which are drawn through the INSERT of their block; before 2007 the
+  background fills of text (of MTEXT, and of the MTEXT in the block of a dimension with a text fill).
+- The same check on the 42 local DXF and DWG samples that zumen reads, in each version, finds no other difference
+  (`ZUMEN_SAMPLES=… cargo test -p zumen --release --test convert -- --ignored`, 198 scenes in each version). The
+  dimensions with a text fill in the ACadSharp samples of 2004 and later lose the fill in 2000 and 2004, with the
+  `version-background` notice.
+- ezdxf reads every fixture written in each version strictly (`ezdxf.readfile`) with the `$ACADVER` asked for, and its
+  audit finds only what `features.dxf` and `limits.dxf` pin on purpose (in 2000 without the wrong transparency, which is
+  left out); the Python tests check this. The 42 samples written as 2000, 2004, 2007, 2010, 2013 and 2018 read strictly
+  and the audit finds nothing.
+- Code pages: the Shift_JIS R12 fixture written as 2000 and 2004 is Shift_JIS with `$DWGCODEPAGE` ANSI_932, and as 2007
+  and later UTF-8; its texts read back the same. The drawings of Yokosuka City and Imizu City written as 2000 are
+  ANSI_932 without any `\U+XXXX`. `farmhouse.dwg`, whose texts have simplified Chinese, is written as ANSI_936, with
+  `\U+XXXX` only for the characters that GBK lacks (`²`, `®` and line separators). Unit tests pin the choice for
+  Japanese, simplified Chinese, Korean, Cyrillic, Greek and Central European texts and for declared code pages.
+- R12: each of the 26 fixtures is written as R12, read again with its original `$INSUNITS` added (R12 has no length
+  unit) and compared with the original in model space and in the current layout (`crates/zumen/tests/convert_r12.rs`).
+  Each entity is compared with the same entity or with the parts it was exploded into: lines, text (its place, size
+  and direction on the sheet) and points the same to 1e-9; fills by their even-odd area (within 1 %, as curves are
+  flattened for the largest scale at which a block is inserted) and box; hatch pattern lines inside the boundary;
+  ellipses and splines by their box. Multiline attributes and text in a vertical `@` font compare by their string, and
+  colors, line weights and dashes are not compared. The 42 local samples find no other difference
+  (`ZUMEN_SAMPLES=… cargo test -p zumen --release --test convert_r12 -- --ignored`). The R12 layout is compared with
+  the sheet scaled by the paper unit: the inch layout of `farmhouse.dwg`, which a reader of R12 takes as millimeters,
+  is flattened 25.4 times coarser through its viewports, so its curves and fills are compared within 10 %.
+- ezdxf reads every fixture and sample written as R12 strictly (AC1009); its audit finds nothing in the samples and, in
+  the fixtures, only what `features.dxf` and `limits.dxf` pin (without the transparency and the LEADER with one vertex,
+  which R12 does not keep). Unit tests check that R12 has no classes, objects, block records, subclass markers or
+  owner handles, that only entities have handles, and that viewports keep their view and frozen layers in `MVIEW`.
+- Reading: the layers frozen in an R12 viewport (`MVIEW`, 1003) are now hidden in it by both readers; the scene of
+  `r12.dxf` no longer draws the two entities of layer `WALL` through the viewport that freezes it, and the TypeScript and
+  Rust readers give the same scenes for the 68 R12 files written from the fixtures and samples (95 views, `pnpm run
+  parity`).
+- Not checked: opening the files in AutoCAD or other CAD programs of those versions, in particular R12 programs with
+  the non-ASCII names of layers and styles that zumen keeps, and how AutoCAD reads the two `\U+XXXX` of a character
+  outside the Basic Multilingual Plane.
 
 ## SXF and JWW to DXF
 
@@ -522,3 +639,10 @@ Checked on 2026-10-18 on macOS (Apple Silicon) with Rust 1.99.0, Node.js 24.21.0
   solids and hatches are drawn in the same places.
 - Not checked: Windows and Linux builds of the Python wheel (CI builds on Linux), free-threaded Python, fonts other
   than the bundled BIZ UDGothic (Mincho text is drawn in Gothic), and rendering of SXF and DXF scenes (not ported yet).
+
+## R13/R14 DWG review (2026-10-20)
+
+Generated R13 and R14 drawings match the equivalent R2000 model after excluding fields those versions do not store.
+Tests cover eight-byte EED layer handles, frozen layers in MVIEW and conversion of imperial paper limits to millimeters.
+The external DWG sample tests pass in release mode. In the `pnpm dev` playground, `sample_AC1014.dwg` displays 208 model
+entities on 9 layers and 15 entities in Layout1, with no browser console errors. Native R13 files remain unverified.

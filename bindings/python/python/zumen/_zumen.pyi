@@ -1,9 +1,9 @@
 import os
-from typing import Any, Literal, TypeAlias, TypedDict
+from typing import Any, Literal, TypedDict
 
 __version__: str
 
-Box: TypeAlias = tuple[float, float, float, float]
+type Box = tuple[float, float, float, float]
 
 class Placement(TypedDict):
     """Paper millimeters per original millimeter, and the conversion from paper to original coordinates."""
@@ -13,9 +13,9 @@ class Placement(TypedDict):
     scale_y: float
     inverse: tuple[float, float, float, float, float, float]
 
-Point: TypeAlias = tuple[float, float]
-PropertyValue: TypeAlias = float | str | bool | tuple[float, ...]
-LengthUnit: TypeAlias = Literal[
+type Point = tuple[float, float]
+type PropertyValue = float | str | bool | tuple[float, ...]
+type LengthUnit = Literal[
     "millimeter",
     "centimeter",
     "decimeter",
@@ -80,7 +80,7 @@ class TextPart(TypedDict):
 
 #: A shape drawn, in paper millimeters; ``real`` holds the same coordinates in real-world millimeters when the
 #: entity sits in a placement, and is None otherwise.
-Shape: TypeAlias = Polyline | Segments | Area | Dot | TextPart
+type Shape = Polyline | Segments | Area | Dot | TextPart
 
 class _Entity(TypedDict):
     id: str
@@ -324,7 +324,7 @@ def read(
     max_entities: int | None = None,
     timeout: float | None = None,
 ) -> Scene: ...
-def convert(data: bytes, to: str, *, format: str | None = None) -> Converted: ...
+def convert(data: bytes, to: str, *, format: str | None = None, version: str | None = None) -> Converted: ...
 
 class Edited:
     """An edited or new drawing, the ids of what was added and the notices about what was written differently."""

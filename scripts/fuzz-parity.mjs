@@ -1,4 +1,4 @@
-// TS の読み取り（packages/ のビルド結果）と WebAssembly の読み取り（packages/dwg/wasm）を、
+// TS の読み取り（packages/ のビルド結果）と WebAssembly の読み取り（packages/reader/wasm）を、
 // tests/fixtures の図面を無作為に壊した入力で比べる。壊れた図面でも、同じ Scene か同じエラーになることを確かめる。
 //
 //   pnpm run build && pnpm run wasm
@@ -18,10 +18,10 @@ import { readDrawing, sceneToJson } from "@zumenjs/core";
 import { dxf } from "@zumenjs/dxf";
 import { jww } from "@zumenjs/jww";
 import { sxf } from "@zumenjs/sxf";
-import { initSync, readSceneJson } from "../packages/dwg/wasm/zumen_wasm.js";
+import { initSync, readSceneJson } from "../packages/reader/wasm/zumen_wasm.js";
 import { compareScenes } from "./compare-scenes.mjs";
 
-initSync({ module: readFileSync(new URL("../packages/dwg/wasm/zumen_wasm_bg.wasm", import.meta.url)) });
+initSync({ module: readFileSync(new URL("../packages/reader/wasm/zumen_wasm_bg.wasm", import.meta.url)) });
 
 const [count = "2000", seed = "1", ...formats] = process.argv.slice(2);
 const fixtures = new URL("../tests/fixtures/", import.meta.url);

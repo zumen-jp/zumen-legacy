@@ -506,7 +506,9 @@ pub(crate) fn add_paper_layout(doc: &mut DxfDocument) {
         paper_height: 0.0,
         margins: [0.0, 0.0, 0.0, 0.0],
         paper_size: String::new(),
-        paper_units: 1.0,
+        // Inferred for pre-LAYOUT files: template MEASUREMENT (ODA section 24)
+        // selects the units of paper-space limits, as it does the drawing units.
+        paper_units: if doc.header.measurement == Some(0.0) { 0.0 } else { 1.0 },
         plot_rotation: 0.0,
         plot_scale: [1.0, 1.0],
         plot_origin: [0.0, 0.0],

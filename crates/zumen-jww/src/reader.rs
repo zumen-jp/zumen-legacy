@@ -2,13 +2,9 @@
 //! ヘッダの並びとクラスごとの値の並びは、Jw_cad の形式説明（jwdatafmt.txt）を読み解いた
 //! ezjww（MIT、https://github.com/monozukuri-ai/ezjww）の実装を参照した。`@zumenjs/jww` の reader.ts と同じ手順で読む。
 
-use encoding_rs::{SHIFT_JIS, UTF_16LE};
-use std::collections::{BTreeMap, HashMap};
+use crate::archive::{ReadTable, Reader, Result};
+use std::collections::BTreeMap;
 use zumen_core::ReadError;
-
-type Result<T> = std::result::Result<T, ReadError>;
-
-const END_OF_DATA: &str = "データが途中で終わっています";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct JwwBase {
@@ -197,94 +193,13 @@ pub struct JwwDocument {
     pub truncated: Option<String>,
 }
 
-struct Reader<'a> {
-    bytes: &'a [u8],
-    pos: usize,
-}
-
-impl<'a> Reader<'a> {
-    fn new(bytes: &'a [u8], start: usize) -> Self {
-        Self { bytes, pos: start }
-    }
-
-    fn remaining(&self) -> usize {
-        self.bytes.len().saturating_sub(self.pos)
-    }
-
-    fn take(&mut self, length: usize) -> Result<&'a [u8]> {
-        let end = self.pos.checked_add(length).filter(|end| *end <= self.bytes.len());
-        let end = end.ok_or_else(|| ReadError::new(END_OF_DATA))?;
-        let slice = &self.bytes[self.pos..end];
-        self.pos = end;
-        Ok(slice)
-    }
-
-    fn skip(&mut self, length: usize) -> Result<()> {
-        self.take(length).map(|_| ())
-    }
-
-    fn u8(&mut self) -> Result<u8> {
-        Ok(self.take(1)?[0])
-    }
-
-    fn u16(&mut self) -> Result<u16> {
-        let b = self.take(2)?;
-        Ok(u16::from_le_bytes([b[0], b[1]]))
-    }
-
-    fn u32(&mut self) -> Result<u32> {
-        let b = self.take(4)?;
-        Ok(u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-    }
-
-    fn i32(&mut self) -> Result<i32> {
-        Ok(self.u32()? as i32)
-    }
-
-    fn f64(&mut self) -> Result<f64> {
-        let b = self.take(8)?;
-        Ok(f64::from_le_bytes(b.try_into().expect("8 bytes")))
-    }
-
-    /// MFC の CString。長さは BYTE、0xFF なら WORD、0xFFFF なら DWORD。
-    /// WORD の 0xFFFE は Unicode の印で、その後に長さを改めて書き、本文は UTF-16LE（JWW 700）
-    fn cstring(&mut self) -> Result<String> {
-        let mut unicode = false;
-        let mut length = u32::from(self.u8()?);
-        if length == 0xff {
-            length = u32::from(self.u16()?);
-            if length == 0xfffe {
-                unicode = true;
-                length = u32::from(self.u8()?);
-                if length == 0xff {
-                    length = u32::from(self.u16()?);
-                    if length == 0xffff {
-                        length = self.u32()?;
-                    }
-                }
-            } else if length == 0xffff {
-                length = self.u32()?;
-            }
-        }
-        let size = if unicode { u64::from(length) * 2 } else { u64::from(length) };
-        let slice = self.take(usize::try_from(size).map_err(|_| ReadError::new(END_OF_DATA))?)?;
-        // TextDecoder と同じく、UTF-16LE は先頭の BOM を除き、Shift_JIS は WHATWG の規則で復号する
-        let text = if unicode {
-            UTF_16LE.decode_with_bom_removal(slice).0
-        } else {
-            SHIFT_JIS.decode_without_bom_handling(slice).0
-        };
-        Ok(text.trim_end_matches('\0').to_string())
-    }
-}
-
 /// COLORREF（0x00BBGGRR）を #rrggbb にする
 pub(crate) fn colorref(value: u32) -> String {
     format!("#{:02x}{:02x}{:02x}", value & 0xff, (value >> 8) & 0xff, (value >> 16) & 0xff)
 }
 
 /// 線種のビット列（下位 unit ビットが 1 周期）を、線分・空白の長さ（mm）にする
-fn pattern_segments(pattern: u32, unit: u32, printer_pitch: u32) -> Vec<f64> {
+pub(crate) fn pattern_segments(pattern: u32, unit: u32, printer_pitch: u32) -> Vec<f64> {
     if !(1..=32).contains(&unit) {
         return Vec::new();
     }
@@ -311,7 +226,7 @@ fn pattern_segments(pattern: u32, unit: u32, printer_pitch: u32) -> Vec<f64> {
     runs.into_iter().map(|run| f64::from(run) * scale).collect()
 }
 
-fn read_base(reader: &mut Reader<'_>, version: u32) -> Result<JwwBase> {
+pub(crate) fn read_base(reader: &mut Reader<'_>, version: u32) -> Result<JwwBase> {
     Ok(JwwBase {
         group: reader.u32()?,
         pen_style: reader.u8()?,
@@ -323,12 +238,12 @@ fn read_base(reader: &mut Reader<'_>, version: u32) -> Result<JwwBase> {
     })
 }
 
-fn read_line(reader: &mut Reader<'_>, version: u32) -> Result<JwwLine> {
+pub(crate) fn read_line(reader: &mut Reader<'_>, version: u32) -> Result<JwwLine> {
     let base = read_base(reader, version)?;
     Ok(JwwLine { base, x1: reader.f64()?, y1: reader.f64()?, x2: reader.f64()?, y2: reader.f64()? })
 }
 
-fn read_point(reader: &mut Reader<'_>, version: u32) -> Result<JwwPoint> {
+pub(crate) fn read_point(reader: &mut Reader<'_>, version: u32) -> Result<JwwPoint> {
     let base = read_base(reader, version)?;
     let x = reader.f64()?;
     let y = reader.f64()?;
@@ -340,7 +255,7 @@ fn read_point(reader: &mut Reader<'_>, version: u32) -> Result<JwwPoint> {
     Ok(JwwPoint { base, x, y, temporary, code, angle, scale })
 }
 
-fn read_text(reader: &mut Reader<'_>, version: u32) -> Result<JwwText> {
+pub(crate) fn read_text(reader: &mut Reader<'_>, version: u32) -> Result<JwwText> {
     let base = read_base(reader, version)?;
     Ok(JwwText {
         base,
@@ -358,7 +273,7 @@ fn read_text(reader: &mut Reader<'_>, version: u32) -> Result<JwwText> {
     })
 }
 
-fn read_entity_body(reader: &mut Reader<'_>, class_name: &str, version: u32) -> Result<JwwEntity> {
+pub(crate) fn read_entity_body(reader: &mut Reader<'_>, class_name: &str, version: u32) -> Result<JwwEntity> {
     match class_name {
         "CDataSen" => Ok(JwwEntity::Line(read_line(reader, version)?)),
         "CDataEnko" => {
@@ -399,9 +314,9 @@ fn read_entity_body(reader: &mut Reader<'_>, class_name: &str, version: u32) -> 
                     color,
                 }));
             }
-            // 値の並びは 始点・終点・第 2 点・第 3 点。四角形の順は 始点 → 第 2 点 → 第 3 点 → 終点
-            let [x1, y1, x4, y4, x2, y2, x3, y3] = values;
-            Ok(JwwEntity::Solid(JwwSolid { base, points: [x1, y1, x2, y2, x3, y3, x4, y4], color }))
+            // JWW 形式説明「ソリッドデータ」CDataSolid::Serialize の格納順で輪郭をたどる。
+            // メンバー名の点番号で並べ替えると矩形が交差する（Jw_cad で照合。docs/formats/jww.md）。
+            Ok(JwwEntity::Solid(JwwSolid { base, points: values, color }))
         }
         "CDataBlock" => {
             let base = read_base(reader, version)?;
@@ -436,79 +351,20 @@ fn read_entity_body(reader: &mut Reader<'_>, class_name: &str, version: u32) -> 
     }
 }
 
-/// CArchive のオブジェクトの表。クラスとオブジェクトは同じ通し番号（1 から）を使い、
-/// 図形の一覧・ブロック定義・ブロックの中の一覧で共有する
-struct ArchiveTable {
-    classes: HashMap<u32, String>,
-    next: u32,
-}
-
-impl ArchiveTable {
-    fn new() -> Self {
-        Self { classes: HashMap::new(), next: 1 }
-    }
-
-    fn register(&mut self, name: String) {
-        self.classes.insert(self.next, name);
-        self.next = self.next.wrapping_add(1);
-    }
-
-    fn resolve(&self, pid: u32) -> Option<&str> {
-        self.classes.get(&pid).map(String::as_str)
-    }
-
-    fn reserve(&mut self) {
-        self.next = self.next.wrapping_add(1);
-    }
-}
-
-/// オブジェクトの先頭のタグ。新しいクラスならクラス名、既知のクラスならその名前、空なら None
-fn read_class(reader: &mut Reader<'_>, table: &mut ArchiveTable) -> Result<Option<String>> {
-    let word = reader.u16()?;
-    if word == 0xffff {
-        reader.u16()?; // スキーマ（版）
-        let length = reader.u16()?;
-        let mut name = String::with_capacity(usize::from(length));
-        for _ in 0..length {
-            name.push(char::from(reader.u8()?));
-        }
-        table.register(name.clone());
-        return Ok(Some(name));
-    }
-    let tag = if word == 0x7fff { reader.u32()? } else { (u32::from(word & 0x8000) << 16) | u32::from(word & 0x7fff) };
-    if tag & 0x8000_0000 != 0 {
-        let pid = tag & 0x7fff_ffff;
-        if pid == 0 {
-            return Ok(None);
-        }
-        let name = table.resolve(pid).ok_or_else(|| ReadError::new(format!("未登録のクラス番号 {pid}")))?;
-        return Ok(Some(name.to_string()));
-    }
-    if tag == 0 {
-        return Ok(None);
-    }
-    Err(ReadError::new("既に読んだオブジェクトへの参照には対応していません"))
-}
-
-fn read_count(reader: &mut Reader<'_>) -> Result<u32> {
-    let word = reader.u16()?;
-    if word == 0xffff { reader.u32() } else { Ok(u32::from(word)) }
-}
-
 /// 図形の一覧を読む。途中で失敗しても、それまでに読んだ図形は out に残る
 fn read_entity_list(
     reader: &mut Reader<'_>,
     version: u32,
-    table: &mut ArchiveTable,
+    table: &mut ReadTable,
     out: &mut Vec<JwwEntity>,
 ) -> Result<()> {
-    let count = read_count(reader)?;
+    let count = reader.count()?;
     for _ in 0..count {
         // 読み取りの上限（zumen_core::limits）。途中でやめると後ろを読めないが、上限のエラーを返す
         if zumen_core::limits::tick() {
             break;
         }
-        let Some(class_name) = read_class(reader, table)? else {
+        let Some((class_name, _, _)) = table.read_class(reader)? else {
             continue;
         };
         out.push(read_entity_body(reader, &class_name, version)?);
@@ -518,7 +374,7 @@ fn read_entity_list(
 }
 
 /// 最初の図形クラス（FF FF・版・名前の長さ・"CData"）の直前にある件数の位置
-fn find_entity_list(bytes: &[u8]) -> Option<usize> {
+pub(crate) fn find_entity_list(bytes: &[u8]) -> Option<usize> {
     let mut i = 100;
     while i + 12 < bytes.len() {
         if bytes[i] != 0xff || bytes[i + 1] != 0xff {
@@ -670,15 +526,15 @@ pub fn is_jww(bytes: &[u8]) -> bool {
 fn read_blocks(
     body: &mut Reader<'_>,
     version: u32,
-    table: &mut ArchiveTable,
+    table: &mut ReadTable,
     blocks: &mut Vec<JwwBlockDefinition>,
 ) -> Result<()> {
     if body.remaining() < 2 {
         return Ok(());
     }
-    let count = read_count(body)?;
+    let count = body.count()?;
     for _ in 0..count.min(10_000) {
-        let Some(_class_name) = read_class(body, table)? else {
+        let Some(_) = table.read_class(body)? else {
             continue;
         };
         table.reserve();
@@ -750,7 +606,7 @@ pub fn read_jww(bytes: &[u8]) -> Result<JwwDocument> {
         return Ok(document);
     };
     let mut body = Reader::new(bytes, start);
-    let mut table = ArchiveTable::new();
+    let mut table = ReadTable::new();
     if let Err(error) = read_entity_list(&mut body, version, &mut table, &mut document.entities) {
         document.truncated = Some(error.message().to_string());
         return Ok(document);

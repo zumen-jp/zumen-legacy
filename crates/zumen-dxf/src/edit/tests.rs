@@ -327,7 +327,7 @@ fn writes_new_text_in_the_code_page_of_older_drawings() {
     let edited = edit(
         &bytes,
         r#"[
-            {"op": "add", "kind": "text", "position": [0, 5], "text": "確認済み Ā", "height": 2},
+            {"op": "add", "kind": "text", "position": [0, 5], "text": "確認済み Ā 😀", "height": 2},
             {"op": "add", "kind": "polyline", "vertices": [[0, 0], [1, 0]], "layer": "外構"}
         ]"#,
     )
@@ -340,7 +340,7 @@ fn writes_new_text_in_the_code_page_of_older_drawings() {
         "{:?} {ids:?}",
         edited.created
     );
-    let (expected, _, _) = encoding_rs::SHIFT_JIS.encode("確認済み \\U+0100");
+    let (expected, _, _) = encoding_rs::SHIFT_JIS.encode("確認済み \\U+0100 \\U+D83D\\U+DE00");
     assert!(edited.bytes.windows(expected.len()).any(|window| window == &*expected));
     // 改行は元の図面と同じ CRLF
     assert!(!edited.bytes.windows(2).any(|window| window[1] == b'\n' && window[0] != b'\r'));
@@ -354,7 +354,7 @@ fn writes_new_text_in_the_code_page_of_older_drawings() {
         })
         .collect();
     // 読み取りは \U+XXXX を文字に戻す
-    assert_eq!(texts, ["既存", "確認済み Ā"]);
+    assert_eq!(texts, ["既存", "確認済み Ā 😀"]);
     assert!(doc.entities.iter().any(|entity| entity.base.kind == "POLYLINE" && entity.base.layer == "外構"));
     assert!(doc.layers.iter().any(|layer| layer.name == "外構"));
 }
@@ -372,6 +372,9 @@ fn edits_binary_drawings_in_binary() {
     let line = doc.entities.last().unwrap();
     assert_eq!(line.base.layer, "外構");
     assert!(matches!(line.data, DxfEntityData::Line { end: [3.0, 4.0, 0.0], .. }));
+    let error = edit(&bytes, r#"[{"op":"add","kind":"text","position":[0,0],"height":1,"text":"before\u0000after"}]"#)
+        .unwrap_err();
+    assert_eq!((error.code, error.operation), ("invalid-value", Some(0)));
 }
 
 #[test]
@@ -407,4 +410,36 @@ fn chooses_entities_without_handles_by_their_place_in_the_file() {
     let ids: Vec<&str> = scene.entities.iter().map(|entity| entity.id.as_str()).collect();
     assert_eq!(ids, ["#2", "#3"]);
     assert_eq!(edited.created, ["#3"]);
+}
+
+#[test]
+fn reserves_handles_of_polyline_followers() {
+    let bytes = with_raw(
+        &drawing(""),
+        "0\nPOLYLINE\n5\nE0\n8\n0\n66\n1\n70\n0\n0\nVERTEX\n5\nF0\n8\n0\n10\n0\n20\n0\n0\nSEQEND\n5\nF1\n8\n0\n",
+    );
+    let edited = edit(&bytes, r#"[{"op":"add","kind":"point","position":[1,2]}]"#).unwrap();
+    assert_eq!(edited.created, ["F2"]);
+}
+
+#[test]
+fn exhausted_handles_are_an_error_without_overflow() {
+    let bytes = with_raw(&drawing(""), "0\nPOINT\n5\nFFFFFFFFFFFFFFFF\n8\n0\n10\n0\n20\n0\n");
+    assert_eq!(edit_dxf(&bytes, &[]).unwrap().bytes, bytes);
+    let error = edit(&bytes, r#"[{"op":"add","kind":"point","position":[1,2]}]"#).unwrap_err();
+    assert_eq!((error.code, error.operation), ("handle-exhausted", Some(0)));
+}
+
+#[test]
+fn changing_only_bulges_preserves_vertex_widths_and_ids() {
+    let bytes = with_raw(
+        &drawing(""),
+        "0\r\nLWPOLYLINE\r\n5\r\nFACE\r\n100\r\nAcDbEntity\r\n8\r\n0\r\n100\r\nAcDbPolyline\r\n90\r\n2\r\n70\r\n0\r\n10\r\n0\r\n20\r\n0\r\n40\r\n1\r\n41\r\n2\r\n91\r\n10\r\n10\r\n1\r\n20\r\n1\r\n40\r\n3\r\n41\r\n4\r\n91\r\n20\r\n",
+    );
+    let written = edit(&bytes, r#"[{"op":"update","id":"FACE","set":{"bulges":[0.5,0]}}]"#).unwrap();
+    let kept: Vec<_> =
+        entity_tags(&written.bytes, "FACE").into_iter().filter(|(code, _)| [40, 41, 91].contains(code)).collect();
+    let before: Vec<_> =
+        entity_tags(&bytes, "FACE").into_iter().filter(|(code, _)| [40, 41, 91].contains(code)).collect();
+    assert_eq!(kept, before);
 }

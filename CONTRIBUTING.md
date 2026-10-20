@@ -13,8 +13,8 @@ format, version, authoring software, and the notices the viewer shows.
 - Node.js from `.node-version` (24) and pnpm from `packageManager` in `package.json` (enable it with `corepack enable`).
 - Rust from `rust-toolchain.toml` (installed by rustup on first use) and [uv](https://docs.astral.sh/uv/) for the Python bindings.
 - wasm-bindgen-cli of the version of `wasm-bindgen` in `Cargo.lock`, which builds the WebAssembly reader of
-  `@zumenjs/dwg` (`cargo install wasm-bindgen-cli --locked --version 0.2.129`; `node scripts/wasm.mjs` prints the
-  command for the current version when it differs).
+  `@zumenjs/reader` (`node scripts/install-wasm-bindgen.mjs` installs the locked version; `node scripts/wasm.mjs`
+  prints the command for the current version when it differs).
 - Chromium for the tests of the engine and the React hooks, which run in a browser (`*.browser.test.*`):
   `pnpm exec playwright install --only-shell chromium` installs the headless shell of the Playwright version in
   `package.json`.
@@ -26,13 +26,49 @@ format, version, authoring software, and the notices the viewer shows.
   pnpm run check
   ```
 
-- Open the playground with `pnpm dev`, which first builds the WebAssembly reader into `packages/dwg/wasm`
+- Open the playground with `pnpm dev`, which first builds the WebAssembly reader into `packages/reader/wasm`
   (`scripts/wasm.mjs`; `pnpm test`, the type checker and the builds need it too). It listens on `127.0.0.1` at the
   `playground` port in
   [config/local-ports.json](config/local-ports.json) (24100); set `PORT` to override it.
   To open drawings that are not in Git, set `ZUMEN_SAMPLES` to their folder and visit `/?sample=<file name>`.
   Drawings are shown by the 2D sample (`playground/drawing-sample.tsx`), which uses only the public API of `@zumenjs/react` and
   `@zumenjs/viewer`.
+
+### Windows
+
+Use native PowerShell 7 and the MSVC Rust toolchain, with the C++ build tools and Windows SDK installed.
+Run the checks in Developer PowerShell so native dependencies can find MSVC. Keep Node, Rust and Python on the
+Windows side. The Node and Python versions are pinned in `.node-version` and `bindings/python/.python-version`.
+If Python is already managed locally, set `$env:UV_PYTHON_DOWNLOADS = "never"` to use that installation.
+
+```powershell
+pnpm install --frozen-lockfile
+node scripts/install-wasm-bindgen.mjs
+pnpm exec playwright install --only-shell chromium
+pnpm run check
+$env:ZUMEN_SAMPLES = "D:\zumen-samples"
+pnpm dev
+```
+
+`pnpm run golden` works in PowerShell as well as POSIX shells. For commands which explicitly require an environment
+variable, use `$env:ZUMEN_RECORD_IDS = "1"` (or `$env:UPDATE_GOLDEN = "1"`) before the command, and
+`Remove-Item Env:ZUMEN_RECORD_IDS` (or `Env:UPDATE_GOLDEN`) afterwards.
+`pnpm run parity` discovers the Cargo target directory and `.exe` suffix; `ZUMEN_BINARY` can select another CLI.
+A missing executable, failed parser, or input set with no comparable drawings fails the check.
+
+CI runs the full check on Linux and Windows. `check:scripts` exercises the native CLI with spaces and Japanese
+characters in its path. Python tests cover directory junctions without requiring Developer Mode; the separate
+symlink test skips only when Windows denies the symlink privilege. No system settings need to be changed.
+CI also builds a release wheel and installs it in a fresh virtual environment outside the checkout:
+
+```powershell
+uv run --project bindings/python --frozen maturin build --release -m bindings/python/Cargo.toml --out target/wheels
+node scripts/check-wheel.mjs
+```
+
+The wheel check expects exactly one wheel in `target/wheels`, and checks importing the installed extension, a
+Japanese file path, reading and PNG rendering. See [verification records](docs/verification.md#windows-native-verification)
+for the separate Jw_cad and font checks.
 
 ## How the code is organized
 

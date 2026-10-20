@@ -4,6 +4,14 @@ All packages share one version during 0.x.
 
 ## Unreleased (0.1.0)
 
+- `@zumenjs/reader` replaces `@zumenjs/dwg`: every format (SFC, P21, P2Z, SFZ, JWW, DXF and DWG) is read in browsers
+  and Node.js by the Rust readers built to WebAssembly. `initReader` loads the module, `reader` is the
+  `DrawingReader` for `readDrawing` and `useDrawing`, `detectDrawing` tells the format before the module loads, and
+  `createReader({ limits })` and `readScene` stop at `maxBytes` and `maxEntities` with a `LimitError` that names the
+  limit. `ReaderWorker` reads in a Web Worker (`@zumenjs/reader/worker`), stops it when `limits.timeout` passes or an
+  `AbortSignal` fires, and transfers the scene's point lists to the page. The playground reads with it. The TypeScript
+  readers `@zumenjs/sxf`, `@zumenjs/jww` and `@zumenjs/dxf` stay as the reference of the tests and will not be
+  published.
 - Rust, Python and the command line: edit drawings in place and create new ones
   ([decision 0012](docs/decisions/0012-edit-in-place-and-write-every-format.md)). The operations are the same for every
   format: `add`, `update` and `delete` entities, and `add-layer` and `update-layer`, with the kinds, ids and property
@@ -12,11 +20,33 @@ All packages share one version during 0.x.
   operation. DXF is done (R12 to 2018, ASCII and binary): `zumen_dxf::edit_dxf` keeps every tag that no operation
   changes byte for byte, so extended data, objects and unread entities stay. `zumen::edit` and `zumen::create`,
   `zumen.edit`, `zumen.create`, `Edited` and `EditError` in Python, and `zumen edit` and `zumen create`.
+- Rust, Python and the command line: write DXF R12 (AC1009), with `--target-version R12` or `version="R12"`. As
+  ezdxf's `r12export` does, what R12 lacks is reduced to R12 entities and reported in the notices: LWPOLYLINE becomes
+  POLYLINE, and ellipses, splines, MTEXT, hatches, leaders, multileaders and multilines become the lines, solids,
+  one-line texts and points that zumen draws for them (in an anonymous block when there are several). Only the current
+  layout is kept, and R12 has no length unit, line weights or TrueType font names.
+- DXF (TypeScript and Rust): the layers frozen in an R12 viewport (their names in the `MVIEW` extended data) are not
+  drawn in it.
+- Rust, Python and the command line: write DXF in a chosen version, AutoCAD 2000, 2004, 2007, 2010, 2013 or 2018
+  (`zumen_dxf::write_dxf_as`, `zumen::convert_with` with `WriteOptions`, `zumen.convert(..., version=...)`,
+  `zumen convert --target-version`). Versions before 2007 are written in the drawing's code page, or in the one that
+  holds most of its texts, with `\U+XXXX` for what it cannot hold. True colors, transparency, gradients, MTEXT
+  backgrounds and the newer dimension types that a version lacks are written in another form and reported in the
+  notices.
 - ST-Bridge left zumen: `@zumenjs/stb` and its notes moved to a private repository, because publishing an
   implementation of ST-Bridge needs a license from buildingSMART Japan. zumen keeps to formats that need no third
   party's permission and to dependencies with permissive licenses
   ([decision 0013](docs/decisions/0013-st-bridge-out-of-zumen.md)). The playground opens drawings only.
 
+- Python: `zumen` requires Python 3.12 or newer (`requires-python`, and `abi3-py312` for the wheels). The types of
+  `zumen.tools` are `typing.TypedDict`, which pydantic, and so the agent frameworks that build schemas with it, accepts
+  only from 3.12; 3.10 and 3.11 are not supported.
+- Python: wheels and an sdist of `zumen` from `.github/workflows/python-wheels.yml`, so that an application installs it
+  without a Rust toolchain. One abi3 wheel serves every Python from 3.12, for manylinux_2_28 (x86_64 and aarch64) and
+  macOS (arm64). Pull requests and `main` upload them as workflow artifacts after the tests of `bindings/python` ran
+  against each installed wheel on Python 3.12 and 3.14, and a pushed tag `v*` attaches them to a GitHub Release
+  ([docs/releasing.md](docs/releasing.md)). Nothing goes to PyPI until the license is decided. The wheels now hold the
+  license text of the bundled BIZ UDGothic (SIL OFL 1.1) in `dist-info/licenses`, which they lacked.
 - The length unit of a drawing: `Scene.unit`, one of `LENGTH_UNITS` (`LengthUnit` in Rust), is the unit of the
   drawing's own coordinates (the `raw` points and lengths of properties): `millimeter` in SXF and JWW, and in DXF and
   DWG the unit of `$INSUNITS` (`inch`, `meter`, …), or the one assumed with the `unit-assumed` notice. `Scene.unit` in

@@ -52,6 +52,10 @@ fn header(insunits: i16, mlinestyles: u64) -> Header {
 /// モデル空間の線・文字（CP932 の 2 バイト目が 0x5C の字）・複数行文字（改行）・配置・円弧・ポリライン・寸法と、
 /// レイアウト Layout1 の線。R14 は LAYOUT とその辞書を持たない（紙空間の図形は 1 つの紙空間に属する）
 fn drawing(version: Version) -> Vec<u8> {
+    drawing_with_measurement(version, 1)
+}
+
+fn drawing_with_measurement(version: Version, measurement: u16) -> Vec<u8> {
     let v = version;
     let model = place(LAYER_PLAN, 256, None);
     let model_entities = [0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47];
@@ -127,7 +131,7 @@ fn drawing(version: Version) -> Vec<u8> {
         objects.retain(|(handle, _)| ![0xd, 0x22, 0x23].contains(handle));
     }
     // 文字コード 38 は ANSI_932（Shift_JIS）
-    Drawing { version, codepage: 38, header: header(6, 0xe), objects, measurement: 1 }.bytes()
+    Drawing { version, codepage: 38, header: header(6, 0xe), objects, measurement }.bytes()
 }
 
 /// 同じ図面の DXF（R2000、ANSI_932）。グループコードと値を | で区切って並べる
@@ -280,34 +284,36 @@ fn a_drawing_reads_the_same_as_its_dxf() {
 /// 図面）は、同じ内容の R2000 の図面と同じに読める。R14 にない値（$INSUNITS、寸法の文字の配置と実測値、レイアウトの
 /// 用紙）は除いて比べ、紙空間の図形は 1 つのレイアウト（Layout1）にまとまる
 #[test]
-fn an_r14_drawing_reads_like_the_r2000_drawing() {
-    let mut r14 = zumen_dwg::read_dwg(&drawing(Version::R14)).unwrap();
-    let r2000 = zumen_dwg::read_dwg(&drawing(Version::R2000)).unwrap();
-    assert!(r14.notices.is_empty(), "{:?}", r14.notices);
-    assert_eq!(r14.version, "AC1014");
-    assert_eq!(r14.header.insunits, 0.0);
-    let layouts: Vec<(&str, &str)> =
-        r14.layouts.iter().map(|layout| (layout.name.as_str(), layout.block.as_str())).collect();
-    assert_eq!(layouts, [("Layout1", "*Paper_Space")]);
-    assert_eq!(r14.layouts[0].limmax, [420.0, 297.0]);
-    for (a, b) in r14.entities.iter_mut().zip(&r2000.entities) {
-        if let (DxfEntityData::Dimension(a), DxfEntityData::Dimension(b)) = (&mut a.data, &b.data) {
-            assert_eq!((a.attachment_point, a.actual_measurement), (None, None));
-            a.attachment_point = b.attachment_point;
-            a.actual_measurement = b.actual_measurement;
+fn r13_and_r14_drawings_read_like_the_r2000_drawing() {
+    for version in [Version::R13, Version::R14] {
+        let mut r14 = zumen_dwg::read_dwg(&drawing(version)).unwrap();
+        let r2000 = zumen_dwg::read_dwg(&drawing(Version::R2000)).unwrap();
+        assert!(r14.notices.is_empty(), "{:?}", r14.notices);
+        assert_eq!(r14.version, if version == Version::R13 { "AC1012" } else { "AC1014" });
+        assert_eq!(r14.header.insunits, 0.0);
+        let layouts: Vec<(&str, &str)> =
+            r14.layouts.iter().map(|layout| (layout.name.as_str(), layout.block.as_str())).collect();
+        assert_eq!(layouts, [("Layout1", "*Paper_Space")]);
+        assert_eq!(r14.layouts[0].limmax, [420.0, 297.0]);
+        for (a, b) in r14.entities.iter_mut().zip(&r2000.entities) {
+            if let (DxfEntityData::Dimension(a), DxfEntityData::Dimension(b)) = (&mut a.data, &b.data) {
+                assert_eq!((a.attachment_point, a.actual_measurement), (None, None));
+                a.attachment_point = b.attachment_point;
+                a.actual_measurement = b.actual_measurement;
+            }
         }
-    }
-    assert_eq!(format!("{:?}", r14.entities), format!("{:?}", r2000.entities));
-    assert_eq!(format!("{:?}", r14.layers), format!("{:?}", r2000.layers));
-    assert_eq!(format!("{:?}", r14.linetypes), format!("{:?}", r2000.linetypes));
-    assert_eq!(format!("{:?}", r14.styles), format!("{:?}", r2000.styles));
-    assert_eq!(format!("{:?}", r14.dimstyles), format!("{:?}", r2000.dimstyles));
-    assert_eq!(format!("{:?}", r14.blocks), format!("{:?}", r2000.blocks));
-    // 単位をそろえると、モデル空間とレイアウトの表示も同じになる
-    r14.header.insunits = r2000.header.insunits;
-    for view in [None, Some("Model")] {
-        let out = scene_differences(&r14, &r2000, view);
-        assert!(out.is_empty(), "{view:?}\n{}", out.join("\n"));
+        assert_eq!(format!("{:?}", r14.entities), format!("{:?}", r2000.entities));
+        assert_eq!(format!("{:?}", r14.layers), format!("{:?}", r2000.layers));
+        assert_eq!(format!("{:?}", r14.linetypes), format!("{:?}", r2000.linetypes));
+        assert_eq!(format!("{:?}", r14.styles), format!("{:?}", r2000.styles));
+        assert_eq!(format!("{:?}", r14.dimstyles), format!("{:?}", r2000.dimstyles));
+        assert_eq!(format!("{:?}", r14.blocks), format!("{:?}", r2000.blocks));
+        // 単位をそろえると、モデル空間とレイアウトの表示も同じになる
+        r14.header.insunits = r2000.header.insunits;
+        for view in [None, Some("Model")] {
+            let out = scene_differences(&r14, &r2000, view);
+            assert!(out.is_empty(), "{view:?}\n{}", out.join("\n"));
+        }
     }
 }
 
@@ -679,4 +685,14 @@ fn edits_block_references_with_attributes() {
         );
         assert_eq!(again.unwrap_err().code, "not-found", "{v:?}");
     }
+}
+
+#[test]
+fn imperial_r14_paper_limits_are_converted_to_millimeters() {
+    let doc = zumen_dwg::read_dwg(&drawing_with_measurement(Version::R14, 0)).unwrap();
+    assert_eq!(doc.layouts[0].paper_units, 0.0);
+    let scene = dxf_to_scene(&doc, Some("Layout1"));
+    let sheet = scene.sheet.unwrap();
+    assert!((sheet.width - 420.0 * 25.4).abs() < 1e-9);
+    assert!((sheet.height - 297.0 * 25.4).abs() < 1e-9);
 }
