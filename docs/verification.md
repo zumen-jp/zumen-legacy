@@ -497,6 +497,31 @@ Checked on 2026-10-20 on macOS 27 (Apple Silicon) with Rust 1.99.0, Python 3.14.
 - Not checked: opening edited files in AutoCAD; the check on the Windows host with ODA File Converter and DWG TrueView
   is to come.
 
+## DXF versions
+
+Checked on 2026-10-20 on macOS 27 (Apple Silicon) with Rust 1.99.0, Python 3.14.8 and ezdxf 1.4.5.
+
+- Each of the 26 DXF and DWG drawings in `tests/fixtures` is written as DXF 2000, 2004, 2007, 2010 and 2018, read again
+  and compared in every view as in "DXF writing" (`crates/zumen/tests/convert.rs`). The only differences allowed are
+  the ones that each version reports in `notices`: in 2000 the colors (true colors become the nearest ACI) and the
+  ARC_DIMENSION and LARGE_RADIAL_DIMENSION, which are drawn through the INSERT of their block; before 2007 the
+  background fills of text (of MTEXT, and of the MTEXT in the block of a dimension with a text fill).
+- The same check on the 42 local DXF and DWG samples that zumen reads, in each version, finds no other difference
+  (`ZUMEN_SAMPLES=… cargo test -p zumen --release --test convert -- --ignored`, 198 scenes in each version). The
+  dimensions with a text fill in the ACadSharp samples of 2004 and later lose the fill in 2000 and 2004, with the
+  `version-background` notice.
+- ezdxf reads every fixture written in each version strictly (`ezdxf.readfile`) with the `$ACADVER` asked for, and its
+  audit finds only what `features.dxf` and `limits.dxf` pin on purpose (in 2000 without the wrong transparency, which is
+  left out); the Python tests check this. The 42 samples written as 2000, 2004, 2007, 2010, 2013 and 2018 read strictly
+  and the audit finds nothing.
+- Code pages: the Shift_JIS R12 fixture written as 2000 and 2004 is Shift_JIS with `$DWGCODEPAGE` ANSI_932, and as 2007
+  and later UTF-8; its texts read back the same. The drawings of Yokosuka City and Imizu City written as 2000 are
+  ANSI_932 without any `\U+XXXX`. `farmhouse.dwg`, whose texts have simplified Chinese, is written as ANSI_936, with
+  `\U+XXXX` only for the characters that GBK lacks (`²`, `®` and line separators). Unit tests pin the choice for
+  Japanese, simplified Chinese, Korean, Cyrillic, Greek and Central European texts and for declared code pages.
+- Not checked: opening the files in AutoCAD or other CAD programs of those versions, and how AutoCAD reads the two
+  `\U+XXXX` of a character outside the Basic Multilingual Plane.
+
 ## SXF and JWW to DXF
 
 Checked on 2026-10-20 on macOS 27 (Apple Silicon) with Rust 1.99.0, Node.js 24.21.0, Python 3.14.8 and ezdxf 1.4.5.
