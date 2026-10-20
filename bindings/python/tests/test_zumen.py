@@ -169,3 +169,32 @@ def test_compares_two_revisions_by_shape_and_text():
     assert overlay.render_png(dpi=20).startswith(b"\x89PNG")
     with pytest.raises(ValueError):
         zumen.compare(before, after, tolerance=0)
+
+
+TITLE_BLOCK_DXF = "\n".join(
+    ["0", "SECTION", "2", "ENTITIES"]
+    + ["0", "TEXT", "8", "0", "10", "100", "20", "10", "40", "3.5", "1", "DWG. NO."]
+    + ["0", "TEXT", "8", "0", "10", "130", "20", "10", "40", "3.5", "1", "A-101"]
+    + ["0", "TEXT", "8", "0", "10", "100", "20", "20", "40", "3.5", "1", "REV: 3"]
+    + ["0", "ENDSEC", "0", "EOF", ""]
+)
+
+
+def test_reads_the_title_block():
+    # A label with its value to the right, and a label with its value in the same text
+    block = zumen.read(TITLE_BLOCK_DXF.encode()).title_block()
+    assert (block["number"], block["revision"], block["title"]) == ("A-101", "3", None)
+    number = next(field for field in block["fields"] if field["key"] == "number")
+    assert (number["source"], number["label"], number["x"]) == ("label", "DWG. NO.", 130.0)
+    assert number["y"] == pytest.approx(10.0, abs=1.0)  # the bottom of the text box, a little below the baseline
+
+    # The title block attributes of SXF, and the sheet name
+    sxf = zumen.read(FIXTURES / "sfc" / "features.sfc").title_block()
+    assert {key: sxf[key] for key in ("number", "title", "project", "scale", "date")} == {
+        "number": "No.1",
+        "title": "平面図",
+        "project": "工事",
+        "scale": "1:500",
+        "date": "2026年10月18日",
+    }
+    assert zumen.read(FIXTURES / "jww" / "minimal-v700.jww").title_block()["scale"] == "1/100"
