@@ -279,6 +279,18 @@ impl<'a> ValueReader<'a> {
 
     /// 指定できるキーのほかがあればエラーにする
     pub fn allow(&self, keys: &[&str], what: &str) -> Result<(), EditError> {
+        for (key, value) in self.values {
+            let valid = |number: &f64| number.is_finite() && number.abs() <= MAX_NUMBER;
+            let valid = match value {
+                EditValue::Number(number) => valid(number),
+                EditValue::Numbers(numbers) => numbers.iter().all(valid),
+                EditValue::Points(points) => points.iter().flatten().all(valid),
+                _ => true,
+            };
+            if !valid {
+                return Err(self.invalid(key, "有限で大きすぎない数"));
+            }
+        }
         match self.values.keys().find(|key| !keys.contains(&key.as_str())) {
             Some(key) => Err(self.error(
                 "unknown-key",
