@@ -11,7 +11,7 @@ this repository; it can be obtained from the MLIT page listed under [References]
 - The codes of colors, line types, line widths, text fonts and layers are assigned in order of appearance, as the
   specification says. Line widths with predefined values have the fixed codes 1–9; only user-defined widths are numbered
   from 11.
-- When writing SFC, used predefined widths also get a `width_feature` declaration (SFC annex 1-3-17).
+- When writing SFC, used predefined widths also get a `width_feature` declaration (SFC annex 1-2-8 and 1-3-9).
   Jw_cad 10.3.6 on Windows omitted lines, arcs and hatch boundaries without these declarations. Adding them
   restored those strokes; user-defined width codes still start at 11.
 - A composite figure definition (sfig_org) or composite curve definition takes as its members the elements written after
