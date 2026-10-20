@@ -20,6 +20,8 @@ export default defineConfig({
       },
       {
         extends: true,
+        // テストの途中で依存を最適化し直すと、Vite がページを読み直してテストが不安定になるので、先に最適化する
+        optimizeDeps: { include: ["react", "react/jsx-dev-runtime", "react-dom/client"] },
         test: {
           // 表示と操作のエンジン・React のフックのテスト（Canvas とポインターのイベントを使うので Chromium で動かす）
           name: "browser",
@@ -28,6 +30,7 @@ export default defineConfig({
             enabled: true,
             provider: playwright(),
             headless: true,
+            screenshotFailures: false,
             instances: [{ browser: "chromium" }],
           },
         },

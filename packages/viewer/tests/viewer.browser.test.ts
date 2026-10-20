@@ -1,6 +1,6 @@
 import type { Placement, Scene, SceneEntity } from "@zumenjs/core";
 import { afterEach, describe, expect, it } from "vitest";
-import { DrawingViewer, type DrawingViewerOptions, type ViewerTool, type ViewEvent } from "../src/index.js";
+import { DrawingViewer, type DrawingViewerOptions, type ViewEvent, type ViewerTool } from "../src/index.js";
 
 // 表示と操作のエンジンを Chromium で動かす。利用者の操作は合成したイベントで、描いた結果は Canvas の画素で確かめる
 
@@ -429,7 +429,9 @@ describe("見た目", () => {
   });
 
   it("背景の既定は図面の想定で、背景と見分けにくい色は背景の明るさで反転する", async () => {
-    const white = drawing({ entities: [line("white", [0, 0, 100, 0]), line("black", [0, 50, 100, 50], { color: "#000000" })] });
+    const white = drawing({
+      entities: [line("white", [0, 0, 100, 0]), line("black", [0, 50, 100, 50], { color: "#000000" })],
+    });
     const light = await mount({ ...white, background: "light" });
     expect(pixel(light.base, 2, 2)).toEqual([255, 255, 255, 255]);
     expect(pixel(light.base, ...light.viewer.toScreen(25, 0))).toEqual([0, 0, 0, 255]);
