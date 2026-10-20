@@ -11,6 +11,10 @@ All packages share one version during 0.x.
   inside a placement, in real-world millimeters, the entities that bound it and the texts inside.
   `zumen_core::regions::closed_regions`, `Scene.regions` and `zumen.tools.find_regions` in Python (areas in square
   meters, filters by layer, text and area), `zumen regions` and the `find_regions` MCP tool.
+- Rust, Python and the command line: `zumen::convert` writes every format as DWG (AutoCAD 2013), JWW and SXF (SFC,
+  P21, SFZ and P2Z, with `version="2.0"`, `"3.0"` or `"3.1"`) besides DXF, and `zumen::edit` and `zumen::create`
+  handle DWG, JWW and SXF besides DXF. JWC and JWS drawings are read and converted like JWW. New JWW and SXF drawings
+  are in millimeters, so `create` takes only `units="mm"` for them.
 
 ## 0.1.0 — 2026-10-20
 

@@ -1,19 +1,21 @@
 //! 図形（20.4）。モデルの図形を、読み取り（entities.rs）が同じ値に戻す DWG の値にする。DXF の度は DWG のラジアンに、
 //! 名前で持つ表・スタイル・ブロックはハンドルにする。書けない図形・形を変えて書く図形は DXF の書き出しと同じ notices
-//! で知らせる
+//! で知らせる。その版が持てない値は DXF の書き出し（write_dxf_as）と同じ形にする。R2000 の図形は前後の図形のハンドルを
+//! 持ち（20.4.1。前後がハンドル ± 1 なら Nolinks）、属性・頂点は持ち主が最初と最後を持つ
 
-use super::tables::{cmc, cmc_raw, lineweight_index};
-use super::{MODEL, PAPER, Writer, container, href, ocs_axes, rad, rad_pair, upper};
+use super::tables::lineweight_index;
+use super::{MODEL, PAPER, Writer, container, href, nearest_aci, ocs_axes, rad, rad_pair, upper};
 use crate::bits::HandleRef;
+use crate::codec::CmColor;
 use crate::codec::entities::{
     AnnotContext, Arc, Attribute, Body, Circle, Content, ContextBlock, ContextText, Dimension, DimensionKind, Ellipse,
-    Entity, Face, Hatch, HatchBoundary, HatchEdge, HatchGradient, HatchPath, HatchPattern, HatchSpline, Image, Insert,
-    Leader, LeaderLine, LeaderLineStyle, LeaderRoot, Line, LwPolyline, MLeader, MLine, MLineVertex, MText, Owned,
-    PatternLine, Point, Polyline2d, Polyline3d, PolylineMesh, PolylinePface, Ray, Solid, Spline, SplineControl,
-    SplineFit, Text, Vertex2d, Viewport,
+    EmbeddedMText, Entity, Face, Hatch, HatchBoundary, HatchEdge, HatchGradient, HatchPath, HatchPattern, HatchSpline,
+    Image, Insert, Leader, LeaderLine, LeaderLineStyle, LeaderRoot, Line, LwPolyline, MLeader, MLine, MLineVertex,
+    MText, Owned, PatternLine, Point, Polyline2d, Polyline3d, PolylineMesh, PolylinePface, Ray, Solid, Spline,
+    SplineControl, SplineFit, Text, Vertex2d, Viewport,
 };
 use crate::codec::object::{EntityColor, EntityCommon};
-use crate::codec::{CmColor, RawText};
+use crate::file::Version;
 use std::collections::{HashMap, HashSet};
 use zumen_core::NoticeLevel;
 use zumen_dxf::{
@@ -30,6 +32,9 @@ pub(super) enum Owner {
 }
 
 const Z: Vec3 = [0.0, 0.0, 1.0];
+
+/// 色の生の値の BYBLOCK（0xC1000000。MULTILEADER の引出線の色の既定）
+const BY_BLOCK_RAW: f64 = -1_056_964_608.0;
 
 fn extrusion(base: &DxfEntityBase) -> Vec3 {
     base.extrusion.unwrap_or(Z)
@@ -120,13 +125,24 @@ impl Writer<'_> {
         };
         let index = if base.color_index.is_finite() { base.color_index.clamp(0.0, 256.0) as u16 } else { 256 };
         let mut color = EntityColor::index(index);
-        if let Some(rgb) = base.true_color {
-            color.value = 0x8000 | (index & 0xff);
-            color.rgb = Some(0xc200_0000 | (int(rgb) as u32 & 0xff_ffff));
-        }
-        if let Some(transparency) = base.transparency {
-            color.value |= 0x2000;
-            color.transparency = Some(int(transparency) as u32);
+        if self.before_2004() {
+            // 2004 より前の版は色の番号だけ（トゥルーカラーは最も近い色の番号、透過度は書かない）
+            if let Some(rgb) = base.true_color {
+                color.value = u16::from(nearest_aci(int(rgb) as u32));
+                self.version_colors.set(self.version_colors.get() + 1);
+            }
+            if base.transparency.is_some() {
+                self.version_transparency.set(self.version_transparency.get() + 1);
+            }
+        } else {
+            if let Some(rgb) = base.true_color {
+                color.value = 0x8000 | (index & 0xff);
+                color.rgb = Some(0xc200_0000 | (int(rgb) as u32 & 0xff_ffff));
+            }
+            if let Some(transparency) = base.transparency {
+                color.value |= 0x2000;
+                color.transparency = Some(int(transparency) as u32);
+            }
         }
         let (ltype_flags, ltype) = match upper(&base.linetype).as_str() {
             "" | "BYLAYER" => (0, None),
@@ -144,7 +160,8 @@ impl Writer<'_> {
             reactors: Vec::new(),
             xdictionary: None,
             ds_binary: false,
-            links: None,
+            // R2000 の前後の図形は書くときに決める（links）。前後のない図形（BLOCK・ENDBLK・SEQEND）は 0
+            links: self.before_2004().then_some((href(4, 0), href(4, 0))),
             color,
             book_color: None,
             linetype_scale: base.linetype_scale,
@@ -191,6 +208,32 @@ impl Writer<'_> {
         self.push(&out);
     }
 
+    /// R2000 の図形の前と次の図形（20.4.1）。前後がハンドル ± 1 なら Nolinks（AutoCAD と同じ）、ないものは 0
+    fn links(&self, handle: u64, previous: u64, next: u64) -> Option<(HandleRef, HandleRef)> {
+        if !self.before_2004() {
+            return None;
+        }
+        if previous != 0 && previous.checked_add(1) == Some(handle) && handle.checked_add(1) == Some(next) {
+            return None;
+        }
+        Some((href(4, previous), href(4, next)))
+    }
+
+    /// R2000 のつながり（持ち主の最初から最後まで）のうち index 番目の前後の図形
+    fn chained(&self, chain: &[u64], index: usize) -> Option<(HandleRef, HandleRef)> {
+        let previous = index.checked_sub(1).map_or(0, |at| chain[at]);
+        let next = chain.get(index + 1).copied().unwrap_or(0);
+        self.links(chain[index], previous, next)
+    }
+
+    /// 書く図形か（IMAGE と、表示のブロックを持たない寸法は書かない）。R2000 の図形のつながりを先に決めるのに使う
+    fn writes(entity: &DxfEntity) -> bool {
+        if entity.base.kind.eq_ignore_ascii_case("IMAGE") {
+            return false;
+        }
+        !matches!(&entity.data, DxfEntityData::Dimension(dimension) if dimension.anonymous_block_name.is_empty())
+    }
+
     /// 図形をブロックごとに、モデルの順に書く（BLOCK・図形・ENDBLK）
     pub(super) fn write_entities(&mut self) {
         let doc = self.doc;
@@ -208,8 +251,17 @@ impl Writer<'_> {
             let (begin, end) = (self.blocks[index].begin, self.blocks[index].end);
             let name = self.text(&self.blocks[index].name.clone());
             self.put(4, begin, self.plain_common(owner), Body::Block(name));
-            for entity in contents.get(&key).into_iter().flatten() {
-                if let Some(handle) = self.entity(entity, owner) {
+            let entities: Vec<&DxfEntity> = contents.get(&key).into_iter().flatten().copied().collect();
+            // R2000 の図形は前後の図形を持つので、書く図形のハンドルを先に並べる
+            let chain: Vec<u64> = entities
+                .iter()
+                .filter(|entity| Self::writes(entity))
+                .map(|entity| self.handle_of(&entity.base))
+                .collect();
+            for entity in entities {
+                let position = self.blocks[index].entities.len();
+                let links = if chain.get(position).is_some() { self.chained(&chain, position) } else { None };
+                if let Some(handle) = self.entity(entity, owner, links) {
                     self.blocks[index].entities.push(handle);
                 }
             }
@@ -241,8 +293,8 @@ impl Writer<'_> {
         }
     }
 
-    /// 1 つの図形を書く。書いたハンドル（書かなかった図形は None）
-    fn entity(&mut self, entity: &DxfEntity, owner: Owner) -> Option<u64> {
+    /// 1 つの図形を書く。links は R2000 の前後の図形（Writer::links）。書いたハンドル（書かなかった図形は None）
+    fn entity(&mut self, entity: &DxfEntity, owner: Owner, links: Option<(HandleRef, HandleRef)>) -> Option<u64> {
         let base = &entity.base;
         let kind = upper(&base.kind);
         if kind == "IMAGE" {
@@ -261,7 +313,8 @@ impl Writer<'_> {
             return None;
         }
         let handle = self.handle_of(base);
-        let common = self.common(base, owner);
+        let mut common = self.common(base, owner);
+        common.links = links;
         match &entity.data {
             DxfEntityData::Line { start, end } => {
                 let body = Line { start: *start, end: *end, thickness: thickness(base), extrusion: extrusion(base) };
@@ -358,7 +411,7 @@ impl Writer<'_> {
                         "らせん（HELIX）は、スプライン（SPLINE）として書きました",
                     );
                 }
-                self.put(36, handle, common, Body::Spline(spline_body(spline)));
+                self.put(36, handle, common, Body::Spline(spline_body(spline, self.version)));
             }
             DxfEntityData::Text(text) => {
                 let body = self.text_body(base, text);
@@ -384,7 +437,7 @@ impl Writer<'_> {
                 }
             }
             DxfEntityData::Attdef { text, tag, prompt, attribute_flags, mtext } => {
-                let body = self.attribute(base, text, tag, *attribute_flags, mtext.as_deref(), Some(prompt));
+                let body = self.attribute(base, text, tag, *attribute_flags, mtext.as_deref(), Some(prompt), &common);
                 self.put(3, handle, common, Body::Attdef(body));
             }
             DxfEntityData::MText(mtext) => {
@@ -397,12 +450,27 @@ impl Writer<'_> {
                 let mut attributes = Vec::new();
                 let mut seqend = None;
                 if !insert.attribs.is_empty() {
+                    // R2000 の属性は属性どうしでつながり、配置が最初と最後を持つ
+                    let chain: Vec<u64> = insert
+                        .attribs
+                        .iter()
+                        .filter(|attrib| matches!(attrib.data, DxfEntityData::Attrib { .. }))
+                        .map(|attrib| self.handle_of(&attrib.base))
+                        .collect();
                     for attrib in &insert.attribs {
                         let attrib_handle = self.handle_of(&attrib.base);
                         if let DxfEntityData::Attrib { text, tag, attribute_flags, mtext } = &attrib.data {
-                            let attrib_common = self.common(&attrib.base, Owner::Of(handle));
-                            let body =
-                                self.attribute(&attrib.base, text, tag, *attribute_flags, mtext.as_deref(), None);
+                            let mut attrib_common = self.common(&attrib.base, Owner::Of(handle));
+                            attrib_common.links = self.chained(&chain, attributes.len());
+                            let body = self.attribute(
+                                &attrib.base,
+                                text,
+                                tag,
+                                *attribute_flags,
+                                mtext.as_deref(),
+                                None,
+                                &attrib_common,
+                            );
                             self.put(2, attrib_handle, attrib_common, Body::Attrib(body));
                             attributes.push(href(3, attrib_handle));
                         }
@@ -411,6 +479,11 @@ impl Writer<'_> {
                     let seqend_common = self.common(base, Owner::Of(handle));
                     self.put(6, seqend_handle, seqend_common, Body::Empty);
                     seqend = Some(href(3, seqend_handle));
+                    if self.before_2004() {
+                        let mut list = chain;
+                        list.push(seqend_handle);
+                        self.followers.insert(handle, list);
+                    }
                 }
                 let body = Insert {
                     point: insert.insert,
@@ -428,14 +501,45 @@ impl Writer<'_> {
                         )
                     }),
                     block: self.block_of(&insert.name),
+                    first_last: Some((
+                        attributes.first().map_or(href(4, 0), |first| href(4, first.value)),
+                        attributes.last().map_or(href(4, 0), |last| href(4, last.value)),
+                    )),
                     attributes,
-                    first_last: None,
                     seqend,
                 };
                 if let Some(&index) = self.block_index.get(&upper(&insert.name)) {
                     self.blocks[index].inserts.push(handle);
                 }
                 self.put(if array { 8 } else { 7 }, handle, common, Body::Insert(body));
+            }
+            DxfEntityData::Dimension(dimension)
+                if self.before_2004() && matches!(kind.as_str(), "ARC_DIMENSION" | "LARGE_RADIAL_DIMENSION") =>
+            {
+                // 円弧の長さ・大きい半径の寸法は 2004 から。前の版は寸法のブロックの参照にする（DXF の書き出しと同じ）
+                self.notices.add(
+                    NoticeLevel::Info,
+                    "version-dimension",
+                    "円弧の長さ・大きい半径の寸法は、AutoCAD 2004 より前の版にないため、寸法のブロックの参照（INSERT）として書きました",
+                );
+                let one = [1.0, 1.0, 1.0];
+                let body = Insert {
+                    point: [0.0; 3],
+                    scale: one,
+                    scale_flags: Insert::scale_flags_of(one),
+                    rotation: 0.0,
+                    extrusion: Z,
+                    has_attributes: false,
+                    array: None,
+                    block: self.block_of(&dimension.anonymous_block_name),
+                    attributes: Vec::new(),
+                    first_last: None,
+                    seqend: None,
+                };
+                if let Some(&index) = self.block_index.get(&upper(&dimension.anonymous_block_name)) {
+                    self.blocks[index].inserts.push(handle);
+                }
+                self.put(7, handle, common, Body::Insert(body));
             }
             DxfEntityData::Dimension(dimension) => {
                 let (kind_number, body) = self.dimension(&kind, base, dimension);
@@ -445,7 +549,20 @@ impl Writer<'_> {
                 if kind == "MPOLYGON" {
                     self.notices.add(NoticeLevel::Info, "mpolygon", "MPOLYGON は、ハッチング（HATCH）として書きました");
                 }
-                let body = self.hatch(base, hatch);
+                let body = if hatch.gradient.is_some() && self.before_2004() {
+                    // グラデーションは 2004 から。前の版は 1 色目の塗りにする（DXF の書き出しと同じ）
+                    self.notices.add(
+                        NoticeLevel::Info,
+                        "version-gradient",
+                        "グラデーションは、AutoCAD 2004 より前の版にないため、1 色目の塗りで書きました",
+                    );
+                    if let Some(first) = hatch.gradient_colors.as_deref().and_then(<[f64]>::first) {
+                        common.color = EntityColor::index(u16::from(nearest_aci(int(*first) as u32)));
+                    }
+                    self.hatch(base, &DxfHatch { gradient: None, solid_fill: true, ..hatch.clone() })
+                } else {
+                    self.hatch(base, hatch)
+                };
                 self.put(78, handle, common, Body::Hatch(Box::new(body)));
             }
             DxfEntityData::Solid { vtx0, vtx1, vtx2, vtx3, invisible_edges } => match kind.as_str() {
@@ -486,6 +603,14 @@ impl Writer<'_> {
                 self.put(45, handle, common, Body::Leader(body));
             }
             DxfEntityData::MLeader(mleader) => {
+                if self.version < Version::R2007 {
+                    // DXF の書き出しと同じく書く（AutoCAD 2008 より前の AutoCAD は代理オブジェクトとして扱う）
+                    self.notices.add(
+                        NoticeLevel::Info,
+                        "version-mleader",
+                        "マルチ引出線（MULTILEADER）は AutoCAD 2008 からで、それより前の版を読む CAD では表示されないことがあります",
+                    );
+                }
                 let body = self.mleader(mleader);
                 let number = self.class_number("MULTILEADER");
                 self.put(number, handle, common, Body::MLeader(Box::new(body)));
@@ -509,6 +634,18 @@ impl Writer<'_> {
                     .map(|handle| href(5, handle))
                     .collect();
                 let clip = viewport.clipping_boundary_handle.as_deref().and_then(|clip| self.mapped(clip)).unwrap_or(0);
+                // R2000 は紙空間（*Paper_Space）のビューポートに VIEWPORT ENTITY HEADER を置く（ほかのレイアウトは 0。
+                // AutoCAD と同じ）
+                let vp_header = self.before_2004().then(|| {
+                    let header = if matches!(owner, Owner::Paper) {
+                        let header = self.handles.fresh();
+                        self.viewport_headers.push((handle, header));
+                        header
+                    } else {
+                        0
+                    };
+                    href(5, header)
+                });
                 let body = Viewport {
                     center: viewport.center,
                     width: viewport.width,
@@ -528,7 +665,7 @@ impl Writer<'_> {
                     circle_zoom: 1000,
                     grid_major: 5,
                     status_flags: int(viewport.status_flags),
-                    style_sheet: RawText::empty(super::VERSION),
+                    style_sheet: self.empty(),
                     render_mode: 0,
                     ucs_at_origin: true,
                     ucs_per_viewport: true,
@@ -545,7 +682,7 @@ impl Writer<'_> {
                     ambient: Some(CmColor { index: 0, rgb: 0xc233_3333, name: None, book: None }),
                     frozen_layers: frozen,
                     clip_boundary: href(5, clip),
-                    vp_header: None,
+                    vp_header,
                     named_ucs: href(5, 0),
                     base_ucs: href(5, 0),
                     r2007_handles: Some([href(4, 0), href(5, 0), href(5, 0), href(3, 0)]),
@@ -619,8 +756,10 @@ impl Writer<'_> {
         }
     }
 
-    /// ATTRIB・ATTDEF（20.4.4、20.4.5）。AutoCAD 2013 の DWG は複数行の属性を持てない（埋め込みの MTEXT は R2018 から）
-    /// ので、複数行の属性は MTEXT の文字を 1 行にした属性として書く
+    /// ATTRIB・ATTDEF（20.4.4、20.4.5）。複数行の属性は R2018 から埋め込みの MTEXT（種類 2・4）として書く。共通の値は
+    /// 属性と同じ（読み取りも属性の色・レイヤを使う）。それより前の版は複数行の属性を持てないので、MTEXT の文字を 1 行に
+    /// した属性として書く。common は属性の共通の値
+    #[allow(clippy::too_many_arguments)]
     fn attribute(
         &mut self,
         base: &DxfEntityBase,
@@ -629,24 +768,42 @@ impl Writer<'_> {
         flags: f64,
         mtext: Option<&DxfEmbeddedMText>,
         prompt: Option<&str>,
+        common: &EntityCommon,
     ) -> Attribute {
         let mut body = self.text_body(base, text);
-        if let Some(embedded) = mtext {
-            self.notices.add(
-                NoticeLevel::Info,
-                "multiline-attrib",
-                "複数行の属性は、AutoCAD 2013 の DWG に書けないため 1 行の属性として書きました",
-            );
-            // AutoCAD は複数行の属性の 1 行の文字を空にするので、MTEXT の文字を 1 行にして使う
-            if text.text.is_empty() {
-                body.value = self.text(&embedded.content.text.replace(['\n', '\r'], " "));
+        let mut attribute_type = 1;
+        let mut embedded = None;
+        if let Some(content) = mtext {
+            if self.version >= Version::R2018 {
+                attribute_type = if prompt.is_some() { 4 } else { 2 };
+                let mut common = common.clone();
+                common.graphic = None;
+                common.links = None;
+                embedded = Some(EmbeddedMText {
+                    common,
+                    mtext: Box::new(self.mtext_body(&content.content, content.extrusion)),
+                    annotative: None,
+                });
+            } else {
+                self.notices.add(
+                    NoticeLevel::Info,
+                    "multiline-attrib",
+                    format!(
+                        "複数行の属性は、AutoCAD {} の DWG に書けない（2018 から）ため 1 行の属性として書きました",
+                        self.target.name()
+                    ),
+                );
+                // AutoCAD は複数行の属性の 1 行の文字を空にするので、MTEXT の文字を 1 行にして使う
+                if text.text.is_empty() {
+                    body.value = self.text(&content.content.text.replace(['\n', '\r'], " "));
+                }
             }
         }
         Attribute {
             text: body,
             version: 0,
-            attribute_type: 1,
-            embedded: None,
+            attribute_type,
+            embedded,
             tag: self.text(tag),
             field_length: 0,
             flags: int(flags) as u8,
@@ -655,8 +812,8 @@ impl Writer<'_> {
         }
     }
 
-    /// MTEXT の値（20.4.46）。向きがなければ回転（度、OCS）から WCS の向きを求める
-    fn mtext_body(&self, mtext: &DxfMText, extrusion: Option<Vec3>) -> MText {
+    /// MTEXT の値（20.4.46）。向きがなければ回転（度、OCS）から WCS の向きを求める。背景は DXF の書き出しと同じく 2007 から
+    fn mtext_body(&mut self, mtext: &DxfMText, extrusion: Option<Vec3>) -> MText {
         let normal = extrusion.unwrap_or(Z);
         let direction = match mtext.text_direction {
             Some(direction) => direction,
@@ -668,11 +825,19 @@ impl Writer<'_> {
             }
         };
         let raw = if mtext.raw_text.is_empty() { mtext.text.replace('\n', "\\P") } else { mtext.raw_text.clone() };
-        let background_flags = int(mtext.background_flags);
+        let mut background_flags = int(mtext.background_flags);
+        if background_flags != 0 && self.version < Version::R2007 {
+            self.notices.add(
+                NoticeLevel::Info,
+                "version-background",
+                "複数行の文字の背景は、AutoCAD 2007 より前の版にないため、書きませんでした",
+            );
+            background_flags = 0;
+        }
         let background = (background_flags & 1 != 0).then(|| {
             (
                 mtext.background_scale.unwrap_or(1.5),
-                cmc(mtext.background_color_index.unwrap_or(256.0), mtext.background_true_color),
+                self.cmc(mtext.background_color_index.unwrap_or(256.0), mtext.background_true_color),
                 0,
             )
         });
@@ -707,9 +872,17 @@ impl Writer<'_> {
         let mesh = flags & 16 != 0;
         let three_d = flags & 8 != 0;
         let sub = self.common(base, Owner::Of(handle));
+        // 頂点（ポリフェースメッシュは面の記録も）のハンドル。R2000 の頂点は頂点どうしでつながり、POLYLINE が最初と最後を持つ
+        let faces = if polyface { polyline.faces.as_ref().map_or(0, Vec::len) } else { 0 };
+        let chain: Vec<u64> = (0..vertices.points.len() + faces).map(|_| self.handles.fresh()).collect();
+        let linked = |writer: &Self, index: usize| {
+            let mut common = sub.clone();
+            common.links = writer.chained(&chain, index);
+            common
+        };
         let mut owned = Vec::new();
         for (index, point) in vertices.points.iter().enumerate() {
-            let vertex = self.handles.fresh();
+            let vertex = chain[index];
             owned.push(href(3, vertex));
             let default = if polyface {
                 192.0
@@ -730,7 +903,7 @@ impl Writer<'_> {
                 } else {
                     11
                 };
-                self.put(kind, vertex, sub.clone(), Body::Vertex3d(vertex_flags, *point));
+                self.put(kind, vertex, linked(self, index), Body::Vertex3d(vertex_flags, *point));
             } else {
                 let [start, end] = vertices.widths.get(index).copied().unwrap_or([0.0, 0.0]);
                 // 始めと終わりが同じ 0 でない幅は、始めの幅を負にして終わりを省く（20.4.11）
@@ -745,25 +918,32 @@ impl Writer<'_> {
                     id: 0,
                     tangent: 0.0,
                 };
-                self.put(10, vertex, sub.clone(), Body::Vertex2d(body));
+                self.put(10, vertex, linked(self, index), Body::Vertex2d(body));
             }
         }
-        if polyface && let Some(faces) = &polyline.faces {
-            for face in faces {
-                let vertex = self.handles.fresh();
+        if polyface && let Some(records) = &polyline.faces {
+            for (number, face) in records.iter().enumerate() {
+                let index = vertices.points.len() + number;
+                let vertex = chain[index];
                 owned.push(href(3, vertex));
                 let mut indices = [0i16; 4];
                 for (slot, index) in indices.iter_mut().zip(face) {
                     *slot = short(*index);
                 }
-                self.put(14, vertex, sub.clone(), Body::FaceRecord(indices));
+                self.put(14, vertex, linked(self, index), Body::FaceRecord(indices));
             }
         }
         let seqend = self.handles.fresh();
-        self.put(6, seqend, sub, Body::Empty);
-        let owned = Owned { vertices: owned, first_last: None, seqend: href(3, seqend) };
+        let first_last =
+            Some((href(4, chain.first().copied().unwrap_or(0)), href(4, chain.last().copied().unwrap_or(0))));
+        self.put(6, seqend, sub.clone(), Body::Empty);
+        if self.before_2004() {
+            let mut list = chain.clone();
+            list.push(seqend);
+            self.followers.insert(handle, list);
+        }
+        let owned = Owned { vertices: owned, first_last, seqend: href(3, seqend) };
         if polyface {
-            let faces = polyline.faces.as_ref().map_or(0, Vec::len);
             let body = PolylinePface {
                 vertex_count: short(vertices.points.len() as f64),
                 face_count: short(faces as f64),
@@ -916,7 +1096,11 @@ impl Writer<'_> {
                 shift: hatch.gradient_shift,
                 single_color: i32::from(hatch.gradient_one_color),
                 tint: hatch.gradient_tint,
-                colors: colors.iter().enumerate().map(|(index, rgb)| (index as f64, cmc(0.0, Some(*rgb)))).collect(),
+                colors: colors
+                    .iter()
+                    .enumerate()
+                    .map(|(index, rgb)| (index as f64, self.cmc(0.0, Some(*rgb))))
+                    .collect(),
                 name: self.text(if name.is_empty() { "LINEAR" } else { name }),
             })
         });
@@ -1036,9 +1220,27 @@ impl Writer<'_> {
     }
 
     /// MULTILEADER（20.4.48、20.4.86）。DXF の書き出しと同じく、スタイルは Standard を指し、上書きの印をすべて立てて
-    /// 図形の値を使わせる
+    /// 図形の値を使わせる。R2010 より前の版は、引出線ごとの矢印を図形の終わりの矢印の並び（位置が引出線の番号）に書き、
+    /// 持てない値（垂直の付け方、上下の付け方、引出線ごとの色）は書かずに数える
     fn mleader(&mut self, mleader: &DxfMLeader) -> MLeader {
         let context = &mleader.context;
+        if self.version < Version::R2010 {
+            let vertical = context.leaders.iter().any(|leader| leader.attachment_direction != 0.0)
+                || mleader.text_top_attachment_type != 9.0
+                || mleader.text_bottom_attachment_type != 9.0;
+            let colored = context
+                .leaders
+                .iter()
+                .flat_map(|leader| &leader.lines)
+                .any(|line| int(line.color) != int(BY_BLOCK_RAW));
+            if vertical || colored {
+                self.notices.add(
+                    NoticeLevel::Info,
+                    "version-mleader-2010",
+                    "マルチ引出線の垂直の付け方・上下の文字の付け方・引出線ごとの色は AutoCAD 2010 からで、それより前の版にないため、書きませんでした",
+                );
+            }
+        }
         let standard = self.style_handles.get("STANDARD").copied().unwrap_or(0);
         let text_style = context.mtext.as_ref().and_then(|mtext| self.mapped(&mtext.style_handle)).unwrap_or(standard);
         let block = context
@@ -1073,7 +1275,7 @@ impl Writer<'_> {
             .collect();
         let align = context.mtext.as_ref().map_or(0, |mtext| (int(mtext.alignment).max(1) - 1) % 3);
         let scale = if context.scale != 0.0 { context.scale } else { 1.0 };
-        let by_block = cmc(0.0, None);
+        let by_block = self.cmc(0.0, None);
         let roots = context
             .leaders
             .iter()
@@ -1096,7 +1298,7 @@ impl Writer<'_> {
                             index: int(line.index),
                             style: Some(Box::new(LeaderLineStyle {
                                 leader_type: short(mleader.leader_type),
-                                color: cmc_raw(line.color),
+                                color: self.cmc_raw(line.color),
                                 linetype: href(5, linetype),
                                 lineweight: int(mleader.leader_lineweight),
                                 arrow_size: context.arrow_head_size,
@@ -1132,10 +1334,10 @@ impl Writer<'_> {
                 height: 0.0,
                 line_spacing_factor: mtext.line_spacing_factor,
                 line_spacing_style: short(mtext.line_spacing_style),
-                color: cmc_raw(mtext.color),
+                color: self.cmc_raw(mtext.color),
                 alignment: short(mtext.alignment),
                 flow: short(mtext.flow_direction),
-                bg_color: cmc_raw(mtext.bg_color),
+                bg_color: self.cmc_raw(mtext.bg_color),
                 bg_scale: mtext.bg_scale_factor,
                 bg_transparency: 0,
                 bg_fill: mtext.use_window_bg_color,
@@ -1155,7 +1357,7 @@ impl Writer<'_> {
                 location: block.insert,
                 scale: block.scale,
                 rotation: block.rotation,
-                color: cmc_raw(block.color),
+                color: self.cmc_raw(block.color),
                 matrix: [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0],
             })),
             (None, None) => Content::None,
@@ -1180,15 +1382,26 @@ impl Writer<'_> {
             normal_reversed: false,
             top_bottom: Some([top, bottom]),
         };
-        let text_color = context.mtext.as_ref().map_or(by_block.clone(), |mtext| cmc_raw(mtext.color));
+        let text_color = context.mtext.as_ref().map_or(by_block.clone(), |mtext| self.cmc_raw(mtext.color));
         let block_handle = block.map_or(0, |(_, handle)| handle);
+        // R2010 より前の引出線ごとの矢印（既定か、ブロック）。読み取りは位置を引出線の番号とする
+        let mut old_arrows = Vec::new();
+        if self.version < Version::R2010 && !arrows.is_empty() {
+            let last = arrows.iter().map(|(index, _)| int(*index)).max().unwrap_or(0).clamp(0, 1 << 16);
+            for index in 0..=last {
+                match arrows.iter().find(|(own, _)| int(*own) == index) {
+                    Some((_, handle)) => old_arrows.push((false, href(5, *handle))),
+                    None => old_arrows.push((true, href(5, arrow))),
+                }
+            }
+        }
         MLeader {
             version: 2,
             context: annot,
             style: href(5, self.fixed.mleader_style),
             overrides: 0x7fff_ffff,
             leader_type: short(mleader.leader_type),
-            line_color: cmc_raw(mleader.leader_line_color),
+            line_color: self.cmc_raw(mleader.leader_line_color),
             linetype: href(5, linetype),
             lineweight: int(mleader.leader_lineweight),
             landing: true,
@@ -1205,12 +1418,12 @@ impl Writer<'_> {
             text_color,
             text_frame: mleader.has_text_frame,
             block: href(5, block_handle),
-            block_color: block.map_or(by_block, |(block, _)| cmc_raw(block.color)),
+            block_color: block.map_or(by_block, |(block, _)| self.cmc_raw(block.color)),
             block_scale: block.map_or([1.0, 1.0, 1.0], |(block, _)| block.scale),
             block_rotation: block.map_or(0.0, |(block, _)| block.rotation),
             block_connection: 0,
             annotative: false,
-            arrow_heads: Vec::new(),
+            arrow_heads: old_arrows,
             labels,
             text_direction_negative: false,
             ipe_align: 0,
@@ -1257,11 +1470,13 @@ fn hatch_edge(edge: &DxfHatchEdge) -> HatchEdge {
 }
 
 /// SPLINE（20.4.40）。制御点があれば制御点と節点（R2013 以降の節点の取り方は任意 15）、なければ当てはめ点（節点の取り方
-/// 弦長 0、印は当てはめ点 1 と節点の取り方を使う 8）。R2013 以降の AutoCAD と同じく scenario は 1
-fn spline_body(spline: &DxfSpline) -> Spline {
+/// 弦長 0、印は当てはめ点 1 と節点の取り方を使う 8）。R2013 以降の AutoCAD と同じく scenario は 1。R2013 より前は
+/// scenario（1 制御点、2 当てはめ点）で分け、節点の取り方を持たない（読み取りは弦長で求める）
+fn spline_body(spline: &DxfSpline, version: Version) -> Spline {
     let closed = spline.closed || int(spline.flags) & 1 != 0;
+    let r2013 = version >= Version::R2013;
     let fit = |knot_parameter: i32| Spline {
-        scenario: 1,
+        scenario: if r2013 { 1 } else { 2 },
         flags1: 9 | if closed { 4 } else { 0 },
         knot_parameter,
         degree: int(spline.degree),
@@ -1281,7 +1496,8 @@ fn spline_body(spline: &DxfSpline) -> Spline {
         && spline.degree == 3.0
         && !closed
     {
-        for knot_parameter in [0, 1, 2] {
+        let parameters: &[i32] = if r2013 { &[0, 1, 2] } else { &[0] };
+        for &knot_parameter in parameters {
             if crate::entities::interpolate(&spline.fit_points, d0, dn, knot_parameter)
                 .is_some_and(|(knots, controls)| knots == spline.knots && controls == spline.control_points)
             {

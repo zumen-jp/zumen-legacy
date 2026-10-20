@@ -76,6 +76,31 @@ What cannot be mapped, or is mapped differently, is returned in notices (kind an
 | `block-scale` | Line type pitches inside blocks placed at different scales follow the first placement |
 | `missing-block`, `block-depth`, `unknown-color`, `truncated`, `default-palette`, `degenerate` | Left out or replaced as in the scene |
 
+## Converting to JWW (zumen-convert)
+
+`zumen_convert::dxf_to_jww` maps the AutoCAD drawing model to a JWW drawing, which `write_jww` writes (version 700);
+`zumen::convert(bytes, "jww", …)` takes a drawing of any format this way. It is the reverse of the mapping above and walks the drawing like the DXF scene, so the JWW draws the same shapes at
+the same places as the layout (or model space) the DXF opens in.
+
+| DXF | JWW |
+| --- | --- |
+| Layout opened by the scene | The sheet of the same size (A0–A4, 2A–5A, landscape), or the smallest one that contains it (`paper-size`). The layout's sheet is centered on the JWW sheet |
+| Paper space | A 1/1 layer group |
+| Viewport | A layer group of the viewport's scale. Its model space entities sit where the viewport shows them (also turned by the twist); their real coordinates equal the model coordinates when the model origin shows at the sheet center without twist (`viewport-moved` otherwise). JWW cannot clip, so entities crossing the frame are written whole (`viewport-clip`) |
+| Model space, for drawings that open it | A3 and the layer group scale (1, 2, 5 × 10ⁿ) that fits the extents into 90% of the sheet. Extents that do not fit around the origin are moved to the sheet center by a multiple of 10 mm on the sheet (`model-moved`) |
+| Layer | The 16 layers of the layer groups of each scale, in order of use. Layers named `0-A name` (written by the mapping above) go back to that group and layer when the scale matches. Off, frozen and not plotted layers and DEFPOINTS are hidden, locked layers display-only. Layers beyond 256 share the last layer of their scale (`layer-merged`) |
+| Color | The foreground color (ACI 7) is pen 2 (black); colors equal to Jw_cad's screen colors of pens 1–9 use those pens, SXF predefined colors the SXF colors 101–116, and other colors the user SXF colors 117–355 (the nearest color when they run out, `color-count`). Fills use pen 10 (any color) for colors other than pens 1–9 |
+| Line type | Jw_cad's line types 2–9 or the SXF line types 32–45 when the dash and gap lengths (mm on the sheet) are equal, otherwise the user SXF line types 47–62: dots become 0.25 mm dashes (`linetype-dot`), at most 10 lengths (`linetype-long`), the nearest type when the 16 run out (`linetype-count`). Patterns shorter than 0.05 mm on the sheet are solid |
+| Lineweight | The entity's width in 1/100 mm |
+| LINE, CIRCLE, ARC, ELLIPSE, LWPOLYLINE, POLYLINE | Lines and arcs; bulges become arcs, and circles and ellipses stay arcs through any affine transform. Arcs run counterclockwise |
+| POINT, SOLID, TRACE | Points and solids |
+| INSERT, TABLE | Block definitions and placements. A definition holds the block in mm on the sheet at its layer group's scale, so most placements have scale 1. A block is defined again for each different inherited BYBLOCK value or layer-0 layer, each scale, and each sheet scale of dashed content. Skewed placements are written as the block's entities (`skewed`) |
+| Text, MTEXT, attributes, dimensions, leaders, multileaders, multilines, hatches, splines, wide polylines, images, wipeouts | The lines, fills and text the scene draws: lines; fills split into horizontal trapezoid solids (`fill-solids`); hatch pattern lines cut to the hatch area (`hatch-lines`); text whose start point is the lower left of the text box, end point at its width, height the box height and character width the width divided by the characters (full width 1, half width 0.5). SHX fonts become `ＭＳ ゴシック`; mirrored and oblique text is written upright (`text-mirror`, `text-oblique`) |
+
+Other notices: `layouts`, `outside-viewports`, `viewport-view`, `scale-merged`, `complex-linetype`, `transparency`,
+`dimension`, `drawn-shapes`, `spline`, `polyline-width`, `fill-complex`, `hatch-dense`, `gradient`, `image`, `wipeout`,
+`xline`, `minsert`, `missing-block`, `block-depth`, `dimension-block`, `text-skew`.
+
 ## Writing
 
 `zumen-jww` writes JWW in two ways: it writes a file it has read back with only the changed records rewritten
