@@ -216,6 +216,8 @@ changes = zumen.compare(zumen.read("plan-rev1.jww"), scene)  # 削除・追加�
 changes.scene.render_png(dpi=150)  # 変更前は赤、変更後は青、変わらない図形は灰
 for entity in image.entities_at(640, 480):  # その画素に描いた図形（外接矩形の小さい順）
     print(entity["id"], entity["box"], entity["text"])
+
+zumen.convert("plan.dwg", "dxf").save("plan.dxf")  # DXF・DWG を AutoCAD 2013 の DXF に。変えた内容は notices で分かる
 ```
 
 AI のアプリは、Python のパッケージの MCP サーバー（`pip install "zumen[mcp]"` の後に `zumen-mcp --root <フォルダ>`）で
@@ -227,6 +229,7 @@ cargo run --release -p zumen-cli -- render plan.jww -o plan.png --dpi 150 --map 
 cargo run --release -p zumen-cli -- render plan.jww -o plan.pdf  # plan.svg でも
 cargo run --release -p zumen-cli -- texts plan.jww --region 100,50,200,120  # 1 行に 1 つの JSON
 cargo run --release -p zumen-cli -- title plan.jww  # 表題欄の項目
+cargo run --release -p zumen-cli -- convert plan.dwg -o plan.dxf
 ```
 
 | クレート | 中身 |
@@ -234,13 +237,13 @@ cargo run --release -p zumen-cli -- title plan.jww  # 表題欄の項目
 | `zumen-core` | 表示用モデル（`@zumenjs/core` と同じ JSON）、幾何、文字の配置、図面の文字と図形と表題欄の項目の取り出し、2 つの版の比較 |
 | `zumen-sxf` | `parse_sfc`・`parse_p21`（SXF のフィーチャのモデル）、`sxf_to_scene`、読み取りの `SXF` |
 | `zumen-jww` | `read_jww`（JWW のままのモデル）、`jww_to_scene`、読み取りの `JWW` |
-| `zumen-dxf` | `parse_dxf`（DWG と共有する AutoCAD の図形モデル）、`dxf_to_scene`、読み取りの `DXF` |
+| `zumen-dxf` | `parse_dxf`（DWG と共有する AutoCAD の図形モデル）、`dxf_to_scene`、読み取りの `DXF`、`write_dxf`（モデルを AutoCAD 2013 の DXF に書く） |
 | `zumen-dwg` | `read_dwg`（DWG 2000〜2018 を `zumen-dxf` の AutoCAD の図形モデルにする）、読み取りの `DWG` |
-| `zumen` | すべての読み取りをまとめた `read`・`detect`。受け取った図面のためのバイト数・図形の数・時間の上限 |
+| `zumen` | すべての読み取りをまとめた `read`・`detect` と、`convert`（DXF・DWG を DXF に書き直す）。受け取った図面のためのバイト数・図形の数・時間の上限 |
 | `zumen-render` | ブラウザの描画と同じ規則で PNG・SVG・PDF に描き、描いた図形の画像の上の位置を返す。日本語の文字は同梱の BIZ UDゴシックで描く |
-| `zumen-cli` | `zumen` コマンド（`detect`、`scene` で JSON、`texts`・`entities` で 1 行 1 つの JSON、`title` で表題欄、`render` で PNG、`compare` で版の比較） |
+| `zumen-cli` | `zumen` コマンド（`detect`、`scene` で JSON、`texts`・`entities` で 1 行 1 つの JSON、`title` で表題欄、`render` で PNG、`compare` で版の比較、`convert` で DXF） |
 
-Python では、読み取りと描画の間 GIL を外す。
+Python では、読み取り・描画・書き出しの間 GIL を外す。
 
 ## 文書
 

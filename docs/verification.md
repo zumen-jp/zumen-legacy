@@ -371,6 +371,33 @@ the first step of [decision 0005](decisions/0005-browser-packages-for-embedding.
 - Not checked: Firefox and Safari, real touch devices (pinching only with synthetic touch pointers), screen readers,
   and the 3D view, which keeps its current interface until the next step.
 
+## DXF writing
+
+Checked on 2026-10-20 on macOS 27 (Apple Silicon) with Rust 1.99.0, Python 3.14.8 and ezdxf 1.4.5.
+
+- Each of the 23 DXF and DWG drawings in `tests/fixtures` is written as DXF, read again and drawn in its default view and
+  every other view (52 scenes): every entity has the same type, layers, box and drawn primitives as in the drawing it
+  came from, to a relative 1e-9 (`crates/zumen/tests/convert.rs`). The exceptions are the ones reported in `notices`:
+  the IMAGE is left out, and HELIX, MPOLYGON and an attribute outside a block reference change their type only.
+- The same check on the 42 local DXF and DWG samples that zumen reads (the ACadSharp samples of R12 to 2018 in ASCII and
+  binary, the public drawings of Yokosuka City and Imizu City, and generated MULTILEADER and MLINE drawings), in all 198
+  scenes, finds no difference (`ZUMEN_SAMPLES=… cargo test -p zumen --release --test convert -- --ignored`). Before
+  `@zumenjs/dxf` read binary DXF strings in ASCII notation, the four MTEXT with line feeds of each binary sample of 2004
+  and later differed; they are now written as `^J`.
+- In every written file, handles are unique and below `$HANDSEED`, and every handle reference (330 to 369, 390, 1005)
+  points at an object written (`write::tests` on the fixtures, and a script on the samples).
+- ezdxf reads every written fixture and sample strictly (`ezdxf.readfile`, not its recover mode). Its audit finds nothing
+  in the 42 samples, and in the fixtures only what `features.dxf` and `limits.dxf` pin on purpose (block reference
+  cycles, a wrong color index and transparency, a LEADER with one vertex); the Python tests check this. Most fixtures are
+  too small for ezdxf to read before conversion.
+- Writing a written file again gives the same entities and entity handles; the new handles of objects that the model
+  does not keep (tables, dictionaries) move, so the bytes differ.
+- Time with the release build of the `zumen` command, including reading (median of seven runs):
+  `jp-yokosuka-minami-survey-plan.dxf` (2.7 MB, 9,260 entities) 45 ms, its DWG (0.4 MB) 31 ms, both written as 2.4 MB
+  of DXF; `sample_AC1015_binary.dxf` (1.4 MB) 9 ms.
+- Not checked: opening the written files in AutoCAD or other CAD programs, and multileaders with block content in
+  AutoCAD (ezdxf reads them).
+
 ## Rust readers, rendering and bindings
 
 Checked on 2026-10-18 on macOS (Apple Silicon) with Rust 1.99.0, Node.js 24.21.0, Python 3.15.0, wasm-pack 0.15.0

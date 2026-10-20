@@ -251,3 +251,47 @@ def test_reads_compressed_sxf_and_stops_unpacking_at_the_limit(tmp_path):
     with pytest.raises(zumen.LimitError) as error:
         zumen.read(bomb, max_bytes=1 << 20)
     assert error.value.limit == "bytes"
+
+
+def test_converts_dxf_and_dwg_drawings_to_dxf(tmp_path):
+    converted = zumen.convert(FIXTURES / "dwg" / "r2018.dwg")
+    assert isinstance(converted, zumen.Converted)
+    assert (converted.format, len(converted), converted.notices) == ("dxf", len(converted.data), [])
+    assert converted.data.startswith(b"  0\r\nSECTION\r\n  2\r\nHEADER\r\n")
+    assert len(zumen.read(converted.data)) == len(zumen.read(FIXTURES / "dwg" / "r2018.dwg"))
+    path = tmp_path / "layout.dxf"
+    zumen.convert((FIXTURES / "dxf" / "layout.dxf").read_bytes(), "dxf").save(path)
+    assert zumen.read(path, view="Layout1").view == "Layout1"
+
+    # What could not be written as it was comes back as notices, like the readers'
+    notices = zumen.convert(FIXTURES / "dxf" / "features.dxf").notices
+    image = next(notice for notice in notices if notice["code"] == "image")
+    assert (image["level"], image["count"]) == ("warning", 1)
+    with pytest.raises(zumen.ReadError):
+        zumen.convert(FIXTURES / "jww" / "minimal-v700.jww")
+    with pytest.raises(zumen.ReadError):
+        zumen.convert(FIXTURES / "dxf" / "r12.dxf", "sfc")
+
+
+def test_converted_dxf_reads_in_ezdxf_and_passes_its_audit(tmp_path):
+    """ezdxf, another implementation, reads every converted fixture strictly, and its audit finds only the malformed
+    input that some fixtures pin on purpose (most fixtures are too small for ezdxf to read before conversion)."""
+    ezdxf = pytest.importorskip("ezdxf")
+    from ezdxf.audit import AuditError
+
+    pinned = {
+        "features.dxf": {
+            AuditError.INVALID_BLOCK_REFERENCE_CYCLE,
+            AuditError.INVALID_COLOR_INDEX,
+            AuditError.INVALID_TRANSPARENCY,
+            AuditError.INVALID_VERTEX_COUNT,
+        },
+        "limits.dxf": {AuditError.INVALID_BLOCK_REFERENCE_CYCLE},
+    }
+    sources = sorted((FIXTURES / "dxf").glob("*.dxf")) + sorted((FIXTURES / "dwg").glob("*.dwg"))
+    for source in sources:
+        path = tmp_path / f"{source.name}.dxf"
+        zumen.convert(source).save(path)
+        auditor = ezdxf.readfile(path).audit()
+        found = {entry.code for entry in [*auditor.errors, *auditor.fixes]}
+        assert found == pinned.get(source.name, set()), source.name

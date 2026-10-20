@@ -28,6 +28,14 @@ All packages share one version during 0.x.
 - Rust: compressed SXF (P2Z and SFZ, a ZIP archive with one P21 or SFC file) is unpacked and read, up to `max_bytes`
   after unpacking, or 2 GiB without it, against ZIP bombs. The scene is that of the P21 or SFC, with the archive in
   its metadata.
+- Rust and Python: write DXF and DWG drawings as DXF of AutoCAD 2013 in UTF-8 through the AutoCAD drawing model
+  (`zumen::convert` and `zumen_dxf::write_dxf`, `zumen convert <file> -o <out.dxf>`, `zumen.convert` and `Converted` in
+  Python; [decision 0006](docs/decisions/0006-write-through-the-autocad-model.md)). Handles, tables, blocks, layouts and
+  every entity that the model holds are written, including MULTILEADER, WIPEOUT and gradients, so the written file
+  draws the same scenes with the same ids. What cannot be written as it was (IMAGE, HELIX as SPLINE, MPOLYGON as HATCH,
+  ACAD_TABLE as the INSERT of its block, line types with texts or shapes, dimensions without their block) is reported
+  in `notices`, and missing definitions are added. ezdxf reads the written files in the Python tests.
+- `zumen-dxf` and `zumen-dwg`: hatches keep the angle, shift, one-color flag and tint of their gradient.
 - `@zumenjs/viewer`: the 2D engine that applications embed in their own interface
   ([decision 0005](docs/decisions/0005-browser-packages-for-embedding.md)). The Canvas renderer, hit testing and
   `DrawingViewer` move here from `@zumenjs/core`. `DrawingViewer` sets and reads the view (`jumpTo`, `fitBounds`,

@@ -1,5 +1,5 @@
 //! zumen のコマンド。図面の形式の判定、表示用モデル（Scene）の JSON の出力、文字と図形の取り出し、PNG への描画、
-//! 2 つの版の比較を行う。
+//! 2 つの版の比較、DXF への書き出しを行う。
 #![forbid(unsafe_code)]
 
 use serde_json::{Map, Value, json};
@@ -24,6 +24,7 @@ Usage:
                [--theme light|dark] [--thin] [--format <name>] [--view <id>]
   zumen compare <before> <after> [--tolerance <mm>] [--style] [--all-layers] [--no-align]
                 [-o <overlay.png> [--dpi <n> | --size <w>x<h>]] [--format <name>] [--view <id>]
+  zumen convert <file> -o <out.dxf> [--format <name>]
 
 Every command that reads takes --max-bytes <n>, --max-entities <n> and --timeout <seconds>, to stop
 reading an untrusted drawing that is too large (P2Z and SFZ after unpacking), too complex or too slow.
@@ -38,7 +39,8 @@ that the drawing hides. --map writes the size of the image,
 the conversion between pixels and paper millimeters, and the pixel box of every entity drawn.
 compare matches entities by shape and text (not by id) and writes the removed, added and changed
 entities and the regions that changed as JSON; -o draws them over the unchanged ones (red before,
-blue after, gray unchanged).";
+blue after, gray unchanged).
+convert writes a DXF or DWG drawing as DXF (AutoCAD 2013, UTF-8) and reports what it could not write.";
 
 struct Args {
     command: String,
@@ -338,6 +340,20 @@ fn run(args: Args) -> Result<(), String> {
         println!("{format}");
         return Ok(());
     }
+    if args.command == "convert" {
+        let output = args.output.ok_or("convert needs -o <out.dxf>")?;
+        // 書く形式は出力のファイルの拡張子
+        let to = std::path::Path::new(&output)
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .map(str::to_ascii_lowercase)
+            .unwrap_or_default();
+        let options = ReadDrawingOptions { format: args.format.clone(), view: None, limits: args.limits };
+        let converted = zumen::convert(&bytes, &to, &options).map_err(|error| error.to_string())?;
+        std::fs::write(&output, &converted.bytes).map_err(|error| format!("{output}: {error}"))?;
+        print_notices(&converted.notices);
+        return Ok(());
+    }
     let options = ReadDrawingOptions { format: args.format.clone(), view: args.view.clone(), limits: args.limits };
     let scene = zumen::read(&bytes, &options).map_err(|error| error.to_string())?;
     let filter = EntityFilter { region: args.region, hidden_layers: args.all_layers.then(HashSet::new) };
@@ -427,10 +443,14 @@ fn run(args: Args) -> Result<(), String> {
         }
         other => return Err(format!("unknown command: {other}\n\n{USAGE}")),
     }
-    for notice in &scene.notices {
+    print_notices(&scene.notices);
+    Ok(())
+}
+
+fn print_notices(notices: &[zumen::Notice]) {
+    for notice in notices {
         eprintln!("notice ({:?}, {}): {} × {}", notice.level, notice.code, notice.message, notice.count);
     }
-    Ok(())
 }
 
 fn main() -> ExitCode {

@@ -1,3 +1,4 @@
+import os
 from typing import Any, Literal, TypeAlias, TypedDict
 
 __version__: str
@@ -207,6 +208,19 @@ def compare(
     all_layers: bool = False,
     align: bool = True,
 ) -> Comparison: ...
+
+class Converted:
+    """A drawing written in another format, and the notices about what could not be written as it was."""
+
+    @property
+    def data(self) -> bytes: ...
+    @property
+    def format(self) -> str: ...
+    @property
+    def notices(self) -> list[dict[str, str | int]]: ...
+    def save(self, path: str | os.PathLike[str]) -> None: ...
+    def __len__(self) -> int: ...
+
 def detect(data: bytes) -> str | None: ...
 def read(
     data: bytes,
@@ -217,3 +231,4 @@ def read(
     max_entities: int | None = None,
     timeout: float | None = None,
 ) -> Scene: ...
+def convert(data: bytes, to: str, *, format: str | None = None) -> Converted: ...

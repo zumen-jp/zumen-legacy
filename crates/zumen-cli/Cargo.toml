@@ -1,6 +1,6 @@
 [package]
 name = "zumen-cli"
-description = "Command line tool to inspect and render 2D drawings with zumen"
+description = "Command line tool to inspect, render and convert 2D drawings with zumen"
 version.workspace = true
 edition.workspace = true
 repository.workspace = true
