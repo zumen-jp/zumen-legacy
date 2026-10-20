@@ -6,7 +6,7 @@ build-backend = "maturin"
 name = "zumen"
 description = "Read 2D drawings of Japanese construction (SXF, JWW, DXF and DWG), render them to PNG, SVG and PDF, extract their texts and entities, and compare revisions"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 keywords = ["cad", "drawing", "jww", "sxf", "dxf", "dwg", "aec"]
 classifiers = [
   # 公開の前にライセンスを決める（docs/releasing.md）。それまで PyPI へ送らない
@@ -16,6 +16,9 @@ classifiers = [
   "Programming Language :: Python :: Implementation :: CPython",
   "Topic :: Scientific/Engineering",
 ]
+# 同梱の BIZ UDGothic は拡張モジュールに埋め込まれるので、そのライセンス（SIL OFL 1.1、licenses/ はクレート側の
+# OFL.txt のコピー）の全文をホイールの dist-info に入れる。zumen 自身の LICENSE を決めたらここへ加える（docs/releasing.md）
+license-files = ["licenses/*"]
 dynamic = ["version"]
 
 [project.optional-dependencies]
