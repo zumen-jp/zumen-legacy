@@ -167,7 +167,7 @@ fn refuses_formats_it_cannot_write() {
     let dxf = fs::read(fixtures().join("dxf/r12.dxf")).unwrap();
     let error = zumen::convert(&dxf, "sfc", &ReadDrawingOptions::default()).unwrap_err();
     assert!(error.message().contains("SFC"), "{}", error.message());
-    let options = ReadDrawingOptions { format: Some("stb".into()), view: None };
+    let options = ReadDrawingOptions { format: Some("stb".into()), ..ReadDrawingOptions::default() };
     let error = zumen::convert(&dxf, "dxf", &options).unwrap_err();
     assert!(error.message().contains("STB"), "{}", error.message());
 }
