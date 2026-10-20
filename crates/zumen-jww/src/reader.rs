@@ -352,7 +352,7 @@ pub(crate) fn read_entity_body(reader: &mut Reader<'_>, class_name: &str, versio
 }
 
 /// 図形の一覧を読む。途中で失敗しても、それまでに読んだ図形は out に残る
-fn read_entity_list(
+pub(crate) fn read_entity_list(
     reader: &mut Reader<'_>,
     version: u32,
     table: &mut ReadTable,
@@ -526,7 +526,7 @@ pub fn is_jww(bytes: &[u8]) -> bool {
     bytes.starts_with(b"JwwData.")
 }
 
-fn read_blocks(
+pub(crate) fn read_blocks(
     body: &mut Reader<'_>,
     version: u32,
     table: &mut ReadTable,

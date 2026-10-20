@@ -326,7 +326,9 @@ fn writes_the_contents_of_the_samples() {
         let name = path.file_name().unwrap().to_string_lossy().to_string();
         let doc = read_jww(&std::fs::read(&path).unwrap()).unwrap();
         let written = write_jww(&doc);
-        assert!(written.notices.is_empty(), "{name}: {:?}", written.notices);
+        // 同梱画像のファイルは図面の内容にないので、画像の配置の文字だけを書く（embedded-image）
+        let unexpected: Vec<_> = written.notices.iter().filter(|notice| notice.code != "embedded-image").collect();
+        assert!(unexpected.is_empty(), "{name}: {unexpected:?}");
         let read = read_jww(&written.bytes).unwrap();
         assert_eq!(read, doc, "{name}");
         checked += 1;
