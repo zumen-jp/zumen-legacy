@@ -172,6 +172,10 @@ struct Editor<'a, 'd> {
     rewritten: HashMap<u64, Rewrite>,
     /// 消す元のインスタンス
     dead: HashSet<u64>,
+    /// 要素の並びから外した要素。どの並びにも残らなければ消す（同じインスタンスを複数の並びに入れた P21 もある）
+    removed: HashSet<u64>,
+    /// 元のファイルで、複数の並び（または同じ並びの複数の所）に入っている要素
+    shared: HashSet<u64>,
     /// 要素の並びの書き換え（DRAWING_SHEET_REVISION・DRAUGHTING_SUBFIGURE_REPRESENTATION → 書き換え）
     lists: HashMap<u64, ListEdit>,
     /// レイヤの割り当てから外す要素（値を変えた要素は、新しいレイヤに入れ直す）
@@ -248,7 +252,8 @@ impl<'a, 'd> Editor<'a, 'd> {
 
     /// 値が変わった要素を、要素の並びのインスタンスの番号を変えずに書き直す。書き直せなければ false
     fn rewrite_member(&mut self, item: u64, feature: &SxfFeature) -> bool {
-        if item as f64 != feature.id() || self.entity(item).is_none() {
+        // ほかの並びと共有する要素は、書き直すとほかの並びの要素も変わるので、新しく作る
+        if item as f64 != feature.id() || self.entity(item).is_none() || self.shared.contains(&item) {
             return false;
         }
         let start = self.graph.instances.len();
@@ -276,7 +281,7 @@ impl<'a, 'd> Editor<'a, 'd> {
         let mut edit = ListEdit::default();
         for position in unmatched {
             edit.removed.insert(source[position].item);
-            self.dead.insert(source[position].item);
+            self.removed.insert(source[position].item);
         }
         let mut previous: Option<u64> = None;
         for (position, feature) in current.iter().enumerate() {
@@ -290,9 +295,10 @@ impl<'a, 'd> Editor<'a, 'd> {
                 if self.rewrite_member(member.item, feature) {
                     continue;
                 }
-                // 書き直せない要素（ほかのインスタンスに包まれた寸法など）は、消して新しく作る
+                // 書き直せない要素（ほかのインスタンスに包まれた寸法、ほかの並びと共有する要素）は、並びから外して
+                // 新しく作る
                 edit.removed.insert(member.item);
-                self.dead.insert(member.item);
+                self.removed.insert(member.item);
             }
             if let Some(root) = self.add_member(feature) {
                 edit.inserted.push((previous, root));
@@ -300,6 +306,26 @@ impl<'a, 'd> Editor<'a, 'd> {
         }
         self.lists.insert(list, edit);
     }
+}
+
+/// 複数の要素の並び（用紙・複合図形）に入っている、または同じ並びに複数入っている要素
+fn shared_items(file: &P21File) -> HashSet<u64> {
+    let mut seen = HashSet::new();
+    let mut shared = HashSet::new();
+    for entity in file.entities.values() {
+        for (name, args) in &entity.parts {
+            if let Some(value) = container_argument(name).and_then(|position| args.get(position)) {
+                let mut items = Vec::new();
+                references(value, &mut items);
+                for item in items {
+                    if !seen.insert(item) {
+                        shared.insert(item);
+                    }
+                }
+            }
+        }
+    }
+    shared
 }
 
 /// 元の P21 を書き換えられないとき、新しく書く
@@ -374,6 +400,8 @@ pub(crate) fn write_p21_edit(drawing: &SxfDrawing, bytes: &[u8]) -> SxfWritten {
         graph: Graph::new(doc, first, 10),
         rewritten: HashMap::new(),
         dead: HashSet::new(),
+        removed: HashSet::new(),
+        shared: shared_items(&file),
         lists: HashMap::new(),
         unassigned: HashSet::new(),
         hide: Vec::new(),
@@ -832,6 +860,27 @@ fn finish(mut editor: Editor<'_, '_>, sheet: u64, bytes: &[u8]) -> SxfWritten {
         *items = out;
     }
 
+    // 並びから外した要素のうち、どの並びにも残らないものを消す
+    let mut dead = std::mem::take(&mut editor.dead);
+    if !editor.removed.is_empty() {
+        let mut listed: HashSet<u64> = HashSet::new();
+        for entity in file.entities.values() {
+            let instance = id(entity.id);
+            if let Some(items) = state.lists.get(&instance) {
+                listed.extend(items.iter().copied());
+                continue;
+            }
+            for (name, args) in &entity.parts {
+                if let Some(value) = container_argument(name).and_then(|position| args.get(position)) {
+                    let mut items = Vec::new();
+                    references(value, &mut items);
+                    listed.extend(items);
+                }
+            }
+        }
+        dead.extend(editor.removed.iter().copied().filter(|item| !listed.contains(item)));
+    }
+
     // 消すインスタンスを参照するインスタンスも消す（要素の並びからは外すだけ）
     let mut referrers: HashMap<u64, Vec<u64>> = HashMap::new();
     for (instance, refs) in &state.strong {
@@ -839,7 +888,6 @@ fn finish(mut editor: Editor<'_, '_>, sheet: u64, bytes: &[u8]) -> SxfWritten {
             referrers.entry(*target).or_default().push(*instance);
         }
     }
-    let mut dead = std::mem::take(&mut editor.dead);
     let mut queue: Vec<u64> = dead.iter().copied().collect();
     while let Some(instance) = queue.pop() {
         for referrer in referrers.get(&instance).cloned().unwrap_or_default() {
