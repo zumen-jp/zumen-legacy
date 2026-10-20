@@ -4,12 +4,13 @@
 //! ObjFreeSpace、Template、AcDsPrototype_1b など）はそのまま写す
 
 use super::container::{DataSection, Objects, PREVIEW_END, PREVIEW_START, Preview, R2000, R2004};
+use super::container21::{DataSection21, R2007, write_r2007};
 use super::database::has_extra;
 use super::sections::{CLASSES_END, CLASSES_SENTINEL, Framed, HEADER_END, HEADER_SENTINEL};
 use super::{DwgWritten, container};
 use crate::bits::TextCodec;
 use crate::crc::{CRC8_SEED, crc8};
-use crate::file::{self, MAX_SECTION_BYTES, R2004Container, Version, is_dwg};
+use crate::file::{self, MAX_SECTION_BYTES, R2004Container, R2007Container, Version, is_dwg, r21};
 use crate::header::{Header, read_header};
 use crate::objects::{Format, object_length, read_object_map};
 use std::collections::HashMap;
@@ -31,7 +32,7 @@ pub fn rewrite_dwg(bytes: &[u8]) -> Result<DwgWritten, String> {
         Version::R13 | Version::R14 => {
             return Err(format!("{name}（AutoCAD R13・R14）の DWG は書き直せません。R2000 以降の DWG を書き直せます"));
         }
-        Version::R2007 => return Err(format!("{name}（AutoCAD 2007）の DWG はまだ書き直せません")),
+        Version::R2007 => rewrite_r2007(bytes, &mut notices)?,
         Version::R2000 => rewrite_r2000(bytes, &mut notices)?,
         _ => rewrite_r2004(bytes, version, &mut notices)?,
     };
@@ -254,4 +255,78 @@ fn rewrite_r2004(bytes: &[u8], version: Version, notices: &mut NoticeList) -> Re
     let mut head = [0u8; 0x80];
     head.copy_from_slice(&bytes[..0x80]);
     Ok(container::write_r2004(&R2004 { head, sections, stream_order }))
+}
+
+// --- R2007 ------------------------------------------------------------------
+
+fn rewrite_r2007(bytes: &[u8], notices: &mut NoticeList) -> Result<Vec<u8>, String> {
+    // 5.2 の 0x18 は R2004 と同じ（4.1）: 1 はデータの節の暗号化
+    let security = u32::from_le_bytes(bytes[0x18..0x1c].try_into().unwrap_or_default());
+    if security & 1 != 0 {
+        return Err("パスワードで暗号化した DWG は書き直せません".into());
+    }
+    let container = R2007Container::open(bytes)?;
+    let mut sections = Vec::with_capacity(container.sections.len());
+    let mut addresses = Vec::with_capacity(container.sections.len());
+    let mut objects_at = None;
+    let mut handles_at = None;
+    for info in &container.sections {
+        if info.size >= MAX_SECTION_BYTES as u64 {
+            return Err(format!("DWG の節 {} が大きすぎるため、書き直せません", info.name));
+        }
+        if info.encryption == 1 {
+            return Err(format!("DWG の節 {} は暗号化されているため、書き直せません", info.name));
+        }
+        let mut data = container.data(info, notices);
+        data.resize(info.size as usize, 0);
+        let data = match info.name.as_str() {
+            "AcDb:Header" => reframe(&data, &HEADER_SENTINEL, &HEADER_END, false, 0, &info.name, notices),
+            // R2004 以降のクラスの節は、終わりの区切りの後に 8 バイトの 0 が続く（10.1）
+            "AcDb:Classes" => reframe(&data, &CLASSES_SENTINEL, &CLASSES_END, false, 8, &info.name, notices),
+            "AcDb:AcDbObjects" => {
+                objects_at = Some(sections.len());
+                data
+            }
+            "AcDb:Handles" => {
+                handles_at = Some(sections.len());
+                data
+            }
+            _ => data,
+        };
+        let address = info.pages.first().and_then(|page| container.page(page.id)).map(|(at, _)| at);
+        addresses.push(address);
+        // プレビューのデータはページの始まりに置かれ、中の画像の位置はファイルの中の位置
+        let preview = info.name == "AcDb:Preview";
+        let mut max_size = if info.max_size == 0 { 0xf800 } else { info.max_size as usize };
+        if preview && data.len() > max_size {
+            max_size = data.len().div_ceil(0x400) * 0x400;
+        }
+        sections.push(DataSection21 {
+            name: info.name.clone(),
+            data,
+            max_size,
+            encryption: info.encryption,
+            hash: info.hash,
+            encoding: info.encoding,
+            preview_base: preview.then(|| address.map_or(0, |at| at as u64)),
+        });
+    }
+    let (Some(objects_at), Some(handles_at)) = (objects_at, handles_at) else {
+        return Err("DWG の節（AcDb:AcDbObjects・AcDb:Handles）が見つかりません".into());
+    };
+    let map = read_object_map(&sections[handles_at].data);
+    if map.is_empty() {
+        return Err("DWG のオブジェクトの表が読めません".into());
+    }
+    let objects = copy_objects(&sections[objects_at].data, &map, false, notices);
+    let (stream, locations) = objects.lay_out(0);
+    sections[objects_at].data = stream;
+    sections[handles_at].data = super::sections::object_map(&locations);
+
+    let mut stream_order: Vec<usize> = (0..sections.len()).collect();
+    stream_order.sort_by_key(|&index| addresses[index].unwrap_or(usize::MAX));
+    let mut head = [0u8; 0x80];
+    head.copy_from_slice(&bytes[..0x80]);
+    let random_seed = container.header[r21::RANDOM_SEED];
+    Ok(write_r2007(&R2007 { head, sections, stream_order, random_seed }))
 }
