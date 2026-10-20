@@ -1,5 +1,5 @@
 //! zumen の Python の結合部。図面を読み（`read`）、表示用モデル（`Scene`）を JSON・PNG・SVG・PDF にし、文字と図形を取り出す。
-//! 図面を DXF に書き直す（`convert`）。
+//! 図面を DXF に書き直す（`convert`）。図面をその場で編集し（`edit`）、新しい図面を作る（`create`）。
 //! 読み取りと描画の間は GIL を外す（FastAPI のスレッドなどで並行に動く）。
 
 use pyo3::exceptions::{PyImportError, PyOSError, PyUserWarning, PyValueError};
@@ -23,6 +23,32 @@ pyo3::create_exception!(
     ReadError,
     "読み取りの上限（max_bytes・max_entities・timeout）を超えたので途中でやめた。limit に上限の種類（bytes・entities・time）がある"
 );
+
+pyo3::create_exception!(
+    zumen,
+    EditError,
+    PyValueError,
+    "図面を編集できなかった。code に理由の種類（not-found・unknown-key など）、operation に理由になった操作の番号（0 から。図面全体の理由なら None）がある"
+);
+
+/// 編集の失敗を EditError にする
+fn edit_error(py: Python<'_>, error: zumen::edit::EditError) -> PyErr {
+    let err = EditError::new_err(error.to_string());
+    let value = err.value(py);
+    if let Err(failure) = value.setattr("code", error.code).and_then(|()| value.setattr("operation", error.operation)) {
+        return failure;
+    }
+    err
+}
+
+/// 操作を読む。Python の list と dict（JSON にできる値）か、JSON の文字列
+fn edit_operations(py: Python<'_>, operations: &Bound<'_, PyAny>) -> PyResult<Vec<zumen::edit::EditOperation>> {
+    let text: String = match operations.extract::<String>() {
+        Ok(text) => text,
+        Err(_) => py.import("json")?.call_method1("dumps", (operations,))?.extract()?,
+    };
+    zumen::edit::parse_operations(&text).map_err(|error| edit_error(py, error))
+}
 
 /// 読み取りの失敗を Python の例外にする。上限を超えたものは LimitError にして、limit に種類を入れる
 fn read_error(py: Python<'_>, error: zumen::ReadError) -> PyErr {
@@ -856,6 +882,82 @@ impl Converted {
     }
 }
 
+/// 編集した図面（data）、足したものの id（created）、形を変えて書いた内容（notices）
+#[pyclass(frozen, module = "zumen")]
+struct Edited {
+    inner: zumen::edit::Edited,
+}
+
+#[pymethods]
+impl Edited {
+    /// 編集した図面のバイト列
+    #[getter]
+    fn data<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        PyBytes::new(py, &self.inner.bytes)
+    }
+
+    /// add で足した図形の id と、add-layer で足したレイヤの名前（操作の順）
+    #[getter]
+    fn created(&self) -> Vec<String> {
+        self.inner.created.clone()
+    }
+
+    /// 形を変えて書いた・足した内容（level、code、message、count）
+    #[getter]
+    fn notices<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+        notice_list(py, &self.inner.notices)
+    }
+
+    /// ファイルに書く
+    fn save(&self, py: Python<'_>, path: std::path::PathBuf) -> PyResult<()> {
+        py.detach(|| std::fs::write(&path, &self.inner.bytes))
+            .map_err(|error| PyOSError::new_err(format!("{}: {error}", path.display())))
+    }
+
+    fn __len__(&self) -> usize {
+        self.inner.bytes.len()
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "<zumen.Edited {} bytes, {} created, {} notices>",
+            self.inner.bytes.len(),
+            self.inner.created.len(),
+            self.inner.notices.len()
+        )
+    }
+}
+
+/// 図面をその場で編集する（docs/decisions/0012）。operations は操作の list（または JSON の文字列）。
+/// 形式・版・文字コードと、操作が名指ししないものは元のまま。1 つでも通らない操作があれば EditError を出し、何も書かない
+#[pyfunction]
+#[pyo3(signature = (data, operations, *, format = None, max_bytes = None))]
+fn edit(
+    py: Python<'_>,
+    data: &[u8],
+    operations: &Bound<'_, PyAny>,
+    format: Option<String>,
+    max_bytes: Option<u64>,
+) -> PyResult<Edited> {
+    let operations = edit_operations(py, operations)?;
+    let limits = zumen::ReadLimits { max_bytes, ..zumen::ReadLimits::default() };
+    let options = ReadDrawingOptions { format, limits, ..ReadDrawingOptions::default() };
+    let edited = py.detach(|| zumen::edit(data, &operations, &options)).map_err(|error| edit_error(py, error))?;
+    Ok(Edited { inner: edited })
+}
+
+/// 新しい図面を作り、操作を当てる。to は形式（dxf）、units は長さの単位（mm・cm・m・inch・foot・unitless）
+#[pyfunction]
+#[pyo3(signature = (to, operations = None, *, units = "mm".to_string()))]
+fn create(py: Python<'_>, to: String, operations: Option<&Bound<'_, PyAny>>, units: String) -> PyResult<Edited> {
+    let operations = match operations {
+        Some(operations) => edit_operations(py, operations)?,
+        None => Vec::new(),
+    };
+    let created = py.detach(|| zumen::create(&to, &units, &operations)).map_err(|error| edit_error(py, error))?;
+    Ok(Edited { inner: created })
+}
+
 /// 図面の形式を中身から判定する（sfc・p21・jww・dxf など）。読めない形式なら None
 #[pyfunction]
 fn detect(data: &[u8]) -> Option<&'static str> {
@@ -1031,6 +1133,7 @@ fn _zumen(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("ReadError", m.py().get_type::<ReadError>())?;
     m.add("LimitError", m.py().get_type::<LimitError>())?;
     m.add("RenderError", m.py().get_type::<RenderError>())?;
+    m.add("EditError", m.py().get_type::<EditError>())?;
     m.add_class::<Scene>()?;
     m.add_class::<Rendering>()?;
     m.add_class::<Comparison>()?;
@@ -1039,5 +1142,8 @@ fn _zumen(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(detect, m)?)?;
     m.add_function(wrap_pyfunction!(read, m)?)?;
     m.add_function(wrap_pyfunction!(convert, m)?)?;
+    m.add_class::<Edited>()?;
+    m.add_function(wrap_pyfunction!(edit, m)?)?;
+    m.add_function(wrap_pyfunction!(create, m)?)?;
     Ok(())
 }

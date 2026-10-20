@@ -4,6 +4,19 @@ All packages share one version during 0.x.
 
 ## Unreleased (0.1.0)
 
+- Rust, Python and the command line: edit drawings in place and create new ones
+  ([decision 0012](docs/decisions/0012-edit-in-place-and-write-every-format.md)). The operations are the same for every
+  format: `add`, `update` and `delete` entities, and `add-layer` and `update-layer`, with the kinds, ids and property
+  keys of the scene and coordinates in the drawing's own units (`zumen_core::edit`). An edit keeps the format, version,
+  text encoding and everything the operations do not name, and fails as a whole with a code and the number of the
+  operation. DXF is done (R12 to 2018, ASCII and binary): `zumen_dxf::edit_dxf` keeps every tag that no operation
+  changes byte for byte, so extended data, objects and unread entities stay. `zumen::edit` and `zumen::create`,
+  `zumen.edit`, `zumen.create`, `Edited` and `EditError` in Python, and `zumen edit` and `zumen create`.
+- ST-Bridge left zumen: `@zumenjs/stb` and its notes moved to a private repository, because publishing an
+  implementation of ST-Bridge needs a license from buildingSMART Japan. zumen keeps to formats that need no third
+  party's permission and to dependencies with permissive licenses
+  ([decision 0013](docs/decisions/0013-st-bridge-out-of-zumen.md)). The playground opens drawings only.
+
 - The length unit of a drawing: `Scene.unit`, one of `LENGTH_UNITS` (`LengthUnit` in Rust), is the unit of the
   drawing's own coordinates (the `raw` points and lengths of properties): `millimeter` in SXF and JWW, and in DXF and
   DWG the unit of `$INSUNITS` (`inch`, `meter`, …), or the one assumed with the `unit-assumed` notice. `Scene.unit` in

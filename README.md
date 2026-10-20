@@ -2,7 +2,7 @@
 
 English | [日本語](README.ja.md)
 
-Read, view and measure architectural and civil engineering 2D drawings in the browser, and view structural models in 3D.
+Read, view and measure architectural and civil engineering 2D drawings in the browser.
 **zumen** (図面, "drawing" in Japanese) parses the drawing files themselves, so nothing is uploaded to a server,
 and gives you a framework-agnostic drawing engine to embed in your own interface, with React hooks and a sample UI.
 
@@ -16,8 +16,6 @@ and gives you a framework-agnostic drawing engine to embed in your own interface
 - **DXF** from AutoCAD and other CAD software is read in TypeScript, including Japanese drawings in Shift_JIS and binary DXF.
   **DWG** (AutoCAD 2000 to 2018) is read into the same AutoCAD drawing model by our own decoder in Rust, without GPL
   components, and in the browser through its WebAssembly build (`@zumenjs/dwg`).
-- Structural design data in Japan is exchanged as **ST-Bridge** (`.stb`). We found no browser library for it either,
-  so `@zumenjs/stb` reads versions 2.0 and 2.1 and shows the members in 3D.
 
 ## Features
 
@@ -41,10 +39,10 @@ and gives you a framework-agnostic drawing engine to embed in your own interface
   from the scale of SXF sub-figures, JWW layer groups, DXF units and DXF layout viewports.
 - Dark and light backgrounds; true line weights or hairlines.
 - Drawing metadata (title block, authoring software, sheet) and a list of everything that was skipped or substituted.
-- Structural models: ST-Bridge 2.0 and 2.1 in 3D, with members extruded from their sections, stories and grid axes,
-  plans and elevations by filtering, and member properties (section, materials, story and the original attributes).
-- No runtime dependencies; the 3D view uses three.js as an optional peer dependency, and `@zumenjs/dwg` ships its
-  WebAssembly reader. Parsing also runs in Node.js.
+- Editing in Rust and Python: add, change and delete entities and layers of a DXF drawing in place, keeping its
+  version, encoding and everything the edit does not name, and create new drawings
+  ([decision 0012](docs/decisions/0012-edit-in-place-and-write-every-format.md)).
+- No runtime dependencies; `@zumenjs/dwg` ships its WebAssembly reader. Parsing also runs in Node.js.
 
 ## Packages
 
@@ -57,11 +55,9 @@ and gives you a framework-agnostic drawing engine to embed in your own interface
 | [`@zumenjs/dxf`](packages/dxf) | `parseDxf` (the AutoCAD drawing model, shared with DWG), `dxfToScene`, the `dxf` reader |
 | [`@zumenjs/dwg`](packages/dwg) | The `dwg` reader, with the Rust DWG reader built to WebAssembly (`initDwg` or `dwg.load` loads it) |
 | [`@zumenjs/react`](packages/react) | Hooks: `useDrawingViewer`, `useViewerState`, `useViewerEvent` and `useDrawing` |
-| [`@zumenjs/stb`](packages/stb) | `readStb` and `isStb` (the 3D structural model), `StructureView` (three.js) and `StbViewer` (React) |
 
 Format packages and `@zumenjs/viewer` depend only on `@zumenjs/core`, `@zumenjs/react` on `@zumenjs/viewer` and
 `@zumenjs/core`, and `@zumenjs/core` knows nothing about formats and does not use the DOM.
-`@zumenjs/stb` is a separate 3D line and depends on no other package.
 Formats are detected from the file contents, not from the file name. See [docs/architecture.md](docs/architecture.md).
 
 ## Quick start
@@ -193,21 +189,6 @@ const circles = scene.entities.filter((entity) => entity.kind === "circle"); // 
 const radius = circles[0]?.properties.find((property) => property.key === "radius")?.raw; // label 半径, value "25"
 ```
 
-Structural models (ST-Bridge): `useStbFile` reads the file and `StbViewer` shows it in 3D. `readStb` alone works in Node.js.
-
-```tsx
-import { StbViewer, useStbFile } from "@zumenjs/stb/react";
-
-export function StructureView({ file }: { file: File | null }) {
-  const { model, error } = useStbFile(file);
-  if (error) return <p role="alert">{error.message}</p>;
-  return model ? <StbViewer model={model} style={{ height: 640 }} /> : null;
-}
-```
-
-A `StructureModel` uses global millimeters with the Z axis up. Each member keeps its solid, its properties and the
-original XML attributes. See [packages/stb](packages/stb/README.md).
-
 ## Rust and Python
 
 The readers are being ported to Rust (`crates/`), with Python bindings (`bindings/python`) and a WebAssembly build
@@ -239,6 +220,15 @@ for entity in image.entities_at(640, 480):  # the entities drawn under a pixel, 
 
 zumen.convert("plan.jww", "dxf").save("plan.dxf")  # any format as DXF of AutoCAD 2013, with notices of what changed
 zumen.convert("plan.dwg", "sfc").save("plan.sfc")  # or as SXF (SFC of SXF Ver.3.1)
+
+# Edit in place: everything the operations do not name stays as it was (DXF so far)
+edited = zumen.edit("plan.dxf", [
+    {"op": "add", "kind": "text", "layer": "NOTE", "position": [1200, 300], "text": "確認済み", "height": 350},
+    {"op": "update", "id": "3F2", "set": {"end": [5200, 0], "color": "#ff0000"}},
+    {"op": "delete", "id": "3F5"},
+])
+edited.save("plan.dxf")  # edited.created holds the ids of what was added
+zumen.create("dxf", [{"op": "add", "kind": "line", "start": [0, 0], "end": [5000, 0]}], units="mm")  # a new drawing
 ```
 
 AI applications can read drawings through the MCP server of the Python package (`pip install "zumen[mcp]"`, then
@@ -256,6 +246,8 @@ cargo run --release -p zumen-cli -- title plan.jww  # the fields of the title bl
 cargo run --release -p zumen-cli -- convert plan.dwg -o plan.dxf
 cargo run --release -p zumen-cli -- convert plan.sfc -o plan.dxf
 cargo run --release -p zumen-cli -- convert plan.dxf -o plan.sfc
+cargo run --release -p zumen-cli -- edit plan.dxf operations.json -o edited.dxf
+cargo run --release -p zumen-cli -- create operations.json -o new.dxf --units mm
 ```
 
 `convert` writes every format as DXF of AutoCAD 2013 through the AutoCAD drawing model. DXF and DWG keep their
@@ -270,19 +262,26 @@ no feature for (multiline texts, leaders, dimensions, solids) is written as the 
 for it, so the SFC draws the same as the drawing it came from
 ([decision 0010](docs/decisions/0010-write-sxf-from-the-autocad-model.md)).
 
+`edit` changes a drawing in place with operations that are the same for every format: add, update and delete
+entities, and add and update layers, chosen by the ids, kinds and property keys that the scene reports, with
+coordinates in the drawing's own units. The format, its version and encoding, and everything the operations do not name
+(extended data, objects, entities that zumen does not read) stay as they were. All operations are checked before
+anything is written. DXF (R12 to 2018, ASCII and binary) is done; DWG, SXF and JWW are next
+([decision 0012](docs/decisions/0012-edit-in-place-and-write-every-format.md)). `create` starts a new drawing.
+
 | Crate | Contents |
 | --- | --- |
-| [`zumen-core`](crates/zumen-core) | The scene model (the same JSON as `@zumenjs/core`), geometry, text layout, the texts and entities of a scene, the fields of its title block, and the comparison of two revisions |
+| [`zumen-core`](crates/zumen-core) | The scene model (the same JSON as `@zumenjs/core`), geometry, text layout, the texts and entities of a scene, the fields of its title block, the comparison of two revisions, and the edit operations |
 | [`zumen-sxf`](crates/zumen-sxf) | `parse_sfc` and `parse_p21` (the SXF feature model), `sxf_to_scene`, the `SXF` reader, and `write_sfc` (the feature model as SFC) |
 | [`zumen-jww`](crates/zumen-jww) | `read_jww` (the JWW document model), `jww_to_scene`, the `JWW` reader |
-| [`zumen-dxf`](crates/zumen-dxf) | `parse_dxf` (the AutoCAD drawing model, shared with DWG), `dxf_to_scene`, the `DXF` reader, and `write_dxf` (the model as DXF of AutoCAD 2013) |
+| [`zumen-dxf`](crates/zumen-dxf) | `parse_dxf` (the AutoCAD drawing model, shared with DWG), `dxf_to_scene`, the `DXF` reader, `write_dxf` (the model as DXF of AutoCAD 2013), and `edit_dxf` (editing in place) |
 | [`zumen-dwg`](crates/zumen-dwg) | `read_dwg` (DWG 2000 to 2018 into the AutoCAD drawing model of `zumen-dxf`), the `DWG` reader |
 | [`zumen-convert`](crates/zumen-convert) | `sxf_to_dxf` and `jww_to_dxf` (SXF and JWW into the AutoCAD drawing model, to be written as DXF), and `dxf_to_sxf` (the model as an SXF drawing, to be written as SFC) |
-| [`zumen`](crates/zumen) | `read` and `detect` over every reader, with limits on bytes, entities and time for untrusted drawings, and `convert` (every format to DXF and SFC) |
+| [`zumen`](crates/zumen) | `read` and `detect` over every reader, with limits on bytes, entities and time for untrusted drawings, `convert` (every format to DXF and SFC), `edit` and `create` |
 | [`zumen-render`](crates/zumen-render) | PNG, SVG and PDF rendering with the rules of the browser renderer, and the pixel box of every entity drawn; BIZ UDGothic is bundled for Japanese text |
-| [`zumen-cli`](crates/zumen-cli) | The `zumen` command: `detect`, `scene` (JSON), `texts` and `entities` (JSON lines), `title`, `render` (PNG), `compare` and `convert` (DXF, SFC) |
+| [`zumen-cli`](crates/zumen-cli) | The `zumen` command: `detect`, `scene` (JSON), `texts` and `entities` (JSON lines), `title`, `render` (PNG), `compare`, `convert` (DXF, SFC), `edit` and `create` |
 
-Reading, rendering and converting release the GIL in Python.
+Reading, rendering, converting and editing release the GIL in Python.
 
 ## Privacy
 
@@ -294,8 +293,7 @@ sending them anywhere.
 
 - Browsers with Canvas 2D, and WebAssembly for DWG. Verified in Chromium; Firefox and Safari are expected to work but
   are not tested yet.
-- WebGL and three.js 0.186 for the 3D view of `@zumenjs/stb`.
-- React 19.3 for the hooks of `@zumenjs/react` and for `@zumenjs/stb/react`.
+- React 19.3 for the hooks of `@zumenjs/react`.
 - Node.js 24 for parsing and for development.
 
 ## Roadmap
@@ -305,9 +303,9 @@ sending them anywhere.
 3. Rust readers with Python and WebAssembly bindings, and PNG, SVG and PDF rendering on servers (JWW, SXF and DXF done).
 4. DWG, read into the same AutoCAD object model (2000 to 2018 done in Rust and in the browser through WebAssembly;
    R13 and R14 are next).
-5. Writing and converting drawings (SXF, JWW, DXF and DWG to DXF done in Rust; SFC, P21 and JWW writers next),
+5. Writing, converting and editing drawings (every format to DXF and SFC, and editing DXF in place, done in Rust;
+   DWG, P21 and JWW writers and the editors of DWG, SXF and JWW next),
    analysis (tables, rooms and areas; the comparison of revisions is done), markup and PDF drawings.
-6. Plan and elevation drawings of ST-Bridge models as scenes, to view, measure and render them like drawings.
 
 ## Documentation
 
@@ -316,7 +314,6 @@ sending them anywhere.
 - [How JWW is handled](docs/formats/jww.md) (Japanese)
 - [How DXF is handled](docs/formats/dxf.md)
 - [How DWG is handled](docs/formats/dwg.md)
-- [How ST-Bridge is handled](docs/formats/st-bridge.md) (Japanese)
 - [Verification records](docs/verification.md)
 - [Design decisions](docs/decisions/README.md)
 
@@ -329,8 +326,7 @@ Report security issues as described in [SECURITY.md](SECURITY.md).
 
 To be decided before the first public release.
 Third-party notices: [packages/jww/THIRD_PARTY_NOTICES.md](packages/jww/THIRD_PARTY_NOTICES.md),
-[packages/dxf/THIRD_PARTY_NOTICES.md](packages/dxf/THIRD_PARTY_NOTICES.md),
-[packages/stb/THIRD_PARTY_NOTICES.md](packages/stb/THIRD_PARTY_NOTICES.md).
+[packages/dxf/THIRD_PARTY_NOTICES.md](packages/dxf/THIRD_PARTY_NOTICES.md).
 The bundled font of `zumen-render` is BIZ UDGothic under the SIL Open Font License 1.1
 ([crates/zumen-render/fonts/OFL.txt](crates/zumen-render/fonts/OFL.txt)).
 
@@ -341,5 +337,3 @@ The bundled font of `zumen-render` is BIZ UDGothic under the SIL Open Font Licen
   Transport and Tourism of Japan, and the display requirements published by NILIM.
 - The DXF reader follows the Autodesk DXF Reference and was checked against [ezdxf](https://ezdxf.mozman.at/) (MIT);
   the code page table and some interpretations follow ezdxf.
-- The ST-Bridge reader follows the ST-Bridge XML specifications (ver.2.1.1 and 2.0.2) and XML Schemas published by
-  buildingSMART Japan. It is not certified by buildingSMART Japan.

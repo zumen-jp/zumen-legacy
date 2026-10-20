@@ -29,7 +29,7 @@ pub struct TagReadResult {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Kind {
+pub(crate) enum Kind {
     String,
     Float,
     Int16,
@@ -40,7 +40,7 @@ enum Kind {
 }
 
 /// グループコードの値の型（DXF Reference「Group Code Value Types Reference」の表）
-fn kind_of(code: f64) -> Kind {
+pub(crate) fn kind_of(code: f64) -> Kind {
     let ranges: [(f64, Kind); 32] = [
         (9.0, Kind::String),
         (59.0, Kind::Float),
@@ -79,7 +79,7 @@ fn kind_of(code: f64) -> Kind {
 }
 
 /// バイナリ DXF の先頭 22 バイト（DXF Reference「About Binary DXF Files」）
-const BINARY_SENTINEL: &[u8] = b"AutoCAD Binary DXF\r\n\x1a\x00";
+pub(crate) const BINARY_SENTINEL: &[u8] = b"AutoCAD Binary DXF\r\n\x1a\x00";
 
 pub fn is_binary_dxf(bytes: &[u8]) -> bool {
     bytes.starts_with(BINARY_SENTINEL)
@@ -465,6 +465,27 @@ fn binary_header_value(bytes: &[u8], name: &str) -> Option<String> {
     start += if head.get(start + 1) == Some(&0) { 2 } else { 1 };
     let end = head.get(start..)?.iter().position(|byte| *byte == 0).map(|offset| start + offset)?;
     (end > start).then(|| latin1(&head[start..end]))
+}
+
+/// 図面の版、バイナリか、文字列の文字コード（TextDecoder の名前）。読み取り（read_tags）と同じ判断で、
+/// その場の編集が足す文字列を同じ文字コードで書くのに使う
+pub(crate) fn source_encoding(bytes: &[u8]) -> (String, bool, &'static str) {
+    let mut notices = NoticeList::new();
+    if is_binary_dxf(bytes) {
+        let version = binary_header_value(bytes, "$ACADVER").unwrap_or_else(|| "AC1009".into());
+        let codepage = if version.as_str() < "AC1021" { binary_header_value(bytes, "$DWGCODEPAGE") } else { None };
+        let (label, _) = choose_encoding(None, &version, codepage.as_deref(), &mut notices);
+        return (version, true, label);
+    }
+    let head = latin1(&bytes[..bytes.len().min(256 * 1024)]);
+    let version = header_string(&head, "$ACADVER").unwrap_or_else(|| "AC1009".into());
+    let codepage = header_string(&head, "$DWGCODEPAGE");
+    let label = if bytes.starts_with(b"\xef\xbb\xbf") {
+        "utf-8"
+    } else {
+        choose_encoding(Some(bytes), &version, codepage.as_deref(), &mut notices).0
+    };
+    (version, false, label)
 }
 
 /// テキスト・バイナリの DXF をタグにする。文字列は図面の文字コードで復号する
