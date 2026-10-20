@@ -422,13 +422,6 @@ impl HeaderVars {
             slot.1 = value;
         }
     }
-
-    pub fn handle(&self, name: &str) -> Option<u64> {
-        match self.get(name)? {
-            Value::Handle(handle) => Some(handle.value),
-            _ => None,
-        }
-    }
 }
 
 /// CPSNID（印刷スタイルのハンドル）は CEPSNTYPE が 3 のときだけある

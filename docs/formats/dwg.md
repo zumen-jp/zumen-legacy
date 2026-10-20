@@ -13,7 +13,8 @@ bytes ─▶ file (container, pages, decompression) ─▶ objects (bit streams)
 ```
 
 It also writes DWG: `rewrite_dwg` writes a drawing back in its own version with every object copied as its bits, the
-base for editing a drawing in place ([Writing](#writing)).
+base for editing a drawing in place, and `write_dwg` writes the AutoCAD drawing model as an AutoCAD 2013 DWG, which is
+how a DXF, a DWG or a drawing of another format read into the model becomes DWG ([Writing](#writing)).
 
 Where the specification is silent or does not match the files, the behavior was checked against the same drawing
 saved as DXF by AutoCAD and against the MIT implementations [ACadSharp](https://github.com/DomCR/ACadSharp) and
@@ -99,6 +100,9 @@ return what `parse_dxf` returns for that DXF. All are *inferred* from the sample
   horizontal direction, backwards unless the hook is on the X direction.
 - **VIEWPORT**: the ID (69) is the position in its layout, and the status (68) is the ID, or 0 for a viewport that is
   off (flag `0x20000`).
+- **MULTILEADER arrows**: from R2010 on, each leader line has its own arrow; the arrow of a line whose override flags have
+  32 (arrow symbol) is that line's arrow head (DXF 94 and 345, by the line's index). Before R2010 the arrow heads are a
+  list of their own.
 - **Attributes**: the owner of an ATTRIB is its INSERT.
 - **Colors**: color book colors (DBCOLOR) give the color name and book; the index (62) is the low byte of the `ENC`
   color. Transparency types 0, 1 and 3 become none, BYBLOCK (`0x01000000`) and `0x020000TT`. MULTILEADER colors are kept
@@ -142,7 +146,10 @@ ACAD_TABLE beyond its block, proxy graphics, and DWG files over the section limi
 
 ## Writing
 
-`zumen-dwg` writes DWG in Rust, following the same specification. `rewrite_dwg(bytes)` reads a DWG and writes it back
+`zumen-dwg` writes DWG in Rust, following the same specification, in two ways: `rewrite_dwg` copies a drawing, and
+`write_dwg` writes the AutoCAD drawing model ([New drawings](#new-drawings)).
+
+`rewrite_dwg(bytes)` reads a DWG and writes it back
 in the same version: every object is copied as its bits, without decoding and encoding it again, into a new objects
 section in the order of the source, and the object map is written for the new positions. The header variables and the
 classes are copied with their CRCs computed again, and every other section (AcDb:AuxHeader, AcDb:SummaryInfo,
@@ -238,3 +245,112 @@ saved (`farmhouse.dwg`: 1.79 MB against 1.93 MB), and rewriting takes 75 ms for 
 - [ezdwg](https://github.com/monozukuri-ai/ezdwg) 0.16.3 reads every rewritten sample to the same entities, layers,
   layouts and header variables as the original.
 - ODA File Converter (audit and conversion to DXF) and DWG TrueView: not run yet.
+
+### New drawings
+
+`write_dwg(&DxfDocument)` writes the model as AC1027 (AutoCAD 2013) and returns the bytes and notices. It makes the same
+choices as the DXF writer (`zumen_dxf::write_dxf`): handles of the model are kept, and a handle that is missing,
+unreadable or used twice gets a new one after the largest; layers, line types, text styles, dimension styles and blocks
+that entities use but the model does not define are added; what cannot be written as it is is reported with the same
+notices. DWG holds every value, so what the model does not hold is written with AutoCAD's defaults (the values of
+`acad.dwt` saved as AutoCAD 2013, taken from AutoCAD's own files).
+
+Every object is built as the structure of a lossless codec (`src/codec`) and written by it. The codecs read every value
+of an object and write it back; each of them gives the same bits for every object of the samples of R2000 to R2018
+(`src/samples.rs`), which is how the order and the forms of their values were checked.
+
+- **Sections**: AcDb:Header, AcDb:AuxHeader, AcDb:Classes, AcDb:Handles, AcDb:Template, AcDb:ObjFreeSpace,
+  AcDb:AcDbObjects, AcDb:RevHistory, AcDb:SummaryInfo, AcDb:Preview (no image), AcDb:AppInfo and AcDb:FileDepList, in
+  AutoCAD's order and page sizes. AcDb:AuxHeader (27), AcDb:ObjFreeSpace (21) and AcDb:RevHistory (18) have the layout
+  and constant values of AutoCAD's files; AcDb:AppInfo (16.2) names zumen and its version; the dates are `$TDCREATE` and
+  `$TDUPDATE` of the model (zero when it has none, since the library has no clock). The Template keeps its zero page when
+  the model has `$MEASUREMENT`, so that the reader finds it.
+- **Header variables**: all of them (9), with AutoCAD's defaults, replaced by the model's variables that have the same
+  name and a compatible type (all of a DXF's header; the ones the DWG reader keeps), then by the values that drawing uses
+  (`$INSUNITS`, `$LTSCALE`, `$PSLTSCALE`, `$TEXTSIZE`, `$DIMSCALE`, `$DIMASZ`, `$DIMTXT`, `$TILEMODE`, extents and
+  limits) and the handles of the tables and dictionaries. Julian dates become a day and milliseconds. The fingerprint and
+  version GUIDs are the model's, or are made from the written objects, so the same model gives the same bytes.
+- **Tables**: the controls with their entries, LTYPE (ByBlock, ByLayer and Continuous, kept at the end of the control
+  as AutoCAD does), LAYER, STYLE, VPORT `*Active`, APPID, DIMSTYLE (the model's scale, arrow size and text height, the
+  defaults otherwise), empty VIEW and UCS, and BLOCK_HEADER with its BLOCK and ENDBLK, owned entities and the handles of
+  the INSERTs that use it.
+- **Objects**: the named object dictionary with ACAD_COLOR, ACAD_GROUP, ACAD_LAYOUT, ACAD_MATERIAL (ByBlock, ByLayer,
+  Global), ACAD_MLEADERSTYLE (Standard), ACAD_MLINESTYLE, ACAD_PLOTSETTINGS, ACAD_PLOTSTYLENAME (the dictionary with
+  default `Normal` and its placeholder), ACAD_SCALELIST (`1:1`), ACAD_TABLESTYLE and ACAD_VISUALSTYLE (empty) and
+  AcDbVariableDictionary (`CANNOSCALE`, `CMLEADERSTYLE`); a LAYOUT for the model and for each paper space block, with the
+  model's paper settings; the multiline styles; and a SORTENTSTABLE for each block with a draw order.
+- **Entities**: every kind the model holds: LINE, CIRCLE, ARC, ELLIPSE, POINT, LWPOLYLINE, POLYLINE with its vertices and
+  faces, SPLINE, TEXT, MTEXT, INSERT and MINSERT with their attributes, ATTDEF, the dimension types, ARC_DIMENSION,
+  LARGE_RADIAL_DIMENSION, HATCH, SOLID, TRACE, 3DFACE, LEADER, MULTILEADER, MLINE, VIEWPORT, XLINE, RAY and WIPEOUT.
+  Entities of model space and of `*Paper_Space` have no owner handle; other entities, vertices, attributes and SEQEND
+  are owned by their block, POLYLINE or INSERT, as in AutoCAD's files.
+
+#### Values
+
+- **Strings** are stored as UTF-16. The model holds the caret notation of DXF (`^J`, `^ `), which the DWG reader also
+  produces, so it is turned back into characters; reading gives the same string, except for a string that is not in that
+  notation (a control character in a DXF, or `^` followed by another character), which reading gives in the notation.
+- **Angles**: degrees become radians chosen so that the reader's `r × 180 / π` gives the same degrees when such a value
+  exists (the double rounding leaves some degrees out). The start and end of an arc are chosen together so that their
+  difference is the same as in the model: the scene divides an arc by its sweep, and one unit in the last place over
+  exactly 180° changes the division.
+- **Colors** become `ENC` colors: an index (BYLAYER 256, BYBLOCK 0), or `0x8000` with `0xC2RRGGBB` for a true color, and
+  `0x2000` with the DXF value for a transparency. A color book color, which the model holds as its true color, is
+  written as that true color. Line weights take the nearest value of AutoCAD's list; line types BYLAYER, BYBLOCK and
+  CONTINUOUS use the flags, others the handle.
+- TEXT leaves out the values at their defaults with the data flags, as AutoCAD does, and a text with an alignment but
+  no second point gets its first point, as the DXF writer does. MTEXT without a direction gets one from its rotation in
+  its OCS.
+- A SPLINE is written with its control points and knots (R2013 scenario 1, custom knot parameter), or with its fit points
+  and tangents when it has no control points or when its control points are those the reader computes from the fit
+  points (a spline read from a DWG keeps its fit points).
+- A WIPEOUT boundary that ends at its first point is written without that point, which the reader adds back.
+
+#### Inferred rules
+
+- **Header variables**: from R2004 on, the four BS after the handle stream (R2007 and later) or the data are followed by
+  BL 0, BL 0 and a bit (every sample ends this way; ACadSharp writes them too).
+- **Dimensions**: AutoCAD sets bit 8 of Flags 1 in every dimension of the samples; it is set.
+- **MLINE**: the BS that the specification calls open (1) or closed (3) holds the flags of DXF's 71, with 4 and 8 for
+  caps that are not drawn.
+- **SPLINE** (R2013 and later): AutoCAD writes scenario 1 for every spline; fit data is read when the knot parameter is
+  not custom (15) and flag 8 (use knot parameter) is set, as the reader and ACadSharp read it.
+- **BLOCK_HEADER**: the owned entity count is left out for external references, as ACadSharp reads and writes it (the
+  specification has it in every version).
+- **Classes**: the values of AutoCAD's own files (proxy flags, application, version and maintenance version), also those
+  that AutoCAD 2018 writes into older formats (33 and 329 for MLEADERSTYLE, MULTILEADER and WIPEOUT).
+- **Layers** that are off have bit 2 of their flags set; the color keeps its index (every sample).
+
+#### Notices of new drawings
+
+The codes of the DXF writer, with the same messages, and one more:
+
+| Code | When | What is written |
+| --- | --- | --- |
+| `missing-block` | An entity uses a block that is not defined | An empty block |
+| `complex-linetype` | A line type has text or shapes | Its dashes and gaps |
+| `helix` | A HELIX | A SPLINE |
+| `mpolygon` | An MPOLYGON | A HATCH |
+| `table` | An ACAD_TABLE | An INSERT of its block |
+| `attrib-alone` | An ATTRIB that no INSERT owns | A TEXT or MTEXT |
+| `image` | An IMAGE (the model does not keep the image file) | Nothing |
+| `dimension-block` | A dimension without its block | Nothing |
+| `mleader-block` | A MULTILEADER whose block content is not defined | No content |
+| `multiline-attrib` | A multi-line attribute, which AutoCAD 2013 DWG cannot hold (the embedded MTEXT is R2018) | A single-line attribute with the text on one line |
+
+What the model does not hold is not written: entity types that the readers skip (counted in `skipped`), extended data
+and extension dictionaries, the handles of vertices, the lock position of attributes, the associativity of hatches and
+of leaders to their annotation (a leader keeps the hook vertex that the reader adds), visual styles and table styles.
+
+#### Verification of new drawings
+
+- Every DXF and DWG of `tests/fixtures`, written as DWG and read again, draws the same in every view as the model it was
+  written from (`tests/write_model.rs`, as `crates/zumen/tests/convert.rs` checks the DXF writer). The model is first
+  given the values that reading a DWG gives (multi-line attributes made single-line, strings in caret notation, polygon
+  boundaries closed), and splines with only fit points are not compared: the DWG reader computes their control points as
+  AutoCAD does, while the DXF reader draws a curve through the points.
+- The same holds for the 42 sample drawings that zumen reads (DXF and DWG, R12 to 2018) with `ZUMEN_SAMPLES`.
+- ezdwg 0.16.3 reads every written drawing. For the samples that are DWG, it reads the same values for every entity as
+  from the original, apart from what the model does not hold (above) and values that ezdwg reads differently from any
+  R2013 file (owners of INSERTs, names of hatches).
+- ODA File Converter and DWG TrueView: not run yet.

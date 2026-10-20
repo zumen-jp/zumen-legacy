@@ -870,7 +870,8 @@ impl Writer<'_> {
                 ),
             },
         };
-        let flags1 = u8::from(dimtype & 128 == 0) | (u8::from(dimtype & 32 != 0) << 1);
+        // 8 は意味が分からないが、AutoCAD はどの寸法にも立てる
+        let flags1 = 8 | u8::from(dimtype & 128 == 0) | (u8::from(dimtype & 32 != 0) << 1);
         let midpoint = dimension.text_midpoint;
         let body = Dimension {
             version: 0,
@@ -1252,20 +1253,34 @@ fn hatch_edge(edge: &DxfHatchEdge) -> HatchEdge {
 /// 弦長 0、印は当てはめ点 1 と節点の取り方を使う 8）。R2013 以降の AutoCAD と同じく scenario は 1
 fn spline_body(spline: &DxfSpline) -> Spline {
     let closed = spline.closed || int(spline.flags) & 1 != 0;
+    let fit = |knot_parameter: i32| Spline {
+        scenario: 1,
+        flags1: 9 | if closed { 4 } else { 0 },
+        knot_parameter,
+        degree: int(spline.degree),
+        fit: Some(SplineFit {
+            tolerance: 1e-10,
+            start_tangent: spline.start_tangent.unwrap_or([0.0; 3]),
+            end_tangent: spline.end_tangent.unwrap_or([0.0; 3]),
+            points: spline.fit_points.clone(),
+        }),
+        control: None,
+    };
     if spline.control_points.is_empty() && !spline.fit_points.is_empty() {
-        return Spline {
-            scenario: 1,
-            flags1: 9 | if closed { 4 } else { 0 },
-            knot_parameter: 0,
-            degree: int(spline.degree),
-            fit: Some(SplineFit {
-                tolerance: 1e-10,
-                start_tangent: spline.start_tangent.unwrap_or([0.0; 3]),
-                end_tangent: spline.end_tangent.unwrap_or([0.0; 3]),
-                points: spline.fit_points.clone(),
-            }),
-            control: None,
-        };
+        return fit(0);
+    }
+    // 読み取りが当てはめ点から求めた制御点（DWG の当てはめ点のスプライン）と同じなら、当てはめ点のまま書く
+    if let (Some(d0), Some(dn)) = (spline.start_tangent, spline.end_tangent)
+        && spline.degree == 3.0
+        && !closed
+    {
+        for knot_parameter in [0, 1, 2] {
+            if crate::entities::interpolate(&spline.fit_points, d0, dn, knot_parameter)
+                .is_some_and(|(knots, controls)| knots == spline.knots && controls == spline.control_points)
+            {
+                return fit(knot_parameter);
+            }
+        }
     }
     let weighted = spline.rational && !spline.weights.is_empty();
     Spline {

@@ -44,7 +44,7 @@ pub(super) fn lineweight_index(value: f64) -> u8 {
     if value == -2.0 {
         return 30;
     }
-    if !(value >= 0.0) {
+    if value.is_nan() || value < 0.0 {
         return 31;
     }
     WEIGHTS

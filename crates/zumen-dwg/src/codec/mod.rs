@@ -36,15 +36,6 @@ impl RawText {
     pub fn empty(version: Version) -> Self {
         if version >= Version::R2007 { Self::Units(Vec::new()) } else { Self::Bytes(Vec::new()) }
     }
-
-    /// 文字列（NUL は除く）
-    pub fn text(&self, encoding: &'static Encoding) -> String {
-        let text = match self {
-            Self::Bytes(bytes) => encoding.decode_without_bom_handling(bytes).0.into_owned(),
-            Self::Units(units) => String::from_utf16_lossy(units),
-        };
-        if text.contains('\0') { text.replace('\0', "") } else { text }
-    }
 }
 
 /// CMC（2.11）。R2004 より前は色の番号だけ、R2004 以降は番号（ふつう 0）・RGB の値（上位 1 バイトが種類）・

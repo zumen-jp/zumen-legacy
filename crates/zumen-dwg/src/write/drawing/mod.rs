@@ -171,6 +171,12 @@ pub(super) struct Fixed {
     pub appids: Vec<(&'static str, u64)>,
 }
 
+/// ブロックの描画順（SORTENTSTABLE）: (ブロックの添字, 拡張辞書, 表, (並べ替えのハンドル, 図形))
+pub(super) type SortTable = (usize, u64, u64, Vec<(u64, u64)>);
+
+/// 線種を決める途中の値（名前, 説明, 1 周期の長さ, 線と空白, 元の線種）
+type LinetypeSource<'a> = (String, String, f64, Vec<f64>, Option<&'a zumen_dxf::DxfLinetype>);
+
 /// 書く線種（LTYPE）
 pub(super) struct LinetypePlan {
     pub name: String,
@@ -222,8 +228,7 @@ pub(super) struct Writer<'a> {
     pub entity_handles: HashMap<usize, u64>,
     pub mline_styles: Vec<(u64, DxfMLineStyle)>,
     pub fixed: Fixed,
-    /// ブロックの描画順（SORTENTSTABLE）: (ブロックの添字, 辞書, 表, (並べ替えのハンドル, 図形))
-    pub sort_tables: Vec<(usize, u64, u64, Vec<(u64, u64)>)>,
+    pub sort_tables: Vec<SortTable>,
     /// 書いた VIEWPORT（レイアウトのビューポートの並び）
     pub viewports: HashSet<u64>,
 }
@@ -646,7 +651,7 @@ impl<'a> Writer<'a> {
                 .to_string()
         };
         let mut seen = HashSet::new();
-        let mut plans: Vec<(String, String, f64, Vec<f64>, Option<&'a zumen_dxf::DxfLinetype>)> = Vec::new();
+        let mut plans: Vec<LinetypeSource<'a>> = Vec::new();
         for name in ["ByBlock", "ByLayer", "Continuous"] {
             seen.insert(upper(name));
             let original = doc.linetypes.iter().find(|linetype| linetype.name.eq_ignore_ascii_case(name));
@@ -882,7 +887,7 @@ fn uncaret(value: &str) -> String {
 /// 押し出し方向の OCS の X・Y 軸（任意の軸の求め方、DXF Reference「Arbitrary Axis Algorithm」）
 pub(super) fn ocs_axes(normal: Vec3) -> (Vec3, Vec3) {
     let length = zumen_core::js::hypot(&normal);
-    if !(length > 0.0) {
+    if length.is_nan() || length <= 0.0 {
         return ([1.0, 0.0, 0.0], [0.0, 1.0, 0.0]);
     }
     let n = normal.map(|v| v / length);

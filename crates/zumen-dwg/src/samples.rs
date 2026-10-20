@@ -302,39 +302,6 @@ fn header_variables_of_real_drawings_are_written_back_unchanged() {
     }
 }
 
-#[test]
-#[ignore]
-fn dump_object_types() {
-    use crate::bits::TextCodec;
-    use crate::objects::{Format, open_object};
-    for (name, bytes) in samples() {
-        if !name.starts_with("sample_AC1027") && !name.starts_with("BLOCKPOINT") {
-            continue;
-        }
-        let version = Version::from_magic(&bytes[..6]).unwrap();
-        let mut notices = NoticeList::new();
-        let container = R2004Container::open(&bytes).unwrap();
-        let objects = container.section("AcDb:AcDbObjects", &mut notices).unwrap();
-        let handles = container.section("AcDb:Handles", &mut notices).unwrap();
-        let classes = framed_section(&bytes, version, 1, "AcDb:Classes");
-        let defs = crate::write::classes::read_class_defs(&classes.data, version, TextCodec::Utf16);
-        let map = read_object_map(&handles);
-        let format = Format { version, maintenance: bytes[0x0b], codec: TextCodec::Utf16 };
-        let mut counts: std::collections::BTreeMap<String, usize> = Default::default();
-        for (handle, offset) in &map {
-            let Ok(object) = open_object(&objects, *offset, format) else { continue };
-            let kind = if object.kind >= 500 {
-                defs.iter().find(|class| class.number == object.kind).map_or("?".into(), |class| class.dxf_name.clone())
-            } else {
-                format!("{}", object.kind)
-            };
-            *counts.entry(kind).or_default() += 1;
-            let _ = handle;
-        }
-        println!("{name}: {counts:?}");
-    }
-}
-
 /// 読み書きできるオブジェクトの種類と、読んで書く関数（型の番号、図形の種類の名前）
 type Codec = fn(&mut crate::codec::In<'_>, u16, &str, &mut crate::write::object::ObjectWriter) -> crate::bits::Read<()>;
 
@@ -389,7 +356,7 @@ fn codec(kind: u16, class: &str) -> Option<Codec> {
 }
 
 /// 図形の種類の名前（固定の型の名前か、クラスの DXF の名前）
-fn entity_name<'a>(kind: u16, class: &'a str) -> &'a str {
+fn entity_name(kind: u16, class: &str) -> &str {
     crate::codec::entities::fixed_name(kind).unwrap_or(class)
 }
 
@@ -478,112 +445,8 @@ fn objects_of_real_drawings_are_written_back_unchanged() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-#[test]
-#[ignore]
-fn debug_one_object() {
-    use crate::codec::In;
-    use crate::codec::object::{EntityCommon, open_raw};
-    let wanted = std::env::var("ZUMEN_DEBUG_OBJECT").unwrap_or_default();
-    let (file, handle) = wanted.split_once(':').unwrap();
-    let handle = u64::from_str_radix(handle, 16).unwrap();
-    for (name, bytes) in samples() {
-        if name != file {
-            continue;
-        }
-        let version = Version::from_magic(&bytes[..6]).unwrap();
-        let (objects, map) = objects_of(&bytes, version);
-        let offset = map[&handle];
-        let mut raw = open_raw(&objects, offset, version).unwrap();
-        println!("kind {} eed {:?}", raw.kind, raw.eed);
-        println!(
-            "data {} strings {:?} handles {:?}",
-            raw.input.data.remaining(),
-            raw.input.strings.as_ref().map(crate::bits::Bits::remaining),
-            raw.input.handles.as_ref().map(crate::bits::Bits::remaining)
-        );
-        let mut probe = In { data: raw.input.data.clone(), strings: None, handles: raw.input.handles.clone(), version };
-        let s = &mut probe;
-        let graphic = s.data.bit();
-        let mode = s.data.bb();
-        println!("graphic {graphic:?} mode {mode:?}");
-        if mode == Ok(0) {
-            println!("owner {:?}", s.handle());
-        }
-        let reactors = s.data.bl();
-        println!("reactors {reactors:?}");
-        for _ in 0..reactors.unwrap_or(0).clamp(0, 10) {
-            println!("  reactor {:?}", s.handle());
-        }
-        let missing = s.data.bit();
-        println!("xdict missing {missing:?}");
-        if missing == Ok(false) {
-            println!("xdict {:?}", s.handle());
-        }
-        let color = s.data.bs();
-        println!("color {color:?} (as u16 {:x?})", color.map(|c| c as u16));
-        let common = EntityCommon::read(&mut raw.input);
-        println!("common {common:#?}");
-        println!(
-            "data {} handles {:?}",
-            raw.input.data.remaining(),
-            raw.input.handles.as_ref().map(crate::bits::Bits::remaining)
-        );
-        let mut values = Vec::new();
-        while raw.input.data.remaining() >= 2 {
-            match raw.input.data.bd() {
-                Ok(value) => values.push(value),
-                Err(_) => break,
-            }
-        }
-        println!("BDs {values:?} left {}", raw.input.data.remaining());
-    }
-}
-
-#[test]
-#[ignore]
-fn dump_splines() {
-    use crate::codec::object::{EntityCommon, open_raw};
-    let mut seen: std::collections::BTreeMap<(String, i32, i32, i32, bool), usize> = Default::default();
-    for (name, bytes) in samples() {
-        let Some(version) = Version::from_magic(&bytes[..6]) else { continue };
-        if version < Version::R2013 {
-            continue;
-        }
-        let (objects, map) = objects_of(&bytes, version);
-        for &offset in map.values() {
-            let Ok(mut raw) = open_raw(&objects, offset, version) else { continue };
-            if raw.kind != 36 {
-                continue;
-            }
-            let s = &mut raw.input;
-            if EntityCommon::read(s).is_err() {
-                continue;
-            }
-            let scenario = s.data.bl().unwrap();
-            let flags1 = s.data.bl().unwrap();
-            let knot = s.data.bl().unwrap();
-            let _degree = s.data.bl().unwrap();
-            // 当てはめ点の読み方で読み切れるか
-            let mut probe = s.data.clone();
-            let fit = (|| -> crate::bits::Read<bool> {
-                probe.bd()?;
-                probe.bd3()?;
-                probe.bd3()?;
-                let count = probe.bl()?;
-                for _ in 0..count.clamp(0, 100000) {
-                    probe.bd3()?;
-                }
-                Ok(probe.remaining() == 0)
-            })()
-            .unwrap_or(false);
-            *seen.entry((name.clone(), scenario, flags1, knot, fit)).or_default() += 1;
-        }
-    }
-    for (key, count) in seen {
-        println!("{key:?}: {count}");
-    }
-}
-
+/// 節の表（名前・大きさ・ページの大きさ・圧縮・暗号化・ページ）と中身の頭を表示する（新しい図面の決め方を AutoCAD の
+/// 図面から調べるため）。`ZUMEN_DUMP=<名前,…> ZUMEN_BYTES=<表示するバイト数>`
 #[test]
 #[ignore]
 fn dump_sections() {
@@ -609,86 +472,6 @@ fn dump_sections() {
                 &data[..data.len().min(std::env::var("ZUMEN_BYTES").ok().and_then(|v| v.parse().ok()).unwrap_or(48))]
             );
         }
-    }
-}
-
-#[test]
-#[ignore]
-fn dump_dictionaries() {
-    use crate::codec::object::open_raw;
-    use crate::codec::objects::Dictionary;
-    let wanted = std::env::var("ZUMEN_DUMP").unwrap_or_default();
-    for (name, bytes) in samples() {
-        if !wanted.split(',').any(|w| w == name) {
-            continue;
-        }
-        let version = Version::from_magic(&bytes[..6]).unwrap();
-        let (objects, map) = objects_of(&bytes, version);
-        let text = if version >= Version::R2007 {
-            crate::bits::TextCodec::Utf16
-        } else {
-            crate::bits::TextCodec::Bytes(encoding_rs::WINDOWS_1252)
-        };
-        let classes = crate::write::classes::read_class_defs(
-            &framed_section(&bytes, version, 1, "AcDb:Classes").data,
-            version,
-            text,
-        );
-        let header = framed_section(&bytes, version, 0, "AcDb:Header");
-        let vars = crate::codec::header::read_header_vars(&header.data, version).unwrap();
-        let kind_name = |kind: u16| -> String {
-            crate::codec::entities::fixed_name(kind).map(str::to_string).unwrap_or_else(|| {
-                classes
-                    .iter()
-                    .find(|class| class.number == kind)
-                    .map_or(kind.to_string(), |class| class.dxf_name.clone())
-            })
-        };
-        let show = |handle: u64, depth: usize, label: &str, recurse: &dyn Fn(u64, usize, &str)| {
-            let Some(&offset) = map.get(&handle) else {
-                println!("{:indent$}{label} {handle:X} missing", "", indent = depth * 2);
-                return;
-            };
-            let Ok(mut raw) = open_raw(&objects, offset, version) else { return };
-            let kind = raw.kind;
-            let kname = kind_name(kind);
-            println!("{:indent$}{label} {handle:X} {kname}", "", indent = depth * 2);
-            if (kind == 42 || kname == "ACDBDICTIONARYWDFLT") && depth < 2 {
-                if let Ok(dict) = Dictionary::read(&mut raw.input, kname == "ACDBDICTIONARYWDFLT") {
-                    println!(
-                        "{:indent$}  (cloning {} hard_owner {} owner {:X} reactors {:?} xdict {:?})",
-                        "",
-                        dict.cloning,
-                        dict.hard_owner,
-                        dict.common.owner.value,
-                        dict.common.reactors.iter().map(|r| r.value).collect::<Vec<_>>(),
-                        dict.common.xdictionary.map(|x| x.value),
-                        indent = depth * 2
-                    );
-                    for (entry_name, entry) in &dict.entries {
-                        let label = entry_name.text(encoding_rs::WINDOWS_1252);
-                        recurse(entry.value, depth + 1, &label);
-                    }
-                }
-            }
-        };
-        fn walk(f: &dyn Fn(u64, usize, &str, &dyn Fn(u64, usize, &str)), handle: u64, depth: usize, label: &str) {
-            f(handle, depth, label, &|h, d, l| walk(f, h, d, l));
-        }
-        println!("{name} ({version:?})");
-        for (key, value) in &vars.values {
-            if let crate::codec::header::Value::Handle(handle) = value {
-                println!(
-                    "  header {key} = {:X} ({})",
-                    handle.value,
-                    map.get(&handle.value)
-                        .and_then(|&o| open_raw(&objects, o, version).ok())
-                        .map_or("-".into(), |raw| kind_name(raw.kind))
-                );
-            }
-        }
-        let root = vars.handle("DICTIONARY_NAMED_OBJECTS").unwrap();
-        walk(&show, root, 0, "ROOT");
     }
 }
 
@@ -729,7 +512,7 @@ fn dump_objects() {
             let kname = fixed_name(raw.kind)
                 .map(str::to_string)
                 .unwrap_or_else(|| if class.is_empty() { raw.kind.to_string() } else { class.to_string() });
-            if !kinds.iter().any(|k| *k == kname) {
+            if !kinds.contains(&kname) {
                 continue;
             }
             let count = seen.entry(kname.clone()).or_default();
@@ -766,6 +549,7 @@ fn dump_objects() {
     }
 }
 
+/// ヘッダ変数をすべて表示する。`ZUMEN_DUMP=<名前,…>`
 #[test]
 #[ignore]
 fn dump_header() {
@@ -783,26 +567,7 @@ fn dump_header() {
     }
 }
 
-#[test]
-#[ignore]
-fn dump_header_tails() {
-    use crate::codec::header::{header_bits, read_header_vars};
-    for (name, bytes) in samples() {
-        let Some(version) = Version::from_magic(&bytes[..6]) else { continue };
-        if !matches!(version, Version::R2000 | Version::R2004 | Version::R2010 | Version::R2013 | Version::R2018) {
-            continue;
-        }
-        let framed = framed_section(&bytes, version, 0, "AcDb:Header");
-        let vars = read_header_vars(&framed.data, version).unwrap();
-        let written = header_bits(&vars).bit_len();
-        let total = framed.data.len() as u64 * 8;
-        let tail: String = (written..total)
-            .map(|bit| if framed.data[(bit / 8) as usize] & (0x80 >> (bit % 8)) != 0 { '1' } else { '0' })
-            .collect();
-        println!("{name} {version:?} maintenance {} tail {tail}", bytes[0x0b]);
-    }
-}
-
+/// クラスの定義を表示する。`ZUMEN_DUMP=<名前,…>`
 #[test]
 #[ignore]
 fn dump_classes() {
