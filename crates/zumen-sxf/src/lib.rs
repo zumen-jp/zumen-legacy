@@ -74,7 +74,8 @@ fn write_p21_as(drawing: &SxfDrawing, version: Option<SxfVersion>) -> SxfWritten
 /// 図面は元のファイルを書き換える）。違う版は新しく書き、その版にないフィーチャを近い形にする（Ver.3.0 より前は
 /// 図面表題欄を除き、Ver.3.1 より前はクロソイド曲線を折線に、弧長寸法を角度寸法にして、notices で知らせる）
 pub fn write_sxf_version(drawing: &SxfDrawing, format: &str, version: SxfVersion) -> Result<SxfWritten, ReadError> {
-    let keep = drawing.source.is_some() && SxfVersion::of(drawing) == Some(version);
+    let keep =
+        drawing.source.is_some() && SxfVersion::of(drawing) == Some(version) && SxfVersion::written(drawing) <= version;
     write_sxf_as(drawing, format, (!keep).then_some(version))
 }
 
@@ -85,7 +86,7 @@ pub fn write_sxf(drawing: &SxfDrawing, format: &str) -> Result<SxfWritten, ReadE
     write_sxf_as(drawing, format, None)
 }
 
-/// format に書く。version を選べば、読んだ図面も元のファイル・書庫を使わずに新しく書く
+/// format に書く。version を選べば、図面の内容を新しく書く。元の書庫があれば付属ファイルは残す
 fn write_sxf_as(drawing: &SxfDrawing, format: &str, version: Option<SxfVersion>) -> Result<SxfWritten, ReadError> {
     let inner = match format {
         "sfc" => return Ok(write_sfc_as(drawing, version)),
@@ -95,7 +96,7 @@ fn write_sxf_as(drawing: &SxfDrawing, format: &str, version: Option<SxfVersion>)
         _ => return Err(ReadError::new(format!("SXF は {format} に書けません（書けるのは SFC・P21・SFZ・P2Z）"))),
     };
     let mut written = if inner == "sfc" { write_sfc_as(drawing, version) } else { write_p21_as(drawing, version) };
-    let source = drawing.source.as_ref().filter(|_| drawing.format == inner && version.is_none());
+    let source = drawing.source.as_ref().filter(|_| drawing.format == inner);
     if let Some((source, archive)) = source.and_then(|source| Some((source, source.archive.as_ref()?))) {
         if *written.bytes == *source.bytes {
             written.bytes = archive.bytes.to_vec();

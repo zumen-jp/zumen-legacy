@@ -188,7 +188,7 @@ fn writes_p21_and_compressed_sxf_at_the_chosen_version() {
         assert_eq!(count(&again, FeatureKind::CurveDim), 0, "{format}");
         assert!(again.document.title.is_none(), "{format}");
     }
-    // 圧縮した SXF から読んだ図面も、違う版は書庫を作り直す
+    // 圧縮した SXF から読んだ図面も、違う版は書庫内の SXF を書き直す
     let sfz = write_sxf(&drawing, "sfz").unwrap();
     let read = parse_sxf(&sfz.bytes, "sfz").unwrap();
     let older = write_sxf_version(&read, "sfz", SxfVersion::V3_0).unwrap();
@@ -215,4 +215,15 @@ fn writes_new_drawings_at_the_version_their_features_need() {
     plain.version = "SXF 2.0".into();
     let written = write_sxf(&plain, "p21").unwrap();
     assert!(String::from_utf8_lossy(&written.bytes).contains("'zumen$$2.0'"));
+}
+
+#[test]
+fn an_explicit_version_checks_features_even_when_the_header_matches() {
+    let drawing = parse_sxf(&read_fixture("p21", "features"), "p21").unwrap();
+    assert_eq!(SxfVersion::of(&drawing), Some(SxfVersion::V3_0));
+    let written = write_sxf_version(&drawing, "p21", SxfVersion::V3_0).unwrap();
+    let again = parse_sxf(&written.bytes, "p21").unwrap();
+    assert_eq!(count(&again, FeatureKind::Clothoid), 0);
+    assert_eq!(count(&again, FeatureKind::CurveDim), 0);
+    assert!(codes(&written.notices).contains(&"clothoid"));
 }

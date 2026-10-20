@@ -371,3 +371,5 @@ Names outside ASCII are Shift_JIS, or UTF-8 with the UTF-8 flag when Shift_JIS l
 - [Utsunomiya City, 電子納品運用に関するガイドライン〔営繕編〕更新概要](https://www.city.utsunomiya.lg.jp/_res/projects/default_project/_page_/001/013/197/egaiyou4-1.pdf):
   what each SXF version added (Ver.3.0 the title block and attributes, Ver.3.1 clothoids and arc length dimensions)
 - [ezsxf](https://github.com/monozukuri-ai/ezsxf) (MIT): a Python and Rust library that reads SXF and writes SFC and P21
+
+Explicit SXF version selection checks feature requirements even when the source header already names the requested version. Changing the version within SFZ/P2Z replaces only the drawing member and preserves other archive members and the drawing path.
