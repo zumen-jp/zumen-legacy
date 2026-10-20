@@ -1,14 +1,11 @@
-import { dwg } from "@zumenjs/dwg";
-import { dxf } from "@zumenjs/dxf";
-import { jww } from "@zumenjs/jww";
 import { useDrawing } from "@zumenjs/react";
-import { sxf } from "@zumenjs/sxf";
+import { reader } from "@zumenjs/reader";
 import { type DragEvent, StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { DrawingSample } from "./drawing-sample.js";
 
-const ACCEPT = ".sfc,.p21,.jww,.dxf,.dwg";
-const READERS = [sxf, jww, dxf, dwg];
+const ACCEPT = ".sfc,.p21,.sfz,.p2z,.jww,.dxf,.dwg";
+const READERS = [reader];
 
 /** 図面を選ぶ・ドロップする・?sample=名前 で開く試用画面 */
 function App() {
@@ -18,7 +15,7 @@ function App() {
     () => new URLSearchParams(window.location.search).get("view") ?? undefined,
   );
   const [over, setOver] = useState(false);
-  // DWG の読み取り（WebAssembly、約 1.6 MB）は、useDrawing が初めて DWG を開いたときに dwg.load で読み込む
+  // useDrawing が初めて図面を開いたときに reader.load で WebAssembly を読み込む。
   const drawing = useDrawing(file, READERS, { view });
   const { error, loading } = drawing;
   const open = (next: File | null) => {
@@ -65,7 +62,7 @@ function App() {
       <header style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12 }}>
         <h1 style={{ margin: 0, fontSize: 18 }}>図面のビューア</h1>
         <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-          図面（SFC・P21・JWW・DXF・DWG）
+          図面（SFC・P21・P2Z・SFZ・JWW・DXF・DWG）
           <input type="file" accept={ACCEPT} onChange={(event) => open(event.currentTarget.files?.[0] ?? null)} />
         </label>
         <span aria-live="polite">

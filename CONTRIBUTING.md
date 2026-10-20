@@ -13,7 +13,7 @@ format, version, authoring software, and the notices the viewer shows.
 - Node.js from `.node-version` (24) and pnpm from `packageManager` in `package.json` (enable it with `corepack enable`).
 - Rust from `rust-toolchain.toml` (installed by rustup on first use) and [uv](https://docs.astral.sh/uv/) for the Python bindings.
 - wasm-bindgen-cli of the version of `wasm-bindgen` in `Cargo.lock`, which builds the WebAssembly reader of
-  `@zumenjs/dwg` (`node scripts/install-wasm-bindgen.mjs` installs the locked version; `node scripts/wasm.mjs`
+  `@zumenjs/reader` (`node scripts/install-wasm-bindgen.mjs` installs the locked version; `node scripts/wasm.mjs`
   prints the command for the current version when it differs).
 - Chromium for the tests of the engine and the React hooks, which run in a browser (`*.browser.test.*`):
   `pnpm exec playwright install --only-shell chromium` installs the headless shell of the Playwright version in
@@ -26,7 +26,7 @@ format, version, authoring software, and the notices the viewer shows.
   pnpm run check
   ```
 
-- Open the playground with `pnpm dev`, which first builds the WebAssembly reader into `packages/dwg/wasm`
+- Open the playground with `pnpm dev`, which first builds the WebAssembly reader into `packages/reader/wasm`
   (`scripts/wasm.mjs`; `pnpm test`, the type checker and the builds need it too). It listens on `127.0.0.1` at the
   `playground` port in
   [config/local-ports.json](config/local-ports.json) (24100); set `PORT` to override it.
