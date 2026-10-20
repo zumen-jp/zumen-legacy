@@ -79,6 +79,9 @@ pub fn edit_dwg(bytes: &[u8], operations: &[EditOperation]) -> Result<Edited, Ed
     if matches!(&bytes[..6], b"AC1012" | b"AC1014") {
         return Err(EditError::new("unreadable", "AutoCAD R13・R14 の DWG はまだ編集できません"));
     }
+    if crate::r12::Old::from_magic(bytes).is_some() {
+        return Err(EditError::new("unreadable", "AutoCAD Release 12 以前の DWG はまだ編集できません"));
+    }
     let mut notices = NoticeList::new();
     let source = Source::open(bytes, &mut notices).map_err(|message| EditError::new("unreadable", message))?;
     if operations.is_empty() {

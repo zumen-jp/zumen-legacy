@@ -164,7 +164,7 @@ pub(crate) fn text_encoding(codepage: u16) -> &'static encoding_rs::Encoding {
         .unwrap_or(encoding_rs::WINDOWS_1252)
 }
 
-fn codepage_name(number: u16) -> Option<&'static str> {
+pub(crate) fn codepage_name(number: u16) -> Option<&'static str> {
     const NAMES: [&str; 45] = [
         "",
         "ASCII",
@@ -361,6 +361,10 @@ struct Record {
 
 /// DWG を AutoCAD の図面のモデルにする。読めないファイルは利用者に見せるメッセージを返す
 pub fn read_dwg(bytes: &[u8]) -> Result<DxfDocument, String> {
+    // R13 より前の図面は形が違う（r12）
+    if let Some(version) = crate::r12::Old::from_magic(bytes) {
+        return crate::r12::read_old(bytes, version);
+    }
     let mut notices = NoticeList::new();
     let dwg = file::open(bytes, &mut notices)?;
     let version = dwg.version;
@@ -485,7 +489,7 @@ fn version_has_layouts(version: Version) -> bool {
 }
 
 /// R13・R14 には LAYOUT がない。紙空間の図形があれば、DXF の R12 の読み取りと同じく 1 つのレイアウト（Layout1）として持つ
-fn add_paper_layout(doc: &mut DxfDocument) {
+pub(crate) fn add_paper_layout(doc: &mut DxfDocument) {
     let Some(paper) = doc.entities.iter().find(|entity| entity.base.space == DxfSpace::Paper) else {
         return;
     };

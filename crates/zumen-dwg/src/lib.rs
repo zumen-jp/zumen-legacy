@@ -15,6 +15,7 @@ mod file;
 mod header;
 mod mleader;
 mod objects;
+mod r12;
 #[cfg(test)]
 mod samples;
 mod write;

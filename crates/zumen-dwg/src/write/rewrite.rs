@@ -64,6 +64,11 @@ impl Source {
             return Err("DWG の図面ではありません".into());
         }
         let name = String::from_utf8_lossy(&bytes[..6]).into_owned();
+        if crate::r12::Old::from_magic(bytes).is_some() {
+            return Err(format!(
+                "{name}（AutoCAD Release 12 以前）の DWG は書き直せません。R2000 以降の DWG を書き直せます"
+            ));
+        }
         let version =
             Version::from_magic(&bytes[..6]).ok_or_else(|| format!("対応していない DWG の版です（{name}）"))?;
         if bytes.len() < 0x100 {
