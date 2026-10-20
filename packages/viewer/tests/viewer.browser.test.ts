@@ -284,6 +284,37 @@ describe("表示範囲", () => {
 });
 
 describe("回転", () => {
+  it.each([90, 180])("倍率が変わらない %s 度の回転でも再描画し、変更を通知する", async (degrees) => {
+    const { viewer, base } = await mount(
+      drawing({
+        bounds: { minX: 0, minY: 0, maxX: 100, maxY: 100 },
+        entities: [line("top", [20, 80, 80, 80])],
+      }),
+    );
+    const zoom = viewer.getView().zoom;
+    const events = record(viewer);
+    viewer.rotateBy(degrees);
+    expect(viewer.getView().zoom).toBe(zoom);
+    expect(events.map((entry) => entry.type)).toEqual(["move", "moveend"]);
+    expect(events[0]?.event.view.rotation).toBe(degrees);
+    await frames();
+    expect(pixel(base, ...viewer.toScreen(70, 80))).toEqual([255, 255, 255, 255]);
+  });
+
+  it("収めている図面に有限でない回転角を渡しても、表示状態を壊さない", async () => {
+    const { viewer } = await mount();
+    viewer.rotateBy(90);
+    const before = viewer.getView();
+    const events = record(viewer);
+    for (const degrees of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      viewer.rotateBy(degrees);
+      expect(viewer.getView()).toEqual(before);
+    }
+    expect(events).toHaveLength(0);
+    viewer.rotateBy(90);
+    expect(viewer.getView().rotation).toBe(180);
+  });
+
   // 回した表示でも、画面の点と用紙の点の変換・収め方・ドラッグ・選択・描画がそろっていないと、狙った図形を扱えない
   it("rotateBy は収めた範囲を回した向きで収め直し、ドラッグ・選択・描画は回した画面の座標で動く", async () => {
     const { viewer, base } = await mount(drawing(), { background: "dark" });

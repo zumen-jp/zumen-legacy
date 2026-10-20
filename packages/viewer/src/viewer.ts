@@ -473,11 +473,10 @@ export class DrawingViewer {
    */
   rotateBy(degrees: number): void {
     const rotation = normalizeRotation(this.camera.rotation + degrees);
+    if (!Number.isFinite(rotation)) return;
     if (this.fitTarget) {
-      this.camera = { ...this.camera, rotation };
-      const camera = this.fitCamera();
-      if (camera) this.setCamera(camera, true, null);
-      else this.schedule(true);
+      // 元の角度を残して setCamera に渡す。倍率が変わらない回転でも、再描画と変更の通知が必要。
+      this.setCamera(this.fitCamera(rotation) ?? { ...this.camera, rotation }, true, null);
       return;
     }
     this.setCamera({ ...this.camera, rotation }, true, null);
@@ -706,13 +705,11 @@ export class DrawingViewer {
   }
 
   /** fitBounds の範囲を今の大きさに収める表示範囲。範囲がないか、大きさが分からなければ null */
-  private fitCamera(): InternalCamera | null {
+  private fitCamera(rotation = this.camera.rotation): InternalCamera | null {
     const target = this.fitTarget;
     const { width, height } = this.size;
     if (!target || width === 0 || height === 0) return null;
-    return this.fromTransform(
-      fitView(target.box, width, height, target.padding ?? this.style.fitPadding, this.camera.rotation),
-    );
+    return this.fromTransform(fitView(target.box, width, height, target.padding ?? this.style.fitPadding, rotation));
   }
 
   private swapTool(next: ViewerTool): void {
