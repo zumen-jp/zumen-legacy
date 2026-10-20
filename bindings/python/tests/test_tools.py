@@ -140,6 +140,19 @@ def test_converts_between_paper_millimeters_and_fractions_of_the_frame():
         tools.find_texts(scene, region=[0, 0, 1, 1], frame_region=[0, 0, 1, 1])
 
 
+def test_a_drawing_without_entities_has_no_frame():
+    empty = zumen.read(b"0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n")
+    info = tools.summary(empty)
+    check(info, tools.Summary)
+    assert (info["bounds"], info["entities"], tools.frame(empty)) == (None, 0, None)
+    with pytest.raises(tools.DrawingError, match="nothing"):
+        tools.render(empty)
+    with pytest.raises(tools.DrawingError, match="no frame"):
+        tools.find_texts(empty, frame_region=[0, 0, 1, 1])
+    _, image = tools.render(empty, region=[0, 0, 10, 10], size=100)
+    assert (image["width"], image["frame_region"]) == (100, None)
+
+
 def test_takes_regions_as_fractions_of_the_frame():
     scene = zumen.read(SFC)
     fractions = tools.frame_region_of(scene, [0, 215, 30, 230])

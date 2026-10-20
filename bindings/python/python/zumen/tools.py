@@ -29,6 +29,7 @@ kept between calls.
 
 import math
 import os
+import threading
 import unicodedata
 from collections import Counter, OrderedDict
 from collections.abc import Sequence
@@ -174,12 +175,13 @@ class RenderInfo(TypedDict):
     """How the pixels of an image map to the drawing (``render``).
 
     ``region`` is the part of the sheet shown (paper millimeters) and ``frame_region`` the same as fractions of the
-    frame; ``scale`` is pixels per paper millimeter. ``texts`` stops at ``text_limit`` of ``texts_drawn``."""
+    frame (``None`` for a drawing without a frame); ``scale`` is pixels per paper millimeter. ``texts`` stops at
+    ``text_limit`` of ``texts_drawn``."""
 
     width: int
     height: int
     region: list[float]
-    frame_region: list[float]
+    frame_region: list[float] | None
     scale: float
     pixels: str
     entities_drawn: int
@@ -397,7 +399,7 @@ class ComparisonImageInfo(TypedDict):
     width: int
     height: int
     region: list[float]
-    frame_region: list[float]
+    frame_region: list[float] | None
     scale: float
     pixels: str
 
@@ -480,8 +482,12 @@ def normalize(text: str) -> str:
     return "".join(unicodedata.normalize("NFKC", text).casefold().split())
 
 
-def _finite(values: Sequence[Any], count: int) -> bool:
-    return len(values) == count and all(isinstance(value, Real) and math.isfinite(value) for value in values)
+def _finite(values: Any, count: int) -> bool:
+    """Whether ``values`` are ``count`` finite numbers (lists, tuples, arrays)."""
+    try:
+        return len(values) == count and all(isinstance(value, Real) and math.isfinite(value) for value in values)
+    except TypeError:
+        return False
 
 
 def _four(values: Sequence[float] | None, name: str, what: str) -> Box | None:
@@ -654,6 +660,7 @@ class Drawings:
         self.timeout = timeout
         self.cache_size = cache_size
         self._scenes: OrderedDict[tuple[Path, int, int, str | None], Scene] = OrderedDict()
+        self._lock = threading.Lock()
 
     def resolve(self, path: str | os.PathLike[str]) -> Path:
         """The real path of a drawing file, after checking the roots and the size."""
@@ -672,10 +679,12 @@ class Drawings:
         resolved = self.resolve(path)
         stat = resolved.stat()
         key = (resolved, stat.st_mtime_ns, stat.st_size, view)
-        scene = self._scenes.get(key)
-        if scene is not None:
-            self._scenes.move_to_end(key)
-            return scene
+        with self._lock:
+            scene = self._scenes.get(key)
+            if scene is not None:
+                self._scenes.move_to_end(key)
+                return scene
+        # Read outside the lock, so that other drawings are read at the same time (reading releases the GIL)
         try:
             scene = read(
                 resolved, view=view, max_bytes=self.max_bytes, max_entities=self.max_entities, timeout=self.timeout
@@ -684,9 +693,10 @@ class Drawings:
             raise DrawingError(f"stopped reading {path} at the {error.limit} limit: {error}") from error
         except ReadError as error:
             raise DrawingError(f"cannot read {path}: {error}") from error
-        self._scenes[key] = scene
-        while len(self._scenes) > self.cache_size:
-            self._scenes.popitem(last=False)
+        with self._lock:
+            self._scenes[key] = scene
+            while len(self._scenes) > self.cache_size:
+                self._scenes.popitem(last=False)
         return scene
 
 
@@ -823,7 +833,7 @@ def render(
         "width": image.width,
         "height": image.height,
         "region": _box(shown),
-        "frame_region": frame_region_of(scene, shown) if frame(scene) else [0.0, 0.0, 1.0, 1.0],
+        "frame_region": frame_region_of(scene, shown) if frame(scene) else None,
         "scale": image.scale,
         "pixels": "px = (x - region[0]) * scale, py = (region[3] - y) * scale; x and y in paper millimeters",
         "entities_drawn": len(drawn),
