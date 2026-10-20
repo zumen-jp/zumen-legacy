@@ -19,6 +19,9 @@ use encoding_rs::SHIFT_JIS;
 use std::collections::{HashMap, HashSet};
 use zumen_core::{Notice, NoticeLevel, NoticeList};
 
+/// Largest multiple of ten below the exact-integer limit of the shared f64 drawing model.
+pub(crate) const MAX_INSTANCE_ID: u64 = 9_007_199_254_740_990;
+
 /// 書いた SFC と、書き方を変えた内容。ids は（図面のインスタンス番号, 書いたインスタンス番号）を書いた順に並べたもの
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SxfWritten {
@@ -488,7 +491,12 @@ pub(crate) fn drawable(feature: &SxfFeature) -> Option<(&'static str, &'static s
 }
 
 /// 要素が使う色・線種のコード
-fn codes(feature: &SxfFeature, colors: &mut HashSet<u64>, line_types: &mut HashSet<u64>, widths: &mut HashSet<u64>) {
+pub(crate) fn codes(
+    feature: &SxfFeature,
+    colors: &mut HashSet<u64>,
+    line_types: &mut HashSet<u64>,
+    widths: &mut HashSet<u64>,
+) {
     let mut style = |style: &Styled| {
         colors.insert(style.color.to_bits());
         line_types.insert(style.line_type.to_bits());

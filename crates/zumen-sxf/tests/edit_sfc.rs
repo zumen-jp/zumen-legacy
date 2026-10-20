@@ -238,3 +238,31 @@ fn new_numbers_do_not_repeat_numbers_kept_from_the_drawing() {
     assert_eq!(&ids[ids.len() - 2..], &[260.0, 270.0]);
     assert_reads_back(&drawing, &written);
 }
+
+#[test]
+fn very_large_source_ids_do_not_stall_new_feature_numbering() {
+    let bytes = b"ISO-10303-21;\nDATA;\n/*SXF\n#100000000000000000000 = layer_feature('L','1')\nSXF*/\nENDSEC;\nEND-ISO-10303-21;";
+    let mut drawing = parse_sfc(bytes).unwrap();
+    drawing.document.sheet_members.push(line(0.0, 1.0, 10.0));
+    drawing.document.sheet_members.push(line(0.0, 1.0, 20.0));
+    let written = write_sfc(&drawing);
+    assert_reads_back(&drawing, &written);
+    let added: Vec<_> = written.ids.iter().filter(|(old, _)| *old == 0.0).collect();
+    assert_eq!(added.len(), 2);
+    assert_ne!(added[0].1, added[1].1);
+}
+
+#[test]
+fn editing_declares_newly_used_predefined_widths() {
+    let bytes = b"ISO-10303-21;\nDATA;\n/*SXF\n#10 = width_feature('0.13')\nSXF*/\nENDSEC;\nEND-ISO-10303-21;";
+    let mut drawing = parse_sfc(bytes).unwrap();
+    assert_eq!(write_sfc(&drawing).bytes, bytes);
+    let mut added = line(0.0, 0.0, 10.0);
+    if let SxfFeature::Line { style, .. } = &mut added {
+        style.line_width = 2.0;
+    }
+    drawing.document.sheet_members.push(added);
+    let written = write_sfc(&drawing);
+    let text = String::from_utf8(written.bytes).unwrap();
+    assert!(text.find("width_feature('0.18')").unwrap() < text.find("line_feature(").unwrap());
+}

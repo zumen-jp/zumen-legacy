@@ -19,7 +19,7 @@ use crate::tables::{ARROW_NAMES, PREDEFINED_COLORS, PREDEFINED_LINE_TYPES};
 use crate::tables::{index, sheet_size};
 use crate::version::{SxfVersion, downgrade};
 use crate::write::{SxfWritten, sub_figure_order};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::f64::consts::{PI, TAU};
 use zumen_core::{NoticeLevel, NoticeList, js};
 
@@ -77,6 +77,8 @@ pub(crate) struct Graph<'a> {
     pub instances: Vec<(u64, Body)>,
     pub next: u64,
     pub step: u64,
+    /// Existing references and newly reserved instance numbers must never be reused.
+    pub used: HashSet<u64>,
     /// 長さの単位（線幅の LENGTH_MEASURE_WITH_UNIT が参照する）
     pub length_unit: Option<u64>,
     /// 外部の定義（文字フォント・既定義シンボル・外部定義ハッチング）の出どころ
@@ -116,6 +118,7 @@ impl<'a> Graph<'a> {
             instances: Vec::new(),
             next: first,
             step,
+            used: HashSet::new(),
             length_unit: None,
             source: None,
             colours: HashMap::new(),
@@ -135,10 +138,18 @@ impl<'a> Graph<'a> {
         }
     }
 
-    fn reserve(&mut self) -> u64 {
-        let id = self.next;
-        self.next += self.step;
-        id
+    pub(crate) fn reserve(&mut self) -> u64 {
+        loop {
+            let id = self.next;
+            self.next = self
+                .next
+                .checked_add(self.step)
+                .filter(|next| *next <= crate::write::MAX_INSTANCE_ID)
+                .unwrap_or(self.step);
+            if self.used.insert(id) {
+                return id;
+            }
+        }
     }
 
     fn emit(&mut self, id: u64, body: Body) -> u64 {

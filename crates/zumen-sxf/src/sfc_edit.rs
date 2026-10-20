@@ -194,10 +194,51 @@ pub(crate) fn rewrite_notice(format: &str) -> zumen_core::Notice {
 
 /// 数を 10 の倍数に切り上げる
 fn round_up(value: f64) -> f64 {
-    (value / 10.0).ceil() * 10.0
+    let rounded = (value / 10.0).ceil() * 10.0;
+    if rounded.is_finite() && rounded <= crate::write::MAX_INSTANCE_ID as f64 { rounded } else { 10.0 }
 }
 
 impl Editor<'_, '_> {
+    /// SFC annex 1-3-17: newly used predefined widths need declarations too.
+    /// Keep a no-op byte-for-byte; add missing declarations when an edit changes the file.
+    fn declare_widths(&mut self) {
+        if self.splices.is_empty() {
+            return;
+        }
+        let doc = &self.drawing.document;
+        let (mut colors, mut line_types, mut widths) = (HashSet::new(), HashSet::new(), HashSet::new());
+        for feature in doc
+            .sheet_members
+            .iter()
+            .chain(doc.sub_figures.values().flat_map(|figure| &figure.members))
+            .chain(doc.composite_curves.iter().flat_map(|curve| &curve.members))
+        {
+            crate::write::codes(feature, &mut colors, &mut line_types, &mut widths);
+        }
+        for curve in &doc.composite_curves {
+            widths.insert(curve.feature.line_width.to_bits());
+        }
+        let declared: HashSet<_> = self
+            .source
+            .features
+            .iter()
+            .filter_map(|feature| match feature {
+                Some(SxfFeature::Width(width)) => Some(predefined_width_code(width.width)),
+                _ => None,
+            })
+            .collect();
+        for (index, width) in crate::tables::PREDEFINED_WIDTHS.iter().enumerate() {
+            let code = index + 1;
+            if widths.contains(&(code as f64).to_bits()) && !declared.contains(&code) {
+                let id = self.fresh(0.0);
+                // This declaration has no corresponding item in the drawing model.
+                self.ids.pop();
+                let text = self.text(id, "width_feature", "", vec![Param::Num(*width)]);
+                self.insert(Anchor::Start, text);
+            }
+        }
+    }
+
     fn position(&self, anchor: Anchor) -> usize {
         match anchor {
             Anchor::Before(index) => self.source.records[index].span.0,
@@ -223,10 +264,10 @@ impl Editor<'_, '_> {
         } else {
             // 図面の番号のまま入れた新しいフィーチャと重ならない番号まで進める
             while self.used.contains(&self.next.to_bits()) {
-                self.next += 10.0;
+                self.next = round_up(self.next + 10.0);
             }
             let id = self.next;
-            self.next += 10.0;
+            self.next = round_up(self.next + 10.0);
             id
         };
         self.used.insert(id.to_bits());
@@ -406,6 +447,7 @@ pub(crate) fn write_sfc_edit(drawing: &SxfDrawing, bytes: &[u8]) -> SxfWritten {
         skipped: 0,
     };
     edit(&mut editor, &layout);
+    editor.declare_widths();
     let mut notices = std::mem::take(&mut editor.notices);
     crate::write::check_limits(&drawing.document, &mut notices);
     if editor.skipped > 0 {
