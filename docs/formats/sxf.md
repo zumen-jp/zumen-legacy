@@ -183,6 +183,44 @@ and everything else keeps its bytes. A drawing without a source (made by `dxf_to
 or written in the other format, is **written anew**. Both give an `SxfWritten` with the bytes, notices, and the pairs
 (feature id in the drawing, instance number written) of the features written.
 
+### Editing SXF (edit_sxf)
+
+`zumen_sxf::edit_sxf(bytes, format, operations)` applies the operations of
+[decision 0012](../decisions/0012-edit-in-place-and-write-every-format.md) to an SFC, P21, SFZ or P2Z file and writes it
+in the same format with the in-place writers below, so only the features the operations name are rewritten, and a
+compressed file goes back into its archive. All operations are checked before anything is written. `new_sxf(format)`
+writes an empty drawing (an A3 landscape sheet) for `create`.
+
+- **Ids** are the scene's: `#n` for an element of the sheet, `#P>#n` for an element seen through the placement `P`.
+  Sub-figures (部分図, mathematical and geodetic coordinates) are what DXF viewports are to model space
+  ([decision 0008](../decisions/0008-sheets-and-scales-in-the-autocad-model.md)), so an id through their placements
+  names the element itself (a sub-figure placed twice shows the change twice). Elements of drawing parts and drawing
+  groups are refused (`inside-block`): changing them changes the definition and every placement.
+- **Containers** for `add`: `sheet` (the default) and `figure:<name>` (any composite figure).
+- **Values** are in the drawing's own coordinates (sheet millimeters for the sheet, the sub-figure's coordinates inside
+  it), the numbers that the `raw` of the properties gives; angles are degrees.
+
+| kind | keys | SXF feature |
+| --- | --- | --- |
+| `line` | `start`, `end` | line_feature |
+| `polyline` | `vertices`, `closed` (`bulges` only 0, no `width`) | polyline_feature; a closed one repeats its first point |
+| `circle` | `center`, `radius` | circle_feature |
+| `arc` | `center`, `radius`, `angle` (start and end, counterclockwise) | arc_feature |
+| `ellipse`, `ellipse-arc` | `center`, `majorAxis`, `ratio`, `parameter` (radians, as in DXF) | ellipse_feature, ellipse_arc_feature (degrees) |
+| `point` | `position` | point_marker_feature (dot) |
+| `text` | `position`, `text` (one line), `height`, `rotation`, `textStyle` (font name), `width` (of the text box) | text_string_feature, base point at the lower left; without `width`, full-width characters are as wide as the height and half-width ones half of it |
+| `block-reference` | `block` (composite figure), `position`, `rotation`, `scale` (a number or `[x, y]`) | sfig_locate_feature |
+
+- Every kind takes `layer` (a name; a missing layer is added, `layer-added`), `color` (an SXF color code, or `"#rrggbb"`:
+  a predefined color when equal, else an existing or new user-defined color), `lineType` (a predefined SXF name such as
+  `dashed`, or a user-defined line type of the drawing) and `lineWidth` (millimeters: a predefined width when equal, else
+  a user-defined width). New elements are black, continuous and 0.25 mm. SXF has no BYLAYER or BYBLOCK, so `bylayer` and
+  `byblock` become black and 0.25 mm (`color-by-layer`, `width-by-layer`). Other elements (dimensions, leaders,
+  hatches, splines, clothoids, symbols) can change their layer and style, not their shape.
+- Layers take `visible`; SXF layers have no color, line type or width, so those values are checked and left unused
+  (`layer-style`). A layer without elements cannot be written to P21.
+- The ids of added elements are their written instance numbers (`#n`); the ids of added layers are their names.
+
 ### Editing SFC in place
 
 The reader's rules (附属書 SFC 編 1-3) decide which definition each record of the file belongs to: a composite curve

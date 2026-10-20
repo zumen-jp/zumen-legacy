@@ -4,6 +4,7 @@
 #![forbid(unsafe_code)]
 
 mod document;
+mod edit;
 mod features;
 mod header;
 mod p21;
@@ -24,6 +25,7 @@ mod write;
 mod zip;
 
 pub use document::{CompositeCurve, SubFigure, SubFigures, SxfDocument, SxfDrawing};
+pub use edit::{edit_sxf, new_sxf};
 pub use features::{
     Annotation, ArcDimension, Arrow, CompositeCurveOrg, DrawingAttribute, DrawingSheet, ExtensionLine, FeatureKind,
     HatchPattern, LayerDefinition, Region, SfigOrg, Styled, SxfFeature, TextFont, TitleValue, UserColour, UserLineType,
