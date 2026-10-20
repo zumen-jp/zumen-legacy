@@ -63,14 +63,24 @@ impl<'a> Streams<'a> {
         Self { data, text, handles: Some(handles), format }
     }
 
+    /// 文字列の並びはあるが、ハンドルは値の並びの中（R2007 以降のクラスの節）
+    #[cfg(test)]
+    pub fn with_text_inline(data: Bits<'a>, text: Text<'a>, format: Format) -> Self {
+        Self { data, text, handles: None, format }
+    }
+
     /// TV。DXF と同じく、制御文字はキャレット表記（^J など）に、^ は「^ 」にする
     pub fn tv(&mut self) -> Read<String> {
-        let text = match &mut self.text {
+        Ok(caret_notation(self.tv_raw()?))
+    }
+
+    /// TV をそのまま（キャレット表記にしない）
+    pub fn tv_raw(&mut self) -> Read<String> {
+        Ok(match &mut self.text {
             Text::Inline => self.data.tv(self.format.codec)?,
             Text::Stream(text) => text.tv(TextCodec::Utf16)?,
             Text::Empty => String::new(),
-        };
-        Ok(caret_notation(text))
+        })
     }
 
     /// H（ハンドルの並びから）
@@ -266,6 +276,19 @@ pub(crate) fn read_object_map(section: &[u8]) -> HashMap<u64, usize> {
         at = end + 2;
     }
     map
+}
+
+/// オブジェクトのバイト列（MS の大きさから CRC まで、20.1）の長さ。R2010 以降は MS の後にハンドルの並びの
+/// 大きさ（MC）がある。範囲がデータの外なら None
+pub(crate) fn object_length(objects: &[u8], offset: usize, r2010: bool) -> Option<usize> {
+    let mut head = Bits::at(objects, offset);
+    let size = head.ms().ok()?;
+    if r2010 {
+        head.umc().ok()?;
+    }
+    let start = usize::try_from(head.pos() / 8).ok()?;
+    let end = start.checked_add(usize::try_from(size).ok()?)?.checked_add(2)?;
+    (end <= objects.len()).then(|| end - offset)
 }
 
 /// 拡張データの 1 つの値（28「Extended Entity Data」）

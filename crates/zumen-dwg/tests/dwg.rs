@@ -124,7 +124,7 @@ fn drawing(version: Version) -> Vec<u8> {
         (0x50, line(v, 0x50, &place(LAYER_0, 256, None), [10.0, 10.0, 0.0], [100.0, 10.0, 0.0])),
     ];
     // 文字コード 38 は ANSI_932（Shift_JIS）
-    Drawing { version, codepage: 38, header: header(6, 0xe), classes: Vec::new(), objects, measurement: 1 }.bytes()
+    Drawing { version, codepage: 38, header: header(6, 0xe), objects, measurement: 1 }.bytes()
 }
 
 /// 同じ図面の DXF（R2000、ANSI_932）。グループコードと値を | で区切って並べる
@@ -300,7 +300,7 @@ fn small(version: Version, extra: Vec<(u64, Vec<u8>)>, model_entities: &[u64], b
         (0x22, layout(v, 0x22, 0xd, "Model", 0, MODEL, [420.0, 297.0])),
     ];
     objects.extend(extra);
-    Drawing { version, codepage: 30, header: header(4, 0), classes: Vec::new(), objects, measurement: 1 }.bytes()
+    Drawing { version, codepage: 30, header: header(4, 0), objects, measurement: 1 }.bytes()
 }
 
 /// R2013 以降は、当てはめ点で作ったスプラインを当てはめ点と端の接線だけで保存し、AutoCAD は DXF に制御点を書く。
@@ -556,7 +556,7 @@ fn damaged_drawings_finish_without_panicking() {
     }
 }
 
-/// tests/fixtures/dwg の図面は、このテストの図面（R2000 は ANSI_932、R2018 は UTF-16）。@zumenjs/dwg のテストが
+/// tests/fixtures/dwg の図面は、このテストの図面（R2000 は ANSI_932、R2018 は UTF-16）。@zumenjs/reader のテストが
 /// WebAssembly で読んで正解の Scene を書き（pnpm run golden）、crates/zumen/tests/golden.rs が同じ Scene になることを
 /// 確かめる。テストの図面を変えたら UPDATE_GOLDEN=1 cargo test -p zumen-dwg で書き直してから pnpm run golden を走らせる
 #[test]
