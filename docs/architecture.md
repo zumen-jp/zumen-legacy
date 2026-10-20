@@ -4,17 +4,20 @@ zumen is a pnpm workspace with one package per drawing format, a format-neutral 
 applications embed in their own interface, and React hooks. A drawing flows through the packages like this:
 
 ```text
-bytes ─▶ format reader ─▶ native model ─▶ toScene ─▶ Scene ─────────▶ DrawingViewer ───▶ hooks ─▶ your UI
-         (@zumenjs/sxf,     (SxfDrawing,             (@zumenjs/core)  (@zumenjs/viewer)  (@zumenjs/react)
-          @zumenjs/jww,      JwwDocument,
-          @zumenjs/dxf)      DxfDocument)
+bytes ─▶ reader ──────────▶ WebAssembly: Rust readers ─▶ JSON ─▶ sceneFromJson ─▶ Scene ─────────▶ DrawingViewer ───▶ hooks ─▶ your UI
+         (@zumenjs/reader)   (bindings/wasm)                                     (@zumenjs/core)  (@zumenjs/viewer)  (@zumenjs/react)
 ```
 
-DWG is read by the Rust reader built to WebAssembly, which returns the scene as JSON
-(see [DWG in the browser](#dwg-in-the-browser)):
+Browsers read every format with the Rust readers built to WebAssembly, on the page or in a Web Worker
+(see [The readers in the browser](#the-readers-in-the-browser)). The TypeScript readers, which parse into the formats'
+own models and convert them to a scene, stay in the workspace as the reference that writes the expected scenes of the
+tests:
 
 ```text
-bytes ─▶ dwg (@zumenjs/dwg) ─▶ WebAssembly: zumen-dwg ─▶ DxfDocument ─▶ dxf_to_scene ─▶ JSON ─▶ sceneFromJson ─▶ Scene
+bytes ─▶ format reader ─▶ native model ─▶ toScene ─▶ Scene
+         (@zumenjs/sxf,     (SxfDrawing,
+          @zumenjs/jww,      JwwDocument,
+          @zumenjs/dxf)      DxfDocument)
 ```
 
 ## Packages and dependency rules
@@ -23,18 +26,18 @@ bytes ─▶ dwg (@zumenjs/dwg) ─▶ WebAssembly: zumen-dwg ─▶ DxfDocument
 | --- | --- |
 | `@zumenjs/core` | What `zumen-core` covers: the `Scene` model and its types and JSON (`sceneToJson`, `sceneFromJson`), `NoticeList`, `readDrawing` and the `DrawingReader` interface (with the optional `load`), layer visibility (`isEntityVisible`) and distance measurement (`measureDistance`, `toReal`). Geometry helpers are exported from `@zumenjs/core/geometry` and text layout from `@zumenjs/core/text`. No DOM. |
 | `@zumenjs/viewer` | The 2D engine that applications embed: the Canvas 2D renderer (`renderScene`, `renderHighlights`), hit testing and snapping (`HitIndex`), and `DrawingViewer` with the view, the state, input handlers, tools and style. No text for people and no CSS. |
-| `@zumenjs/sxf` | SFC and P21 parsing into the SXF feature model (`parseSfc`, `parseP21` → `SxfDrawing`), conversion to a scene (`sxfToScene`), and the `sxf` reader. |
-| `@zumenjs/jww` | JWW parsing into the JWW document model (`readJww` → `JwwDocument`), conversion to a scene (`jwwToScene`), and the `jww` reader. |
-| `@zumenjs/dxf` | DXF parsing (ASCII and binary) into the AutoCAD drawing model (`parseDxf` → `DxfDocument`), conversion of model space or a layout to a scene (`dxfToScene`), and the `dxf` reader. Their Rust port (`zumen-dxf`) also draws DWG. |
-| `@zumenjs/dwg` | The `dwg` reader, which reads DWG with the WebAssembly build of the Rust reader (`initDwg` loads it), and `isDwg`. It has no DWG reader of its own. |
+| `@zumenjs/reader` | Every format through the WebAssembly build of the Rust readers: `initReader` loads the module, `reader` and `createReader({ limits })` are `DrawingReader`s, `readScene` reads with limits (`LimitError`), `detectDrawing` tells the format without the module, and `ReaderWorker` reads in a Web Worker (`@zumenjs/reader/worker`). |
+| `@zumenjs/sxf` | Not published; the reference for the tests. SFC and P21 parsing into the SXF feature model (`parseSfc`, `parseP21` → `SxfDrawing`), conversion to a scene (`sxfToScene`), and the `sxf` reader. |
+| `@zumenjs/jww` | Not published; the reference for the tests. JWW parsing into the JWW document model (`readJww` → `JwwDocument`), conversion to a scene (`jwwToScene`), and the `jww` reader. |
+| `@zumenjs/dxf` | Not published; the reference for the tests. DXF parsing (ASCII and binary) into the AutoCAD drawing model (`parseDxf` → `DxfDocument`), conversion of model space or a layout to a scene (`dxfToScene`), and the `dxf` reader. Their Rust port (`zumen-dxf`) also draws DWG. |
 | `@zumenjs/react` | Hooks only: `useDrawingViewer` (the engine on an element), `useViewerState` (a part of its state), `useViewerEvent` (its events) and `useDrawing` (read a file, waiting for readers that load). |
 
 1. Format packages depend only on `@zumenjs/core`, never on each other.
    For example, `@zumenjs/jww` keeps its own copy of the SXF-compatible colors and line types.
    DWG has no TypeScript reader: DXF and DWG are two encodings of the same AutoCAD drawing database, and DWG is read
    only in Rust, by `zumen-dwg` into the `DxfDocument` of `zumen-dxf` (see [decision 0003](decisions/0003-dwg-in-rust.md)
-   and [How DWG is handled](formats/dwg.md)). `@zumenjs/dwg` wraps the WebAssembly build and also depends only on
-   `@zumenjs/core`.
+   and [How DWG is handled](formats/dwg.md)). `@zumenjs/reader` wraps the WebAssembly build of every reader and also
+   depends only on `@zumenjs/core`.
 2. `@zumenjs/core` has no knowledge of any format and does not use the DOM (its build has no DOM types). Formats are
    passed to `readDrawing` as `DrawingReader`s. It covers what the Rust crate `zumen-core` covers: what both
    languages have goes to `@zumenjs/core`, and what only browsers need (drawing, input, hit testing) to
@@ -207,7 +210,7 @@ the state, the input handlers and the tools are separate, and each can be used o
 - **Queries.** `entitiesAt(x, y)`, `entitiesIn(box)` and `snapAt(x, y)` for applications that handle input
   themselves.
 - **Overlays.** `addOverlay(painter)` draws on top of the drawing whatever the tool; `invalidate()` redraws it.
-- **Readers that load.** A `DrawingReader` may have `load()`, as the WebAssembly reader of DWG does; `useDrawing` waits
+- **Readers that load.** A `DrawingReader` may have `load()`, as the WebAssembly reader of `@zumenjs/reader` does; `useDrawing` waits
   for the one that recognizes the file.
 - **React.** `useDrawingViewer`, `useViewerState(viewer, selector)`, `useViewerEvent(viewer, type, listener)` and
   `useDrawing(file, readers, options)`.
@@ -220,11 +223,11 @@ complete viewer, with a toolbar, a layer list, properties, notices and a status 
 
 ## The Rust implementation
 
-The readers are being ported to Rust so that servers, data pipelines and Python can read drawings with the same
-results as the browser. The Rust code will become the single implementation of the readers: the browser packages
-switch to its WebAssembly build format by format, once the Rust reader returns the same scene as the TypeScript one
-on the fixtures and on real drawings. Until then both are maintained, and the TypeScript reader is the reference.
-DWG is the first format read only in Rust ([decision 0003](decisions/0003-dwg-in-rust.md)).
+The readers are written in Rust so that servers, data pipelines, Python and browsers read drawings with the same
+results. Browsers use the WebAssembly build through `@zumenjs/reader`
+([decision 0005](decisions/0005-browser-packages-for-embedding.md)). JWW, SXF and DXF were written in TypeScript first
+and ported; the TypeScript readers stay in the workspace as the reference that writes the golden files, and both are
+compared on the fixtures and on real drawings. DWG is read only in Rust ([decision 0003](decisions/0003-dwg-in-rust.md)).
 
 ```text
 bytes ─▶ zumen-sxf, zumen-jww, zumen-dxf, zumen-dwg ─▶ Scene (zumen-core) ─┬▶ JSON ─▶ sceneFromJson ─▶ DrawingViewer
@@ -244,56 +247,73 @@ bytes ─▶ zumen-sxf, zumen-jww, zumen-dxf, zumen-dwg ─▶ Scene (zumen-core
 | `zumen-render` | Draws a scene to PNG with the rules of `render.ts` in `@zumenjs/viewer` (color inversion, line weights with a 1 px minimum, dash rules, even-odd fills, clipping, per-character text, small text as a line), and reports which entities it drew and where (`render_image`, `drawn_entities`, `View::pixel_box`). It also writes SVG (`render_svg`) and one-page PDF (`render_pdf`) with the same colors, fills, clipping and text placement. |
 | `zumen-cli` | The `zumen` command (`detect`, `scene`, `texts`, `entities`, `title`, `render`, `compare`, `convert`). |
 | `bindings/python` | PyO3 bindings, built with maturin as an abi3 wheel for Python 3.12 and later. The GIL is released while reading, rendering and converting. `Scene.to_arrow` needs pyarrow (Apache-2.0, `zumen[arrow]`), and the MCP server `zumen.mcp` needs the MCP SDK (MIT, `zumen[mcp]`); both are optional dependencies. `zumen.tools`, the functions behind the MCP tools, needs neither. |
-| `bindings/wasm` | wasm-bindgen bindings that detect the format (`detect`) and return scene JSON (`readSceneJson`). `scripts/wasm.mjs` builds them into `packages/dwg/wasm` for `@zumenjs/dwg`. |
+| `bindings/wasm` | wasm-bindgen bindings that detect the format (`detect`) and return scene JSON (`readSceneJson`, with the limits on bytes and entities; a failure throws a `ReadFailure` with the message and the exceeded limit). `scripts/wasm.mjs` builds them into `packages/reader/wasm` for `@zumenjs/reader`. |
 
 The dependency rules follow the TypeScript packages: format crates depend only on `zumen-core` and never on each other
 (the exception is `zumen-dwg`, which reads into the AutoCAD model of `zumen-dxf` and draws with `dxf_to_scene`), and
 parsing does not depend on rendering. `zumen-convert` is not a format crate: it is the one place that knows two formats
 at once, and depends on `zumen-dxf`, `zumen-sxf` and `zumen-jww` ([decision 0007](decisions/0007-mapping-crate-between-formats.md)).
 
-### DWG in the browser
+### The readers in the browser
 
-`@zumenjs/dwg` is a `DrawingReader` around the WebAssembly build of `bindings/wasm`, as
-[decision 0003](decisions/0003-dwg-in-rust.md) planned. The only format knowledge it holds is the version string that
-tells DWG apart. Measurements are from [Verification records](verification.md#dwg-in-the-browser).
+`@zumenjs/reader` is a `DrawingReader` around the WebAssembly build of `bindings/wasm`, as
+[decision 0005](decisions/0005-browser-packages-for-embedding.md) chose, and replaced `@zumenjs/dwg`, which read DWG
+only. Measurements are from [Verification records](verification.md#the-readers-in-the-browser) and
+[DWG in the browser](verification.md#dwg-in-the-browser).
 
 - **Loading is asynchronous, reading is synchronous.** `DrawingReader.read` returns a scene, so the module is loaded
-  first: `initDwg()` returns one promise shared by every call, a failed load is retried by the next call, and
-  `dwg.read` throws until the promise has resolved. Browsers have to fetch the file anyway, and
+  first: `initReader()` returns one promise shared by every call, a failed load is retried by the next call, and
+  `reader.read` throws until the promise has resolved. Browsers have to fetch the file anyway, and
   `WebAssembly.instantiateStreaming` compiles it while it downloads. `initSync` needs the bytes at hand and compiles
   on the calling thread, so it is not used.
-- **DWG is detected without WebAssembly.** `dwg.detect` (`isDwg`) checks the first six bytes (`AC10` and two digits)
-  in TypeScript, the rule of `zumen_dwg::is_dwg`; a test compares the two on every fixture. Before the module is
-  loaded, `readDrawing` still gives the usual error for files of other formats, and an application can load the module
-  only when a DWG is opened. The playground does so, and other files never fetch it.
+- **Formats are detected without WebAssembly.** `detectDrawing` (the reader's `detect`) repeats in TypeScript the
+  rules of `zumen::detect`: the SXF header and its comments, the central directory of a P2Z or SFZ archive, the JWW
+  signature, the first tags of ASCII and binary DXF, and the DWG version string. A test compares the two on every
+  fixture and on edge cases. Before the module is loaded, `readDrawing` still gives the usual error for files no
+  reader knows, and an application can load the module only when a drawing is opened, as `useDrawing` does.
+- **Limits.** `createReader({ limits })` and `readScene(bytes, { limits })` pass `maxBytes` and `maxEntities` to
+  `zumen::read`, which stops as soon as one is exceeded. The binding throws a `ReadFailure` with the message and the
+  name of the limit, and the package turns it into a `LimitError` (`limit` is `bytes` or `entities`) or an `Error`.
+  WebAssembly in browsers has no clock that Rust can read while it runs, so the time limit is not passed to Rust.
+- **Web Workers.** `ReaderWorker` reads in a worker created by a function of the application (a file that imports
+  `@zumenjs/reader/worker`, so that its bundler builds a worker). The worker reads with `readScene`, turns the JSON back
+  into a scene there, and transfers the `Float64Array`s to the page, so the page does not parse the JSON. Reads run one
+  at a time; `limits.timeout` starts when the worker is sent the drawing, and when it passes, the worker is terminated,
+  the read is rejected with a `LimitError` (`time`), and the next read creates a new worker. An `AbortSignal`
+  terminates it the same way. This is the only way to stop a read that is running, because WebAssembly cannot be
+  interrupted from outside.
 - **Where the `.wasm` is.** The package ships `wasm/zumen_wasm.js`, its types and `wasm/zumen_wasm_bg.wasm`. Without
-  an argument, `initDwg` uses `new URL("../wasm/zumen_wasm_bg.wasm", import.meta.url)`, which bundlers such as Vite and
-  webpack 5 follow: they copy the file and rewrite the URL (checked with Vite in development, also for an installed
-  package after pre-bundling, and in a build). In Node.js, whose `fetch` does not read `file:` URLs, the file is read
-  with `process.getBuiltinModule("node:fs/promises")`, which keeps `node:` imports out of browser bundles. Anywhere
-  else, the application serves the file (exported as `@zumenjs/dwg/zumen_wasm_bg.wasm`) and passes a URL, a
-  `Response`, the bytes or a `WebAssembly.Module`.
+  an argument, `initReader` uses `new URL("../wasm/zumen_wasm_bg.wasm", import.meta.url)`, which bundlers such as Vite
+  and webpack 5 follow: they copy the file and rewrite the URL, in the worker's bundle as well (checked with a Vite 8
+  build). In Node.js, whose `fetch` does not read `file:` URLs, the file is read with
+  `process.getBuiltinModule("node:fs/promises")`, which keeps `node:` imports out of browser bundles. Anywhere else,
+  the application serves the file (exported as `@zumenjs/reader/zumen_wasm_bg.wasm`) and passes a URL, a `Response`,
+  the bytes or a `WebAssembly.Module` (`ReaderWorker` takes a URL or a `WebAssembly.Module`, which can be sent to a
+  worker).
 - **The scene comes back as JSON.** `readSceneJson` returns the JSON that the Rust readers already share with
   `sceneToJson` (checked by the golden files), and `sceneFromJson` turns the point lists back into `Float64Array`.
   Building JavaScript objects from Rust instead (`serde-wasm-bindgen`) would add code to the module and cross into
-  JavaScript for every value; `sceneFromJson` takes about a quarter of the time of a read (24 of 90 ms for 9,260
-  entities).
-- **Views pass through.** `options.view` goes to `readSceneJson`, and the scene carries `views` and `view` from
-  `dxf_to_scene`, so layouts work as in `@zumenjs/dxf`. The module keeps no document between calls, so each change of
-  view decodes the file again; decoding is the smaller part of a read (natively 5.6 ms of about 35 ms for those 9,260
-  entities).
-- **One module for every format.** The module is the whole `bindings/wasm` build, with the SXF, JWW and DXF readers.
-  A build with the DWG reader only would be 24% smaller with brotli (367,123 bytes instead of 482,539, both after
-  `wasm-opt`), but when the other browser packages switch to WebAssembly, one module for all formats is downloaded
-  once, while a module per format would repeat `zumen-core`, `serde_json` and the encoding tables in each.
+  JavaScript for every value; `sceneFromJson` takes about a third of the time of a read.
+- **Speed.** Reading through WebAssembly takes up to twice as long as the TypeScript readers on JWW and DXF, and less
+  on P21 (14 ms instead of 6 ms for a JWW drawing of 1,754 entities, 31 ms instead of 62 ms for a P21 drawing of
+  1,201). For drawings that take long, `ReaderWorker` keeps the page responsive.
+- **Views pass through.** `options.view` goes to `readSceneJson`, and the scene carries `views` and `view`, so
+  layouts work as in `@zumenjs/dxf`. The module keeps no document between calls, so each change of view decodes the
+  file again.
+- **One module for every format.** The module is the whole `bindings/wasm` build. An application that opens a single
+  format downloads the readers of all of them, but the module is downloaded once, while a module per format would
+  repeat `zumen-core`, `serde_json` and the encoding tables in each. A build with the DWG reader only was 24% smaller
+  with brotli.
 - **No `wasm-opt`.** `scripts/wasm.mjs` runs cargo (release, LTO) and `wasm-bindgen` only. `wasm-opt -O` (Binaryen)
-  makes the file 12% smaller (1,366,317 bytes instead of 1,560,473) but only 2.3% smaller with brotli (482,539 instead
-  of 493,835), and it reads no faster, so the build does not need Binaryen. `wasm-bindgen-cli` must be the version of
-  the `wasm-bindgen` crate in `Cargo.lock`; the script checks it and prints the command that installs it.
-- **Tests.** The DWG drawings in `tests/fixtures/dwg` are written by the Rust tests (`crates/zumen-dwg/tests`, with
-  `UPDATE_GOLDEN=1`), their scenes by `@zumenjs/dwg` through WebAssembly (`pnpm run golden`), and
-  `crates/zumen/tests/golden.rs` checks that the native reader returns the same scenes. `pnpm run check` builds the
-  module and compares it with every fixture (`pnpm run wasm`).
+  made the file 12% smaller but only 2.3% smaller with brotli, and it reads no faster, so the build does not need
+  Binaryen. `wasm-bindgen-cli` must be the version of the `wasm-bindgen` crate in `Cargo.lock`; the script checks it
+  and prints the command that installs it.
+- **Tests.** `packages/reader/tests` reads every fixture through WebAssembly and compares the scene with the golden
+  file the TypeScript reader wrote, and `worker.browser.test.ts` runs `ReaderWorker` in Chromium (time limits, abort,
+  a module that fails to load). The DWG drawings in `tests/fixtures/dwg` are written by the Rust tests
+  (`crates/zumen-dwg/tests`, with `UPDATE_GOLDEN=1`), their scenes by `@zumenjs/reader` through WebAssembly
+  (`pnpm run golden`), and `crates/zumen/tests/golden.rs` checks that the native reader returns the same scenes.
+  `pnpm run check` builds the module and compares it with every fixture (`pnpm run wasm`).
 
 ### Texts, entities and images for servers
 
@@ -437,7 +457,7 @@ ezdxf audits edited DXF in the Python tests. Editors for DWG, SXF and JWW follow
   `crates/zumen/tests/golden.rs` checks that Rust returns the same scenes. Both compare numbers to a relative 1e-9:
   besides Rust's `libm`, Node.js itself gives `Math.sin` and `Math.cos` results that differ in the last bits between x64
   and arm64, so a scene written on one computer does not match another one character for character. The DWG drawings
-  there come from the Rust tests instead (see [DWG in the browser](#dwg-in-the-browser)).
+  there come from the Rust tests instead (see [The readers in the browser](#the-readers-in-the-browser)).
 - `pnpm run parity` compares the TypeScript and Rust readers on drawings that are not in Git (`ZUMEN_SAMPLES`), in every
   view (DXF layouts), and `pnpm run wasm` builds the WebAssembly package and checks it against the fixtures.
 - `pnpm run fuzz` reads randomly damaged copies of the fixtures (inserted escapes, quotes and brackets, DXF tags and
@@ -489,11 +509,11 @@ a Japanese gothic close to the MS Gothic that SXF and Jw_cad drawings assume. Ch
 - Each package's `exports` has an `@zumenjs/source` condition that points at `src`. The type checker
   (`customConditions` in `tsconfig.json`), Vitest and the Vite playground resolve it, so changes apply without a build.
   `publishConfig.exports` leaves it out of the published packages, which contain only `dist` (and `wasm` in
-  `@zumenjs/dwg`).
-- `scripts/wasm.mjs` builds the WebAssembly reader into `packages/dwg/wasm`, which is not in Git, with cargo and
+  `@zumenjs/reader`).
+- `scripts/wasm.mjs` builds the WebAssembly reader into `packages/reader/wasm`, which is not in Git, with cargo and
   `wasm-bindgen-cli`. `pnpm dev` and `pnpm run check` run it first; `pnpm test`, the type checker and the builds need
   its output. When the Rust code has not changed, it takes well under a second.
-- `pnpm run build` compiles the packages in dependency order (core, then viewer, sxf, jww, dxf and dwg, then react)
+- `pnpm run build` compiles the packages in dependency order (core, then viewer, sxf, jww, dxf and reader, then react)
   into each `dist`.
 - `pnpm test` runs two Vitest projects: the unit tests in Node.js, and the tests of the engine and the hooks
   (`*.browser.test.*`) in Chromium through Playwright, with synthetic pointer, wheel and key events and the pixels of
