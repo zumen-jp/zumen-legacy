@@ -4,6 +4,10 @@ All packages share one version during 0.x.
 
 ## Unreleased
 
+- Reader: `ReaderWorker` gets the scene from the worker as JSON and parses it on the page, instead of structured
+  cloning the scene with its point arrays. A 16.6 MB SFC with 227,139 entities now reads in 2.9 s instead of 14.5 s in
+  Chromium (0.9 s of it on the page).
+
 - Rust, Python and the command line: `zumen::convert` writes every format as DWG (AutoCAD 2013), JWW and SXF (SFC,
   P21, SFZ and P2Z, with `version="2.0"`, `"3.0"` or `"3.1"`) besides DXF, and `zumen::edit` and `zumen::create`
   handle DWG, JWW and SXF besides DXF. JWC and JWS drawings are read and converted like JWW. New JWW and SXF drawings

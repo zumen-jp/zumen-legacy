@@ -62,8 +62,9 @@ const worker = new ReaderWorker(() => new Worker(new URL("./reader.worker.ts", i
 const scene = await worker.read(bytes, { view: "Layout1", limits: { timeout: 10_000, maxEntities: 500_000 } });
 ```
 
-- The page keeps responding while the drawing is read, and the scene comes back with its point arrays transferred,
-  not copied or parsed again.
+- The page keeps responding while the drawing is read. The worker sends the scene back as JSON and the page turns it
+  into a scene with `sceneFromJson` (0.9 s for 227,000 entities): structured cloning the scene, with a `Float64Array`
+  for every primitive, took several times longer than the reading.
 - A read that passes `timeout` stops the worker and rejects with `LimitError` (`limit: "time"`); the next read starts
   a new worker. `signal` (an `AbortSignal`) cancels a read the same way, and `terminate()` stops the worker for good.
 - Reads run one at a time in the order they were asked for. The time is measured from when the worker starts reading,

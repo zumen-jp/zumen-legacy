@@ -1,4 +1,3 @@
-import type { Scene } from "@zumenjs/core";
 import type { ReadSceneOptions } from "./index.js";
 
 // ReaderWorker（ページ）と worker.ts（Web Worker）の間のメッセージ
@@ -12,5 +11,6 @@ export type ToWorker =
 export type FromWorker =
   | { type: "ready" }
   | { type: "init-error"; message: string }
-  | { type: "scene"; id: number; scene: Scene }
+  /** 読んだ図面の JSON（sceneToJson と同じ形）。ページが sceneFromJson で Scene にする */
+  | { type: "scene"; id: number; json: string }
   | { type: "error"; id: number; message: string; limit?: string };
