@@ -4,6 +4,11 @@ All packages share one version during 0.x.
 
 ## Unreleased (0.1.0)
 
+- Rust and Python: compare two revisions of a drawing. `zumen_core::compare` matches entities by shape and text, not
+  by id, so revisions saved again or in another format compare too. It reports the removed, added and changed entities
+  and the regions that changed, aligns a revision that moved as a whole by its texts, and draws the result as a scene
+  (red before, blue after, gray unchanged). `zumen.compare` and `Comparison` in Python, `zumen compare` in the command
+  line, and `compare_drawings` in the MCP server.
 - `@zumenjs/viewer`: the 2D engine that applications embed in their own interface
   ([decision 0005](docs/decisions/0005-browser-packages-for-embedding.md)). The Canvas renderer, hit testing and
   `DrawingViewer` move here from `@zumenjs/core`. `DrawingViewer` sets and reads the view (`jumpTo`, `fitBounds`,

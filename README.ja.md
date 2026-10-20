@@ -209,12 +209,14 @@ texts = scene.texts()  # 文字列・位置・高さ・向き・レイヤ（用�
 door = scene.entity("#120")  # 1 つの図形の種類・レイヤ・外接矩形・文字・属性
 table = scene.to_arrow()  # すべての図形を pyarrow.Table に（pip install "zumen[arrow]"）
 image = scene.render(size=(2000, 2000))  # PNG と、画像の px と用紙の mm の変換
+changes = zumen.compare(zumen.read("plan-rev1.jww"), scene)  # 削除・追加・変更した図形
+changes.scene.render_png(dpi=150)  # 変更前は赤、変更後は青、変わらない図形は灰
 for entity in image.entities_at(640, 480):  # その画素に描いた図形（外接矩形の小さい順）
     print(entity["id"], entity["box"], entity["text"])
 ```
 
 AI のアプリは、Python のパッケージの MCP サーバー（`pip install "zumen[mcp]"` の後に `zumen-mcp --root <フォルダ>`）で
-図面を読める。開く、範囲を描く、文字と図形を探す、実寸で測る、の道具がある。
+図面を読める。開く、範囲を描く、文字と図形を探す、実寸で測る、版を比べる、の道具がある。
 [bindings/python](bindings/python/README.md#mcp-server) を参照。
 
 ```bash
@@ -224,14 +226,14 @@ cargo run --release -p zumen-cli -- texts plan.jww --region 100,50,200,120  # 1 
 
 | クレート | 中身 |
 | --- | --- |
-| `zumen-core` | 表示用モデル（`@zumenjs/core` と同じ JSON）、幾何、文字の配置、図面の文字と図形の取り出し |
+| `zumen-core` | 表示用モデル（`@zumenjs/core` と同じ JSON）、幾何、文字の配置、図面の文字と図形の取り出し、2 つの版の比較 |
 | `zumen-sxf` | `parse_sfc`・`parse_p21`（SXF のフィーチャのモデル）、`sxf_to_scene`、読み取りの `SXF` |
 | `zumen-jww` | `read_jww`（JWW のままのモデル）、`jww_to_scene`、読み取りの `JWW` |
 | `zumen-dxf` | `parse_dxf`（DWG と共有する AutoCAD の図形モデル）、`dxf_to_scene`、読み取りの `DXF` |
 | `zumen-dwg` | `read_dwg`（DWG 2000〜2018 を `zumen-dxf` の AutoCAD の図形モデルにする）、読み取りの `DWG` |
 | `zumen` | すべての読み取りをまとめた `read`・`detect` |
 | `zumen-render` | ブラウザの描画と同じ規則で PNG に描き、描いた図形の画像の上の位置を返す。日本語の文字は同梱の BIZ UDゴシックで描く |
-| `zumen-cli` | `zumen` コマンド（`detect`、`scene` で JSON、`texts`・`entities` で 1 行 1 つの JSON、`render` で PNG） |
+| `zumen-cli` | `zumen` コマンド（`detect`、`scene` で JSON、`texts`・`entities` で 1 行 1 つの JSON、`render` で PNG、`compare` で版の比較） |
 
 Python では、読み取りと描画の間 GIL を外す。
 

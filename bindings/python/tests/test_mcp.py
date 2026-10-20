@@ -109,6 +109,7 @@ def test_serves_the_tools_over_mcp():
                 "find_entities",
                 "get_entity",
                 "measure_distance",
+                "compare_drawings",
             }
             assert all(tool.annotations.read_only_hint for tool in tools.values())
 
@@ -138,3 +139,30 @@ def test_prints_its_version():
     with pytest.raises(SystemExit) as exit:
         mcp.main(["--version"])
     assert exit.value.code == 0
+
+
+def test_compares_revisions_with_an_image_of_the_changes(tmp_path):
+    revised = tmp_path / "features-rev2.dxf"
+    data = (FIXTURES / "dxf" / "features.dxf").read_bytes().replace("揃え00".encode("cp932"), "揃え99".encode("cp932"))
+    revised.write_bytes(data)
+    before, after = zumen.read(FIXTURES / "dxf" / "features.dxf"), zumen.read(revised)
+    png, info = mcp.compare_revisions(before, after, size=600)
+    assert png.startswith(b"\x89PNG") and max(info["image"]["width"], info["image"]["height"]) == 600
+    assert (info["removed"], info["added"], info["changed"], info["changes_total"]) == (0, 0, 1, 1)
+    [change] = info["changes"]
+    assert (change["change"], change["before_text"], change["after_text"]) == ("changed", "揃え00", "揃え99")
+    assert len(info["regions"]) == 1 and info["regions"][0]["changed"] == 1
+
+    sdk = pytest.importorskip("mcp")
+    import anyio
+
+    async def session():
+        server = mcp.create_server(mcp.Drawings([FIXTURES, tmp_path]))
+        async with sdk.Client(server) as client:
+            result = await client.call_tool(
+                "compare_drawings", {"before": str(FIXTURES / "dxf" / "features.dxf"), "after": str(revised)}
+            )
+            image, text = result.content
+            assert image.type == "image" and json.loads(text.text)["changed"] == 1
+
+    anyio.run(session)
