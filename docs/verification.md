@@ -398,6 +398,32 @@ Checked on 2026-10-20 on macOS 27 (Apple Silicon) with Rust 1.99.0, Python 3.14.
 - Not checked: opening the written files in AutoCAD or other CAD programs, and multileaders with block content in
   AutoCAD (ezdxf reads them).
 
+## Editing DXF in place
+
+Checked on 2026-10-20 on macOS 27 (Apple Silicon) with Rust 1.99.0, Python 3.14.8 and ezdxf 1.4.5
+([decision 0012](decisions/0012-edit-in-place-and-write-every-format.md)).
+
+- Each of the 23 DXF fixtures, edited without operations, gives the same bytes. Edited with a layer added, a line and a
+  text added on it, the layer of the first entity changed and another entity deleted, it reads again with the added
+  ids, the new layer and without the deleted entity, and every other entity has the same kind, properties and shapes
+  in the drawing's own coordinates (`crates/zumen/tests/edit.rs`). The same check finds no difference in the 26 local DXF
+  samples (R12 to 2018, ASCII and binary, the public drawings of Yokosuka City and Imizu City, and generated MULTILEADER
+  and MLINE drawings; `ZUMEN_SAMPLES=… cargo test -p zumen --release --test edit -- --ignored`).
+- The first version compared the boxes and primitives in paper millimeters. A line added far from the drawing, or the
+  deletion of an entity at its edge, changes the extents, and the whole sheet moves (`survey.dxf`); an XLINE is drawn
+  as long as the extents. The test now compares shapes through the placement of each entity, and XLINE by its
+  properties only.
+- ezdxf reads every edited file strictly. Its audit finds nothing in the fixtures converted to DXF and in a new drawing
+  after every kind was added, an entity changed and one deleted (`bindings/python/tests/test_edit.py`), and in the 26
+  samples it finds the same before and after the edit (nothing, except an INVALID_TABLE_HANDLE in the Imizu drawing
+  that is there before).
+- `$HANDSEED` of the files that zumen writes is above every handle; the editor also takes handles above the largest
+  handle when a drawing's seed is lower.
+- Time to edit with the release build from Python (the operations above): `jp-yokosuka-minami-survey-plan.dxf`
+  (2.7 MB) 27 ms, the 2.6 MB ASCII samples 10 to 11 ms, the 1.4 MB binary samples 44 to 45 ms.
+- Not checked: opening edited files in AutoCAD; the check on the Windows host with ODA File Converter and DWG TrueView
+  is to come.
+
 ## SXF and JWW to DXF
 
 Checked on 2026-10-20 on macOS 27 (Apple Silicon) with Rust 1.99.0, Node.js 24.21.0, Python 3.14.8 and ezdxf 1.4.5.

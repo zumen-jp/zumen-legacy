@@ -6,6 +6,7 @@
 #![forbid(unsafe_code)]
 
 pub mod compare;
+pub mod edit;
 pub mod extract;
 pub mod geometry;
 pub mod js;

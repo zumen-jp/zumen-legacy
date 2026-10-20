@@ -389,6 +389,26 @@ and every DXF and DWG fixture converted to SFC, draw the scene of the drawing th
 (`crates/zumen/tests/convert_to_sxf.rs`), within the difference in curve flattening and the losses reported in
 `notices`. Writing a read SFC again gives the same drawing (`crates/zumen-sxf/tests/write.rs`).
 
+### Editing in place
+
+Editing does not go through the model, which would lose what it does not hold
+([decision 0012](decisions/0012-edit-in-place-and-write-every-format.md)). `zumen_core::edit` has the operations, the
+same for every format (`parse_operations` reads them from JSON, `ValueReader` checks their keys and values), and each
+format edits its own file: `zumen_dxf::edit_dxf` keeps the tags of a DXF with their bytes and changes, adds and removes
+only what the operations name ([How DXF is handled: Editing](formats/dxf.md#editing-edit_dxf)). `zumen::edit` detects
+the format and calls its editor, and `zumen::create` writes an empty drawing of the format and edits it, so the code
+that adds entities is the same for new and existing drawings.
+
+```text
+bytes ─▶ editor of the format (tags, objects, instances, records) ─▶ bytes: what no operation names, byte for byte
+            ▲ operations (zumen_core::edit): add, update, delete, add-layer, update-layer
+```
+
+`crates/zumen/tests/edit.rs` is the conformance test of every editor: without operations the bytes stay the same, and
+after adding, changing and deleting, the drawing read again differs from the original exactly in those entities. It
+compares the drawing's own coordinates (`real_shapes`), because the place on the sheet moves when the extents change.
+ezdxf audits edited DXF in the Python tests. Editors for DWG, SXF and JWW follow in their crates, with the same test.
+
 ### Keeping the two implementations equal
 
 - A port keeps the structure and the order of operations of the TypeScript code, so that the scenes are equal value
@@ -438,7 +458,7 @@ Runtime dependencies are permissive and work in WebAssembly. Recorded with the r
 
 | Crate | License | Why |
 | --- | --- | --- |
-| `serde`, `serde_json` | MIT OR Apache-2.0 | The scene JSON shared with the browser |
+| `serde`, `serde_json` | MIT OR Apache-2.0 | The scene JSON shared with the browser, and the edit operations read from JSON (`zumen_core::edit`) |
 | `encoding_rs` | (MIT OR Apache-2.0) AND BSD-3-Clause | Shift_JIS (CP932), the DXF and DWG code pages (`$DWGCODEPAGE`) and UTF-16 (DWG 2007 and later) with the WHATWG rules of `TextDecoder` |
 | `unicode-normalization` | (MIT OR Apache-2.0) AND Unicode-3.0 | NFKC for font names, as `String.prototype.normalize` (about 128 KB of the WebAssembly build) |
 | `libm` | MIT | The same trigonometry on every target |

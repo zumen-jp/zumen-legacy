@@ -3,6 +3,7 @@
 //! 形式は拡張子ではなく中身で判定する。読める形式は SXF（SFC・P21、圧縮した P2Z・SFZ）・JWW・DXF・DWG。
 //! 受け取った図面を信用できないときは、`ReadDrawingOptions::limits` でバイト数・図形の数・時間の上限を指定する。
 //! どの図面も AutoCAD の図面のモデルを経て、AutoCAD 2013 の DXF と SXF（SFC）に書き直せる（`convert`）。
+//! 図面をその場で編集し（`edit`）、新しい図面を作れる（`create`）。操作は形式によらない（`edit::parse_operations`）。
 //!
 //! ```no_run
 //! let bytes = std::fs::read("plan.jww").unwrap();
@@ -109,6 +110,49 @@ pub fn convert(bytes: &[u8], to: &str, options: &ReadDrawingOptions) -> Result<C
         notices.add_count(notice.level, &notice.code, notice.message.clone(), notice.count);
     }
     Ok(Converted { bytes, notices: notices.into_vec() })
+}
+
+/// その場で編集できる形式
+pub const EDITABLE_FORMATS: [&str; 1] = ["dxf"];
+
+/// 図面をその場で編集する（docs/decisions/0012）。元のファイルを保ち、操作した図形だけを書き換えるので、
+/// 形式・版・文字コードと、読み取りが扱わない内容（拡張データ、未対応の図形・オブジェクトなど）は元のまま残る。
+/// すべての操作を確かめてから書き、1 つでも通らなければ何も書かずにエラーを返す。
+/// `options.format` は分かっている場合の形式、`options.limits.max_bytes` は受け付ける大きさの上限
+pub fn edit(
+    bytes: &[u8],
+    operations: &[edit::EditOperation],
+    options: &ReadDrawingOptions,
+) -> Result<edit::Edited, edit::EditError> {
+    let limits = &options.limits;
+    if limits.max_bytes.is_some_and(|max| bytes.len() as u64 > max) {
+        return Err(edit::EditError::new("too-large", limit_error(Limit::Bytes, limits).to_string()));
+    }
+    let format = match options.format.as_deref() {
+        Some(format) => format,
+        None => detect(bytes).ok_or_else(|| edit::EditError::new("unreadable", "対応していない形式のファイルです"))?,
+    };
+    match format {
+        "dxf" => dxf::edit_dxf(bytes, operations),
+        other => Err(unsupported_edit(other)),
+    }
+}
+
+/// 新しい図面を作り、操作（add・add-layer など）を当てる。to は形式、units は長さの単位
+/// （mm、cm、m、inch、foot、unitless）
+pub fn create(to: &str, units: &str, operations: &[edit::EditOperation]) -> Result<edit::Edited, edit::EditError> {
+    match to {
+        "dxf" => dxf::edit_dxf(&dxf::new_dxf(units)?, operations),
+        other => Err(unsupported_edit(other)),
+    }
+}
+
+fn unsupported_edit(format: &str) -> edit::EditError {
+    let editable: Vec<String> = EDITABLE_FORMATS.iter().map(|format| format.to_uppercase()).collect();
+    edit::EditError::new(
+        "unsupported-format",
+        format!("{} の図面はまだ編集できません（編集できるのは {}）", format.to_uppercase(), editable.join("・")),
+    )
 }
 
 /// 図面のバイト列を読み、表示用の図面にする。上限（`options.limits`）を超えたら、途中でやめて上限のエラーを返す
