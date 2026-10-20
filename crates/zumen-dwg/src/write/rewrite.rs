@@ -1,5 +1,5 @@
 //! DWG を読み、オブジェクトをビット列のまま写して同じ版で書き直す。オブジェクトは元の並びのまま新しい
-//! AcDb:AcDbObjects（R2000 はファイル）に並べ、オブジェクトの表（23）を作り直す。ヘッダ変数とクラスの節は中身を
+//! AcDb:AcDbObjects（R13〜R2000 はファイル）に並べ、オブジェクトの表（23）を作り直す。ヘッダ変数とクラスの節は中身を
 //! 変えずに CRC を計算し直し、ほかの節（AuxHeader、SummaryInfo、Preview、AppInfo、FileDepList、RevHistory、
 //! ObjFreeSpace、Template、AcDsPrototype_1b など）はそのまま写す。
 //!
@@ -66,7 +66,7 @@ impl Source {
         let name = String::from_utf8_lossy(&bytes[..6]).into_owned();
         if crate::r12::Old::from_magic(bytes).is_some() {
             return Err(format!(
-                "{name}（AutoCAD Release 12 以前）の DWG は書き直せません。R2000 以降の DWG を書き直せます"
+                "{name}（AutoCAD Release 12 以前）の DWG は書き直せません。R13 以降の DWG を書き直せます"
             ));
         }
         let version =
@@ -75,10 +75,7 @@ impl Source {
             return Err("DWG のファイルの頭が途中で切れています".into());
         }
         match version {
-            Version::R13 | Version::R14 => {
-                Err(format!("{name}（AutoCAD R13・R14）の DWG は書き直せません。R2000 以降の DWG を書き直せます"))
-            }
-            Version::R2000 => open_r2000(bytes, notices),
+            Version::R13 | Version::R14 | Version::R2000 => open_r2000(bytes, version, notices),
             Version::R2007 => open_r2007(bytes, notices),
             _ => open_r2004(bytes, version, notices),
         }
@@ -97,7 +94,7 @@ impl Source {
     pub fn write(&self) -> Vec<u8> {
         match &self.container {
             Container::R2000 { head, aux_header, preview, template } => {
-                let header = header_variables(&self.header, Version::R2000, self.maintenance);
+                let header = header_variables(&self.header, self.version, self.maintenance);
                 let handles = header.map_or([0; 14], |header| {
                     [
                         header.handseed,
@@ -257,9 +254,10 @@ fn header_variables(section: &[u8], version: Version, maintenance: u8) -> Option
     read_header(section, format).ok()
 }
 
-// --- R2000 ------------------------------------------------------------------
+// --- R13・R14・R2000 ------------------------------------------------------------
 
-fn open_r2000(bytes: &[u8], notices: &mut NoticeList) -> Result<Source, String> {
+/// R13〜R2000 の図面（3.2 のファイルの頭と節の位置の記録。AcDb:AuxHeader は R2000 から）
+fn open_r2000(bytes: &[u8], version: Version, notices: &mut NoticeList) -> Result<Source, String> {
     let records = file::r2000_records(bytes)?;
     let slice = |number: u8| file::r2000_slice(bytes, &records, number);
     let missing = |name: &str| format!("DWG の節（{name}）が見つかりません");
@@ -272,12 +270,11 @@ fn open_r2000(bytes: &[u8], notices: &mut NoticeList) -> Result<Source, String> 
         return Err("DWG のオブジェクトの表が読めません".into());
     }
     // 2 つ目のファイルの頭（26）に書くハンドルをヘッダ変数から取るので、読めなければ書き直せない
-    header_variables(header_section, Version::R2000, maintenance)
-        .ok_or_else(|| "DWG のヘッダ変数が読めません".to_string())?;
+    header_variables(header_section, version, maintenance).ok_or_else(|| "DWG のヘッダ変数が読めません".to_string())?;
     let mut head = [0u8; 0x15];
     head.copy_from_slice(&bytes[..0x15]);
     Ok(Source {
-        version: Version::R2000,
+        version,
         maintenance,
         codepage: u16::from_le_bytes([bytes[0x13], bytes[0x14]]),
         header: reframe(header_section, &HEADER_SENTINEL, &HEADER_END, false, 0, "AcDb:Header", notices),

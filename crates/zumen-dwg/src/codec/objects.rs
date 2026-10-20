@@ -15,6 +15,8 @@ pub(crate) struct Dictionary {
     /// 複製のときの扱い（281）と、項目を所有するか（280）。R2000 以降
     pub cloning: i16,
     pub hard_owner: u8,
+    /// R14 だけの不明の RC（仕様は「いつも 0」）
+    pub r14_unknown: u8,
     pub entries: Vec<(RawText, HandleRef)>,
     /// DICTIONARYWDFLT の既定の項目
     pub default: Option<HandleRef>,
@@ -24,8 +26,10 @@ impl Dictionary {
     pub fn read(s: &mut In<'_>, with_default: bool) -> Read<Self> {
         let common = ObjectCommon::read(s)?;
         let count = s.data.bl()?;
-        let cloning = s.data.bs()?;
-        let hard_owner = s.data.rc()?;
+        // 既定の項目を持つ辞書（R2000 のクラス）は、R13・R14 の図面でも R2000 の形（AutoCAD の図面で確かめた）
+        let r2000 = s.r2000() || with_default;
+        let r14_unknown = if s.version == Version::R14 && !with_default { s.data.rc()? } else { 0 };
+        let (cloning, hard_owner) = if r2000 { (s.data.bs()?, s.data.rc()?) } else { (1, 0) };
         let mut names = Vec::new();
         for _ in 0..count.clamp(0, 1 << 20) {
             names.push(s.text()?);
@@ -35,14 +39,20 @@ impl Dictionary {
             entries.push((name, s.handle()?));
         }
         let default = if with_default { Some(s.handle()?) } else { None };
-        Ok(Self { common, cloning, hard_owner, entries, default })
+        Ok(Self { common, cloning, hard_owner, r14_unknown, entries, default })
     }
 
     pub fn write(&self, o: &mut ObjectWriter) {
         self.common.write(o);
         o.data.bl(self.entries.len() as i32);
-        o.data.bs(self.cloning);
-        o.data.rc(self.hard_owner);
+        let with_default = self.default.is_some();
+        if o.version == Version::R14 && !with_default {
+            o.data.rc(self.r14_unknown);
+        }
+        if o.r2000() || with_default {
+            o.data.bs(self.cloning);
+            o.data.rc(self.hard_owner);
+        }
         for (name, _) in &self.entries {
             o.text(name);
         }
@@ -583,7 +593,7 @@ impl XRecord {
         let common = ObjectCommon::read(s)?;
         let size = s.data.bl()?;
         let data = s.data.bytes(usize::try_from(size).map_err(|_| Eof)?)?;
-        let cloning = s.data.bs()?;
+        let cloning = if s.r2000() { s.data.bs()? } else { 0 };
         // ハンドルの並びの終わり（埋めたビットを除く）まで読む
         let mut handles = Vec::new();
         while s.handles.as_ref().is_some_and(|stream| stream.remaining() >= 8) {
@@ -599,7 +609,9 @@ impl XRecord {
         self.common.write(o);
         o.data.bl(self.data.len() as i32);
         o.data.raw(&self.data);
-        o.data.bs(self.cloning);
+        if o.r2000() {
+            o.data.bs(self.cloning);
+        }
         for handle in &self.handles {
             o.href(*handle);
         }

@@ -1,18 +1,23 @@
 //! DWG の書き出しのテスト。書き直した図面は、元の図面と同じ AutoCAD の図面のモデルと表示用の図面になる。
 //!
-//! 図面は tests/fixtures/dwg（tests/writer で書いたテストの図面）と、ZUMEN_SAMPLES のフォルダの実際の図面
-//! （リポジトリには入れない。フォルダがなければ飛ばす）
+//! 図面は tests/fixtures/dwg（tests/writer で書いたテストの図面）、そのモデルを R13・R14 に書いた図面と、
+//! ZUMEN_SAMPLES のフォルダの実際の図面（リポジトリには入れない。フォルダがなければ飛ばす）
 
 use std::path::{Path, PathBuf};
-use zumen_dwg::{read_dwg, rewrite_dwg};
+use zumen_dwg::{DwgVersion, read_dwg, rewrite_dwg, write_dwg_as};
 use zumen_dxf::dxf_to_scene;
 
 fn fixtures() -> Vec<(String, Vec<u8>)> {
     let folder = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/dwg");
-    ["r2000.dwg", "r2018.dwg"]
+    let mut out: Vec<(String, Vec<u8>)> = ["r2000.dwg", "r2018.dwg"]
         .iter()
         .map(|name| (name.to_string(), std::fs::read(folder.join(name)).unwrap()))
-        .collect()
+        .collect();
+    let model = read_dwg(&out[0].1).unwrap();
+    for version in [DwgVersion::R13, DwgVersion::R14] {
+        out.push((format!("r2000.dwg as {}", version.name()), write_dwg_as(&model, version).bytes));
+    }
+    out
 }
 
 fn samples() -> Vec<(String, Vec<u8>)> {
@@ -28,9 +33,9 @@ fn samples() -> Vec<(String, Vec<u8>)> {
     out
 }
 
-/// 書き直せる版（R2000〜R2018）
+/// 書き直せる版（R13〜R2018）
 fn rewritable(bytes: &[u8]) -> bool {
-    matches!(&bytes[..6], b"AC1015" | b"AC1018" | b"AC1021" | b"AC1024" | b"AC1027" | b"AC1032")
+    matches!(&bytes[..6], b"AC1012" | b"AC1014" | b"AC1015" | b"AC1018" | b"AC1021" | b"AC1024" | b"AC1027" | b"AC1032")
 }
 
 /// 書き直した図面は、読むと元の図面と同じモデル（notices を含む）と、どの表示でも同じ図面になる
@@ -55,14 +60,14 @@ fn rewritten_drawings_read_the_same() {
     }
 }
 
-/// 書き直せない版と DWG でないファイルは、利用者に見せるメッセージを返す
+/// 書き直せない版（Release 12 以前）、読めない図面と DWG でないファイルは、利用者に見せるメッセージを返す
 #[test]
 fn unsupported_files_are_refused() {
     let mut r2007 = fixtures()[1].1.clone();
     r2007[..6].copy_from_slice(b"AC1021");
-    let mut r14 = fixtures()[0].1.clone();
-    r14[..6].copy_from_slice(b"AC1014");
-    for bytes in [r2007, r14, b"AC1015".to_vec(), b"not a drawing".to_vec(), Vec::new()] {
+    let mut r12 = fixtures()[0].1.clone();
+    r12[..6].copy_from_slice(b"AC1009");
+    for bytes in [r2007, r12, b"AC1015".to_vec(), b"not a drawing".to_vec(), Vec::new()] {
         assert!(rewrite_dwg(&bytes).is_err());
     }
 }
