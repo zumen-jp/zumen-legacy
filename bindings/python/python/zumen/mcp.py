@@ -41,10 +41,10 @@ PICK_MM = 1.0
 DEFAULT_MAX_POINTS = 1000
 #: Most points of shapes one call may return.
 MAX_POINTS = 10_000
-#: The conversion of a placement whose real-world coordinates are those on the sheet (DXF model space).
-_SAME = (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
 #: Most placements (scaled parts of the sheet) that ``open_drawing`` lists, the largest first.
 MAX_PLACEMENTS = 100
+#: The conversion of a placement whose real-world coordinates are those on the sheet (DXF model space).
+_SAME = (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
 #: Where each shape keeps its coordinates.
 _COORDINATES = {
     "polyline": "points",
