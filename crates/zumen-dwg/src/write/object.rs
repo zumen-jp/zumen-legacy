@@ -159,7 +159,8 @@ mod tests {
             o.tv("表示");
             o.h(5, 0x10);
             let bytes = o.bytes();
-            let codec = if version >= Version::R2007 { TextCodec::Utf16 } else { TextCodec::Bytes(encoding_rs::SHIFT_JIS) };
+            let codec =
+                if version >= Version::R2007 { TextCodec::Utf16 } else { TextCodec::Bytes(encoding_rs::SHIFT_JIS) };
             let format = Format { version, maintenance: 0, codec };
             assert_eq!(object_length(&bytes, 0, version >= Version::R2010), Some(bytes.len()));
             let mut object = open_object(&bytes, 0, format).unwrap();

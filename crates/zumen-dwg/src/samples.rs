@@ -120,7 +120,8 @@ fn check_r2004(name: &str, bytes: &[u8], version: Version) {
         for &(number, ..) in &info.pages {
             let at = container.page_address(number).unwrap();
             let mask = 0x4164_536b_u32 ^ at as u32;
-            let mut head: Vec<u8> = (0..8).flat_map(|index| (u32_at(bytes, at + index * 4) ^ mask).to_le_bytes()).collect();
+            let mut head: Vec<u8> =
+                (0..8).flat_map(|index| (u32_at(bytes, at + index * 4) ^ mask).to_le_bytes()).collect();
             let size = u32_at(&head, 8) as usize;
             let data_checksum = page_checksum(0, &bytes[at + 0x20..at + 0x20 + size]);
             assert_eq!(data_checksum, u32_at(&head, 0x1c), "{name}: data checksum of page {number}");
@@ -180,9 +181,12 @@ fn rewritten_drawings_keep_every_section() {
         assert_eq!(names(&before), names(&after), "{name}");
         let mut notices = NoticeList::new();
         for info in &before.sections {
-            let original = before.data(info, &mut notices);
-            let rewritten = after.section(&info.name, &mut notices).unwrap();
+            // 0 だけのページは書かれないので、節の大きさまで 0 で埋めて比べる
+            let mut original = before.data(info, &mut notices);
+            original.resize(info.size as usize, 0);
             let rewritten_info = after.info(&info.name).unwrap();
+            let mut rewritten = after.data(rewritten_info, &mut notices);
+            rewritten.resize(rewritten_info.size as usize, 0);
             assert_eq!(
                 (rewritten_info.max_size, rewritten_info.compressed, rewritten_info.encrypted),
                 (info.max_size, info.compressed, info.encrypted),
@@ -248,11 +252,8 @@ fn classes_of_real_drawings_are_written_back_unchanged() {
         };
         let extra = crate::write::database::has_extra(version, bytes[0x0b]);
         let framed = Framed::parse(&section, &CLASSES_SENTINEL, &CLASSES_END, extra).unwrap();
-        let codec = if version >= Version::R2007 {
-            TextCodec::Utf16
-        } else {
-            TextCodec::Bytes(encoding_rs::WINDOWS_1252)
-        };
+        let codec =
+            if version >= Version::R2007 { TextCodec::Utf16 } else { TextCodec::Bytes(encoding_rs::WINDOWS_1252) };
         let classes = read_class_defs(&framed.data, version, codec);
         assert!(!classes.is_empty(), "{name}");
         // 終わりの埋めるビットは AutoCAD では不定なので、意味のあるビットだけを比べる

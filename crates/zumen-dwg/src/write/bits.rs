@@ -407,8 +407,9 @@ mod tests {
             w.bs(value);
         }
         let expected = "0000000001000000011011010000111110";
-        let written: String =
-            (0..w.bit_len()).map(|at| if w.as_bytes()[(at / 8) as usize] & (0x80 >> (at % 8)) != 0 { '1' } else { '0' }).collect();
+        let written: String = (0..w.bit_len())
+            .map(|at| if w.as_bytes()[(at / 8) as usize] & (0x80 >> (at % 8)) != 0 { '1' } else { '0' })
+            .collect();
         assert_eq!(written, expected);
         // 2.6 の例: 4610 は 10000010 00100100
         let mut w = BitWriter::new();

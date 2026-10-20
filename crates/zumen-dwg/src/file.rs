@@ -342,8 +342,7 @@ fn r18_section(
             out.resize(expected, 0);
         }
     }
-    // 終わりのページが 0 だけで書かれていない節（ページのない節を含む）は、節の大きさまで 0 で埋める
-    if out.len() < limit {
+    if out.len() < limit && !info.pages.is_empty() {
         out.resize(limit, 0);
     }
     if broken > 0 {

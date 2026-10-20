@@ -9,7 +9,10 @@ use zumen_dxf::dxf_to_scene;
 
 fn fixtures() -> Vec<(String, Vec<u8>)> {
     let folder = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/dwg");
-    ["r2000.dwg", "r2018.dwg"].iter().map(|name| (name.to_string(), std::fs::read(folder.join(name)).unwrap())).collect()
+    ["r2000.dwg", "r2018.dwg"]
+        .iter()
+        .map(|name| (name.to_string(), std::fs::read(folder.join(name)).unwrap()))
+        .collect()
 }
 
 fn samples() -> Vec<(String, Vec<u8>)> {

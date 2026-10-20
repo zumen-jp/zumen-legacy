@@ -202,14 +202,14 @@ fn rewrite_r2004(bytes: &[u8], version: Version, notices: &mut NoticeList) -> Re
     let mut objects_at = None;
     let mut handles_at = None;
     for info in &container.sections {
-        let data = container.data(info, notices);
-        if data.len() >= MAX_SECTION_BYTES {
+        if info.size >= MAX_SECTION_BYTES as u64 {
             return Err(format!("DWG の節 {} が大きすぎるため、書き直せません", info.name));
         }
+        let mut data = container.data(info, notices);
+        // 0 だけのページは書かれていない（4.5）。ページのない節も、節の大きさの 0 として写す
+        data.resize(info.size as usize, 0);
         let data = match info.name.as_str() {
-            "AcDb:Header" => {
-                reframe(&data, &HEADER_SENTINEL, &HEADER_END, extra, 0, &info.name, notices)
-            }
+            "AcDb:Header" => reframe(&data, &HEADER_SENTINEL, &HEADER_END, extra, 0, &info.name, notices),
             // R2004 以降のクラスの節は、終わりの区切りの後に 8 バイトの 0 が続く（10.1）
             "AcDb:Classes" => reframe(&data, &CLASSES_SENTINEL, &CLASSES_END, extra, 8, &info.name, notices),
             "AcDb:AcDbObjects" => {
@@ -223,7 +223,8 @@ fn rewrite_r2004(bytes: &[u8], version: Version, notices: &mut NoticeList) -> Re
             _ => data,
         };
         addresses.push(container.address(info));
-        let preview_base = (info.name == "AcDb:Preview").then(|| container.address(info).map_or(0, |at| at as u64 + 0x20));
+        let preview_base =
+            (info.name == "AcDb:Preview").then(|| container.address(info).map_or(0, |at| at as u64 + 0x20));
         sections.push(DataSection {
             name: info.name.clone(),
             data,

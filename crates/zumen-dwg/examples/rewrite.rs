@@ -13,6 +13,12 @@ fn main() {
         eprintln!("{input}: {error}");
         std::process::exit(1);
     });
-    eprintln!("{input}: {} → {} bytes in {:?}, notices {:?}", bytes.len(), written.bytes.len(), start.elapsed(), written.notices);
+    eprintln!(
+        "{input}: {} → {} bytes in {:?}, notices {:?}",
+        bytes.len(),
+        written.bytes.len(),
+        start.elapsed(),
+        written.notices
+    );
     std::fs::write(&output, &written.bytes).unwrap();
 }

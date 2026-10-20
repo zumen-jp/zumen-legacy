@@ -477,9 +477,10 @@ mod tests {
         let mut notices = NoticeList::new();
         assert_eq!(container.section("AcDb:AcDbObjects", &mut notices).unwrap(), objects);
         assert_eq!(container.section("AcDb:SummaryInfo", &mut notices).unwrap(), [1, 2, 3]);
-        // 0 だけの節はページを書かず、大きさの分の 0 として読む
-        assert_eq!(container.section("AcDb:Template", &mut notices).unwrap(), [0; 4]);
-        assert!(container.info("AcDb:Template").unwrap().pages.is_empty());
+        // 0 だけの節はページを書かず、大きさだけを書く（4.5）
+        let template = container.info("AcDb:Template").unwrap();
+        assert!(template.pages.is_empty());
+        assert_eq!(template.size, 4);
         assert_eq!(container.section("AcDb:Header", &mut notices).unwrap(), b"header");
         assert!(notices.into_vec().is_empty());
         // ファイルの頭の写しが終わりにある

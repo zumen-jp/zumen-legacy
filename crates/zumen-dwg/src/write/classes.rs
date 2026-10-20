@@ -4,12 +4,12 @@
 
 use super::bits::BitWriter;
 use super::object::{append_strings, write_tu};
-use crate::file::Version;
-use encoding_rs::Encoding;
 #[cfg(test)]
 use crate::bits::{Bits, Read, TextCodec};
+use crate::file::Version;
 #[cfg(test)]
 use crate::objects::{Streams, Text, string_stream};
+use encoding_rs::Encoding;
 
 /// 1 つのクラス（10.2）
 #[derive(Debug, Clone, PartialEq, Eq)]

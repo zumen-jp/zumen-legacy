@@ -195,7 +195,7 @@ mod tests {
             at += 1;
             source[at - 1]
         };
-        let mut literal_length = |byte: &mut dyn FnMut() -> u8| -> (usize, u8) {
+        let literal_length = |byte: &mut dyn FnMut() -> u8| -> (usize, u8) {
             let first = byte();
             match first {
                 0x01..=0x0f => (usize::from(first) + 3, 0),
@@ -258,7 +258,11 @@ mod tests {
                 }
                 0x40..=0xff => {
                     let next = usize::from(byte());
-                    ((usize::from(opcode) >> 4) - 1, (next << 2) | ((usize::from(opcode) & 0x0c) >> 2), usize::from(opcode & 3))
+                    (
+                        (usize::from(opcode) >> 4) - 1,
+                        (next << 2) | ((usize::from(opcode) & 0x0c) >> 2),
+                        usize::from(opcode & 3),
+                    )
                 }
                 _ => panic!("opcode {opcode:#x}"),
             };
