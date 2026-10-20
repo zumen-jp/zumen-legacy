@@ -467,8 +467,10 @@ impl<'a> Parser<'a> {
     }
 
     fn dimstyle(&self, start: usize, end: usize) -> DxfDimStyle {
+        // AutoCAD の DXF（R2000 以降）は既定値と同じ値を書かない。既定値は $MEASUREMENT によらず AutoCAD の寸法スタイルの
+        // 初期値（DIMSCALE 1、DIMASZ・DIMTXT 0.18）で、同じ図面の DWG はその値を持つ（ACadSharp・netDxf の読み取りも同じ）
         let mut style =
-            DxfDimStyle { handle: String::new(), name: String::new(), dimscale: 1.0, dimasz: 0.0, dimtxt: 0.0 };
+            DxfDimStyle { handle: String::new(), name: String::new(), dimscale: 1.0, dimasz: 0.18, dimtxt: 0.18 };
         for k in start..end {
             match self.code(k) {
                 105 => style.handle = self.upper(k),
@@ -897,7 +899,11 @@ impl<'a> Parser<'a> {
         let body = self.body(start + 1, end);
         // ATTRIB・ATTDEF の縦の揃えは AcDbAttribute の 74（73 は文字数の上限）
         let base = self.base(kind, &body, owner);
-        let text = self.text_base(&body, 74);
+        let mut text = self.text_base(&body, 74);
+        // 生成フラグは AcDbText の 71。DXF Reference の ATTRIB の表は AcDbAttribute にも 71 を載せるが、AutoCAD 2018 の DXF は
+        // そこに属性の種類（1 は 1 行、2 は複数行の属性、4 は複数行の属性定義）を書く（ezdxf の attribute_type、ACadSharp の
+        // AttributeType と同じ読み方）
+        text.text_generation_flag = self.number(&self.subclass_body(&body, "AcDbText"), 71, 0.0);
         let tag = self.text(&body, 2, "");
         let attribute_flags = self.number(&body, 70, 0.0);
         let data = if kind == "ATTDEF" {

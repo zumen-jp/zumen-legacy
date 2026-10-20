@@ -144,7 +144,8 @@ fn hex_at(units: &[u16], at: usize, count: usize) -> Option<u32> {
 }
 
 /// TEXT・ATTRIB の文字列を run にする。%%u・%%o・%%k は下線・上線・取り消し線の切り替え、
-/// %%nnn は文字コード nnn の文字（DXF Reference「TEXT」、AutoCAD の「Control Codes and Special Characters」）
+/// %%nnn は文字コード nnn の文字（DXF Reference「TEXT」、AutoCAD の「Control Codes and Special Characters」）、
+/// 「^ 」は ^、^I（タブ）は 4 つの空白。1 行の文字に改行はないので、ほかのキャレット表記（^J など）はそのまま残す
 pub fn parse_text_codes(text: &str, height: f64, width_factor: f64, oblique: f64) -> Vec<TextRun> {
     let text: Vec<u16> = text.encode_utf16().collect();
     let mut runs = Vec::new();
@@ -159,6 +160,17 @@ pub fn parse_text_codes(text: &str, height: f64, width_factor: f64, oblique: f64
     let mut i = 0;
     while i < text.len() {
         let ch = text[i];
+        if ch == u16::from(b'^') && (is(text.get(i + 1), ' ') || is(text.get(i + 1), 'I')) {
+            // テキストの DXF は ^ を「^ 」、タブを ^I と書く（DXF Reference「About ASCII Control Characters in DXF Files」）。
+            // タブは MTEXT と同じく 4 つの空白にする
+            if is(text.get(i + 1), ' ') {
+                buffer.push(u16::from(b'^'));
+            } else {
+                buffer.extend("    ".encode_utf16());
+            }
+            i += 2;
+            continue;
+        }
         if ch != PERCENT || text.get(i + 1) != Some(&PERCENT) || i + 2 >= text.len() {
             buffer.push(ch);
             i += 1;

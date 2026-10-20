@@ -2,7 +2,9 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "src",
-    "outDir": "dist"
+    "outDir": "dist",
+    // core は DOM を使わない（Node.js・Web Worker でも読める）。DOM の型を外して、ビルドで確かめる
+    "lib": ["ES2024"]
   },
   "include": ["src"]
 }
