@@ -523,3 +523,5 @@ a Japanese gothic close to the MS Gothic that SXF and Jw_cad drawings assume. Ch
   runs the type checker, the unit tests, `pnpm audit` and all builds, then the Rust checks (`check:rust`: rustfmt,
   Clippy, tests and the wasm32 build) and the Python checks (`check:python`: Ruff, maturin, pytest).
 - The Rust toolchain is pinned in `rust-toolchain.toml`, Python in `bindings/python/.python-version` (installed by uv).
+
+Release packages include source files for source maps. `scripts/notices.mjs` records the license texts of normal Rust dependencies linked into the Python extension and WebAssembly reader; `pnpm run check` verifies these files against Cargo.lock.

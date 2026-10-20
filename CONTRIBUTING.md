@@ -1,6 +1,7 @@
 # Contributing to zumen
 
 Thank you for helping. Please open an issue to discuss larger changes before you start.
+Everyone taking part follows the [code of conduct](CODE_OF_CONDUCT.md).
 
 ## Never share confidential drawings
 
@@ -80,7 +81,9 @@ people: the interface is the application's, and the playground has a sample.
 - Follow the public specification of each format and cite the section in a comment.
   Write down behavior you had to infer in `docs/formats/`.
 - Report anything that is not drawn, or drawn differently, through `notices`. Do not drop content silently.
-- Do not add runtime dependencies without discussing it first. GPL and AGPL dependencies are not accepted.
+- Do not add runtime dependencies without discussing it first. GPL and AGPL dependencies are not accepted. When
+  `Cargo.lock` changes, run `pnpm run notices` to refresh the license texts of the Rust crates that end up in the Python
+  wheels and in `@zumenjs/dwg` (`THIRD_PARTY_LICENSES.txt`, checked by `pnpm run check`).
 
 ## Tests
 
@@ -115,4 +118,5 @@ Keep one purpose per pull request, and include the tests and documentation it ne
 
 ## License of contributions
 
-The project license will be announced before the first public release. Contributions will be accepted under it.
+zumen is released under the [MIT license](LICENSE). Contributions are accepted under it: by opening a pull request you
+agree that your contribution is licensed under the same terms.

@@ -48,7 +48,10 @@
   them with `ZUMEN_RECORD_IDS=1 cargo test -p zumen --test ids`; a reader change that renames the entities of
   unchanged bytes needs a decision first.
 - Rust runtime dependencies follow the same rules as npm ones (no GPL or AGPL, works in WebAssembly) and are recorded
-  with the reason in `docs/architecture.md`.
+  with the reason in `docs/architecture.md`. The license texts of the crates that are linked into the Python extension
+  and into the WebAssembly reader of `@zumenjs/dwg` are in the two `THIRD_PARTY_LICENSES.txt` files. After a change of
+  `Cargo.lock` that adds, removes or updates a crate, run `pnpm run notices` and commit them; `check:rust` fails if
+  they are out of date.
 - Work on a branch cut from the latest `origin/main` and open a pull request for every change; do not push to `main`.
   Run `pnpm run check` before pushing, then squash-merge once CI passes, unless the user asked to stop at review.
   Delete the branch after merging. Commit messages and pull request titles follow Conventional Commits.

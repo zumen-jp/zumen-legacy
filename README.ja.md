@@ -298,3 +298,7 @@ Git に入れない図面は、置いたフォルダーを `ZUMEN_SAMPLES` に�
 公開の前に決める。参照した第三者のソフトウェア・資料は [packages/jww/THIRD_PARTY_NOTICES.md](packages/jww/THIRD_PARTY_NOTICES.md)、
 [packages/dxf/THIRD_PARTY_NOTICES.md](packages/dxf/THIRD_PARTY_NOTICES.md) に記録した。
 `zumen-render` に同梱するフォントは BIZ UDゴシック（SIL Open Font License 1.1、[crates/zumen-render/fonts/OFL.txt](crates/zumen-render/fonts/OFL.txt)）。
+
+## License
+
+MIT — see [LICENSE](LICENSE). Contributions follow the [Code of Conduct](CODE_OF_CONDUCT.md).

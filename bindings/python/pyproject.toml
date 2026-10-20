@@ -18,7 +18,8 @@ classifiers = [
 ]
 # 同梱の BIZ UDGothic は拡張モジュールに埋め込まれるので、そのライセンス（SIL OFL 1.1、licenses/ はクレート側の
 # OFL.txt のコピー）の全文をホイールの dist-info に入れる。zumen 自身の LICENSE を決めたらここへ加える（docs/releasing.md）
-license-files = ["licenses/*"]
+license = "MIT"
+license-files = ["LICENSE", "licenses/*"]
 dynamic = ["version"]
 
 [project.optional-dependencies]

@@ -4,7 +4,7 @@
   "description": "Monorepo of zumen: read, view and measure 2D drawings (SXF, JWW, DXF and DWG) in the browser, Rust and Python",
   "private": true,
   "type": "module",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "engines": {
     "node": ">=24 <25"
   },
@@ -13,12 +13,13 @@
     "check": "pnpm run lint && pnpm run wasm && pnpm run typecheck && pnpm test && pnpm audit && pnpm run build && pnpm run playground:build && pnpm run check:rust && pnpm run check:scripts && pnpm run check:python",
     "check:scripts": "cargo build -p zumen-cli && node --test scripts/tests/*.test.mjs",
     "check:python": "uv run --project bindings/python --frozen ruff check bindings/python && uv run --project bindings/python --frozen ruff format --check bindings/python && uv run --project bindings/python --frozen maturin develop --uv -m bindings/python/Cargo.toml && uv run --project bindings/python --frozen pytest bindings/python/tests -q",
-    "check:rust": "cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace --exclude zumen-python && cargo build -p zumen-wasm --target wasm32-unknown-unknown --release",
+    "check:rust": "cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace --exclude zumen-python && cargo build -p zumen-wasm --target wasm32-unknown-unknown --release && node scripts/notices.mjs --check",
     "dev": "node scripts/wasm.mjs && vite",
     "format": "biome check --write .",
     "fuzz": "node --max-old-space-size=8192 scripts/fuzz-parity.mjs",
     "golden": "node scripts/golden.mjs",
     "lint": "biome check .",
+    "notices": "node scripts/notices.mjs",
     "parity": "node scripts/parity.mjs",
     "playground:build": "vite build --outDir ../playground-dist --emptyOutDir",
     "test": "vitest run",
