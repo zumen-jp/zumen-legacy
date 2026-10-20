@@ -1,7 +1,8 @@
 //! zumen の Python の結合部。図面を読み（`read`）、表示用モデル（`Scene`）を JSON や PNG にし、文字と図形を取り出す。
+//! 図面を DXF に書き直す（`convert`）。
 //! 読み取りと描画の間は GIL を外す（FastAPI のスレッドなどで並行に動く）。
 
-use pyo3::exceptions::{PyImportError, PyUserWarning, PyValueError};
+use pyo3::exceptions::{PyImportError, PyOSError, PyUserWarning, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict, PyList};
 use std::collections::{HashMap, HashSet};
@@ -178,20 +179,7 @@ impl Scene {
     /// 読み取りで省略・代替した内容（level、code、message、count）
     #[getter]
     fn notices<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
-        let list = PyList::empty(py);
-        for notice in &self.inner.notices {
-            let dict = PyDict::new(py);
-            let level = match notice.level {
-                zumen::NoticeLevel::Info => "info",
-                zumen::NoticeLevel::Warning => "warning",
-            };
-            dict.set_item("level", level)?;
-            dict.set_item("code", &notice.code)?;
-            dict.set_item("message", &notice.message)?;
-            dict.set_item("count", notice.count)?;
-            list.append(dict)?;
-        }
-        Ok(list)
+        notice_list(py, &self.inner.notices)
     }
 
     /// 表題欄・ファイルの情報（項目名と値の組）
@@ -575,6 +563,71 @@ impl Rendering {
     }
 }
 
+/// notices の dict（level、code、message、count）の list
+fn notice_list<'py>(py: Python<'py>, notices: &[zumen::Notice]) -> PyResult<Bound<'py, PyList>> {
+    let list = PyList::empty(py);
+    for notice in notices {
+        let dict = PyDict::new(py);
+        let level = match notice.level {
+            zumen::NoticeLevel::Info => "info",
+            zumen::NoticeLevel::Warning => "warning",
+        };
+        dict.set_item("level", level)?;
+        dict.set_item("code", &notice.code)?;
+        dict.set_item("message", &notice.message)?;
+        dict.set_item("count", notice.count)?;
+        list.append(dict)?;
+    }
+    Ok(list)
+}
+
+/// 書き直した図面（data）と、書けなかった・形を変えて書いた内容（notices）
+#[pyclass(frozen, module = "zumen")]
+struct Converted {
+    inner: zumen::Converted,
+    format: String,
+}
+
+#[pymethods]
+impl Converted {
+    /// 書き直した図面のバイト列
+    #[getter]
+    fn data<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        PyBytes::new(py, &self.inner.bytes)
+    }
+
+    /// 書いた形式（dxf）
+    #[getter]
+    fn format(&self) -> &str {
+        &self.format
+    }
+
+    /// 書けなかった・形を変えて書いた内容（level、code、message、count）
+    #[getter]
+    fn notices<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+        notice_list(py, &self.inner.notices)
+    }
+
+    /// ファイルに書く
+    fn save(&self, py: Python<'_>, path: std::path::PathBuf) -> PyResult<()> {
+        py.detach(|| std::fs::write(&path, &self.inner.bytes))
+            .map_err(|error| PyOSError::new_err(format!("{}: {error}", path.display())))
+    }
+
+    fn __len__(&self) -> usize {
+        self.inner.bytes.len()
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "<zumen.Converted {}, {} bytes, {} notices>",
+            self.format,
+            self.inner.bytes.len(),
+            self.inner.notices.len()
+        )
+    }
+}
+
 /// 図面の形式を中身から判定する（sfc・p21・jww・dxf など）。読めない形式なら None
 #[pyfunction]
 fn detect(data: &[u8]) -> Option<&'static str> {
@@ -591,6 +644,17 @@ fn read(py: Python<'_>, data: &[u8], format: Option<String>, view: Option<String
     Ok(Scene::new(scene))
 }
 
+/// 図面を読み、to の形式（dxf）に書き直す。書き直せる図面は DXF・DWG。format は分かっている場合の読む形式
+#[pyfunction]
+#[pyo3(signature = (data, to, *, format = None))]
+fn convert(py: Python<'_>, data: &[u8], to: String, format: Option<String>) -> PyResult<Converted> {
+    let options = ReadDrawingOptions { format, view: None };
+    let converted = py
+        .detach(|| zumen::convert(data, &to, &options))
+        .map_err(|error| ReadError::new_err(error.message().to_string()))?;
+    Ok(Converted { inner: converted, format: to })
+}
+
 #[pymodule]
 fn _zumen(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
@@ -598,7 +662,9 @@ fn _zumen(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("RenderError", m.py().get_type::<RenderError>())?;
     m.add_class::<Scene>()?;
     m.add_class::<Rendering>()?;
+    m.add_class::<Converted>()?;
     m.add_function(wrap_pyfunction!(detect, m)?)?;
     m.add_function(wrap_pyfunction!(read, m)?)?;
+    m.add_function(wrap_pyfunction!(convert, m)?)?;
     Ok(())
 }

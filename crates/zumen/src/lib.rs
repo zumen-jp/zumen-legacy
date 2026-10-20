@@ -33,9 +33,22 @@ pub fn detect(bytes: &[u8]) -> Option<&'static str> {
     detect_format(bytes, &readers())
 }
 
-/// DXF・DWG の図面を DXF（ASCII、AutoCAD 2013 形式、UTF-8）に書き直す。書けなかった図形の種類と件数も返す。
-/// SXF・JWW は AutoCAD の図面のモデルにまだ変換できない
-pub fn convert_to_dxf(bytes: &[u8], options: &ReadDrawingOptions) -> Result<dxf::DxfWritten, ReadError> {
+/// 書き出した図面と、書けなかった・形を変えて書いた内容（読み取りの notices と同じ形）
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Converted {
+    pub bytes: Vec<u8>,
+    pub notices: Vec<Notice>,
+}
+
+/// 書き出せる形式
+pub const WRITABLE_FORMATS: [&str; 1] = ["dxf"];
+
+/// 図面を読み、別の形式に書き直す。`to` は書く形式（今は dxf だけ。ASCII、AutoCAD 2013 形式、UTF-8）。
+/// 書き直せる図面は DXF・DWG（AutoCAD の図面のモデルを経る。SXF・JWW はまだそのモデルにできない）
+pub fn convert(bytes: &[u8], to: &str, options: &ReadDrawingOptions) -> Result<Converted, ReadError> {
+    if !WRITABLE_FORMATS.contains(&to) {
+        return Err(ReadError::new(format!("{} には書き出せません（書き出せるのは DXF）", to.to_uppercase())));
+    }
     let format = match options.format.as_deref() {
         Some(format) => format,
         None => detect(bytes).ok_or_else(|| ReadError::new("対応していない形式のファイルです"))?,
@@ -45,12 +58,13 @@ pub fn convert_to_dxf(bytes: &[u8], options: &ReadDrawingOptions) -> Result<dxf:
         "dwg" => dwg::read_dwg(bytes).map_err(ReadError::new)?,
         other => {
             return Err(ReadError::new(format!(
-                "{} は DXF に変換できません（変換できるのは DXF・DWG）",
+                "{} の図面はまだ書き直せません（書き直せるのは DXF・DWG）",
                 other.to_uppercase()
             )));
         }
     };
-    Ok(dxf::write_dxf(&doc))
+    let written = dxf::write_dxf(&doc);
+    Ok(Converted { bytes: written.bytes, notices: written.notices })
 }
 
 /// 図面のバイト列を読み、表示用の図面にする

@@ -5,24 +5,22 @@
 //! ブロック定義、図形、OBJECTS の辞書（ACAD_GROUP・ACAD_LAYOUT・ACAD_MLINESTYLE・ACAD_PLOTSETTINGS・
 //! ACAD_PLOTSTYLENAME）、レイアウト、MLINESTYLE。ハンドルは元の図面のものを保ち、ないもの・重なるものには
 //! 新しいハンドルを振る。図形が参照するのに表にないレイヤ・線種・文字スタイル・寸法スタイル・ブロックは補う。
-//! 書けない図形（IMAGE。画像のファイルへの参照を読んでいない）は種類ごとの件数を返す。
+//! 書けなかった・形を変えて書いた内容は、読み取りと同じ notices（種類ごとの件数）で返す。
 
 use crate::model::{
     DxfBlock, DxfDocument, DxfEntity, DxfEntityBase, DxfEntityData, DxfHatch, DxfHatchEdge, DxfImage, DxfLayout,
     DxfMLeader, DxfMLine, DxfMLineStyle, DxfPolyline, DxfSpace, DxfTextBase, Vec3,
 };
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
+use zumen_core::{Notice, NoticeLevel, NoticeList};
 
-/// 書いた DXF と、書けなかった図形の種類ごとの件数
+/// 書いた DXF と、書けなかった・形を変えて書いた内容（読み取りの notices と同じ形）
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct DxfWritten {
     pub bytes: Vec<u8>,
-    pub skipped: Vec<(String, u64)>,
+    pub notices: Vec<Notice>,
 }
-
-/// 図形の種類ごとに、書けないもの
-const UNWRITTEN: [&str; 1] = ["IMAGE"];
 
 /// 色の生の値の BYBLOCK（0xC1000000）
 const BY_BLOCK_RAW: f64 = -1_056_964_608.0;
@@ -31,8 +29,7 @@ const BY_BLOCK_RAW: f64 = -1_056_964_608.0;
 pub fn write_dxf(doc: &DxfDocument) -> DxfWritten {
     let mut writer = Writer::new(doc);
     writer.write();
-    let skipped = writer.skipped.into_iter().collect();
-    DxfWritten { bytes: writer.out.text.into_bytes(), skipped }
+    DxfWritten { bytes: writer.out.text.into_bytes(), notices: writer.notices.into_vec() }
 }
 
 /// グループコードと値の行
@@ -50,6 +47,12 @@ fn real(value: f64) -> String {
     if text.contains(['.', 'e', 'E']) { text } else { format!("{text}.0") }
 }
 
+/// 1 行に書けない改行を、AutoCAD の ASCII の DXF と同じキャレット表記（^J・^M）にする
+/// （バイナリの DXF・DWG から読んだ文字列は改行を持つことがある。ほかの制御文字はそのまま書く）
+fn escape(value: &str) -> std::borrow::Cow<'_, str> {
+    if value.contains(['\n', '\r']) { value.replace('\n', "^J").replace('\r', "^M").into() } else { value.into() }
+}
+
 /// 32 ビットの整数の値（色の生の値など）。DWG から読んだ符号なしの値も符号付きにする
 fn int32(value: f64) -> i32 {
     if value.is_finite() { (value as i64) as u32 as i32 } else { 0 }
@@ -60,14 +63,9 @@ impl Out {
         let _ = write!(self.text, "{code:>3}\r\n{value}\r\n");
     }
 
-    /// 文字列。1 行に書けない改行は、AutoCAD の ASCII の DXF と同じキャレット表記（^J・^M）にする
-    /// （バイナリの DXF・DWG から読んだ文字列は改行を持つことがある。ほかの制御文字はそのまま書く）
+    /// 文字列（改行はキャレット表記にする）
     fn str(&mut self, code: i32, value: &str) {
-        if value.contains(['\n', '\r']) {
-            self.tag(code, value.replace('\n', "^J").replace('\r', "^M"));
-        } else {
-            self.tag(code, value);
-        }
+        self.tag(code, escape(value));
     }
 
     fn real(&mut self, code: i32, value: f64) {
@@ -180,7 +178,7 @@ struct Writer<'a> {
     doc: &'a DxfDocument,
     out: Out,
     handles: Handles,
-    skipped: BTreeMap<String, u64>,
+    notices: NoticeList,
     /// 名前（大文字）→ ブロックの定義
     blocks: Vec<BlockRecord>,
     block_index: HashMap<String, usize>,
@@ -195,6 +193,11 @@ struct Writer<'a> {
     mline_styles: Vec<(u64, DxfMLineStyle)>,
     /// マルチ引出線のスタイル（Standard）
     mleader_style: u64,
+    /// ブロックの配置の属性を書いている
+    in_insert: bool,
+    /// 図形（`DxfEntityBase` の場所）→ 書くハンドル。参照（属性定義・切り抜きの境界）を書く順に関係なく
+    /// 付け替えられるよう、図形を書く前に決める
+    entity_handles: HashMap<usize, u64>,
     placeholder: u64,
 }
 
@@ -289,7 +292,7 @@ impl<'a> Writer<'a> {
             doc,
             out: Out { text: String::new() },
             handles: Handles::new(doc),
-            skipped: BTreeMap::new(),
+            notices: NoticeList::new(),
             blocks: Vec::new(),
             block_index: HashMap::new(),
             layouts: Vec::new(),
@@ -299,6 +302,8 @@ impl<'a> Writer<'a> {
             remap: HashMap::new(),
             mline_styles: Vec::new(),
             mleader_style: 0,
+            in_insert: false,
+            entity_handles: HashMap::new(),
             placeholder: 0,
         }
     }
@@ -373,7 +378,11 @@ impl<'a> Writer<'a> {
         }
         for name in referenced {
             if !name.is_empty() && !self.block_index.contains_key(&upper(&name)) {
-                *self.skipped.entry("（定義のないブロックを空で補った）".into()).or_insert(0) += 1;
+                self.notices.add(
+                    NoticeLevel::Warning,
+                    "missing-block",
+                    "定義のないブロックを、空のブロックとして補いました",
+                );
                 self.add_block(&name, None);
             }
         }
@@ -446,6 +455,10 @@ impl<'a> Writer<'a> {
         self.header();
         self.classes();
         self.tables(&tables);
+        for entity in all_entities(self.doc) {
+            let handle = self.keep(&entity.base.handle);
+            self.entity_handles.insert(std::ptr::from_ref(&entity.base) as usize, handle);
+        }
         self.blocks_section();
         self.entities_section();
         self.objects(root);
@@ -649,7 +662,12 @@ impl<'a> Writer<'a> {
             }
         }
         if complex > 0 {
-            *self.skipped.entry("文字・形を含む線種（線と空白だけを書いた）".into()).or_insert(0) += complex;
+            self.notices.add_count(
+                NoticeLevel::Info,
+                "complex-linetype",
+                "文字・形を含む線種は、線と空白だけを書きました",
+                complex,
+            );
         }
         let referenced: Vec<String> = all_entities(doc)
             .map(|entity| entity.base.linetype.clone())
@@ -721,7 +739,8 @@ impl<'a> Writer<'a> {
                     color: 7.0,
                     true_color: None,
                     flags: 0,
-                    linetype: "Continuous".into(),
+                    // 表示が定義のないレイヤに使う線種と同じ綴り
+                    linetype: "CONTINUOUS".into(),
                     plot: true,
                     lineweight: -3.0,
                     transparency: None,
@@ -1066,15 +1085,14 @@ impl<'a> Writer<'a> {
         out.handle(330, owner);
         out.tag(100, "AcDbPlotSettings");
         out.tag(1, "");
-        out.str(4, source.map_or("A3", |layout| if layout.paper_size.is_empty() { "A3" } else { &layout.paper_size }));
+        // 元のレイアウトの値はそのまま書く（用紙の大きさが 0 なら、表示は紙空間の範囲から用紙を決める）
+        out.str(4, source.map_or("A3", |layout| layout.paper_size.as_str()));
         out.tag(6, "");
         let margins = source.map_or([7.5, 20.0, 7.5, 20.0], |layout| layout.margins);
         for (code, value) in [40, 41, 42, 43].into_iter().zip(margins) {
             out.real(code, value);
         }
-        let (width, height) = source
-            .filter(|layout| layout.paper_width > 0.0 && layout.paper_height > 0.0)
-            .map_or((420.0, 297.0), |layout| (layout.paper_width, layout.paper_height));
+        let (width, height) = source.map_or((420.0, 297.0), |layout| (layout.paper_width, layout.paper_height));
         out.real(44, width);
         out.real(45, height);
         let origin = source.map_or([0.0, 0.0], |layout| layout.plot_origin);
@@ -1187,7 +1205,11 @@ impl<'a> Writer<'a> {
             .as_ref()
             .and_then(|block| self.mapped(&block.block_record_handle).map(|handle| (block, handle)));
         if context.block.is_some() && block.is_none() {
-            self.skip("マルチ引出線のブロックの内容（定義のないもの）");
+            self.notices.add(
+                NoticeLevel::Warning,
+                "mleader-block",
+                "定義のないブロックを内容とするマルチ引出線は、内容を省きました",
+            );
         }
         let linetype = self
             .mapped(&mleader.leader_linetype_handle)
@@ -1381,13 +1403,12 @@ impl<'a> Writer<'a> {
         out.tag(290, 0);
     }
 
-    fn skip(&mut self, kind: &str) {
-        *self.skipped.entry(kind.to_string()).or_insert(0) += 1;
-    }
-
     /// 図形の共通の値（DXF Reference「Common Group Codes for Entities」）
     fn common(&mut self, kind: &str, base: &DxfEntityBase, owner: u64, paper: bool) -> u64 {
-        let handle = self.keep(&base.handle);
+        let handle = match self.entity_handles.get(&(std::ptr::from_ref(base) as usize)) {
+            Some(handle) => *handle,
+            None => self.keep(&base.handle),
+        };
         let out = &mut self.out;
         out.tag(0, kind);
         out.handle(5, handle);
@@ -1436,8 +1457,12 @@ impl<'a> Writer<'a> {
     fn entity(&mut self, entity: &DxfEntity, owner: u64, paper: bool) {
         let base = &entity.base;
         let kind = upper(&base.kind);
-        if UNWRITTEN.contains(&kind.as_str()) {
-            self.skip(&kind);
+        if kind == "IMAGE" {
+            self.notices.add(
+                NoticeLevel::Warning,
+                "image",
+                "画像（IMAGE）は、画像のファイルへの参照を読んでいないため省きました",
+            );
             return;
         }
         match &entity.data {
@@ -1519,7 +1544,11 @@ impl<'a> Writer<'a> {
             DxfEntityData::Polyline(polyline) => self.polyline(base, polyline, owner, paper),
             DxfEntityData::Spline(spline) => {
                 if kind == "HELIX" {
-                    self.skip("HELIX（SPLINE として書いた）");
+                    self.notices.add(
+                        NoticeLevel::Info,
+                        "helix",
+                        "らせん（HELIX）は、スプライン（SPLINE）として書きました",
+                    );
                 }
                 self.common("SPLINE", base, owner, paper);
                 self.out.tag(100, "AcDbSpline");
@@ -1554,14 +1583,15 @@ impl<'a> Writer<'a> {
                     self.out.point(11, point);
                 }
             }
-            DxfEntityData::Text(text) => {
-                self.common("TEXT", base, owner, paper);
-                self.out.tag(100, "AcDbText");
-                self.text_body(base, text);
-                self.out.tag(100, "AcDbText");
-                if text.valign != 0.0 {
-                    self.out.int(73, text.valign);
-                }
+            DxfEntityData::Text(text) => self.text(base, text, owner, paper),
+            DxfEntityData::Attrib { text, .. } if !self.in_insert => {
+                // ブロックの配置に属さない属性は DXF に書けないので、文字として書く
+                self.notices.add(
+                    NoticeLevel::Info,
+                    "attrib-alone",
+                    "ブロック参照に属さない属性（ATTRIB）は、文字（TEXT）として書きました",
+                );
+                self.text(base, text, owner, paper);
             }
             DxfEntityData::Attrib { text, tag, attribute_flags } => {
                 self.common("ATTRIB", base, owner, paper);
@@ -1599,14 +1629,14 @@ impl<'a> Writer<'a> {
                 // 250 文字ごとに 3 に分け、最後を 1 に書く
                 let raw =
                     if mtext.raw_text.is_empty() { mtext.text.replace('\n', "\\P") } else { mtext.raw_text.clone() };
-                let chars: Vec<char> = raw.chars().collect();
+                let chars: Vec<char> = escape(&raw).chars().collect();
                 let mut chunks = chars.chunks(250).peekable();
                 if chunks.peek().is_none() {
                     self.out.tag(1, "");
                 }
                 while let Some(chunk) = chunks.next() {
                     let text: String = chunk.iter().collect();
-                    self.out.str(if chunks.peek().is_some() { 3 } else { 1 }, &text);
+                    self.out.tag(if chunks.peek().is_some() { 3 } else { 1 }, text);
                 }
                 self.out.str(7, if mtext.style.is_empty() { "Standard" } else { &mtext.style });
                 self.extrusion(base);
@@ -1625,7 +1655,9 @@ impl<'a> Writer<'a> {
                     if let Some(color) = mtext.background_true_color {
                         self.out.int(421, color);
                     }
-                    self.out.real(45, mtext.background_scale.unwrap_or(1.5));
+                    if let Some(scale) = mtext.background_scale {
+                        self.out.real(45, scale);
+                    }
                     self.out.tag(441, 0);
                 }
             }
@@ -1655,16 +1687,22 @@ impl<'a> Writer<'a> {
                 self.extrusion(base);
                 if !insert.attribs.is_empty() {
                     // 属性と SEQEND の所有者はブロックの配置
+                    self.in_insert = true;
                     for attrib in &insert.attribs {
                         self.entity(attrib, handle, paper);
                     }
+                    self.in_insert = false;
                     self.seqend(handle, handle, paper, base);
                 }
+            }
+            // 表示のブロックを持たない寸法（AutoCAD の拘束寸法など）は DXF に書けない。表示でも省いている
+            DxfEntityData::Dimension(dimension) if dimension.anonymous_block_name.is_empty() => {
+                self.notices.add(NoticeLevel::Warning, "dimension-block", "表示のブロックがない寸法を省きました");
             }
             DxfEntityData::Dimension(dimension) => self.dimension(&kind, base, dimension, owner, paper),
             DxfEntityData::Hatch(hatch) => {
                 if kind == "MPOLYGON" {
-                    self.skip("MPOLYGON（HATCH として書いた）");
+                    self.notices.add(NoticeLevel::Info, "mpolygon", "MPOLYGON は、ハッチング（HATCH）として書きました");
                 }
                 self.hatch(base, hatch, owner, paper);
             }
@@ -1726,14 +1764,20 @@ impl<'a> Writer<'a> {
                 self.out.real(50, 0.0);
                 self.out.real(51, viewport.view_twist_angle);
                 self.out.tag(72, 1000);
+                // 凍結したレイヤと切り抜きの境界は、書いたレイヤ・図形のハンドルに付け替える（見つからなければ書かない）
                 for frozen in &viewport.frozen_layer_handles {
-                    if let Ok(handle) = u64::from_str_radix(frozen, 16)
-                        && self.layer_handles.values().any(|known| *known == handle)
+                    if let Some(handle) =
+                        self.mapped(frozen).filter(|handle| self.layer_handles.values().any(|known| known == handle))
                     {
                         self.out.handle(331, handle);
                     }
                 }
                 self.out.int(90, viewport.status_flags);
+                if let Some(handle) =
+                    viewport.clipping_boundary_handle.as_deref().and_then(|handle| self.mapped(handle))
+                {
+                    self.out.handle(340, handle);
+                }
                 self.out.tag(1, "");
                 self.out.tag(281, 0);
                 self.out.tag(71, 1);
@@ -1755,7 +1799,11 @@ impl<'a> Writer<'a> {
             DxfEntityData::Image(image) => self.wipeout(base, image, owner, paper),
             DxfEntityData::Table(table) => {
                 // 表（ACAD_TABLE）は、表示の図形を持つブロックの配置として書く
-                self.skip("ACAD_TABLE（ブロックの配置として書いた）");
+                self.notices.add(
+                    NoticeLevel::Info,
+                    "table",
+                    "表（ACAD_TABLE）は、表示の図形を持つブロックの参照（INSERT）として書きました",
+                );
                 self.common("INSERT", base, owner, paper);
                 self.out.tag(100, "AcDbBlockReference");
                 self.out.str(2, &table.name);
@@ -1773,6 +1821,16 @@ impl<'a> Writer<'a> {
     }
 
     /// TEXT・ATTRIB・ATTDEF の 1 行の文字（AcDbText）
+    fn text(&mut self, base: &DxfEntityBase, text: &DxfTextBase, owner: u64, paper: bool) {
+        self.common("TEXT", base, owner, paper);
+        self.out.tag(100, "AcDbText");
+        self.text_body(base, text);
+        self.out.tag(100, "AcDbText");
+        if text.valign != 0.0 {
+            self.out.int(73, text.valign);
+        }
+    }
+
     fn text_body(&mut self, base: &DxfEntityBase, text: &DxfTextBase) {
         self.thickness(base);
         self.out.point(10, &text.insert);
@@ -1794,8 +1852,10 @@ impl<'a> Writer<'a> {
         if text.halign != 0.0 {
             self.out.int(72, text.halign);
         }
-        if text.halign != 0.0 || text.valign != 0.0 {
-            self.out.point(11, &text.align_point.unwrap_or(text.insert));
+        match text.align_point {
+            Some(point) => self.out.point(11, &point),
+            None if text.halign != 0.0 || text.valign != 0.0 => self.out.point(11, &text.insert),
+            None => {}
         }
         self.extrusion(base);
     }
@@ -1953,66 +2013,73 @@ impl<'a> Writer<'a> {
         }
         self.extrusion(base);
         self.out.str(3, if dimension.dimstyle.is_empty() { "Standard" } else { &dimension.dimstyle });
+        // 定義点（13〜16）と角度は、元の図面にあるものだけを書く
         let points = [dimension.defpoint2, dimension.defpoint3, dimension.defpoint4, dimension.defpoint5];
-        let point = |index: usize| points[index].unwrap_or([0.0; 3]);
+        let point = |out: &mut Out, code: i32| {
+            if let Some(point) = points[(code - 13) as usize] {
+                out.point(code, &point);
+            }
+        };
+        let out = &mut self.out;
         match name {
             "ARC_DIMENSION" => {
-                self.out.tag(100, "AcDbArcDimension");
-                self.out.point(13, &point(0));
-                self.out.point(14, &point(1));
-                self.out.point(15, &point(2));
-                self.out.tag(70, 0);
-                self.out.real(40, 0.0);
-                self.out.real(41, 0.0);
-                self.out.tag(71, 0);
+                out.tag(100, "AcDbArcDimension");
+                point(out, 13);
+                point(out, 14);
+                point(out, 15);
+                out.tag(70, 0);
+                out.real(40, 0.0);
+                out.real(41, 0.0);
+                out.tag(71, 0);
             }
             "LARGE_RADIAL_DIMENSION" => {
-                self.out.tag(100, "AcDbRadialDimensionLarge");
-                self.out.point(13, &point(0));
-                self.out.point(14, &point(1));
-                self.out.point(15, &point(2));
-                self.out.real(40, 0.0);
+                out.tag(100, "AcDbRadialDimensionLarge");
+                point(out, 13);
+                point(out, 14);
+                point(out, 15);
+                out.real(40, 0.0);
             }
             _ => match js_int(dimension.dimtype) & 7 {
                 0 | 1 => {
-                    self.out.tag(100, "AcDbAlignedDimension");
-                    self.out.point(13, &point(0));
-                    self.out.point(14, &point(1));
+                    out.tag(100, "AcDbAlignedDimension");
+                    point(out, 13);
+                    point(out, 14);
                     if js_int(dimension.dimtype) & 7 == 0 {
-                        self.out.real(50, dimension.angle.unwrap_or(0.0));
-                        if let Some(oblique) = dimension.oblique_angle {
-                            self.out.real(52, oblique);
+                        if let Some(angle) = dimension.angle {
+                            out.real(50, angle);
                         }
-                        self.out.tag(100, "AcDbRotatedDimension");
+                        if let Some(oblique) = dimension.oblique_angle {
+                            out.real(52, oblique);
+                        }
+                        out.tag(100, "AcDbRotatedDimension");
                     }
                 }
                 2 => {
-                    self.out.tag(100, "AcDb2LineAngularDimension");
-                    self.out.point(13, &point(0));
-                    self.out.point(14, &point(1));
-                    self.out.point(15, &point(2));
-                    self.out.point(16, &point(3));
+                    out.tag(100, "AcDb2LineAngularDimension");
+                    for code in 13..=16 {
+                        point(out, code);
+                    }
                 }
                 3 => {
-                    self.out.tag(100, "AcDbDiametricDimension");
-                    self.out.point(15, &point(2));
-                    self.out.real(40, 0.0);
+                    out.tag(100, "AcDbDiametricDimension");
+                    point(out, 15);
+                    out.real(40, 0.0);
                 }
                 4 => {
-                    self.out.tag(100, "AcDbRadialDimension");
-                    self.out.point(15, &point(2));
-                    self.out.real(40, 0.0);
+                    out.tag(100, "AcDbRadialDimension");
+                    point(out, 15);
+                    out.real(40, 0.0);
                 }
                 5 => {
-                    self.out.tag(100, "AcDb3PointAngularDimension");
-                    self.out.point(13, &point(0));
-                    self.out.point(14, &point(1));
-                    self.out.point(15, &point(2));
+                    out.tag(100, "AcDb3PointAngularDimension");
+                    point(out, 13);
+                    point(out, 14);
+                    point(out, 15);
                 }
                 _ => {
-                    self.out.tag(100, "AcDbOrdinateDimension");
-                    self.out.point(13, &point(0));
-                    self.out.point(14, &point(1));
+                    out.tag(100, "AcDbOrdinateDimension");
+                    point(out, 13);
+                    point(out, 14);
                 }
             },
         }
@@ -2118,7 +2185,8 @@ impl<'a> Writer<'a> {
             out.tag(97, 0);
         }
         out.int(75, hatch.hatch_style);
-        out.int(76, if hatch.pattern_type > 0.0 { hatch.pattern_type } else { 1.0 });
+        // 模様の種類（76）: 0 利用者定義、1 定義済み、2 カスタム
+        out.int(76, hatch.pattern_type);
         if !solid {
             out.real(52, hatch.pattern_angle);
             out.real(41, if hatch.pattern_scale != 0.0 { hatch.pattern_scale } else { 1.0 });
