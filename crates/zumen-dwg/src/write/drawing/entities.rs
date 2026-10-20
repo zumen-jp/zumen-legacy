@@ -10,9 +10,9 @@ use crate::codec::CmColor;
 use crate::codec::entities::{
     AnnotContext, Arc, Attribute, Body, Circle, Content, ContextBlock, ContextText, Dimension, DimensionKind, Ellipse,
     EmbeddedMText, Entity, Face, Hatch, HatchBoundary, HatchEdge, HatchGradient, HatchPath, HatchPattern, HatchSpline,
-    Image, Insert, Leader, LeaderLine, LeaderLineStyle, LeaderRoot, Line, LwPolyline, MLeader, MLine, MLineVertex,
-    MText, Owned, PatternLine, Point, Polyline2d, Polyline3d, PolylineMesh, PolylinePface, Ray, Solid, Spline,
-    SplineControl, SplineFit, Text, Vertex2d, Viewport,
+    Image, Insert, Leader, LeaderLine, LeaderLineStyle, LeaderR14, LeaderRoot, Line, LwPolyline, MLeader, MLine,
+    MLineVertex, MText, Owned, PatternLine, Point, Polyline2d, Polyline3d, PolylineMesh, PolylinePface, Ray, Solid,
+    Spline, SplineControl, SplineFit, Text, Vertex2d, Viewport,
 };
 use crate::codec::object::{EntityColor, EntityCommon};
 use crate::file::Version;
@@ -144,7 +144,7 @@ impl Writer<'_> {
                 color.transparency = Some(int(transparency) as u32);
             }
         }
-        let (ltype_flags, ltype) = match upper(&base.linetype).as_str() {
+        let (mut ltype_flags, mut ltype) = match upper(&base.linetype).as_str() {
             "" | "BYLAYER" => (0, None),
             "BYBLOCK" => (1, None),
             "CONTINUOUS" => (2, None),
@@ -153,6 +153,17 @@ impl Writer<'_> {
                 None => (0, None),
             },
         };
+        if self.before_2000() {
+            // R13・R14 は BYLAYER のほかの線種をハンドルで持ち（BYBLOCK・CONTINUOUS も）、線の太さを持たない
+            if ltype_flags == 1 || ltype_flags == 2 {
+                let key = if ltype_flags == 1 { "BYBLOCK" } else { "CONTINUOUS" };
+                ltype = self.linetype_handles.get(key).map(|handle| href(5, *handle));
+                ltype_flags = 3;
+            }
+            if base.lineweight >= 0.0 {
+                self.version_lineweights.set(self.version_lineweights.get() + 1);
+            }
+        }
         EntityCommon {
             graphic: None,
             mode,
@@ -203,9 +214,20 @@ impl Writer<'_> {
     }
 
     fn put(&mut self, kind: u16, handle: u64, common: EntityCommon, body: Body) {
+        self.put_with(kind, handle, common, body, Vec::new());
+    }
+
+    /// 拡張データ（APPID のハンドル, 値のバイト列）を持つ図形を書く
+    fn put_with(&mut self, kind: u16, handle: u64, common: EntityCommon, body: Body, eed: Vec<(u64, Vec<u8>)>) {
         let mut out = self.object(kind, handle);
+        out.eed = eed;
         Entity { common, body }.write(&mut out);
         self.push(&out);
+    }
+
+    /// R14 より前・2000 より前の版で、決まった型のない図形（LWPOLYLINE・HATCH は R14 ではクラスの型。AutoCAD の図面と同じ）
+    fn kind_of(&mut self, fixed: u16, class: &'static str) -> u16 {
+        if self.before_2000() { self.class_number(class) } else { fixed }
     }
 
     /// R2000 の図形の前と次の図形（20.4.1）。前後がハンドル ± 1 なら Nolinks（AutoCAD と同じ）、ないものは 0
@@ -352,6 +374,21 @@ impl Writer<'_> {
                 };
                 self.put(27, handle, common, Body::Point(body));
             }
+            DxfEntityData::LwPolyline(polyline) if self.version < Version::R14 => {
+                // R13 は LWPOLYLINE を持たない（R14 から）ので、DXF の R12 の書き出しと同じく POLYLINE（2D）にする
+                let mut vertices = polyline.vertices.clone();
+                let elevation = polyline.elevation.unwrap_or(0.0);
+                for point in &mut vertices.points {
+                    point[2] = elevation;
+                }
+                if let Some(width) = polyline.const_width {
+                    vertices.widths = vec![[width, width]; vertices.points.len()];
+                }
+                vertices.flags = f64::from(int(vertices.flags) & 128);
+                let converted =
+                    DxfPolyline { vertices, vertex_flags: Vec::new(), faces: None, m_count: None, n_count: None };
+                self.polyline(base, &converted, handle, common);
+            }
             DxfEntityData::LwPolyline(polyline) => {
                 let vertices = &polyline.vertices;
                 let dxf_flags = int(vertices.flags);
@@ -400,7 +437,8 @@ impl Writer<'_> {
                     ids: Vec::new(),
                     widths: if has_widths { widths } else { Vec::new() },
                 };
-                self.put(77, handle, common, Body::LwPolyline(body));
+                let kind = self.kind_of(77, "LWPOLYLINE");
+                self.put(kind, handle, common, Body::LwPolyline(body));
             }
             DxfEntityData::Polyline(polyline) => self.polyline(base, polyline, handle, common),
             DxfEntityData::Spline(spline) => {
@@ -563,7 +601,15 @@ impl Writer<'_> {
                 } else {
                     self.hatch(base, hatch)
                 };
-                self.put(78, handle, common, Body::Hatch(Box::new(body)));
+                if self.version < Version::R14 {
+                    self.notices.add(
+                        NoticeLevel::Info,
+                        "version-hatch",
+                        "ハッチング（HATCH）は AutoCAD R14 からで、R13 の AutoCAD では代理オブジェクトとして扱われ表示されません",
+                    );
+                }
+                let kind = self.kind_of(78, "HATCH");
+                self.put(kind, handle, common, Body::Hatch(Box::new(body)));
             }
             DxfEntityData::Solid { vtx0, vtx1, vtx2, vtx3, invisible_edges } => match kind.as_str() {
                 "3DFACE" => {
@@ -582,6 +628,29 @@ impl Writer<'_> {
                 }
             },
             DxfEntityData::Leader(leader) => {
+                let dimstyle = self.dimstyle_of(&leader.dimstyle);
+                // R13・R14 は作ったときの DIMGAP・DIMASZ に DIMSCALE を掛けた値を持つ（20.4.47）。書いた寸法スタイルの値と、
+                // ほかは AutoCAD の R14 の図面の値
+                let r14 = self.before_2000().then(|| {
+                    let (scale, arrow) = self
+                        .dimstyles
+                        .iter()
+                        .find(|(_, handle, _)| *handle == dimstyle.value)
+                        .and_then(|(_, _, source)| *source)
+                        .map_or((1.0, 2.5), |style| (style.dimscale, style.dimasz));
+                    let gap = match super::header::dim_default("DIMGAP", self.version) {
+                        crate::codec::tables::DimValue::Double(gap) => gap,
+                        _ => 0.0,
+                    };
+                    LeaderR14 {
+                        dimgap: gap * scale,
+                        arrowhead_type: 0,
+                        dimasz: arrow * scale,
+                        unknown: (false, true, 256),
+                        byblock_color: 256,
+                        unknown_bits: [false, false],
+                    }
+                });
                 let body = Leader {
                     unknown_bit: false,
                     annotation_type: short(leader.annotation_type),
@@ -597,8 +666,9 @@ impl Writer<'_> {
                     arrowhead: leader.has_arrowhead,
                     unknown_short: 0,
                     unknown_bits: [false, false],
+                    r14,
                     annotation: href(5, 0),
-                    dimstyle: self.dimstyle_of(&leader.dimstyle),
+                    dimstyle,
                 };
                 self.put(45, handle, common, Body::Leader(body));
             }
@@ -688,7 +758,23 @@ impl Writer<'_> {
                     r2007_handles: Some([href(4, 0), href(5, 0), href(5, 0), href(3, 0)]),
                 };
                 self.viewports.insert(handle);
-                self.put(34, handle, common, Body::Viewport(Box::new(body)));
+                let mut eed = Vec::new();
+                if self.before_2000() {
+                    // R13・R14 は表示の値を拡張データ ACAD の MVIEW に持つ（DXF の R12 と同じ並び）。切り抜きの境界はない
+                    if clip != 0 {
+                        self.notices.add(
+                            NoticeLevel::Info,
+                            "version-viewport-clip",
+                            "ビューポートの非矩形の切り抜きは、AutoCAD 2000 より前の版にないため、矩形の表示範囲にしました",
+                        );
+                    }
+                    let frozen: Vec<u64> = body.frozen_layers.iter().map(|layer| layer.value).collect();
+                    if let Some(acad) = self.fixed.appids.iter().find(|(name, _)| *name == "ACAD").map(|(_, app)| *app)
+                    {
+                        eed.push((acad, self.mview(viewport, &frozen)));
+                    }
+                }
+                self.put_with(34, handle, common, Body::Viewport(Box::new(body)), eed);
             }
             DxfEntityData::XLine { start, unit_vector } => {
                 let body = Ray { point: *start, vector: *unit_vector };
@@ -727,6 +813,57 @@ impl Writer<'_> {
             }
         }
         Some(handle)
+    }
+
+    /// R13・R14 のビューポートの拡張データ MVIEW（28 の形。AutoCAD の R14 の図面と同じ並び）: { 版 16、目標・向き、
+    /// ねじれ（度）・高さ・中心・レンズの長さ・前と後ろの切り取り、表示の設定・円の滑らかさ・高速ズーム・UCS アイコン・
+    /// スナップ・グリッド・スナップの種類と面、スナップの角度・基点・間隔、グリッドの間隔、印刷で隠す、{ 凍結したレイヤ } }
+    fn mview(&self, viewport: &zumen_dxf::DxfViewport, frozen: &[u64]) -> Vec<u8> {
+        let mut out = Vec::new();
+        self.eed_string(&mut out, "MVIEW");
+        let control = |out: &mut Vec<u8>, close: bool| out.extend_from_slice(&[2, u8::from(close)]);
+        let short = |out: &mut Vec<u8>, value: i16| {
+            out.push(70);
+            out.extend_from_slice(&value.to_le_bytes());
+        };
+        let real = |out: &mut Vec<u8>, value: f64| {
+            out.push(40);
+            out.extend_from_slice(&value.to_le_bytes());
+        };
+        control(&mut out, false);
+        short(&mut out, 16);
+        for point in [viewport.view_target, viewport.view_direction] {
+            out.push(10);
+            for value in point {
+                out.extend_from_slice(&value.to_le_bytes());
+            }
+        }
+        for value in [
+            viewport.view_twist_angle,
+            viewport.view_height,
+            viewport.view_center[0],
+            viewport.view_center[1],
+            50.0,
+            0.0,
+            0.0,
+        ] {
+            real(&mut out, value);
+        }
+        for value in [0, 1000, 1, 1, 0, 0, 0, 0] {
+            short(&mut out, value);
+        }
+        for value in [0.0, 0.0, 0.0, 0.5, 0.5, 0.5, 0.5] {
+            real(&mut out, value);
+        }
+        short(&mut out, 0);
+        control(&mut out, false);
+        for layer in frozen {
+            out.push(3);
+            out.extend_from_slice(&layer.to_be_bytes());
+        }
+        control(&mut out, true);
+        control(&mut out, true);
+        out
     }
 
     /// TEXT・ATTRIB・ATTDEF の 1 行の文字（20.4.3）。既定の値（0、1）の値は DataFlags で省く（AutoCAD と同じ）
@@ -841,6 +978,16 @@ impl Writer<'_> {
                 0,
             )
         });
+        let line_spacing_style = if mtext.line_spacing_style > 0.0 { short(mtext.line_spacing_style) } else { 1 };
+        let line_spacing_factor = if mtext.line_spacing_factor > 0.0 { mtext.line_spacing_factor } else { 1.0 };
+        // 行間（20.4.46 の R2000+）。R13・R14 の MTEXT は既定の行間（少なくとも、1 倍）で表示される
+        if self.before_2000() && (line_spacing_style != 1 || line_spacing_factor != 1.0) {
+            self.notices.add(
+                NoticeLevel::Info,
+                "version-line-spacing",
+                "複数行の文字の行間は、AutoCAD 2000 より前の版にないため、書きませんでした（既定の行間で表示されます）",
+            );
+        }
         MText {
             insert: mtext.insert,
             extrusion: normal,
@@ -854,8 +1001,8 @@ impl Writer<'_> {
             extents_width: 0.0,
             text: self.text(&raw),
             style: self.style_of(&mtext.style),
-            line_spacing_style: if mtext.line_spacing_style > 0.0 { short(mtext.line_spacing_style) } else { 1 },
-            line_spacing_factor: if mtext.line_spacing_factor > 0.0 { mtext.line_spacing_factor } else { 1.0 },
+            line_spacing_style,
+            line_spacing_factor,
             unknown_bit: false,
             background_flags,
             background,

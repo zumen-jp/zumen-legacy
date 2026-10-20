@@ -67,7 +67,6 @@ impl<'a> Streams<'a> {
     }
 
     /// 文字列の並びはあるが、ハンドルは値の並びの中（R2007 以降のクラスの節）
-    #[cfg(test)]
     pub fn with_text_inline(data: Bits<'a>, text: Text<'a>, format: Format) -> Self {
         Self { data, text, handles: None, format }
     }

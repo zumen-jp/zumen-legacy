@@ -1,5 +1,5 @@
-//! DWG の編集のテスト。tests/fixtures/dwg の R2000 と R2018 のテストの図面（tests/writer で書いたもの）を編集し、
-//! 読み直した値と、ブロックの図形の並び・つながりを確かめる
+//! DWG の編集のテスト。tests/fixtures/dwg の R2000 と R2018 のテストの図面（tests/writer で書いたもの）と、R2000 の
+//! 図面のモデルを R13・R14 に書いた図面を編集し、読み直した値と、ブロックの図形の並び・つながりを確かめる
 
 use super::*;
 use crate::codec::object::open_raw;
@@ -74,6 +74,127 @@ fn check_structure(name: &str, bytes: &[u8]) {
             assert_eq!(*block, owner, "{name}: {handle:X} in block {block:X}, owned by {owner:X}");
         }
     }
+}
+
+/// R2000 のテストの図面のモデルを、その版の DWG に書いたもの（図形のハンドルは元のまま）
+fn written_as(version: crate::DwgVersion) -> Vec<u8> {
+    crate::write_dwg_as(&crate::read_dwg(&fixture("r2000.dwg")).unwrap(), version).bytes
+}
+
+/// R13・R14 の図面も、その版のまま編集する。トゥルーカラーは近い色の番号に、線の太さとレイヤを印刷しない設定は
+/// 書かずに知らせ、BYBLOCK の線種は線種の表の項目を指す
+#[test]
+fn r13_and_r14_drawings_are_edited_in_their_version() {
+    for version in [crate::DwgVersion::R13, crate::DwgVersion::R14] {
+        let name = version.name();
+        let bytes = written_as(version);
+        assert_eq!(edit_dwg(&bytes, &[]).unwrap().bytes, bytes, "{name}");
+        check_structure(name, &bytes);
+        let edited = edit(
+            &bytes,
+            r##"[
+                {"op": "add", "kind": "line", "start": [1, 2], "end": [3, 4, 5], "color": "#ff8000", "lineType": "byblock", "lineWidth": 0.35},
+                {"op": "add", "kind": "circle", "center": [10, 10], "radius": 5, "layer": "平面図"},
+                {"op": "add", "kind": "text", "position": [1, 1], "text": "敷地 ^ 境界", "height": 2.5, "rotation": 90},
+                {"op": "add", "kind": "text", "position": [1, 5], "text": "1 行目\n2 行目", "height": 2, "wrapWidth": 30},
+                {"op": "add", "kind": "block-reference", "block": "BOX", "position": [20, 20], "scale": [2, 3], "rotation": 45},
+                {"op": "add", "kind": "point", "container": "layout:Layout1", "position": [1, 1]},
+                {"op": "add-layer", "name": "確認", "color": 1, "lineWidth": 0.5, "plot": false},
+                {"op": "update", "id": "44", "set": {"radius": 3, "layer": "確認", "lineWidth": "bylayer"}},
+                {"op": "delete", "id": "43"},
+                {"op": "delete", "id": "46"}
+            ]"##,
+        )
+        .unwrap_or_else(|error| panic!("{name}: {error}"));
+        assert_eq!(edited.created.len(), 7, "{name}");
+        let codes: Vec<&str> = edited.notices.iter().map(|notice| notice.code.as_str()).collect();
+        for code in ["edit-nearest-color", "edit-no-lineweight", "edit-no-layer-plot"] {
+            assert!(codes.contains(&code), "{name}: {code} not in {codes:?}");
+        }
+        check_structure(name, &edited.bytes);
+        crate::samples::check_r2000(name, &edited.bytes);
+        let doc = crate::read_dwg(&edited.bytes).unwrap();
+        assert_eq!(doc.version, version.code(), "{name}");
+        let get = |index: usize| entity(&doc, &edited.created[index]).unwrap_or_else(|| panic!("{name}: {index}"));
+        let line = get(0);
+        assert_eq!((line.base.color_index, line.base.true_color), (f64::from(nearest_aci(0xff8000)), None), "{name}");
+        // 線種の名前は、R2000 以降と同じく線種の表の BYBLOCK の項目の名前
+        assert_eq!((line.base.linetype.as_str(), line.base.lineweight), ("ByBlock", -1.0), "{name}");
+        let DxfEntityData::Line { start, end } = &line.data else { panic!("{name}") };
+        assert_eq!((*start, *end), ([1.0, 2.0, 0.0], [3.0, 4.0, 5.0]), "{name}");
+        assert_eq!(get(1).base.layer, "平面図", "{name}");
+        let DxfEntityData::Text(text) = &get(2).data else { panic!("{name}") };
+        assert_eq!((text.text.as_str(), text.height, text.rotation), ("敷地 ^  境界", 2.5, 90.0), "{name}");
+        let DxfEntityData::MText(mtext) = &get(3).data else { panic!("{name}") };
+        assert_eq!((mtext.raw_text.as_str(), mtext.rect_width), ("1 行目\\P2 行目", 30.0), "{name}");
+        let DxfEntityData::Insert(insert) = &get(4).data else { panic!("{name}") };
+        assert_eq!(
+            (insert.name.as_str(), [insert.xscale, insert.yscale, insert.zscale], insert.rotation),
+            ("BOX", [2.0, 3.0, 1.0], 45.0),
+            "{name}"
+        );
+        assert_eq!(get(5).base.space, zumen_dxf::DxfSpace::Paper, "{name}");
+        let layer = doc.layers.iter().find(|layer| layer.name == "確認").unwrap();
+        assert_eq!((layer.color_index, layer.plot, layer.lineweight), (1.0, true, -3.0), "{name}");
+        let arc = entity(&doc, "44").unwrap();
+        assert_eq!(arc.base.layer, "確認", "{name}");
+        assert!(matches!(arc.data, DxfEntityData::Arc { radius: 3.0, .. }), "{name}");
+        for handle in ["43", "46"] {
+            assert!(entity(&doc, handle).is_none(), "{name}: {handle}");
+        }
+        // ハンドルは $HANDSEED から振り、$HANDSEED は次になる
+        let again = edit(&edited.bytes, r#"[{"op": "add", "kind": "point", "position": [0, 0]}]"#).unwrap();
+        let next = u64::from_str_radix(&edited.created[5], 16).unwrap() + 2;
+        assert_eq!(again.created, vec![format!("{next:X}")], "{name}");
+        // 折線: R14 はクラスの型の LWPOLYLINE（変えることもできる）、R13 にはない
+        let polyline = edit(
+            &bytes,
+            r#"[
+                {"op": "add", "kind": "polyline", "vertices": [[0, 0], [10, 0], [10, 5]], "bulges": [0, 0.5, 0], "closed": true, "width": 0.2},
+                {"op": "update", "id": "45", "set": {"vertices": [[0, 0], [1, 1], [2, 0]], "closed": true}}
+            ]"#,
+        );
+        if version == crate::DwgVersion::R13 {
+            assert_eq!(polyline.unwrap_err().code, "unsupported-kind", "{name}");
+            continue;
+        }
+        let polyline = polyline.unwrap();
+        check_structure(name, &polyline.bytes);
+        let doc = crate::read_dwg(&polyline.bytes).unwrap();
+        let DxfEntityData::LwPolyline(added) = &entity(&doc, &polyline.created[0]).unwrap().data else { panic!() };
+        assert_eq!((added.vertices.bulges.clone(), added.const_width), (vec![0.0, 0.5, 0.0], Some(0.2)), "{name}");
+        let DxfEntityData::LwPolyline(changed) = &entity(&doc, "45").unwrap().data else { panic!() };
+        assert_eq!((changed.vertices.points.len(), changed.vertices.closed), (3, true), "{name}");
+    }
+}
+
+/// R14 の LWPOLYLINE のクラスがない図面に折線を足すと、クラスの節にクラスを足す
+#[test]
+fn r14_drawings_get_the_polyline_class_when_a_polyline_is_added() {
+    let empty = zumen_dxf::parse_dxf(b"0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n");
+    let bytes = crate::write_dwg_as(&empty, crate::DwgVersion::R14).bytes;
+    let classes = |bytes: &[u8]| -> Vec<String> {
+        let mut notices = NoticeList::new();
+        let source = Source::open(bytes, &mut notices).unwrap();
+        let format = crate::objects::Format {
+            version: Version::R14,
+            maintenance: source.maintenance,
+            codec: crate::bits::TextCodec::Bytes(encoding_rs::WINDOWS_1252),
+        };
+        crate::objects::read_classes(&source.classes, format).into_iter().map(|class| class.dxf_name).collect()
+    };
+    assert!(!classes(&bytes).contains(&"LWPOLYLINE".to_string()));
+    let json = r#"[{"op": "add", "kind": "polyline", "vertices": [[0, 0], [10, 0], [10, 5]]}]"#;
+    let edited = edit(&bytes, json).unwrap();
+    assert!(classes(&edited.bytes).contains(&"LWPOLYLINE".to_string()), "{:?}", classes(&edited.bytes));
+    check_structure("empty R14", &edited.bytes);
+    crate::samples::check_r2000("empty R14", &edited.bytes);
+    // 2 つ目の折線は同じクラス
+    let again = edit(&edited.bytes, json).unwrap();
+    assert_eq!(classes(&again.bytes), classes(&edited.bytes));
+    let doc = crate::read_dwg(&again.bytes).unwrap();
+    let kinds: Vec<&str> = doc.entities.iter().map(|entity| entity.base.kind.as_str()).collect();
+    assert_eq!(kinds, ["LWPOLYLINE", "LWPOLYLINE"]);
 }
 
 #[test]
@@ -371,9 +492,6 @@ fn damaged_drawings_edit_without_panicking() {
 fn edits_of_real_drawings_keep_their_structure() {
     for (name, bytes) in crate::samples::samples() {
         let Some(version) = Version::from_magic(&bytes[..6]) else { continue };
-        if matches!(version, Version::R13 | Version::R14) {
-            continue;
-        }
         check_structure(&name, &bytes);
         let doc = crate::read_dwg(&bytes).unwrap();
         let model: Vec<&DxfEntity> =
@@ -413,7 +531,7 @@ fn edits_of_real_drawings_keep_their_structure() {
             edit(&bytes, &serde_json::Value::Array(json).to_string()).unwrap_or_else(|error| panic!("{name}: {error}"));
         check_structure(&name, &edited.bytes);
         match version {
-            Version::R2000 => crate::samples::check_r2000(&name, &edited.bytes),
+            Version::R13 | Version::R14 | Version::R2000 => crate::samples::check_r2000(&name, &edited.bytes),
             Version::R2007 => {
                 crate::samples::check_r2007(&name, &edited.bytes);
             }

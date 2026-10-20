@@ -38,6 +38,10 @@ pub(super) fn dim_default(name: &str, version: Version) -> DimValue {
         "DIMJOGANG" => DimValue::Double(std::f64::consts::FRAC_PI_4),
         "DIMCEN" | "DIMGAP" => DimValue::Double(0.09),
         "DIMALTF" => DimValue::Double(25.4),
+        // R13・R14 だけの値（R2000 からは DIMLUNIT・DIMATFIT と、矢印のブロックのハンドル）
+        "DIMUNIT" => DimValue::Short(2),
+        "DIMFIT" => DimValue::Short(3),
+        "DIMBLK" | "DIMBLK1" | "DIMBLK2" => text(""),
         "DIMALTMZF" | "DIMMZF" => DimValue::Double(100.0),
         "DIMTFILLCLR" | "DIMCLRD" | "DIMCLRE" | "DIMCLRT" => DimValue::Color(by_block(version)),
         "DIMTIH" | "DIMTOH" => DimValue::Bit(true),
@@ -67,6 +71,8 @@ fn default(name: &str, version: Version) -> Option<Value> {
     {
         return Some(match dim_default(dim, version) {
             DimValue::Bit(value) => Bit(value),
+            // R13・R14 のヘッダ変数の寸法の値には RC のものがある
+            DimValue::Short(value) if field_kind(name, version) == Some(Kind::Rc) => Byte(value.clamp(0, 255) as u8),
             DimValue::Short(value) => Short(value),
             DimValue::Double(value) => Double(value),
             DimValue::Text(value) => Text(value),
@@ -80,6 +86,12 @@ fn default(name: &str, version: Version) -> Option<Value> {
         "UNKNOWN_BL1" => Long(24),
         "UNKNOWN_BL10" => Long(10),
         "UNKNOWN_B2" => Bit(true),
+        // R13・R14 だけの値（AutoCAD が R14 に保存した図面の値）
+        "UNKNOWN_BS_R14" => Short(256),
+        "$ATTREQ" | "$ATTDIA" | "$DELOBJ" => Bit(true),
+        "$DRAGMODE" => Short(2),
+        "$OSMODE" => Short(37),
+        "$COORDS" | "$PICKSTYLE" => Short(1),
         "$DIMASO" | "$DIMSHO" | "$REGENMODE" | "$FILLMODE" | "$PSLTSCALE" | "$USRTIMER" | "$WORLDVIEW"
         | "$TILEMODE" | "$VISRETAIN" => Bit(true),
         "$PROXYGRAPHICS" | "$ATTMODE" | "$TSTACKALIGN" => Short(1),
@@ -207,7 +219,7 @@ pub(super) fn header_section(w: &Writer<'_>, seed: u64) -> Vec<u8> {
         if matches!(name.as_str(), "$HANDSEED" | "$ACADVER" | "$ACADMAINTVER" | "$DWGCODEPAGE") {
             continue;
         }
-        let Some(kind) = field_kind(name) else { continue };
+        let Some(kind) = field_kind(name, version) else { continue };
         if let Some(value) = from_dxf(w, kind, value) {
             vars.set(name, value);
         }
@@ -587,8 +599,8 @@ pub(super) fn container(
     write_r2004(&R2004 { head, sections, stream_order })
 }
 
-/// R2000 の入れ物（3）: ファイルの頭、AuxHeader、プレビュー、ヘッダ変数、クラス、オブジェクト、オブジェクトの表、
-/// 2 つ目のファイルの頭（26）と、モデルが MEASUREMENT を持つなら Template
+/// R13〜R2000 の入れ物（3）: ファイルの頭、（R2000）AuxHeader、プレビュー、ヘッダ変数、クラス、オブジェクト、
+/// オブジェクトの表、2 つ目のファイルの頭（26）と、モデルが MEASUREMENT を持つなら Template
 fn r2000(
     w: &Writer<'_>,
     header: Vec<u8>,
@@ -623,9 +635,10 @@ fn r2000(
         fixed.mline_dict,
         fixed.group_dict,
     ];
+    // AcDb:AuxHeader は R2000 から（R13・R14 の図面にはない）
     write_r2000(&R2000 {
         head,
-        aux_header: Some(aux_header(w.doc, seed, target)),
+        aux_header: (w.version >= Version::R2000).then(|| aux_header(w.doc, seed, target)),
         preview: Preview::empty(),
         header,
         classes,

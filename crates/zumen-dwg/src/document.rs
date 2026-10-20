@@ -297,12 +297,13 @@ impl<'a> Reader<'a> {
 
     /// 辞書（20.4.44）の項目（名前とハンドル）
     fn dictionary(&mut self, handle: u64) -> Vec<(String, u64)> {
-        self.object(handle, &["DICTIONARY", "DICTIONARYWDFLT", "ACDBDICTIONARYWDFLT"], |object, _| {
+        self.object(handle, &["DICTIONARY", "DICTIONARYWDFLT", "ACDBDICTIONARYWDFLT"], |object, name| {
             non_entity(object)?;
             let s = &mut object.streams;
             let count = s.data.bl()?;
-            // 複製のフラグ（BS）と持ち主のフラグ（RC）は R2000 から。R14 は不明の RC（つねに 0）
-            if s.format.r2000() {
+            // 複製のフラグ（BS）と持ち主のフラグ（RC）は R2000 から。R14 の DICTIONARY は不明の RC（つねに 0）。
+            // 既定の項目を持つ辞書（R2000 からのクラス）は R14 でも R2000 の形（AutoCAD が R14 に保存した図面と同じ）
+            if s.format.r2000() || name != "DICTIONARY" {
                 s.data.bs()?;
                 s.data.rc()?;
             } else if s.format.version == Version::R14 {
@@ -430,7 +431,15 @@ pub fn read_dwg(bytes: &[u8]) -> Result<DxfDocument, String> {
     read_dimstyles(&mut reader, &header, &mut doc, &mut names);
     let records = read_block_records(&mut reader, &header, &mut names);
     read_mline_styles(&mut reader, &header, &mut doc, &mut names);
-    read_layouts(&mut reader, &header, &mut doc, &names);
+    // LAYOUT は R2000 から。AutoCAD 2000 以降が R13・R14 に保存した図面は、名前付きオブジェクトの辞書の ACAD_LAYOUT に
+    // LAYOUT を持つ（AutoCAD 2000 以降はそのレイアウトを開く）
+    let layouts = if version_has_layouts(version) {
+        header.layouts
+    } else {
+        let named = reader.dictionary(header.named_objects);
+        named.iter().find(|(name, _)| name.eq_ignore_ascii_case("ACAD_LAYOUT")).map_or(0, |(_, handle)| *handle)
+    };
+    read_layouts(&mut reader, layouts, &mut doc, &names);
     read_book_colors(&mut reader, &header, &mut names);
 
     for record in &records {
@@ -451,7 +460,7 @@ pub fn read_dwg(bytes: &[u8]) -> Result<DxfDocument, String> {
         }
     }
     doc.blocks = records.into_iter().map(|record| record.block).collect();
-    if !version_has_layouts(version) {
+    if !version_has_layouts(version) && !doc.layouts.iter().any(|layout| !layout.model) {
         add_paper_layout(&mut doc);
     }
 
@@ -488,7 +497,8 @@ fn version_has_layouts(version: Version) -> bool {
     version >= Version::R2000
 }
 
-/// R13・R14 には LAYOUT がない。紙空間の図形があれば、DXF の R12 の読み取りと同じく 1 つのレイアウト（Layout1）として持つ
+/// LAYOUT のない図面（R12 以前と、AutoCAD R13・R14 が保存した図面）。紙空間の図形があれば、DXF の R12 の読み取りと
+/// 同じく 1 つのレイアウト（Layout1）として持つ
 pub(crate) fn add_paper_layout(doc: &mut DxfDocument) {
     let Some(paper) = doc.entities.iter().find(|entity| entity.base.space == DxfSpace::Paper) else {
         return;
@@ -1004,9 +1014,9 @@ fn read_mline_styles(reader: &mut Reader<'_>, header: &Header, doc: &mut DxfDocu
     }
 }
 
-/// LAYOUT（20.4.84）と、その前の PLOTSETTINGS の値
-fn read_layouts(reader: &mut Reader<'_>, header: &Header, doc: &mut DxfDocument, names: &Names) {
-    let entries = reader.dictionary(header.layouts);
+/// LAYOUT（20.4.84）と、その前の PLOTSETTINGS の値。dictionary はレイアウトの辞書（ACAD_LAYOUT）
+fn read_layouts(reader: &mut Reader<'_>, dictionary: u64, doc: &mut DxfDocument, names: &Names) {
+    let entries = reader.dictionary(dictionary);
     for (_, handle) in entries {
         let layout = reader.object(handle, &["LAYOUT"], |object, _| {
             non_entity(object)?;
