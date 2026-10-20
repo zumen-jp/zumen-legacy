@@ -83,8 +83,10 @@ describe("ReaderWorker", () => {
     const lines = Array.from({ length: 50_000 }, (_, i) => `0\nLINE\n8\n0\n10\n${i}\n20\n0\n11\n${i}\n21\n1\n`);
     const large = new TextEncoder().encode(`0\nSECTION\n2\nENTITIES\n${lines.join("")}0\nENDSEC\n0\nEOF\n`);
     await reader.read(await fixture("dxf/r12.dxf"));
+    // 20 ms の読み取りを始める前に取得する。途中で fetch を待つと、拒否を検証する前に unhandledrejection になる。
+    const nextBytes = await fixture("jww/minimal-v600.jww");
     const slow = reader.read(large, { limits: { timeout: 20 } });
-    const next = reader.read(await fixture("jww/minimal-v600.jww"));
+    const next = reader.read(nextBytes);
     await expect(slow).rejects.toMatchObject({ name: "LimitError", limit: "time" });
     await expect(slow).rejects.toThrow("読み取りが上限の 0.02 秒を超えたため、途中でやめました");
     expect((await next).format).toBe("jww");

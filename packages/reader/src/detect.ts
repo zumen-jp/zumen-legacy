@@ -13,11 +13,16 @@ export function detectDrawing(bytes: Uint8Array): DrawingFormat | null {
 
 /**
  * 中身が DWG か。ファイルの先頭の 6 バイトが版の文字列（AC1015 など、AC10 と 2 桁の数字）なら DWG とみなす
- * （Open Design Specification for .dwg files 5.4.1 の 3.2.1）。読めない版（R13・R14 など）も DWG とみなし、読むときに
+ * （Open Design Specification for .dwg files 5.4.1 の 3.2.1）。未知の版も DWG とみなし、読むときに
  * エラーで伝える
  */
 export function isDwg(bytes: Uint8Array): boolean {
-  return bytes.length >= 6 && /^AC10[0-9]{2}$/.test(latin1(bytes, 0, 6));
+  return (
+    (bytes.length >= 6 && /^AC10[0-9]{2}$/.test(latin1(bytes, 0, 6))) ||
+    ["MC0.0", "AC1.2", "AC1.40", "AC1.50", "AC2.10"].some(
+      (magic) => startsWith(bytes, magic, 0) && bytes[magic.length] === 0,
+    )
+  );
 }
 
 /** JWW の図面の印（JwwData.）で始まるか */

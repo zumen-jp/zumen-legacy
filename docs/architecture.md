@@ -85,7 +85,7 @@ link or a database) and find the entity again by reading the same file:
   each followed by `>` (`2A>1F`), with the row and column of a multiple insert (`2A[0,1]>1F`); the attributes of a
   reference follow its handle in the same way. Inside a viewport of a layout, the viewport's handle and a colon come
   first (`4C:2A>1F`). The parts of a dimension or a multileader are merged into it and have its id. An entity without a
-  handle (DXF files written without handles, such as many R12 files) is `#n`, where n counts the records of the file
+  handle (DXF files written without handles and DWG before R10) is `#n`, where n counts the records of the file
   (group code 0: sections, table entries, blocks, entities, vertices) up to the entity's own, from 1. Every record is
   counted, also those of entity types that zumen does not read, so the number does not change when a later version
   reads more types, and it is unique in the file like a handle.
@@ -524,3 +524,5 @@ a Japanese gothic close to the MS Gothic that SXF and Jw_cad drawings assume. Ch
   runs the type checker, the unit tests, `pnpm audit` and all builds, then the Rust checks (`check:rust`: rustfmt,
   Clippy, tests and the wasm32 build) and the Python checks (`check:python`: Ruff, maturin, pytest).
 - The Rust toolchain is pinned in `rust-toolchain.toml`, Python in `bindings/python/.python-version` (installed by uv).
+
+Legacy DWG REPEAT copies have generated `#n` ids after the original record ordinals, so each copy can be selected independently.
