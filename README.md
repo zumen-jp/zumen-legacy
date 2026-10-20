@@ -271,7 +271,7 @@ the layout is the sheet and the model space in each viewport is a layer group at
 entities, and add and update layers, chosen by the ids, kinds and property keys that the scene reports, with
 coordinates in the drawing's own units. The format, its version and encoding, and everything the operations do not name
 (extended data, objects, entities that zumen does not read) stay as they were. All operations are checked before
-anything is written. DXF (R12 to 2018, ASCII and binary), DWG (R2000 to 2018), JWW and SXF (SFC, P21, SFZ and P2Z)
+anything is written. DXF (R12 to 2018, ASCII and binary), DWG (R13 to 2018), JWW and SXF (SFC, P21, SFZ and P2Z)
 can be edited ([decision 0012](docs/decisions/0012-edit-in-place-and-write-every-format.md)). `create` starts a new
 drawing in any of them.
 

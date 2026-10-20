@@ -108,7 +108,7 @@ group at the viewport's scale.
 
 `zumen.edit` changes a drawing in place: it applies a list of operations and keeps everything else as it was, in the
 same format, version and text encoding, including what zumen cannot read (extended data, objects, unread entities).
-DXF (R12 to 2018, ASCII and binary), DWG (R2000 to 2018), JWW and SXF (SFC, P21, SFZ and P2Z) can be edited.
+DXF (R12 to 2018, ASCII and binary), DWG (R13 to 2018), JWW and SXF (SFC, P21, SFZ and P2Z) can be edited.
 
 ```python
 operations = [  # the operations may also be a JSON string
