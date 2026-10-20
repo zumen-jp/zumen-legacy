@@ -86,7 +86,7 @@ wording, and show the Japanese text to people ([decision 0005](decisions/0005-br
 the Japanese `label`, the formatted `value` and, where the value was formatted from numbers or a code, the unformatted
 `raw`: a number, a string, or numbers such as `[x, y]`. Keys are camelCase and distinct within an entity, and a key
 has the same shape of `raw` in every format (`packages/core/tests/keys.test.ts` checks both on every golden file).
-The MCP server returns `kind`, `key` and the values by key next to the Japanese text.
+`zumen.tools` and the MCP server return `kind`, `key` and the values by key next to the Japanese text.
 
 | `kind` | SXF | JWW | DXF and DWG |
 | --- | --- | --- | --- |
@@ -237,7 +237,7 @@ bytes ─▶ zumen-sxf, zumen-jww, zumen-dxf, zumen-dwg ─▶ Scene (zumen-core
 | `zumen` | `read` and `detect` over every reader, with limits for untrusted drawings (`ReadDrawingOptions::limits`), and `convert` (every format to DXF and SFC through the AutoCAD model; `mapping` re-exports `zumen-convert`). The entry point for applications. |
 | `zumen-render` | Draws a scene to PNG with the rules of `render.ts` in `@zumenjs/viewer` (color inversion, line weights with a 1 px minimum, dash rules, even-odd fills, clipping, per-character text, small text as a line), and reports which entities it drew and where (`render_image`, `drawn_entities`, `View::pixel_box`). It also writes SVG (`render_svg`) and one-page PDF (`render_pdf`) with the same colors, fills, clipping and text placement. |
 | `zumen-cli` | The `zumen` command (`detect`, `scene`, `texts`, `entities`, `title`, `render`, `compare`, `convert`). |
-| `bindings/python` | PyO3 bindings, built with maturin as an abi3 wheel for Python 3.10 and later. The GIL is released while reading, rendering and converting. `Scene.to_arrow` needs pyarrow (Apache-2.0, `zumen[arrow]`), and the MCP server `zumen.mcp` needs the MCP SDK (MIT, `zumen[mcp]`); both are optional dependencies. |
+| `bindings/python` | PyO3 bindings, built with maturin as an abi3 wheel for Python 3.10 and later. The GIL is released while reading, rendering and converting. `Scene.to_arrow` needs pyarrow (Apache-2.0, `zumen[arrow]`), and the MCP server `zumen.mcp` needs the MCP SDK (MIT, `zumen[mcp]`); both are optional dependencies. `zumen.tools`, the functions behind the MCP tools, needs neither. |
 | `bindings/wasm` | wasm-bindgen bindings that detect the format (`detect`) and return scene JSON (`readSceneJson`). `scripts/wasm.mjs` builds them into `packages/dwg/wasm` for `@zumenjs/dwg`. |
 
 The dependency rules follow the TypeScript packages: format crates depend only on `zumen-core` and never on each other
@@ -325,11 +325,13 @@ folding and removing spaces and punctuation; a bare 番号 or `NO` is not taken 
 has several title blocks, the one nearest the bottom right of the sheet comes first. Every candidate is kept with
 its source, label and entities, so an application can show where a value came from.
 
-`zumen.mcp` serves them to AI applications as MCP tools over stdio (`zumen-mcp`): open a drawing (with its
-placements and their conversion to real-world millimeters), render a region, find texts and entities, show one
-entity with its shapes, measure in real-world millimeters through the scale of a placement and compare two
-revisions. The
-tools only read, take local paths limited by `--root`, and bound file sizes, image sizes and result counts
+`zumen.tools` gives them to AI agents as functions with JSON results: summarize a drawing (with its placements and
+their conversion to real-world millimeters), render a region, find texts and entities, show one entity with its
+shapes, measure in real-world millimeters through the scale of a placement and compare two revisions. The results
+follow `TypedDict` classes that are part of the API, are bounded by the arguments (items, characters of a text, points
+of shapes, pixels), and take regions in paper millimeters or as fractions of the frame (the scene's `bounds`, origin at
+the top left) ([decision 0011](decisions/0011-tool-functions-for-agents.md)). `zumen.mcp` serves the same functions as
+MCP tools over stdio (`zumen-mcp`), reading local paths limited by `--root` with limits on file sizes
 ([decision 0004](decisions/0004-mcp-server-in-the-python-package.md)).
 
 ### Limits for untrusted drawings
