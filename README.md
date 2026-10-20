@@ -215,6 +215,7 @@ WebAssembly readers format by format, once each one matches.
 import zumen
 
 scene = zumen.read("plan.jww")  # the format is detected from the contents
+received = zumen.read("D0001.P2Z", max_bytes=200_000_000, max_entities=1_000_000, timeout=30)  # untrusted files
 png = scene.render_png(dpi=150)  # thumbnails, or images for vision models
 pdf = scene.render_pdf()  # the sheet at its real size, with searchable text (also render_svg)
 part = scene.render_png(dpi=300, region=(100, 50, 200, 120))  # a part, in paper millimeters
@@ -250,7 +251,7 @@ cargo run --release -p zumen-cli -- title plan.jww  # the fields of the title bl
 | [`zumen-jww`](crates/zumen-jww) | `read_jww` (the JWW document model), `jww_to_scene`, the `JWW` reader |
 | [`zumen-dxf`](crates/zumen-dxf) | `parse_dxf` (the AutoCAD drawing model, shared with DWG), `dxf_to_scene`, the `DXF` reader |
 | [`zumen-dwg`](crates/zumen-dwg) | `read_dwg` (DWG 2000 to 2018 into the AutoCAD drawing model of `zumen-dxf`), the `DWG` reader |
-| [`zumen`](crates/zumen) | `read` and `detect` over every reader |
+| [`zumen`](crates/zumen) | `read` and `detect` over every reader, with limits on bytes, entities and time for untrusted drawings |
 | [`zumen-render`](crates/zumen-render) | PNG, SVG and PDF rendering with the rules of the browser renderer, and the pixel box of every entity drawn; BIZ UDGothic is bundled for Japanese text |
 | [`zumen-cli`](crates/zumen-cli) | The `zumen` command: `detect`, `scene` (JSON), `texts` and `entities` (JSON lines), `title`, `render` (PNG) and `compare` |
 

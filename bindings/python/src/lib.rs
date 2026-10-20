@@ -14,6 +14,26 @@ use zumen_render::{ImageSize, RenderOptions, View};
 
 pyo3::create_exception!(zumen, ReadError, PyValueError, "図面を読めなかった（形式が違う、壊れているなど）");
 pyo3::create_exception!(zumen, RenderError, PyValueError, "図面を描けなかった（範囲が空、画像が大きすぎるなど）");
+pyo3::create_exception!(
+    zumen,
+    LimitError,
+    ReadError,
+    "読み取りの上限（max_bytes・max_entities・timeout）を超えたので途中でやめた。limit に上限の種類（bytes・entities・time）がある"
+);
+
+/// 読み取りの失敗を Python の例外にする。上限を超えたものは LimitError にして、limit に種類を入れる
+fn read_error(py: Python<'_>, error: zumen::ReadError) -> PyErr {
+    match error.exceeded() {
+        Some(limit) => {
+            let err = LimitError::new_err(error.message().to_string());
+            if let Err(failure) = err.value(py).setattr("limit", limit.name()) {
+                return failure;
+            }
+            err
+        }
+        None => ReadError::new_err(error.message().to_string()),
+    }
+}
 
 /// 形式に依存しない表示用の図面。座標は用紙の mm で、Y 軸は上向き
 #[pyclass(frozen, module = "zumen")]
@@ -665,13 +685,29 @@ fn detect(data: &[u8]) -> Option<&'static str> {
     zumen::detect(data)
 }
 
-/// 図面のバイト列を読み、表示用の図面にする。format は分かっている場合の形式、view は描く表示の id
+/// 図面のバイト列を読み、表示用の図面にする。format は分かっている場合の形式、view は描く表示の id。
+/// max_bytes（圧縮した SXF は展開した後）・max_entities・timeout（秒）を超えたら途中でやめ、LimitError を出す
 #[pyfunction]
-#[pyo3(signature = (data, *, format = None, view = None))]
-fn read(py: Python<'_>, data: &[u8], format: Option<String>, view: Option<String>) -> PyResult<Scene> {
-    let options = ReadDrawingOptions { format, view };
-    let scene =
-        py.detach(|| zumen::read(data, &options)).map_err(|error| ReadError::new_err(error.message().to_string()))?;
+#[pyo3(signature = (data, *, format = None, view = None, max_bytes = None, max_entities = None, timeout = None))]
+#[allow(clippy::too_many_arguments)]
+fn read(
+    py: Python<'_>,
+    data: &[u8],
+    format: Option<String>,
+    view: Option<String>,
+    max_bytes: Option<u64>,
+    max_entities: Option<u64>,
+    timeout: Option<f64>,
+) -> PyResult<Scene> {
+    let max_duration = timeout
+        .map(|seconds| {
+            std::time::Duration::try_from_secs_f64(seconds)
+                .map_err(|_| PyValueError::new_err(format!("timeout は 0 以上の秒数です: {seconds}")))
+        })
+        .transpose()?;
+    let limits = zumen::ReadLimits { max_bytes, max_entities, max_duration };
+    let options = ReadDrawingOptions { format, view, limits };
+    let scene = py.detach(|| zumen::read(data, &options)).map_err(|error| read_error(py, error))?;
     Ok(Scene::new(scene))
 }
 
@@ -804,6 +840,7 @@ fn compare(
 fn _zumen(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     m.add("ReadError", m.py().get_type::<ReadError>())?;
+    m.add("LimitError", m.py().get_type::<LimitError>())?;
     m.add("RenderError", m.py().get_type::<RenderError>())?;
     m.add_class::<Scene>()?;
     m.add_class::<Rendering>()?;

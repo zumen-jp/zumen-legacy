@@ -19,6 +19,15 @@ All packages share one version during 0.x.
   that the page uses, so its text can be searched and copied, and SVG keeps text as `<text>`.
   `zumen_render::render_svg` and `render_pdf`, `Scene.render_svg` and `Scene.render_pdf` in Python, and
   `zumen render -o plan.svg` or `plan.pdf`.
+- Rust and Python: limits for drawings received from others. `ReadDrawingOptions::limits` (`max_bytes`,
+  `max_entities`, `max_duration`) stops reading part way and returns an error that names the limit
+  (`ReadError::exceeded`; `zumen.LimitError` with `limit` in Python). The readers count the entities they add and check
+  the clock in their heavy loops, and do nothing without limits, so results stay those of TypeScript.
+  `zumen.read(..., max_bytes=, max_entities=, timeout=)`, `--max-bytes`, `--max-entities` and `--timeout` on every
+  command that reads, and `zumen-mcp` now stops at 2,000,000 entities or 60 seconds by default.
+- Rust: compressed SXF (P2Z and SFZ, a ZIP archive with one P21 or SFC file) is unpacked and read, up to `max_bytes`
+  after unpacking, or 2 GiB without it, against ZIP bombs. The scene is that of the P21 or SFC, with the archive in
+  its metadata.
 - `@zumenjs/viewer`: the 2D engine that applications embed in their own interface
   ([decision 0005](docs/decisions/0005-browser-packages-for-embedding.md)). The Canvas renderer, hit testing and
   `DrawingViewer` move here from `@zumenjs/core`. `DrawingViewer` sets and reads the view (`jumpTo`, `fitBounds`,

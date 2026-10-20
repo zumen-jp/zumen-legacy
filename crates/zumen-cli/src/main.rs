@@ -9,7 +9,7 @@ use std::process::ExitCode;
 use zumen::compare::{CompareOptions, compare_scenes, diff_scene};
 use zumen::extract::{EntityFilter, EntityText, entity_text, layer_names, scene_texts, select_entities};
 use zumen::title::{TitleKey, title_block, title_fields};
-use zumen::{BBox, Background, ReadDrawingOptions, Scene, SceneEntity};
+use zumen::{BBox, Background, ReadDrawingOptions, ReadLimits, Scene, SceneEntity};
 use zumen_render::{ImageSize, RenderOptions, RenderedImage};
 
 const USAGE: &str = "\
@@ -24,6 +24,9 @@ Usage:
                [--theme light|dark] [--thin] [--format <name>] [--view <id>]
   zumen compare <before> <after> [--tolerance <mm>] [--style] [--all-layers] [--no-align]
                 [-o <overlay.png> [--dpi <n> | --size <w>x<h>]] [--format <name>] [--view <id>]
+
+Every command that reads takes --max-bytes <n>, --max-entities <n> and --timeout <seconds>, to stop
+reading an untrusted drawing that is too large (P2Z and SFZ after unpacking), too complex or too slow.
 
 Reads SXF, JWW, DXF and DWG drawings into zumen's scene model.
 texts and entities write one JSON object per line, in paper millimeters (Y up) rounded to 0.001.
@@ -57,6 +60,7 @@ struct Args {
     tolerance: f64,
     style: bool,
     align: bool,
+    limits: ReadLimits,
 }
 
 fn parse_region(text: &str) -> Result<BBox, String> {
@@ -102,6 +106,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
         tolerance: 0.01,
         style: false,
         align: true,
+        limits: ReadLimits::default(),
     };
     while let Some(arg) = args.next() {
         let mut value = |name: &str| args.next().ok_or_else(|| format!("{name} needs a value"));
@@ -134,6 +139,19 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
             }
             "--style" => parsed.style = true,
             "--no-align" => parsed.align = false,
+            "--max-bytes" => {
+                parsed.limits.max_bytes = Some(value("--max-bytes")?.parse().map_err(|_| "--max-bytes needs a count")?)
+            }
+            "--max-entities" => {
+                parsed.limits.max_entities =
+                    Some(value("--max-entities")?.parse().map_err(|_| "--max-entities needs a count")?)
+            }
+            "--timeout" => {
+                let seconds: f64 = value("--timeout")?.parse().map_err(|_| "--timeout needs seconds")?;
+                let duration =
+                    std::time::Duration::try_from_secs_f64(seconds).map_err(|_| "--timeout needs seconds")?;
+                parsed.limits.max_duration = Some(duration);
+            }
             _ if arg.starts_with('-') => return Err(format!("unknown option: {arg}\n\n{USAGE}")),
             _ if parsed.file.is_empty() => parsed.file = arg,
             _ if parsed.command == "compare" && parsed.other.is_none() => parsed.other = Some(arg),
@@ -248,8 +266,13 @@ fn brief_json(entity: &SceneEntity) -> Value {
 
 fn compare(args: &Args) -> Result<(), String> {
     let other = args.other.as_ref().ok_or("compare needs two files: <before> <after>")?;
-    let options = ReadDrawingOptions { format: args.format.clone(), view: args.view.clone() };
+    let options = ReadDrawingOptions { format: args.format.clone(), view: args.view.clone(), limits: args.limits };
     let read = |path: &str| -> Result<Scene, String> {
+        if let Some(max) = args.limits.max_bytes
+            && std::fs::metadata(path).map_err(|error| format!("{path}: {error}"))?.len() > max
+        {
+            return Err(format!("{path}: {}", zumen::limit_error(zumen::Limit::Bytes, &args.limits)));
+        }
         let bytes = std::fs::read(path).map_err(|error| format!("{path}: {error}"))?;
         zumen::read(&bytes, &options).map_err(|error| format!("{path}: {error}"))
     };
@@ -303,13 +326,19 @@ fn run(args: Args) -> Result<(), String> {
     if args.command == "compare" {
         return compare(&args);
     }
+    // 大きすぎるファイルは、メモリに読む前に断る
+    if let Some(max) = args.limits.max_bytes
+        && std::fs::metadata(&args.file).map_err(|error| format!("{}: {error}", args.file))?.len() > max
+    {
+        return Err(zumen::limit_error(zumen::Limit::Bytes, &args.limits).to_string());
+    }
     let bytes = std::fs::read(&args.file).map_err(|error| format!("{}: {error}", args.file))?;
     if args.command == "detect" {
         let format = zumen::detect(&bytes).ok_or("unknown format")?;
         println!("{format}");
         return Ok(());
     }
-    let options = ReadDrawingOptions { format: args.format.clone(), view: args.view.clone() };
+    let options = ReadDrawingOptions { format: args.format.clone(), view: args.view.clone(), limits: args.limits };
     let scene = zumen::read(&bytes, &options).map_err(|error| error.to_string())?;
     let filter = EntityFilter { region: args.region, hidden_layers: args.all_layers.then(HashSet::new) };
     match args.command.as_str() {

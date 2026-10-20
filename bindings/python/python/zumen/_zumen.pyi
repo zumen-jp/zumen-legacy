@@ -69,6 +69,12 @@ class DrawnEntity(TypedDict):
     text: str | None
 
 class ReadError(ValueError): ...
+
+class LimitError(ReadError):
+    """Reading stopped at ``max_bytes``, ``max_entities`` or ``timeout``."""
+
+    limit: Literal["bytes", "entities", "time"]
+
 class RenderError(ValueError): ...
 
 class Scene:
@@ -202,4 +208,12 @@ def compare(
     align: bool = True,
 ) -> Comparison: ...
 def detect(data: bytes) -> str | None: ...
-def read(data: bytes, *, format: str | None = None, view: str | None = None) -> Scene: ...
+def read(
+    data: bytes,
+    *,
+    format: str | None = None,
+    view: str | None = None,
+    max_bytes: int | None = None,
+    max_entities: int | None = None,
+    timeout: float | None = None,
+) -> Scene: ...

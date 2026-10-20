@@ -94,6 +94,8 @@ def test_reads_only_from_its_roots_and_up_to_its_size_limit(tmp_path):
         mcp.Drawings(max_bytes=10).scene(SFC)
     with pytest.raises(mcp.DrawingError, match="cannot read"):
         mcp.Drawings().scene(__file__)
+    with pytest.raises(mcp.DrawingError, match="entities limit"):
+        mcp.Drawings(max_entities=5).scene(SFC)
 
 
 def test_serves_the_tools_over_mcp():
