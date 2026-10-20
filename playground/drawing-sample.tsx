@@ -107,6 +107,12 @@ export function DrawingSample({ scene, label, onViewChange }: DrawingSampleProps
           <button type="button" className="sample-button" onClick={() => viewer?.zoomBy(0.8)} title="縮小（-）">
             縮小
           </button>
+          <button type="button" className="sample-button" onClick={() => viewer?.rotateBy(-90)} title="左に 90 度回す">
+            左に回転
+          </button>
+          <button type="button" className="sample-button" onClick={() => viewer?.rotateBy(90)} title="右に 90 度回す">
+            右に回転
+          </button>
         </fieldset>
         <fieldset className="sample-group">
           <legend className="sample-visually-hidden">操作</legend>

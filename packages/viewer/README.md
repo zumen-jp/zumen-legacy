@@ -25,6 +25,10 @@ properties and a status bar with this API only.
 - `jumpTo({ center, zoom })` sets the paper point (mm) at the center and the zoom (1 shows 1 mm of paper as 1 mm on
   screen at 96 dpi); `getView()` returns them with the visible paper box and the size in CSS pixels. The values go back
   and forth unchanged, so a saved view is restored exactly and two views can follow each other.
+- `rotateBy(degrees)` turns the drawing clockwise on screen around the center of the view (negative degrees turn it
+  counterclockwise), and refits the box of `fit` or `fitBounds` while it is being fitted. `jumpTo({ rotation })` sets
+  the angle, and `getView().rotation` reads it (degrees from 0 up to 360). Hit testing, snapping, measurement, dragging
+  and `toPaper`/`toScreen` follow the rotation; `bounds` is then the paper box around the visible area.
 - `fitBounds(box, { padding })` fits a paper box (an entity's `bbox`, say) and keeps fitting it when the element is
   resized, until the view is changed. `fit()` fits the whole drawing. `zoomBy(factor, px, py)` zooms around a point in
   CSS pixels and `panBy(dx, dy)` moves the drawing.
