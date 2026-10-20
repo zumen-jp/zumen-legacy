@@ -284,7 +284,13 @@ impl Obj {
     /// 図形の共通の値（20.4.1、20.4.2）。色は ACI、線種・印刷スタイル・マテリアルは BYLAYER。owner は図形のモード 00
     /// （ブロックの中）の持ち主。R2000 の前後の図形は links（なければ Nolinks = 1 でハンドル ±1）
     pub fn entity(&mut self, layer: u64, color: i16, links: Option<(u64, u64)>, owner: Option<u64>) {
+        // 画像（代わりの表示）はない
         self.data.bit(false);
+        self.entity_mode(layer, color, links, owner);
+    }
+
+    /// 図形のモード（BB）からの共通の値。R2018 の複数行の属性の埋め込みの MTEXT も、ここから書く（20.4.4）
+    pub fn entity_mode(&mut self, layer: u64, color: i16, links: Option<(u64, u64)>, owner: Option<u64>) {
         match owner {
             Some(owner) => {
                 self.data.bb(0);
@@ -1280,28 +1286,108 @@ pub fn mtext(
 ) -> Vec<u8> {
     let mut o = Obj::new(version, 44, handle);
     o.entity(place.layer, place.color, place.links, place.owner);
-    o.data.bd3(insert);
-    o.data.bd3([0.0, 0.0, 1.0]);
-    o.data.bd3([1.0, 0.0, 0.0]);
-    o.data.bd(0.0);
-    if version.r2018() {
-        o.data.bd(0.0);
+    o.mtext_fields(value, insert, height, 1, style);
+    o.bytes()
+}
+
+impl Obj {
+    /// MTEXT の値（20.4.46）。向きは X、折り返しなし、背景なし。R2018 は AutoCAD と同じく注釈でない MTEXT
+    /// （Is NOT annotative が 1）で、同じ値（REDUNDANT FIELDS）と段組みなしを続ける
+    pub fn mtext_fields(&mut self, value: &str, insert: [f64; 3], height: f64, attachment: i16, style: u64) {
+        let r2018 = self.version.r2018();
+        self.data.bd3(insert);
+        self.data.bd3([0.0, 0.0, 1.0]);
+        self.data.bd3([1.0, 0.0, 0.0]);
+        self.data.bd(0.0);
+        if r2018 {
+            self.data.bd(0.0);
+        }
+        self.data.bd(height);
+        self.data.bs(attachment);
+        self.data.bs(1);
+        self.data.bd(0.0);
+        self.data.bd(0.0);
+        self.tv(value);
+        self.h(5, style);
+        self.data.bs(1);
+        self.data.bd(1.0);
+        self.data.bit(false);
+        if r2018 {
+            self.data.bl(0);
+            self.data.bit(true);
+            self.data.bs(0);
+            self.data.bit(true);
+            self.h(5, 0);
+            self.data.bl(i32::from(attachment));
+            self.data.bd3([1.0, 0.0, 0.0]);
+            self.data.bd3(insert);
+            for _ in 0..4 {
+                self.data.bd(0.0);
+            }
+            self.data.bs(0);
+        }
     }
-    o.data.bd(height);
-    o.data.bs(1);
-    o.data.bs(1);
-    o.data.bd(0.0);
-    o.data.bd(0.0);
-    o.tv(value);
+}
+
+/// 属性（ATTRIB 2、ATTDEF 3。20.4.4、20.4.5）の値。R2018 の複数行の属性（mtext があるもの）は、AutoCAD と同じく文字を
+/// 埋め込みの MTEXT（左上の配置点と文字。図形のモード 00、持ち主のハンドル 0）に持ち、1 行の文字（text）は空にする
+pub struct Attribute<'a> {
+    pub tag: &'a str,
+    /// ATTDEF の問い合わせの文字。None なら ATTRIB
+    pub prompt: Option<&'a str>,
+    /// 1 は非表示、2 は定数、4 は確認、8 は既定値
+    pub flags: u8,
+    pub text: &'a str,
+    pub insert: [f64; 2],
+    pub height: f64,
+    pub mtext: Option<(&'a str, [f64; 3])>,
+}
+
+pub fn attribute(version: Version, handle: u64, place: &Place, a: &Attribute, style: u64) -> Vec<u8> {
+    let mut o = Obj::new(version, if a.prompt.is_some() { 3 } else { 2 }, handle);
+    o.entity(place.layer, place.color, place.links, place.owner);
+    // 20.4.3 の値。標高・揃え点・斜体・回転・幅・生成・揃えを省く
+    o.data.rc(0xff);
+    o.data.rd2(a.insert);
+    o.data.be([0.0, 0.0, 1.0]);
+    o.data.bt(0.0);
+    o.data.rd(a.height);
+    o.tv(a.text);
     o.h(5, style);
-    o.data.bs(1);
-    o.data.bd(1.0);
-    o.data.bit(false);
     if version.r2018() {
-        o.data.bl(0);
-        // R2018: 注釈の MTEXT（重ねた値と段組みの値を持たない）
-        o.data.bit(true);
+        // 版（R2010 以降）と属性の種類（R2018 以降。1 は 1 行、2 は複数行の属性、4 は複数行の属性定義）
+        o.data.rc(0);
+        o.data.rc(match (a.mtext, a.prompt) {
+            (None, _) => 1,
+            (Some(_), None) => 2,
+            (Some(_), Some(_)) => 4,
+        });
+        if let Some((value, insert)) = a.mtext {
+            o.entity_mode(place.layer, 256, None, Some(0));
+            o.mtext_fields(value, insert, a.height, 1, style);
+            // 注釈の値の大きさ
+            o.data.bs(0);
+        }
     }
+    o.tv(a.tag);
+    o.data.bs(0);
+    o.data.rc(a.flags);
+    if version.r2018() {
+        o.data.bit(false);
+    }
+    if let Some(prompt) = a.prompt {
+        if version.r2018() {
+            o.data.rc(0);
+        }
+        o.tv(prompt);
+    }
+    o.bytes()
+}
+
+/// SEQEND（20.4.8）
+pub fn seqend(version: Version, handle: u64, place: &Place) -> Vec<u8> {
+    let mut o = Obj::new(version, 6, handle);
+    o.entity(place.layer, place.color, place.links, place.owner);
     o.bytes()
 }
 
@@ -1316,6 +1402,22 @@ pub fn insert(
     scale: [f64; 3],
     rotation: f64,
 ) -> Vec<u8> {
+    insert_with_attributes(version, handle, place, block, point, scale, rotation, &[], 0)
+}
+
+/// 属性（ATTRIB）の続く INSERT（20.4.9）。R2004 以降は持っている図形の並び、それより前は最初と最後の属性と、SEQEND
+#[allow(clippy::too_many_arguments)]
+pub fn insert_with_attributes(
+    version: Version,
+    handle: u64,
+    place: &Place,
+    block: u64,
+    point: [f64; 3],
+    scale: [f64; 3],
+    rotation: f64,
+    attributes: &[u64],
+    seqend: u64,
+) -> Vec<u8> {
     let mut o = Obj::new(version, 7, handle);
     o.entity(place.layer, place.color, place.links, place.owner);
     o.data.bd3(point);
@@ -1325,8 +1427,22 @@ pub fn insert(
     o.data.dd(scale[2], scale[0]);
     o.data.bd(rotation);
     o.data.bd3([0.0, 0.0, 1.0]);
-    o.data.bit(false);
+    o.data.bit(!attributes.is_empty());
+    if version.r2018() && !attributes.is_empty() {
+        o.data.bl(attributes.len() as i32);
+    }
     o.h(5, block);
+    if let (Some(first), Some(last)) = (attributes.first(), attributes.last()) {
+        if version.r2018() {
+            for attribute in attributes {
+                o.h(3, *attribute);
+            }
+        } else {
+            o.h(4, *first);
+            o.h(4, *last);
+        }
+        o.h(3, seqend);
+    }
     o.bytes()
 }
 

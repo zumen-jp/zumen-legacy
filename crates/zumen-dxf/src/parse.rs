@@ -906,12 +906,62 @@ impl<'a> Parser<'a> {
         text.text_generation_flag = self.number(&self.subclass_body(&body, "AcDbText"), 71, 0.0);
         let tag = self.text(&body, 2, "");
         let attribute_flags = self.number(&body, 70, 0.0);
+        // 複数行の属性（AutoCAD 2018 以降）の文字は、AcDbAttribute の後の「101 Embedded Object」に続く MTEXT の値
+        // （10 の配置点から。Open Design Specification for .dwg files 5.4.1 の 20.4.4）にあり、1 行の文字（AcDbText の 1）は空
+        let mtext = self.embedded(start + 1, end).map(|embedded| {
+            Box::new(DxfEmbeddedMText { content: self.mtext_content(&embedded), extrusion: self.extrusion(&embedded) })
+        });
         let data = if kind == "ATTDEF" {
-            DxfEntityData::Attdef { text, tag, prompt: self.text(&body, 3, ""), attribute_flags }
+            DxfEntityData::Attdef { text, tag, prompt: self.text(&body, 3, ""), attribute_flags, mtext }
         } else {
-            DxfEntityData::Attrib { text, tag, attribute_flags }
+            DxfEntityData::Attrib { text, tag, attribute_flags, mtext }
         };
         DxfEntity { base, data }
+    }
+
+    /// 押し出し方向（210・220・230）。(0, 0, 1) のときと、ないときは None
+    fn extrusion(&self, body: &[usize]) -> Option<Vec3> {
+        let mut extrusion: Option<Vec3> = None;
+        for &k in body {
+            let code = self.code(k);
+            if code != 210 && code != 220 && code != 230 {
+                continue;
+            }
+            let value = extrusion.get_or_insert([0.0, 0.0, 1.0]);
+            value[if code == 210 {
+                0
+            } else if code == 220 {
+                1
+            } else {
+                2
+            }] = self.num(k);
+        }
+        extrusion.filter(|value| !(value[0] == 0.0 && value[1] == 0.0 && value[2] == 1.0))
+    }
+
+    /// 埋め込みの図形（101）のタグ。拡張データ（1000 以降）か次の埋め込みの図形の手前まで。ないときは None
+    fn embedded(&self, start: usize, end: usize) -> Option<Body> {
+        let mut k = start;
+        while k < end && self.code(k) != 101 {
+            if self.code(k) >= 1000 {
+                return None;
+            }
+            k += 1;
+        }
+        if k >= end {
+            return None;
+        }
+        let mut out = Vec::new();
+        k += 1;
+        while k < end {
+            let code = self.code(k);
+            if code >= 1000 || code == 101 {
+                break;
+            }
+            out.push(k);
+            k += 1;
+        }
+        Some(out)
     }
 
     fn lwpolyline(&self, body: &[usize], owner: Option<&Owner>) -> DxfEntity {
@@ -1083,6 +1133,11 @@ impl<'a> Parser<'a> {
     }
 
     fn mtext(&self, body: &[usize], owner: Option<&Owner>) -> DxfEntity {
+        DxfEntity { base: self.base("MTEXT", body, owner), data: DxfEntityData::MText(self.mtext_content(body)) }
+    }
+
+    /// MTEXT の文字の値（MTEXT と、複数行の属性の埋め込みの MTEXT）
+    fn mtext_content(&self, body: &[usize]) -> DxfMText {
         // 250 文字を超える文字列は 3 に分けて書き、最後の 1 が残り（DXF Reference「MTEXT」）
         let mut raw = String::new();
         let mut tail = Cow::Borrowed("");
@@ -1094,8 +1149,7 @@ impl<'a> Parser<'a> {
             }
         }
         raw.push_str(&tail);
-        let base = self.base("MTEXT", body, owner);
-        let mtext = DxfMText {
+        DxfMText {
             text: mtext_plain_text(&raw),
             raw_text: raw,
             insert: self.point(body, 10),
@@ -1114,8 +1168,7 @@ impl<'a> Parser<'a> {
                 .has(body, 421)
                 .then(|| f64::from(js::to_int32(self.number(body, 421, 0.0)) & 0xff_ffff)),
             background_scale: self.has(body, 45).then(|| self.number(body, 45, 1.5)),
-        };
-        DxfEntity { base, data: DxfEntityData::MText(mtext) }
+        }
     }
 
     /// INSERT と、66 が 1 なら続く ATTRIB を SEQEND まで読む

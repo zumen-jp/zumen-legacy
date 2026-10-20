@@ -24,7 +24,9 @@ file into the same `DxfDocument` of `zumen-dxf`, drawn by the same `dxf_to_scene
 - All entities of model space, paper space and block definitions are in one list, told apart by `space`
   (`"model"`, `"paper"`, `"block"`) and `block` (the block or paper space block name), like ezdwg's documents.
   Attributes of an `INSERT` are in its `attribs`.
-- `TEXT` keeps control codes such as `%%c`; `MTEXT` has the plain `text` and the formatted `raw_text`.
+- `TEXT` keeps control codes such as `%%c`; `MTEXT` has the plain `text` and the formatted `raw_text`. A multi-line
+  `ATTRIB` or `ATTDEF` of AutoCAD 2018 keeps its embedded MTEXT in `mtext` (`DxfEmbeddedMText`: the values of an MTEXT
+  and its extrusion).
 - `MULTILEADER` (and its other name `MLEADER`) follows ezdxf's `MultiLeader`: the common values (`leader_type`,
   `leader_line_color`, `arrow_head_handle`, `block_attribs`…) and `context` with the content (`mtext` or `block`) and
   `leaders`, each with its `lines`. Colors are kept as the raw 32-bit values (`0xC0…` BYLAYER, `0xC1…` BYBLOCK, `0xC2RRGGBB`, `0xC3…` ACI),
@@ -58,16 +60,22 @@ the differences that remain are in [How DWG is handled](dwg.md).
   A guessed encoding is reported in `notices`. Strings are decoded before MTEXT codes are read, so the CP932 second byte `0x5C`
   (as in 表, ソ, 能) is never taken for a backslash.
 - `\U+XXXX` (CIF) and `\M+nXXXX` (MIF) escapes are decoded in all strings, except the MTEXT content, where the MTEXT reader decodes them.
-- 102 groups (`{ACAD_REACTORS`…), extended data (1001 and later) and embedded objects (101) are skipped when reading entity attributes.
+- 102 groups (`{ACAD_REACTORS`…), extended data (1001 and later) and embedded objects (101) are skipped when reading entity attributes,
+  except the embedded MTEXT of multi-line attributes below.
   Common attributes are taken from the `AcDbEntity` subclass only, so table cell colors of `ACAD_TABLE` are not mistaken for its color.
 - `POLYLINE`/`VERTEX`/`SEQEND` and `INSERT`/`ATTRIB`/`SEQEND` sequences are assembled into one entity.
 - ATTRIB and ATTDEF take the text generation flags (71) from the `AcDbText` subclass only. The
   [ATTRIB table](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-7DD8B495-C3F8-48CD-A766-14F9D7D0DD9B.htm)
   lists them in `AcDbAttribute`, but AutoCAD 2018 writes the attribute type there (1 single line, 2 multi-line
   attribute, 4 multi-line attribute definition), as ezdxf (`attribute_type`) and ACadSharp (`AttributeType`) read it;
-  taken as generation flags, it drew multi-line attribute definitions upside down. The text of a multi-line attribute is
-  in its embedded MTEXT (101), which is not read yet: AutoCAD 2018 leaves the attribute's own text empty, so it is not
-  drawn.
+  taken as generation flags, it drew multi-line attribute definitions upside down.
+- **Multi-line attributes** (AutoCAD 2018): the text is in an embedded MTEXT, and AutoCAD leaves the attribute's own
+  text (1 in `AcDbText`) empty. After `AcDbAttribute` or `AcDbAttributeDefinition` come `101`/`Embedded Object` and the
+  MTEXT group codes from the insertion point (10) on, as the
+  [Open Design Specification for .dwg files](https://opendesign.com/files/guestdownloads/OpenDesign_Specification_for_.dwg_files.pdf)
+  5.4.1 says for the DWG form (20.4.4). The tags up to the extended data (1001) or the next embedded object are read as
+  an MTEXT into `mtext` (`DxfEmbeddedMText`), with its own extrusion (a 210 there, as for MTEXT; *inferred*, as no
+  sample attribute is tilted and none has one).
 - **Dimension styles**: AutoCAD (R2000 and later in the samples; R12 writes every value) leaves out of DIMSTYLE the
   values equal to its defaults. A missing DIMSCALE is 1, and a missing DIMASZ or DIMTXT is 0.18, which the DWG of the
   same drawing stores, whatever `$MEASUREMENT` says: the imperial ACadSharp sample writes the 2.5 of its ISO-25 style
@@ -127,7 +135,7 @@ the differences that remain are in [How DWG is handled](dwg.md).
 | LINE, POINT, CIRCLE, ARC, ELLIPSE | Lines and dots, arcs and ellipses flattened within 0.02 mm (or 1/10,000 of the radius), OCS applied |
 | LWPOLYLINE, POLYLINE | Bulges as arcs; widths as filled bands; curve- and spline-fit vertices; 3D polylines, polygon and polyface meshes as wireframes |
 | SPLINE, HELIX | NURBS with knots and weights (de Boor). Splines with only fit points are approximated through the points and reported |
-| TEXT, ATTRIB, ATTDEF | Horizontal and vertical justification (72/73, 74 for attributes), aligned and fit text, backward and upside-down, oblique, `%%c` `%%d` `%%p` `%%nnn`, `%%u` `%%o` `%%k`, and `^ ` (a caret) and `^I` (a tab, as four spaces) of ASCII DXF |
+| TEXT, ATTRIB, ATTDEF | Horizontal and vertical justification (72/73, 74 for attributes), aligned and fit text, backward and upside-down, oblique, `%%c` `%%d` `%%p` `%%nnn`, `%%u` `%%o` `%%k`, and `^ ` (a caret) and `^I` (a tab, as four spaces) of ASCII DXF. Multi-line attributes are drawn from their embedded MTEXT as MTEXT is, with the attribute's color, layer and line type and the MTEXT's own extrusion, as ezdxf's `virtual_mtext_entity` does. Hidden attributes (70 bit 1) are not drawn; an attribute definition shows its tag outside blocks (where its MTEXT is) and, inside blocks, only a constant one with its value, as for single-line attributes |
 | MTEXT | Attachment point, direction or rotation, line spacing, word wrap at the reference width (at spaces, or between full-width characters), paragraph alignment, background mask, and the codes `\P` `\H` `\W` `\Q` `\C` `\c` `\F` `\f` `\L` `\O` `\K` `\S` `\~` `\U+` `\M+` and `{}` |
 | INSERT (MINSERT), ACAD_TABLE | Nested blocks with base point, scale, rotation, OCS and arrays; constant attribute definitions; the table's anonymous block |
 | DIMENSION, ARC_DIMENSION, LARGE_RADIAL_DIMENSION | The anonymous block (`*D…`) in the dimension's OCS, moved to group 12, merged into one selectable entity |
@@ -173,8 +181,9 @@ those marked *inferred* are not stated by Autodesk.
   AutoCAD's graphics place on the frame. Connections 5, 6 and 8 underline the text from the connection point; top or bottom connection 10
   draws a line over or under the text. Their lengths follow the substitute font, so they differ from AutoCAD by the text width.
 - Block content is inserted at context 15 (in WCS) with its scale and rotation (radians), and each `block_attribs` value is drawn at its
-  ATTDEF in the block. Tolerance content and text columns are not drawn as such and are reported; text flowing vertically (172 = 3)
-  is laid out horizontally like vertical MTEXT.
+  ATTDEF in the block (as the text of its embedded MTEXT for a multi-line ATTDEF). Tolerance content and text columns
+  are not drawn as such and are reported; text flowing vertically (172 = 3) is laid out horizontally like vertical
+  MTEXT.
 - MLINE elements ([MLINE](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-590E8AE3-C6D9-4641-8485-D7B3693E432C.htm),
   [MLINESTYLE](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-3EC12E5B-F5F6-484D-880F-D69EBE186D79.htm))
   are at the vertex plus the miter direction (13) times the first value of group 41. The following values are positions

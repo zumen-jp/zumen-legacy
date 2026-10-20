@@ -38,6 +38,29 @@ class Text(TypedDict):
     bbox: Box
     layers: list[str]
 
+class TitleField(TypedDict):
+    """A candidate for a title block field (type checking only)."""
+
+    key: Literal["number", "revision", "title", "project", "scale", "date"]
+    value: str
+    label: str
+    source: Literal["attribute", "label", "inline", "sheet", "metadata"]
+    entity: str | None
+    label_entity: str | None
+    x: float
+    y: float
+
+class TitleBlock(TypedDict):
+    """The fields of a title block, and every candidate found (type checking only)."""
+
+    number: str | None
+    revision: str | None
+    title: str | None
+    project: str | None
+    scale: str | None
+    date: str | None
+    fields: list[TitleField]
+
 class DrawnEntity(TypedDict):
     """An entity drawn in a ``Rendering``, with its box in pixels (type checking only)."""
 
@@ -47,6 +70,12 @@ class DrawnEntity(TypedDict):
     text: str | None
 
 class ReadError(ValueError): ...
+
+class LimitError(ReadError):
+    """Reading stopped at ``max_bytes``, ``max_entities`` or ``timeout``."""
+
+    limit: Literal["bytes", "entities", "time"]
+
 class RenderError(ValueError): ...
 
 class Scene:
@@ -84,6 +113,24 @@ class Scene:
         hidden_layers: list[int] | None = None,
         sheet_frame: bool = True,
     ) -> bytes: ...
+    def render_svg(
+        self,
+        *,
+        region: Box | None = None,
+        theme: Literal["light", "dark"] | None = None,
+        line_weights: bool = True,
+        hidden_layers: list[int] | None = None,
+        sheet_frame: bool = True,
+    ) -> str: ...
+    def render_pdf(
+        self,
+        *,
+        region: Box | None = None,
+        theme: Literal["light", "dark"] | None = None,
+        line_weights: bool = True,
+        hidden_layers: list[int] | None = None,
+        sheet_frame: bool = True,
+    ) -> bytes: ...
     def render(
         self,
         *,
@@ -99,6 +146,7 @@ class Scene:
     def texts(self, *, region: Box | None = None, hidden_layers: list[int] | None = None) -> list[Text]: ...
     def entities(self, *, region: Box | None = None, hidden_layers: list[int] | None = None) -> list[Entity]: ...
     def entity(self, id: str) -> Entity | None: ...
+    def title_block(self) -> TitleBlock: ...
     def to_arrow(self, *, region: Box | None = None, hidden_layers: list[int] | None = None) -> Any:
         """A ``pyarrow.Table`` of the entities (needs pyarrow)."""
 
@@ -122,6 +170,45 @@ class Rendering:
     def entities_at(self, px: float, py: float, *, tolerance: float = 3.0) -> list[DrawnEntity]: ...
     def _repr_png_(self) -> bytes: ...
 
+class ChangedPair(TypedDict):
+    before: Entity
+    after: Entity
+
+class ChangeRegion(TypedDict):
+    bbox: Box
+    removed: int
+    added: int
+    changed: int
+
+class Comparison:
+    """Two revisions compared: entities matched by shape and text, not by id."""
+
+    @property
+    def removed(self) -> list[Entity]: ...
+    @property
+    def added(self) -> list[Entity]: ...
+    @property
+    def changed(self) -> list[ChangedPair]: ...
+    @property
+    def unchanged(self) -> int: ...
+    @property
+    def offset(self) -> tuple[float, float]: ...
+    @property
+    def regions(self) -> list[ChangeRegion]: ...
+    @property
+    def scene(self) -> Scene: ...
+    def __len__(self) -> int: ...
+
+def compare(
+    before: Scene,
+    after: Scene,
+    *,
+    tolerance: float = 0.01,
+    style: bool = False,
+    all_layers: bool = False,
+    align: bool = True,
+) -> Comparison: ...
+
 class Converted:
     """A drawing written in another format, and the notices about what could not be written as it was."""
 
@@ -135,5 +222,13 @@ class Converted:
     def __len__(self) -> int: ...
 
 def detect(data: bytes) -> str | None: ...
-def read(data: bytes, *, format: str | None = None, view: str | None = None) -> Scene: ...
+def read(
+    data: bytes,
+    *,
+    format: str | None = None,
+    view: str | None = None,
+    max_bytes: int | None = None,
+    max_entities: int | None = None,
+    timeout: float | None = None,
+) -> Scene: ...
 def convert(data: bytes, to: str, *, format: str | None = None) -> Converted: ...

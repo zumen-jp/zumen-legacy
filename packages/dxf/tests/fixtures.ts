@@ -729,6 +729,60 @@ export const ATTRIBUTES_R2018 = latin1(ascii(
 ));
 
 /**
+ * AutoCAD 2018 の複数行の属性（ATTRIB）・属性定義（ATTDEF）を AutoCAD が書く形で。文字は AcDbAttribute の後の埋め込みの
+ * MTEXT（左上が [x, y]、高さ 2.5）にあり、1 行の文字（AcDbText の 1）は空。common は AcDbEntity の値
+ */
+function multilineAttribute(
+  type: "ATTRIB" | "ATTDEF",
+  handle: string,
+  owner: string,
+  common: Tag[],
+  tag: string,
+  flags: number,
+  [x, y]: [number, number],
+  text: string,
+): Tag[] {
+  const definition = type === "ATTDEF";
+  // biome-ignore format: DXF のタグ（グループコードと値）の組を 1 行に並べて読めるようにする
+  return [
+    0, type, 5, handle, 330, owner, 100, "AcDbEntity", 8, "0", ...common,
+    100, "AcDbText", 10, x, 20, y - 2.5, 30, 0, 40, 2.5, 1, "", 11, x, 21, y, 31, 0,
+    100, definition ? "AcDbAttributeDefinition" : "AcDbAttribute", 280, 0, ...(definition ? [3, tag.toLowerCase()] : []),
+    2, tag, 70, flags, 74, 3, 280, 1, 71, definition ? 4 : 2, 72, 0, 11, x, 21, y, 31, 0,
+    101, "Embedded Object", 10, x, 20, y, 30, 0, 40, 2.5, 41, 0, 46, 0, 71, 1, 72, 5, 1, text, 73, 1, 44, 1,
+  ];
+}
+
+/**
+ * AutoCAD 2018 の複数行の属性の文字は埋め込みの MTEXT にだけあり、読まないと属性が黙って消える。配置の 2 行の属性
+ * （属性の色）、非表示の属性、ブロックの中の値の属性定義（描かない）と定数の属性定義（既定値を描く）、
+ * 図面に置いた属性定義（タグを描く）、同じブロックを内容とするマルチ引出線（値の属性定義に属性の値を描く）
+ */
+// biome-ignore format: DXF のタグ（グループコードと値）の組を 1 行に並べて読めるようにする
+export const ATTRIBUTES_MULTILINE = latin1(ascii(
+  0, "SECTION", 2, "HEADER", 9, "$ACADVER", 1, "AC1032", 9, "$INSUNITS", 70, 4, 0, "ENDSEC",
+  0, "SECTION", 2, "BLOCKS",
+  0, "BLOCK", 5, "41", 330, "40", 100, "AcDbEntity", 8, "0", 100, "AcDbBlockBegin", 2, "LABEL", 70, 2, 10, 0, 20, 0, 30, 0, 3, "LABEL", 1, "",
+  ...multilineAttribute("ATTDEF", "42", "40", [], "NOTE", 0, [0, 0], ""),
+  ...multilineAttribute("ATTDEF", "43", "40", [], "FIXED", 2, [0, -10], "Fixed\\Pvalue"),
+  0, "ENDBLK", 5, "44", 330, "40", 100, "AcDbEntity", 8, "0", 100, "AcDbBlockEnd",
+  0, "ENDSEC",
+  0, "SECTION", 2, "ENTITIES",
+  ...entity("INSERT", "50", "0", [62, 1], "AcDbBlockReference", 66, 1, 2, "LABEL", 10, 100, 20, 0, 30, 0),
+  ...multilineAttribute("ATTRIB", "51", "50", [62, 3], "NOTE", 0, [100, 0], "First line\\PSecond line"),
+  ...multilineAttribute("ATTRIB", "52", "50", [], "HIDDEN", 1, [100, -20], "Hidden"),
+  0, "SEQEND", 5, "53", 330, "50", 100, "AcDbEntity", 8, "0",
+  ...multilineAttribute("ATTDEF", "54", "1F", [], "TITLE", 0, [0, 20], "Default"),
+  ...entity("MULTILEADER", "60", "0", [], "AcDbMLeader", 270, 2,
+    300, "CONTEXT_DATA{", 40, 1, 10, 0, 20, -40, 30, 0, 41, 2.5, 140, 1, 145, 1,
+    290, 0, 296, 1, 341, "40", 14, 0, 24, 0, 34, 1, 15, 0, 25, -40, 35, 0, 16, 1, 26, 1, 36, 1, 46, 0, 93, -1023410171,
+    301, "}",
+    340, "0", 170, 0, 91, -1023410171, 171, -2, 290, 0, 291, 0, 172, 1, 344, "40",
+    330, "42", 177, 1, 44, 1, 302, "Leader\\Pnote"),
+  0, "ENDSEC", 0, "EOF",
+));
+
+/**
  * バイナリの DXF は文字列の制御文字と ^ を文字のまま書き、テキストの DXF は ^J（改行）・^I（タブ）・「^ 」と書く
  * （DXF Reference「About ASCII Control Characters in DXF Files」）。AutoCAD 2004 以降のバイナリの MTEXT の改行は、
  * テキストの DXF の ^J と同じく段落を分ける。^ は MTEXT でも TEXT でも ^ のまま描く
@@ -815,6 +869,7 @@ export const DRAWINGS: [string, Uint8Array, string[]][] = [
   ["limits", LIMITS, []],
   ["binary-limits", BINARY_LIMITS, []],
   ["attributes-r2018", ATTRIBUTES_R2018, []],
+  ["attributes-multiline", ATTRIBUTES_MULTILINE, []],
   ["binary-text", BINARY_TEXT, []],
   ["dimstyle-defaults", DIMSTYLE_DEFAULTS, []],
   ["vertical-text", VERTICAL_TEXT, []],

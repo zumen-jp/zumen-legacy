@@ -9,8 +9,8 @@
 //! 書けなかった・形を変えて書いた内容は、読み取りと同じ notices（種類ごとの件数）で返す。
 
 use crate::model::{
-    DxfBlock, DxfDocument, DxfEntity, DxfEntityBase, DxfEntityData, DxfHatch, DxfHatchEdge, DxfImage, DxfLayout,
-    DxfMLeader, DxfMLine, DxfMLineStyle, DxfPolyline, DxfSpace, DxfTextBase, Vec3,
+    DxfBlock, DxfDocument, DxfEmbeddedMText, DxfEntity, DxfEntityBase, DxfEntityData, DxfHatch, DxfHatchEdge, DxfImage,
+    DxfLayout, DxfMLeader, DxfMLine, DxfMLineStyle, DxfMText, DxfPolyline, DxfSpace, DxfTextBase, Vec3,
 };
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
@@ -1625,16 +1625,30 @@ impl<'a> Writer<'a> {
                 }
             }
             DxfEntityData::Text(text) => self.text(base, text, owner, paper),
-            DxfEntityData::Attrib { text, .. } if !self.in_insert => {
-                // ブロックの配置に属さない属性は DXF に書けないので、文字として書く
-                self.notices.add(
-                    NoticeLevel::Info,
-                    "attrib-alone",
-                    "ブロック参照に属さない属性（ATTRIB）は、文字（TEXT）として書きました",
-                );
-                self.text(base, text, owner, paper);
+            DxfEntityData::Attrib { text, mtext, .. } if !self.in_insert => {
+                // ブロックの配置に属さない属性は DXF に書けないので、文字として書く（複数行の属性は MTEXT）
+                match mtext {
+                    Some(embedded) => {
+                        self.notices.add(
+                            NoticeLevel::Info,
+                            "attrib-alone",
+                            "ブロック参照に属さない属性（ATTRIB）は、文字（MTEXT）として書きました",
+                        );
+                        self.common("MTEXT", base, owner, paper);
+                        self.out.tag(100, "AcDbMText");
+                        self.mtext_body(&embedded.content, embedded.extrusion);
+                    }
+                    None => {
+                        self.notices.add(
+                            NoticeLevel::Info,
+                            "attrib-alone",
+                            "ブロック参照に属さない属性（ATTRIB）は、文字（TEXT）として書きました",
+                        );
+                        self.text(base, text, owner, paper);
+                    }
+                }
             }
-            DxfEntityData::Attrib { text, tag, attribute_flags } => {
+            DxfEntityData::Attrib { text, tag, attribute_flags, mtext } => {
                 self.common("ATTRIB", base, owner, paper);
                 self.out.tag(100, "AcDbText");
                 self.text_body(base, text);
@@ -1645,8 +1659,9 @@ impl<'a> Writer<'a> {
                 if text.valign != 0.0 {
                     self.out.int(74, text.valign);
                 }
+                self.embedded_mtext(mtext.as_deref(), 2);
             }
-            DxfEntityData::Attdef { text, tag, prompt, attribute_flags } => {
+            DxfEntityData::Attdef { text, tag, prompt, attribute_flags, mtext } => {
                 self.common("ATTDEF", base, owner, paper);
                 self.out.tag(100, "AcDbText");
                 self.text_body(base, text);
@@ -1658,49 +1673,12 @@ impl<'a> Writer<'a> {
                 if text.valign != 0.0 {
                     self.out.int(74, text.valign);
                 }
+                self.embedded_mtext(mtext.as_deref(), 4);
             }
             DxfEntityData::MText(mtext) => {
                 self.common("MTEXT", base, owner, paper);
                 self.out.tag(100, "AcDbMText");
-                self.out.point(10, &mtext.insert);
-                self.out.real(40, mtext.char_height);
-                self.out.real(41, mtext.rect_width);
-                self.out.int(71, if mtext.attachment_point >= 1.0 { mtext.attachment_point } else { 1.0 });
-                self.out.int(72, if mtext.drawing_direction > 0.0 { mtext.drawing_direction } else { 1.0 });
-                // 250 文字ごとに 3 に分け、最後を 1 に書く
-                let raw =
-                    if mtext.raw_text.is_empty() { mtext.text.replace('\n', "\\P") } else { mtext.raw_text.clone() };
-                let chars: Vec<char> = escape(&raw).chars().collect();
-                let mut chunks = chars.chunks(250).peekable();
-                if chunks.peek().is_none() {
-                    self.out.tag(1, "");
-                }
-                while let Some(chunk) = chunks.next() {
-                    let text: String = chunk.iter().collect();
-                    self.out.tag(if chunks.peek().is_some() { 3 } else { 1 }, text);
-                }
-                self.out.str(7, if mtext.style.is_empty() { "Standard" } else { &mtext.style });
-                self.extrusion(base);
-                match mtext.text_direction {
-                    Some(direction) => self.out.point(11, &direction),
-                    None if mtext.rotation != 0.0 => self.out.real(50, mtext.rotation),
-                    None => {}
-                }
-                self.out.int(73, if mtext.line_spacing_style > 0.0 { mtext.line_spacing_style } else { 1.0 });
-                self.out.real(44, if mtext.line_spacing_factor > 0.0 { mtext.line_spacing_factor } else { 1.0 });
-                if mtext.background_flags != 0.0 {
-                    self.out.int(90, mtext.background_flags);
-                    if let Some(color) = mtext.background_color_index {
-                        self.out.int(63, color);
-                    }
-                    if let Some(color) = mtext.background_true_color {
-                        self.out.int(421, color);
-                    }
-                    if let Some(scale) = mtext.background_scale {
-                        self.out.real(45, scale);
-                    }
-                    self.out.tag(441, 0);
-                }
+                self.mtext_body(mtext, base.extrusion);
             }
             DxfEntityData::Insert(insert) => {
                 let handle = self.common("INSERT", base, owner, paper);
@@ -1899,6 +1877,59 @@ impl<'a> Writer<'a> {
             None => {}
         }
         self.extrusion(base);
+    }
+
+    /// MTEXT の値（AcDbMText の後。属性に埋め込む MTEXT にも使う）
+    fn mtext_body(&mut self, mtext: &DxfMText, extrusion: Option<Vec3>) {
+        self.out.point(10, &mtext.insert);
+        self.out.real(40, mtext.char_height);
+        self.out.real(41, mtext.rect_width);
+        self.out.int(71, if mtext.attachment_point >= 1.0 { mtext.attachment_point } else { 1.0 });
+        self.out.int(72, if mtext.drawing_direction > 0.0 { mtext.drawing_direction } else { 1.0 });
+        // 250 文字ごとに 3 に分け、最後を 1 に書く
+        let raw = if mtext.raw_text.is_empty() { mtext.text.replace('\n', "\\P") } else { mtext.raw_text.clone() };
+        let chars: Vec<char> = escape(&raw).chars().collect();
+        let mut chunks = chars.chunks(250).peekable();
+        if chunks.peek().is_none() {
+            self.out.tag(1, "");
+        }
+        while let Some(chunk) = chunks.next() {
+            let text: String = chunk.iter().collect();
+            self.out.tag(if chunks.peek().is_some() { 3 } else { 1 }, text);
+        }
+        self.out.str(7, if mtext.style.is_empty() { "Standard" } else { &mtext.style });
+        if let Some(extrusion) = extrusion.filter(|value| *value != [0.0, 0.0, 1.0]) {
+            self.out.point(210, &extrusion);
+        }
+        match mtext.text_direction {
+            Some(direction) => self.out.point(11, &direction),
+            None if mtext.rotation != 0.0 => self.out.real(50, mtext.rotation),
+            None => {}
+        }
+        self.out.int(73, if mtext.line_spacing_style > 0.0 { mtext.line_spacing_style } else { 1.0 });
+        self.out.real(44, if mtext.line_spacing_factor > 0.0 { mtext.line_spacing_factor } else { 1.0 });
+        if mtext.background_flags != 0.0 {
+            self.out.int(90, mtext.background_flags);
+            if let Some(color) = mtext.background_color_index {
+                self.out.int(63, color);
+            }
+            if let Some(color) = mtext.background_true_color {
+                self.out.int(421, color);
+            }
+            if let Some(scale) = mtext.background_scale {
+                self.out.real(45, scale);
+            }
+            self.out.tag(441, 0);
+        }
+    }
+
+    /// 複数行の属性（AutoCAD 2018 以降）の文字。AutoCAD と同じく、属性の種類（71。2 は属性、4 は属性定義）の後の
+    /// 「101 Embedded Object」に MTEXT の値を続ける。1 行の文字（AcDbText の 1）は読んだまま（AutoCAD は空にする）
+    fn embedded_mtext(&mut self, embedded: Option<&DxfEmbeddedMText>, attribute_type: i64) {
+        let Some(embedded) = embedded else { return };
+        self.out.tag(71, attribute_type);
+        self.out.tag(101, "Embedded Object");
+        self.mtext_body(&embedded.content, embedded.extrusion);
     }
 
     fn seqend(&mut self, _parent: u64, owner: u64, paper: bool, base: &DxfEntityBase) {

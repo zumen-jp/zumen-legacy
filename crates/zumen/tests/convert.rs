@@ -93,7 +93,7 @@ fn check(name: &str, bytes: &[u8]) -> (usize, Vec<String>) {
         std::iter::once(None).chain(original.views.iter().flatten().map(|view| Some(view.id.clone()))).collect();
     let mut out = Vec::new();
     for view in &views {
-        let options = ReadDrawingOptions { format: None, view: view.clone() };
+        let options = ReadDrawingOptions { view: view.clone(), ..ReadDrawingOptions::default() };
         let original = zumen::read(bytes, &options).unwrap();
         match zumen::read(&converted.bytes, &options) {
             Ok(again) => {

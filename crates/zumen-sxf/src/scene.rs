@@ -500,6 +500,10 @@ impl SceneBuilder<'_> {
             ));
         }
         all.extend(properties);
+        // 読み取りの上限（zumen_core::limits）。上限を超えたら図形を加えない
+        if !zumen_core::limits::admit() {
+            return;
+        }
         self.entities.push(SceneEntity {
             id,
             kind: kind.label().into(),
@@ -533,6 +537,10 @@ impl SceneBuilder<'_> {
     }
 
     fn emit(&mut self, feature: &SxfFeature, ctx: &Context) {
+        // 読み取りの上限（zumen_core::limits）を超えたら、残りのフィーチャを描かない
+        if zumen_core::limits::tick() {
+            return;
+        }
         let tol = self.local_tolerance(ctx);
         match feature {
             SxfFeature::Line { style, x1, y1, x2, y2 } => {

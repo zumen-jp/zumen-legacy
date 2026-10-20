@@ -186,15 +186,15 @@ pub(crate) fn read_entity(object: &mut Object<'_>, kind: &str, names: &Names) ->
             let (text, t, e) = text(s, names)?;
             thickness = t;
             extrusion = e;
-            let (tag, attribute_flags) = attribute(s, handle, names)?;
+            let (tag, attribute_flags, mtext) = attribute(s, handle, names)?;
             if kind == "ATTDEF" {
                 if s.format.r2010() {
                     s.data.rc()?;
                 }
                 let prompt = s.tv()?;
-                Body::Entity(DxfEntityData::Attdef { text, tag, prompt, attribute_flags })
+                Body::Entity(DxfEntityData::Attdef { text, tag, prompt, attribute_flags, mtext })
             } else {
-                Body::Entity(DxfEntityData::Attrib { text, tag, attribute_flags })
+                Body::Entity(DxfEntityData::Attrib { text, tag, attribute_flags, mtext })
             }
         }
         "MTEXT" => {
@@ -563,17 +563,20 @@ fn text(s: &mut Streams<'_>, names: &Names) -> Read<(DxfTextBase, f64, [f64; 3])
     Ok((text, thickness, extrusion))
 }
 
-/// ATTRIB・ATTDEF の値（20.4.4）。R2018 以降の複数行の属性は MTEXT の値を持つ（読み飛ばす）
-fn attribute(s: &mut Streams<'_>, handle: u64, names: &Names) -> Read<(String, f64)> {
+/// ATTRIB・ATTDEF の値（20.4.4）。R2018 以降の複数行の属性（種類 2・4）は、文字を埋め込みの MTEXT に持つ
+fn attribute(s: &mut Streams<'_>, handle: u64, names: &Names) -> Read<(String, f64, Option<Box<DxfEmbeddedMText>>)> {
     if s.format.r2010() {
         s.data.rc()?;
     }
+    let mut mtext = None;
     if s.format.r2018() {
         let kind = s.data.rc()?;
         if kind == 2 || kind == 4 {
-            // 埋め込みの MTEXT: 図形のモード（BB）からの共通の値と MTEXT の値、注釈の値
+            // 埋め込みの MTEXT: 図形のモード（BB）からの共通の値と MTEXT の値、注釈の値。色・レイヤ・線種は、DXF の
+            // 読み取りと同じく属性のものを使う（共通の値は読み飛ばす）
             crate::objects::embedded_entity_common(s, handle)?;
-            mtext_fields(s, names)?;
+            let (content, extrusion) = mtext_fields(s, names)?;
+            mtext = Some(Box::new(DxfEmbeddedMText { content, extrusion: (extrusion != Z).then_some(extrusion) }));
             let size = s.data.bs()?;
             if size > 0 {
                 s.data.skip(u64::from(size as u16) * 8)?;
@@ -588,7 +591,7 @@ fn attribute(s: &mut Streams<'_>, handle: u64, names: &Names) -> Read<(String, f
     if s.format.r2007() {
         s.data.bit()?;
     }
-    Ok((tag, flags))
+    Ok((tag, flags, mtext))
 }
 
 /// MTEXT（20.4.46）
@@ -627,8 +630,9 @@ fn mtext_fields(s: &mut Streams<'_>, names: &Names) -> Read<(DxfMText, [f64; 3])
         }
     }
     if s.format.r2018() {
-        // 注釈のない MTEXT は、同じ値と段組みの値を続ける
-        if !s.data.bit()? {
+        // 「Is NOT annotative」が 1 の（注釈でない）MTEXT は、同じ値（REDUNDANT FIELDS）と段組みの値を続ける。
+        // 逆に読むと、続く値（複数行の属性のタグ・フラグ）がずれる
+        if s.data.bit()? {
             s.data.bs()?;
             s.data.bit()?;
             s.handle()?;
