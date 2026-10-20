@@ -32,7 +32,7 @@ Repository = "https://github.com/zumenjs/zumen"
 
 [dependency-groups]
 # ezdxf（MIT）は、書き出した DXF を別の実装で読めるか確かめるテストだけに使う
-dev = ["ezdxf==1.4.3", "maturin==1.15.0", "mcp==2.3.0", "pyarrow==25.0.1", "pytest==9.1.1", "ruff==0.17.1"]
+dev = ["ezdxf==1.4.5", "maturin==1.15.0", "mcp==2.3.0", "pyarrow==25.0.1", "pytest==9.1.1", "ruff==0.17.1"]
 
 [tool.maturin]
 python-source = "python"

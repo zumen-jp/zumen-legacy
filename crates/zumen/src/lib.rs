@@ -1,11 +1,16 @@
 //! zumen: 建築・土木の 2D 図面を読み、形式に依存しない表示用モデル（`Scene`）にする。
 //!
 //! 形式は拡張子ではなく中身で判定する。読める形式は SXF（SFC・P21）・JWW・DXF・DWG。
+//! DXF・DWG は AutoCAD 2013 の DXF に書き直せる（`convert`）。
 //!
 //! ```no_run
 //! let bytes = std::fs::read("plan.jww").unwrap();
 //! let scene = zumen::read(&bytes, &zumen::ReadDrawingOptions::default()).unwrap();
 //! println!("{} entities", scene.entities.len());
+//!
+//! let dwg = std::fs::read("plan.dwg").unwrap();
+//! let converted = zumen::convert(&dwg, "dxf", &zumen::ReadDrawingOptions::default()).unwrap();
+//! std::fs::write("plan.dxf", &converted.bytes).unwrap();
 //! ```
 #![forbid(unsafe_code)]
 

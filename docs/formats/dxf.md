@@ -8,6 +8,7 @@ following the [Autodesk DXF Reference](https://help.autodesk.com/cloudhelp/2026/
 
 ```text
 bytes ─▶ readTags (ASCII or binary, decoded) ─▶ parseDxf ─▶ DxfDocument ─▶ dxfToScene(doc, { layout }) ─▶ Scene
+                                                                      └─▶ write_dxf (Rust) ─▶ DXF (AutoCAD 2013)
 ```
 
 ## The AutoCAD drawing model
@@ -212,7 +213,57 @@ TrueType styles use their font name (`ＭＳ ゴシック`, `MS Mincho`…). Cha
 so text lengths differ from AutoCAD. The text height (40) is taken as the capital height for Latin text and the kanji height
 for text with full-width characters.
 
+## Writing (`write_dxf`)
+
+`zumen-dxf` writes a `DxfDocument` back as DXF, in Rust only: ASCII DXF of AutoCAD 2013 (AC1027) in UTF-8 with CRLF
+line ends, with the group codes of the DXF Reference and, where it leaves the order open, the order of AutoCAD and
+ezdxf 1.4.5. `zumen::convert` reads DXF and DWG drawings into the model and writes them
+([decision 0006](../decisions/0006-write-through-the-autocad-model.md)). A written drawing, read again, draws the same
+scene in every view, with the same entity ids.
+
+- **Sections**: HEADER (`$ACADVER`, `$HANDSEED`, units, scales, extents, limits and the current layer and styles),
+  CLASSES, TABLES (VPORT, LTYPE, LAYER, STYLE, VIEW, UCS, APPID, DIMSTYLE, BLOCK_RECORD), BLOCKS, ENTITIES and OBJECTS
+  (the root dictionary with ACAD_GROUP, ACAD_LAYOUT, ACAD_MLEADERSTYLE, ACAD_MLINESTYLE, ACAD_PLOTSETTINGS and
+  ACAD_PLOTSTYLENAME, the layouts and the multiline styles).
+- **Numbers** are written in the shortest form that reads back to the same value (`1.0`, `0.30000000000000004`, `1e20`),
+  so the model reads back value for value.
+- **Handles** of the model are kept. A handle that is missing, not hexadecimal, zero or used twice gets a new one above
+  the largest handle of the drawing. References (owners, styles, blocks, arrow blocks, attribute definitions, frozen
+  layers, clipping boundaries) are rewritten to the handles written, and a reference to something that is not written
+  is left out.
+- **Definitions that entities refer to but the drawing lacks** are added: layers in the order in which the scene
+  numbers them (so layer ids stay the same), with the line type `CONTINUOUS` that the scene assumes, then layer `0`;
+  text styles, dimension styles and line types; and empty blocks for block references without a definition.
+  `*Model_Space`, `*Paper_Space` and one layout for each paper space block are always written, and layouts keep their
+  plot settings, including a paper size of 0 (the sheet then comes from the paper space limits).
+- **Strings** are written as the model holds them, in the notation of ASCII DXF. A line feed or carriage return, which a
+  line cannot hold, is written as `^J` or `^M`. MTEXT is split into parts of 250 characters (group 3) and the last part
+  (group 1).
+- **Multileaders** are written in ezdxf's order with every override flag (90) set, so the entity's own values are used,
+  and point at one `Standard` MLEADERSTYLE with ezdxf's defaults; their text style, line type, arrow blocks and attribute
+  definitions point at the records written. **Wipeouts** are written without an image definition, as AutoCAD writes
+  them. **Gradients** keep their name, colors, angle, shift and tint (450 to 470, in AutoCAD's order).
+- Only the values that the drawing has are written where the reader tells a missing value apart (the alignment point
+  of TEXT, the background scale of MTEXT, the definition points and angle of dimensions). Values that the model does
+  not keep are written as AutoCAD writes them for a new drawing (dictionaries, plot settings, viewport UCS,
+  `$DWGCODEPAGE` `ANSI_1252`, which AutoCAD ignores in UTF-8 files). Hatches are written without associativity, as the
+  links to their boundary objects are not kept.
+
+What cannot be written as it was is reported in `notices`:
+
+| Code | What is written |
+| --- | --- |
+| `image` | IMAGE is left out: the model does not keep the image file (IMAGEDEF) |
+| `helix` | HELIX is written as SPLINE, its curve, without the helix parameters |
+| `mpolygon` | MPOLYGON is written as HATCH |
+| `table` | ACAD_TABLE is written as the INSERT of its block (`*T…`) |
+| `complex-linetype` | A line type with texts or shapes keeps its dashes only, as it is drawn |
+| `dimension-block` | A dimension without its block (AutoCAD's dimensional constraints) is left out, as it is not drawn |
+| `attrib-alone` | An ATTRIB outside a block reference is written as TEXT |
+| `missing-block` | A block reference without a definition gets an empty block |
+| `mleader-block` | A multileader whose content block is missing is written without its content |
+
 ## Verification
 
-See [verification.md](../verification.md#dxf). The parser was compared with ezdxf 1.4.5 on public Japanese drawings
+See [verification.md](../verification.md#dxf) and [DXF writing](../verification.md#dxf-writing). The parser was compared with ezdxf 1.4.5 on public Japanese drawings
 (Yokosuka City and Imizu City), the ACadSharp samples (R12 to 2018, ASCII and binary) and generated drawings.

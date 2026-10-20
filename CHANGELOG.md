@@ -4,6 +4,14 @@ All packages share one version during 0.x.
 
 ## Unreleased (0.1.0)
 
+- Rust and Python: write DXF and DWG drawings as DXF of AutoCAD 2013 in UTF-8 through the AutoCAD drawing model
+  (`zumen::convert` and `zumen_dxf::write_dxf`, `zumen convert <file> -o <out.dxf>`, `zumen.convert` and `Converted` in
+  Python; [decision 0006](docs/decisions/0006-write-through-the-autocad-model.md)). Handles, tables, blocks, layouts and
+  every entity that the model holds are written, including MULTILEADER, WIPEOUT and gradients, so the written file
+  draws the same scenes with the same ids. What cannot be written as it was (IMAGE, HELIX as SPLINE, MPOLYGON as HATCH,
+  ACAD_TABLE as the INSERT of its block, line types with texts or shapes, dimensions without their block) is reported
+  in `notices`, and missing definitions are added. ezdxf reads the written files in the Python tests.
+- `zumen-dxf` and `zumen-dwg`: hatches keep the angle, shift, one-color flag and tint of their gradient.
 - `@zumenjs/dwg`: read DWG in browsers and Node.js with the WebAssembly build of `zumen-dwg`. `initDwg` loads it, `dwg`
   is the reader for `readDrawing` (model space and layouts through `view`), and `isDwg` tells DWG apart without it. The
   playground opens DWG and loads the reader (1.6 MB, 494 KB with brotli) when the first DWG is opened.

@@ -1,10 +1,11 @@
 //! AutoCAD の図面のモデル（`DxfDocument`）を DXF（ASCII、AutoCAD 2013 形式の AC1027、UTF-8）に書く。
 //! DXF・DWG から読んだ図面を DXF にする変換に使う（DXF Reference の各節・各図形のグループコードに従う）。
 //!
-//! 書くもの: 見出しの主な変数、表（VPORT・LTYPE・LAYER・STYLE・VIEW・UCS・APPID・DIMSTYLE・BLOCK_RECORD）、
-//! ブロック定義、図形、OBJECTS の辞書（ACAD_GROUP・ACAD_LAYOUT・ACAD_MLINESTYLE・ACAD_PLOTSETTINGS・
-//! ACAD_PLOTSTYLENAME）、レイアウト、MLINESTYLE。ハンドルは元の図面のものを保ち、ないもの・重なるものには
-//! 新しいハンドルを振る。図形が参照するのに表にないレイヤ・線種・文字スタイル・寸法スタイル・ブロックは補う。
+//! 書くもの: 見出しの主な変数、クラス、表（VPORT・LTYPE・LAYER・STYLE・VIEW・UCS・APPID・DIMSTYLE・
+//! BLOCK_RECORD）、ブロック定義、図形、OBJECTS の辞書（ACAD_GROUP・ACAD_LAYOUT・ACAD_MLEADERSTYLE・
+//! ACAD_MLINESTYLE・ACAD_PLOTSETTINGS・ACAD_PLOTSTYLENAME）、レイアウト、MLINESTYLE、MLEADERSTYLE。
+//! ハンドルは元の図面のものを保ち、ないもの・重なるものには新しいハンドルを振る。
+//! 図形が参照するのに表にないレイヤ・線種・文字スタイル・寸法スタイル・ブロックは補う。
 //! 書けなかった・形を変えて書いた内容は、読み取りと同じ notices（種類ごとの件数）で返す。
 
 use crate::model::{
@@ -93,6 +94,9 @@ impl Out {
     }
 }
 
+/// 保つハンドルの上限。これより大きいハンドルは振り直す（次のハンドルを数えてもあふれない）
+const MAX_HANDLE: u64 = i64::MAX as u64;
+
 /// ハンドル。元の図面のハンドルを保ち（重なれば新しく振る）、新しいハンドルは元の最大より後から振る
 struct Handles {
     next: u64,
@@ -103,7 +107,9 @@ impl Handles {
     fn new(doc: &DxfDocument) -> Self {
         let mut max = 0;
         let mut note = |text: &str| {
-            if let Ok(value) = u64::from_str_radix(text, 16) {
+            if let Ok(value) = u64::from_str_radix(text, 16)
+                && value <= MAX_HANDLE
+            {
                 max = max.max(value);
             }
         };
@@ -151,10 +157,11 @@ impl Handles {
         handle
     }
 
-    /// 元のハンドル。読めないか、0 か、すでに使ったものなら新しく振る（新しいハンドルは元の最大より後なので重ならない）
+    /// 元のハンドル。読めないか、0 か、大きすぎるか、すでに使ったものなら新しく振る
+    /// （新しいハンドルは元の最大より後なので重ならない）
     fn keep(&mut self, original: &str) -> u64 {
         match u64::from_str_radix(original, 16) {
-            Ok(value) if value > 0 && self.used.insert(value) => value,
+            Ok(value) if value > 0 && value <= MAX_HANDLE && self.used.insert(value) => value,
             _ => self.fresh(),
         }
     }
@@ -212,10 +219,11 @@ fn all_entities(doc: &DxfDocument) -> impl Iterator<Item = &DxfEntity> {
     })
 }
 
-/// 図形のレイヤを、表示が図形を読む順に並べる。モデル空間の図形から、ブロック参照・寸法・表はその場で中の図形へ
-/// 進み（中のレイヤ 0 は参照のレイヤを継ぐ）、最後にすべての図形。定義のないレイヤを、表示と同じ番号になる順に
-/// 補うために使う（描画順の並べ替えは見ない）
-fn layer_order(doc: &DxfDocument) -> Vec<String> {
+/// 図形のレイヤを、表示が初めて読む順に並べる。モデル空間の図形から、ブロック参照・寸法・表はその場で中の図形へ
+/// 進み、最後にすべての図形。定義のないレイヤを、表示と同じ番号になる順に補うために使う（描画順の並べ替えは見ない）。
+/// 表示は参照のレイヤを中の図形より先に数え、中のレイヤ 0 は参照のレイヤを継ぐので、ブロックは 1 度だけ読めばよい。
+/// 深い入れ子でもスタックを使い切らないよう、再帰しない
+fn layer_order(doc: &DxfDocument) -> Vec<&str> {
     let mut blocks: HashMap<String, Vec<&DxfEntity>> = HashMap::new();
     let mut model = Vec::new();
     for entity in &doc.entities {
@@ -225,40 +233,37 @@ fn layer_order(doc: &DxfDocument) -> Vec<String> {
         }
     }
     let mut names = Vec::new();
-    walk_layers(&model, None, &blocks, &mut HashSet::new(), &mut names);
-    names.extend(all_entities(doc).map(|entity| entity.base.layer.clone()));
-    names
-}
-
-fn walk_layers(
-    entities: &[&DxfEntity],
-    parent: Option<&str>,
-    blocks: &HashMap<String, Vec<&DxfEntity>>,
-    visited: &mut HashSet<(String, String)>,
-    names: &mut Vec<String>,
-) {
-    for entity in entities {
-        let layer = match parent {
-            Some(parent) if entity.base.layer == "0" => parent.to_string(),
-            _ => entity.base.layer.clone(),
+    let mut visited = HashSet::new();
+    // 読んでいる図形の並び、次の位置、ブロックの中か
+    let mut stack: Vec<(Vec<&DxfEntity>, usize, bool)> = vec![(model, 0, false)];
+    while let Some((entities, index, inside)) = stack.last_mut() {
+        let Some(&entity) = entities.get(*index) else {
+            stack.pop();
+            continue;
         };
-        names.push(layer.clone());
+        *index += 1;
+        let inside = *inside;
+        if !(inside && entity.base.layer == "0") {
+            names.push(entity.base.layer.as_str());
+        }
         let block = match &entity.data {
             DxfEntityData::Insert(insert) => upper(&insert.name),
             DxfEntityData::Dimension(dimension) => upper(&dimension.anonymous_block_name),
             DxfEntityData::Table(table) => upper(&table.name),
-            _ => String::new(),
+            _ => continue,
         };
-        if let Some(children) = blocks.get(&block) {
-            if visited.insert((block, upper(&layer))) {
-                walk_layers(children, Some(&layer), blocks, visited, names);
-            }
-        }
+        // ブロックの中の図形の後に、ブロック参照の属性を読む
         if let DxfEntityData::Insert(insert) = &entity.data {
-            let attribs: Vec<&DxfEntity> = insert.attribs.iter().collect();
-            walk_layers(&attribs, parent, blocks, visited, names);
+            stack.push((insert.attribs.iter().collect(), 0, inside));
+        }
+        if let Some(children) = blocks.get(&block)
+            && visited.insert(block)
+        {
+            stack.push((children.clone(), 0, true));
         }
     }
+    names.extend(all_entities(doc).map(|entity| entity.base.layer.as_str()));
+    names
 }
 
 /// 点がいちばん近い線分（path の i 番目から i + 1 番目）の番号
@@ -545,22 +550,53 @@ impl<'a> Writer<'a> {
         self.out.tag(0, "ENDSEC");
     }
 
-    /// LAYOUT などの、AutoCAD の決まったクラス（DXF Reference「CLASSES Section」）
+    /// クラス（DXF Reference「CLASSES Section」）。AutoCAD は、ObjectARX で定義した図形・オブジェクトの
+    /// クラスがないと図面を開けない。名前、C++ のクラス、アプリケーション、フラグ（90）は AutoCAD 2018 と ezdxf が
+    /// 書く値で、図形のクラスは書く図形があるときだけ置く。91 は書く数
     fn classes(&mut self) {
+        let doc = self.doc;
+        let count = |matches: &dyn Fn(&DxfEntity) -> bool| doc.entities.iter().filter(|entity| matches(entity)).count();
+        let mleaders = count(&|entity| matches!(entity.data, DxfEntityData::MLeader(_)));
+        let wipeouts = count(&|entity| {
+            matches!(entity.data, DxfEntityData::Image(_)) && entity.base.kind.eq_ignore_ascii_case("WIPEOUT")
+        });
+        let dimensions = |kind: &str| {
+            count(&|entity| {
+                matches!(&entity.data, DxfEntityData::Dimension(dimension) if !dimension.anonymous_block_name.is_empty())
+                    && entity.base.kind.eq_ignore_ascii_case(kind)
+            })
+        };
+        let classes = [
+            ("ACDBDICTIONARYWDFLT", "AcDbDictionaryWithDefault", "ObjectDBX Classes", 0, 1, false),
+            ("ACDBPLACEHOLDER", "AcDbPlaceHolder", "ObjectDBX Classes", 0, 1, false),
+            ("LAYOUT", "AcDbLayout", "ObjectDBX Classes", 0, self.layouts.len(), false),
+            ("MLEADERSTYLE", "AcDbMLeaderStyle", "ACDB_MLEADERSTYLE_CLASS", 4095, 1, false),
+            ("MULTILEADER", "AcDbMLeader", "ACDB_MLEADER_CLASS", 1025, mleaders, true),
+            ("WIPEOUT", "AcDbWipeout", "WipeOut", 127, wipeouts, true),
+            ("ARC_DIMENSION", "AcDbArcDimension", "ObjectDBX Classes", 1025, dimensions("ARC_DIMENSION"), true),
+            (
+                "LARGE_RADIAL_DIMENSION",
+                "AcDbRadialDimensionLarge",
+                "ObjectDBX Classes",
+                1025,
+                dimensions("LARGE_RADIAL_DIMENSION"),
+                true,
+            ),
+        ];
         self.section("CLASSES");
-        for (dxf, cpp) in [
-            ("ACDBDICTIONARYWDFLT", "AcDbDictionaryWithDefault"),
-            ("ACDBPLACEHOLDER", "AcDbPlaceHolder"),
-            ("LAYOUT", "AcDbLayout"),
-        ] {
-            self.out.tag(0, "CLASS");
-            self.out.tag(1, dxf);
-            self.out.tag(2, cpp);
-            self.out.tag(3, "ObjectDBX Classes");
-            self.out.tag(90, 0);
-            self.out.tag(91, 0);
-            self.out.tag(280, 0);
-            self.out.tag(281, 0);
+        for (name, cpp, application, flags, instances, entity) in classes {
+            if entity && instances == 0 {
+                continue;
+            }
+            let out = &mut self.out;
+            out.tag(0, "CLASS");
+            out.tag(1, name);
+            out.tag(2, cpp);
+            out.tag(3, application);
+            out.tag(90, flags);
+            out.tag(91, instances);
+            out.tag(280, 0);
+            out.tag(281, i32::from(entity));
         }
         self.out.tag(0, "ENDSEC");
     }
@@ -624,7 +660,23 @@ impl<'a> Writer<'a> {
         self.out.tag(0, "ENDTAB");
 
         // LTYPE: ByBlock・ByLayer・Continuous と、図面の線種。図形やレイヤが参照するのに定義がない線種は実線として補う
-        let mut linetypes: Vec<(String, String, f64, Vec<f64>, Option<&str>)> = Vec::new();
+        struct Linetype<'b> {
+            name: String,
+            description: String,
+            /// 1 周期の長さと、線（正）・空白（負）・点（0）
+            length: f64,
+            dashes: Vec<f64>,
+            /// 元の線種のハンドル
+            original: Option<&'b str>,
+        }
+        let plain = |name: String, original: Option<&'a str>| Linetype {
+            name,
+            description: String::new(),
+            length: 0.0,
+            dashes: Vec::new(),
+            original,
+        };
+        let mut linetypes: Vec<Linetype> = Vec::new();
         let mut seen = HashSet::new();
         // 決まった線種は、図面の綴り（CONTINUOUS など）があればそれを使う
         let spelling = |name: &str| -> String {
@@ -632,33 +684,27 @@ impl<'a> Writer<'a> {
                 .map(|entity| entity.base.linetype.as_str())
                 .chain(doc.layers.iter().map(|layer| layer.linetype.as_str()))
                 .chain(doc.linetypes.iter().map(|linetype| linetype.name.as_str()))
-                .find(|candidate| upper(candidate) == upper(name))
+                .find(|candidate| candidate.eq_ignore_ascii_case(name))
                 .unwrap_or(name)
                 .to_string()
         };
         for name in ["ByBlock", "ByLayer", "Continuous"] {
             seen.insert(upper(name));
-            let original = doc.linetypes.iter().find(|linetype| upper(&linetype.name) == upper(name));
-            linetypes.push((
-                spelling(name),
-                String::new(),
-                0.0,
-                Vec::new(),
-                original.map(|linetype| linetype.handle.as_str()),
-            ));
+            let original = doc.linetypes.iter().find(|linetype| linetype.name.eq_ignore_ascii_case(name));
+            linetypes.push(plain(spelling(name), original.map(|linetype| linetype.handle.as_str())));
         }
         // 文字・形を含む線種は、表示と同じく線と空白だけを書く（文字・形は捨てる）
         let mut complex = 0;
         for linetype in &doc.linetypes {
             if seen.insert(upper(&linetype.name)) {
                 complex += u64::from(linetype.complex);
-                linetypes.push((
-                    linetype.name.clone(),
-                    linetype.description.clone(),
-                    linetype.pattern_length,
-                    linetype.dashes.clone(),
-                    Some(&linetype.handle),
-                ));
+                linetypes.push(Linetype {
+                    name: linetype.name.clone(),
+                    description: linetype.description.clone(),
+                    length: linetype.pattern_length,
+                    dashes: linetype.dashes.clone(),
+                    original: Some(&linetype.handle),
+                });
             }
         }
         if complex > 0 {
@@ -669,30 +715,29 @@ impl<'a> Writer<'a> {
                 complex,
             );
         }
-        let referenced: Vec<String> = all_entities(doc)
-            .map(|entity| entity.base.linetype.clone())
-            .chain(doc.layers.iter().map(|layer| layer.linetype.clone()))
-            .collect();
+        let referenced = all_entities(doc)
+            .map(|entity| entity.base.linetype.as_str())
+            .chain(doc.layers.iter().map(|layer| layer.linetype.as_str()));
         for name in referenced {
-            if !name.is_empty() && seen.insert(upper(&name)) {
-                linetypes.push((name, String::new(), 0.0, Vec::new(), None));
+            if !name.is_empty() && seen.insert(upper(name)) {
+                linetypes.push(plain(name.to_string(), None));
             }
         }
         self.table("LTYPE", ids[1], linetypes.len());
-        for (name, description, length, dashes, original) in &linetypes {
-            let handle = match original {
+        for linetype in &linetypes {
+            let handle = match linetype.original {
                 Some(original) => self.keep(original),
                 None => self.handles.fresh(),
             };
-            self.linetype_handles.insert(upper(name), handle);
-            self.record("LTYPE", handle, ids[1], "AcDbLinetypeTableRecord", name);
+            self.linetype_handles.insert(upper(&linetype.name), handle);
+            self.record("LTYPE", handle, ids[1], "AcDbLinetypeTableRecord", &linetype.name);
             let out = &mut self.out;
             out.tag(70, 0);
-            out.str(3, description);
+            out.str(3, &linetype.description);
             out.tag(72, 65);
-            out.tag(73, dashes.len());
-            out.real(40, if dashes.is_empty() { 0.0 } else { *length });
-            for dash in dashes {
+            out.tag(73, linetype.dashes.len());
+            out.real(40, if linetype.dashes.is_empty() { 0.0 } else { linetype.length });
+            for dash in &linetype.dashes {
                 out.real(49, *dash);
                 out.tag(74, 0);
             }
@@ -730,11 +775,11 @@ impl<'a> Writer<'a> {
             }
         }
         // 定義のないレイヤは表示が読む順に補い（表示と同じ番号になる）、レイヤ 0 は必ず置く（番号が変わらないよう最後に）
-        let names = layer_order(doc).into_iter().chain(std::iter::once("0".to_string()));
+        let names = layer_order(doc).into_iter().chain(std::iter::once("0"));
         for name in names {
-            if !name.is_empty() && seen.insert(upper(&name)) {
+            if !name.is_empty() && seen.insert(upper(name)) {
                 layers.push(Layer {
-                    name,
+                    name: name.to_string(),
                     handle: None,
                     color: 7.0,
                     true_color: None,
@@ -783,19 +828,17 @@ impl<'a> Writer<'a> {
                 styles.push((style.name.clone(), Some(style)));
             }
         }
-        let names: Vec<String> = all_entities(doc)
-            .filter_map(|entity| match &entity.data {
-                DxfEntityData::Text(text) | DxfEntityData::Attrib { text, .. } | DxfEntityData::Attdef { text, .. } => {
-                    Some(text.style.clone())
-                }
-                DxfEntityData::MText(mtext) => Some(mtext.style.clone()),
-                _ => None,
-            })
-            .collect();
+        let names = all_entities(doc).filter_map(|entity| match &entity.data {
+            DxfEntityData::Text(text) | DxfEntityData::Attrib { text, .. } | DxfEntityData::Attdef { text, .. } => {
+                Some(text.style.as_str())
+            }
+            DxfEntityData::MText(mtext) => Some(mtext.style.as_str()),
+            _ => None,
+        });
         // Standard は必ず置く（図面の綴りがあればそれを使う）
-        for name in names.into_iter().chain(std::iter::once("Standard".to_string())) {
-            if !name.is_empty() && seen.insert(upper(&name)) {
-                styles.push((name, None));
+        for name in names.chain(std::iter::once("Standard")) {
+            if !name.is_empty() && seen.insert(upper(name)) {
+                styles.push((name.to_string(), None));
             }
         }
         self.table("STYLE", ids[3], styles.len());
@@ -866,16 +909,14 @@ impl<'a> Writer<'a> {
                 dimstyles.push((style.name.clone(), Some(style)));
             }
         }
-        let names: Vec<String> = all_entities(doc)
-            .filter_map(|entity| match &entity.data {
-                DxfEntityData::Dimension(dimension) => Some(dimension.dimstyle.clone()),
-                DxfEntityData::Leader(leader) => Some(leader.dimstyle.clone()),
-                _ => None,
-            })
-            .collect();
+        let names = all_entities(doc).filter_map(|entity| match &entity.data {
+            DxfEntityData::Dimension(dimension) => Some(dimension.dimstyle.as_str()),
+            DxfEntityData::Leader(leader) => Some(leader.dimstyle.as_str()),
+            _ => None,
+        });
         for name in names {
-            if !name.is_empty() && seen.insert(upper(&name)) {
-                dimstyles.push((name, None));
+            if !name.is_empty() && seen.insert(upper(name)) {
+                dimstyles.push((name.to_string(), None));
             }
         }
         self.table("DIMSTYLE", ids[7], dimstyles.len());
@@ -2295,7 +2336,7 @@ mod tests {
     fn tags(written: &DxfWritten) -> Vec<(i32, String)> {
         let text = String::from_utf8(written.bytes.clone()).unwrap();
         let lines: Vec<&str> = text.split("\r\n").collect();
-        lines.chunks_exact(2).map(|pair| (pair[0].trim().parse().unwrap(), pair[1].to_string())).collect()
+        lines.as_chunks::<2>().0.iter().map(|[code, value]| (code.trim().parse().unwrap(), value.to_string())).collect()
     }
 
     fn codes(written: &DxfWritten) -> Vec<&str> {
@@ -2570,6 +2611,53 @@ mod tests {
         let tags = tags(&written);
         let style = tags.iter().position(|(code, value)| *code == 0 && value == "MLEADERSTYLE").unwrap();
         assert_eq!(tags[style + 1].1, after.style_handle);
+    }
+
+    /// CLASSES 節のクラスと数
+    fn classes(written: &DxfWritten) -> Vec<(String, String)> {
+        let tags = tags(written);
+        tags.iter()
+            .enumerate()
+            .filter(|(_, (code, value))| *code == 0 && value == "CLASS")
+            .map(|(index, _)| (tags[index + 1].1.clone(), tags[index + 5].1.clone()))
+            .collect()
+    }
+
+    #[test]
+    fn declares_the_classes_of_the_objects_written() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/dxf/features.dxf");
+        let written = write_dxf(&parse_dxf(&std::fs::read(path).unwrap()));
+        let declared = classes(&written);
+        for (name, count) in [("MLEADERSTYLE", "1"), ("MULTILEADER", "5"), ("WIPEOUT", "1"), ("LAYOUT", "2")] {
+            assert!(declared.contains(&(name.to_string(), count.to_string())), "{name} {count} not in {declared:?}");
+        }
+        // 書かない図形のクラスは置かない
+        let empty = write_dxf(&parse_dxf(&section("ENTITIES", &[])));
+        let names: Vec<String> = classes(&empty).into_iter().map(|(name, _)| name).collect();
+        assert_eq!(names, ["ACDBDICTIONARYWDFLT", "ACDBPLACEHOLDER", "LAYOUT", "MLEADERSTYLE"]);
+    }
+
+    #[test]
+    fn orders_missing_layers_of_deeply_nested_blocks_without_recursion() {
+        // ブロック B0 が B1 を、B1 が B2 を … と 20,000 段参照し、それぞれ定義のないレイヤ Lk の線を持つ
+        let depth = 20_000;
+        let mut text = String::from("0\nSECTION\n2\nBLOCKS\n");
+        for k in 0..depth {
+            let _ = write!(text, "0\nBLOCK\n8\n0\n2\nB{k}\n70\n0\n10\n0\n20\n0\n");
+            let _ = write!(text, "0\nLINE\n8\nL{k}\n10\n0\n20\n0\n11\n1\n21\n0\n");
+            if k + 1 < depth {
+                let _ = write!(text, "0\nINSERT\n8\n0\n2\nB{}\n10\n0\n20\n0\n", k + 1);
+            }
+            text.push_str("0\nENDBLK\n");
+        }
+        text.push_str(
+            "0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nINSERT\n8\nTOP\n2\nB0\n10\n0\n20\n0\n0\nENDSEC\n0\nEOF\n",
+        );
+        let again = parse_dxf(&write_dxf(&parse_dxf(text.as_bytes())).bytes);
+        let layers: Vec<&str> = again.layers.iter().map(|layer| layer.name.as_str()).collect();
+        assert_eq!(layers.len(), depth + 2);
+        assert_eq!(&layers[..3], ["TOP", "L0", "L1"]);
+        assert_eq!(layers.last(), Some(&"0"));
     }
 
     #[test]
