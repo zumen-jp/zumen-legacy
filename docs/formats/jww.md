@@ -2,7 +2,8 @@
 
 `@zumenjs/jww` reads JWW, the drawing format of Jw_cad, in TypeScript without WebAssembly. `zumen-jww`
 (`crates/zumen-jww`) is its Rust port and returns the same scenes; in Rust only, it also writes and edits JWW and reads
-and writes [JWC](#jwc-jw_cad-for-dos), the drawing file of Jw_cad for DOS.
+and writes [JWC](#jwc-jw_cad-for-dos), the drawing file of Jw_cad for DOS, and [JWS](#jws-registered-figures), the
+file of a registered figure.
 
 A JWW file is written by MFC's `CArchive`. The layout of the header and of each entity class follows Jw_cad's format
 description, [jwdatafmt.txt](https://www.jwcad.net/jwdatafmt.txt) (Jw_cad 7.02, data version 700, checked 2026-10-20).
@@ -328,14 +329,44 @@ written the nearest way it can and reported:
 
 Written JWC has not yet been opened in Jw_cad either.
 
+## JWS (registered figures)
+
+`zumen-jww` reads and writes JWS, the file of a figure registered in Jw_cad (図形登録), with its own reader `JWS`
+(format `jws`, detected by the signature `JwsData.`), in Rust only for the reasons given for JWC. JWS has no official
+description either: the header follows a
+[description posted to Jw_cad's forum](https://www.jwcad.net/log/consult2/consult2-0610-12/thread17752.htm) (for
+version 2.30, with a dump of version 4.20) and the findings of [ezjww](https://github.com/monozukuri-ai/ezjww) (MIT),
+which compared figures that Jw_cad 10.02.1 registered with the drawings they came from. zumen was checked against
+those 7 figures (versions 600 and 700, kept outside the repository): each is written back byte for byte; its entities
+are those of the drawing it came from, apart from the selection flags and two texts that Jw_cad lays out again when it
+registers them (the end of a text and the placement text of an image); and `write_jws` records the same extent as
+Jw_cad for 5 of them, and for the other 2 an extent at most 0.007 mm larger. No figure of an older version was at hand.
+
+- **Header** (452 bytes): the signature `JwsData.` and 192 bytes of `.`, the version (u32 at byte 200), the base point
+  for placing the figure (x, y), the scales of the 16 layer groups, 6 reserved integers and 6 reserved reals (Jw_cad
+  10 writes 1 to 6), and the extent Jw_cad recorded (minimum x and y, maximum x and y).
+- **Body**: the entity list and the block definitions of JWW, in the layout of that version, with no image section.
+  The old-format save of Jw_cad 10 writes header version 600 with class schemas 700; the schema is not checked.
+- Coordinates are paper millimeters, as in JWW. A JWS holds no sheet, pen colors, line types or layer names: a figure
+  takes those of the drawing it is placed in.
+
+`JwsFile::read` and `write` give back the same bytes: the reserved bytes are kept, and strings added to a file read
+use its encoding. `read_jws` returns a `JwsDocument` (the base point, the recorded extent, and the JWW drawing content
+with the version, the group scales, the entities and the block definitions) and reads up to where it can
+(`truncated`), as `read_jww` does. The scene (`jws_to_scene`, format `jws`) has no sheet, keeps paper millimeters and
+shows the base point in the metadata; it uses Jw_cad's default colors (`default-palette`). `write_jws` writes the
+entities as the JWW writer does (versions 200 to 700, with the same notices), computes the extent as Jw_cad does
+(lines and curves to their ends, texts by their start and end points, blocks by the entities they place; curves to
+their exact ends, where Jw_cad uses the points of the drawn curve), and reports `jws-settings` when the content has
+group or layer names, hidden or display-only layers, pen colors, widths, line types or a memo that a JWS cannot
+hold.
+
 ## Other files of Jw_cad
 
-- **JWS** (registered figures of Jw_cad for Windows): the signature `JwsData.`, a small header from byte 200 (version,
-  insertion origin, 16 layer group scales and the recorded extents) and then the same entity list and block definitions
-  as JWW. There is no official description; a reverse-engineered header of version 2.30 was posted to Jw_cad's forum,
-  and ezjww measured versions 351, 420, 600 and 700. zumen does not read it yet.
 - **JWK** (figures of Jw_cad for DOS): no public description or sample was found. Not read.
 - **JWF** (environment settings), `JWC_TEMP.TXT` (the text exchanged with external programs) and `.BAK` (a copy of a
   JWW) are not drawings and are not read.
 
 When appending JWC text would overflow the original 32-bit DOS pool address, the writer relocates the pool and all text references together. An unchanged pool keeps its original address and bytes.
+
+JWS also reports `jws-settings` when custom SXF colors or a printer width unit cannot be stored.

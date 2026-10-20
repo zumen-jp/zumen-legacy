@@ -138,7 +138,7 @@ impl JwwFile {
             let read = JwwHeader::read(bytes, start, version)
                 .and_then(|header| read_body(bytes, start, version).map(|body| (header, body)));
             match read {
-                Ok((header, (entities, blocks, trailer))) => {
+                Ok((header, Body { entities, blocks, trailer, .. })) => {
                     let unicode = strings_unicode(bytes);
                     let source = Some(FileSource { version, header: bytes[..start].to_vec(), unicode });
                     return Ok(Self { version, header, entities, blocks, trailer, source });
@@ -165,12 +165,7 @@ impl JwwFile {
             }
             _ => self.header.write(&mut out, version),
         }
-        let mut context = Context { version, reuse: source.is_some(), table: WriteTable::new(), notices: &mut notices };
-        context.records(&mut out, &self.entities);
-        out.count(self.blocks.len());
-        for block in &self.blocks {
-            context.block(&mut out, block);
-        }
+        write_body(&mut out, version, source.is_some(), &self.entities, &self.blocks, &mut notices);
         // 同梱画像の欄（件数の DWORD と画像）は版 700 以降。読んだファイルを同じ版で書くときはそのまま書き、版を
         // 700 より前に変えたときは書かない
         match self.source.as_ref().map(|source| source.version != version) {
@@ -187,20 +182,34 @@ impl JwwFile {
                 }
             }
         }
-        if out.replaced > 0 {
-            notices.add_count(
-                NoticeLevel::Warning,
-                "text-encoding",
-                "Shift_JIS で表せない文字を ? にしました（版 700 より前の JWW と、文字列が Shift_JIS の読んだファイル）",
-                out.replaced as u64,
-            );
-        }
+        report_replaced(&out, &mut notices);
         JwwWritten { bytes: out.bytes, notices: notices.into_vec() }
     }
 }
 
+/// Shift_JIS で表せずに ? にした文字の数を notices にする
+pub(crate) fn report_replaced(out: &Writer, notices: &mut NoticeList) {
+    if out.replaced > 0 {
+        notices.add_count(
+            NoticeLevel::Warning,
+            "text-encoding",
+            "Shift_JIS で表せない文字を ? にしました（版 700 より前と、文字列が Shift_JIS の読んだファイル）",
+            out.replaced as u64,
+        );
+    }
+}
+
+/// 図形の一覧とブロック定義の一覧（JWW と JWS で同じ）と、その後ろ
+pub(crate) struct Body {
+    pub(crate) entities: Vec<JwwRecord>,
+    pub(crate) blocks: Vec<JwwBlockRecord>,
+    pub(crate) trailer: Vec<u8>,
+    /// 最初の文字列が UTF-16LE だったか（文字列がなければ None）
+    pub(crate) unicode: Option<bool>,
+}
+
 /// 図形の一覧（とブロック定義）とその後ろを読む
-fn read_body(bytes: &[u8], start: usize, version: u32) -> Result<(Vec<JwwRecord>, Vec<JwwBlockRecord>, Vec<u8>)> {
+pub(crate) fn read_body(bytes: &[u8], start: usize, version: u32) -> Result<Body> {
     let mut reader = Reader::new(bytes, start);
     let mut table = ReadTable::new();
     let entities = read_records(&mut reader, bytes, version, &mut table)?;
@@ -226,7 +235,24 @@ fn read_body(bytes: &[u8], start: usize, version: u32) -> Result<(Vec<JwwRecord>
         let source = Some(BlockSource { tag, head });
         blocks.push(JwwBlockRecord { base, number, referenced, time, name, entities, source });
     }
-    Ok((entities, blocks, bytes[reader.pos()..].to_vec()))
+    Ok(Body { entities, blocks, trailer: bytes[reader.pos()..].to_vec(), unicode: reader.unicode })
+}
+
+/// 図形の一覧とブロック定義の一覧を書く（JWW と JWS で同じ）。reuse は読んだときと同じ版で書くとき
+pub(crate) fn write_body(
+    out: &mut Writer,
+    version: u32,
+    reuse: bool,
+    entities: &[JwwRecord],
+    blocks: &[JwwBlockRecord],
+    notices: &mut NoticeList,
+) {
+    let mut context = Context { version, reuse, table: WriteTable::new(), notices };
+    context.records(out, entities);
+    out.count(blocks.len());
+    for block in blocks {
+        context.block(out, block);
+    }
 }
 
 /// 図形の一覧を読む。空のオブジェクト（NULL）は内容がないので読み飛ばす
