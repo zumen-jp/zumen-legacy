@@ -330,3 +330,100 @@ fn rewrite_r2007(bytes: &[u8], notices: &mut NoticeList) -> Result<Vec<u8>, Stri
     let random_seed = container.header[r21::RANDOM_SEED];
     Ok(write_r2007(&R2007 { head, sections, stream_order, random_seed }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::write::object::ObjectWriter;
+    use crate::write::sections::object_map;
+
+    /// 書き直せる最小の R2007 の図面（読めるヘッダ変数はない）: 区切りで囲むヘッダ変数・クラスの節、オブジェクトと
+    /// オブジェクトの表、圧縮しない節
+    fn r2007_drawing() -> Vec<u8> {
+        let framed = |data: Vec<u8>, start: &[u8; 16], end: &[u8; 16], trailing: usize| {
+            Framed { extra: None, data, crc_ok: true }.bytes(start, end, trailing)
+        };
+        let header = framed((0..200).map(|index| index as u8).collect(), &HEADER_SENTINEL, &HEADER_END, 0);
+        let classes = framed(vec![0; 40], &CLASSES_SENTINEL, &CLASSES_END, 8);
+        let mut objects = Objects::default();
+        for index in 0..60usize {
+            let mut object = ObjectWriter::new(Version::R2007, encoding_rs::UTF_8, 0x2a, 0x100 + index as u64);
+            object.data.bl(index as i32);
+            object.tv("名前");
+            object.h(4, 0x0c);
+            objects.items.push(object.bytes());
+            objects.handles.push((0x100 + index as u64, index));
+        }
+        let (stream, locations) = objects.lay_out(0);
+        let section = |name: &str, data: Vec<u8>, max_size: usize, hash: u64, encoding: u64| DataSection21 {
+            name: name.into(),
+            data,
+            max_size,
+            encryption: 0,
+            hash,
+            encoding,
+            preview_base: None,
+        };
+        let sections = vec![
+            section("AcDb:SummaryInfo", vec![1; 0x40], 0x80, 0x717a_060f, 1),
+            section("AcDb:AcDbObjects", stream, 0xf800, 0x674c_05a9, 4),
+            section("AcDb:Handles", object_map(&locations), 0xf800, 0x3f6e_0450, 4),
+            section("AcDb:Classes", classes, 0xf800, 0x3f54_045f, 4),
+            section("AcDb:Header", header, 0x800, 0x32b8_03d9, 4),
+        ];
+        let mut head = [0u8; 0x80];
+        head[..6].copy_from_slice(b"AC1021");
+        head[0x0c] = 3;
+        head[0x28] = 0x80;
+        write_r2007(&R2007 { head, sections, stream_order: vec![0, 1, 2, 3, 4], random_seed: 0x5eed })
+    }
+
+    #[test]
+    fn r2007_drawings_are_rewritten_with_the_same_sections() {
+        let bytes = r2007_drawing();
+        let written = rewrite_dwg(&bytes).unwrap();
+        assert!(written.notices.is_empty(), "{:?}", written.notices);
+        crate::samples::check_r2007_container("rewritten", &written.bytes);
+        let (before, after) = (R2007Container::open(&bytes).unwrap(), R2007Container::open(&written.bytes).unwrap());
+        let mut notices = NoticeList::new();
+        for info in &before.sections {
+            let other = after.info(&info.name).unwrap();
+            assert_eq!(before.data(info, &mut notices), after.data(other, &mut notices), "{}", info.name);
+        }
+        // 書き直した図面をもう一度書き直しても同じバイト列
+        assert_eq!(rewrite_dwg(&written.bytes).unwrap().bytes, written.bytes);
+    }
+
+    /// 壊れた・途中で切れた R2007 の図面でも panic せず、すぐに終わる
+    #[test]
+    fn damaged_r2007_drawings_rewrite_without_panicking() {
+        let original = r2007_drawing();
+        let mut seed: u64 = 0x5eed_0007;
+        let mut random = move |bound: usize| {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (seed >> 33) as usize % bound.max(1)
+        };
+        for round in 0..300 {
+            let mut bytes = original.clone();
+            match round % 3 {
+                0 => bytes.truncate(random(bytes.len())),
+                1 => {
+                    for _ in 0..1 + random(8) {
+                        let at = random(bytes.len());
+                        bytes[at] = random(256) as u8;
+                    }
+                }
+                _ => {
+                    let at = random(bytes.len());
+                    let length = random(64).min(bytes.len() - at);
+                    bytes.drain(at..at + length);
+                }
+            }
+            let start = std::time::Instant::now();
+            if let Ok(written) = rewrite_dwg(&bytes) {
+                assert!(R2007Container::open(&written.bytes).is_ok(), "round {round}");
+            }
+            assert!(start.elapsed().as_secs() < 5, "round {round} took too long");
+        }
+    }
+}

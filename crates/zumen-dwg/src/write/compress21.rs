@@ -240,7 +240,8 @@ mod tests {
         assert!(round_trip(&text) < 400);
         assert!(round_trip(&vec![0u8; 0xf800]) < 300);
         // 遡る数と長さの境目（512、4096、8192、65535）
-        for gap in [3usize, 15, 16, 18, 19, 50, 51, 255, 256, 511, 512, 513, 4095, 4096, 4097, 8191, 8192, 8193, 60_000] {
+        for gap in [3usize, 15, 16, 18, 19, 50, 51, 255, 256, 511, 512, 513, 4095, 4096, 4097, 8191, 8192, 8193, 60_000]
+        {
             let mut data: Vec<u8> = (0..gap).map(|_| random(256) as u8).collect();
             let copy: Vec<u8> = data[..gap.min(400)].to_vec();
             data.extend_from_slice(&copy);
@@ -251,9 +252,9 @@ mod tests {
         // 写す命令が続く（文字のない）並び: 長さ 15 の繰り返しが続く
         let mut data: Vec<u8> = (0..15).map(|value| value as u8 * 7).collect();
         for _ in 0..40 {
-            data.extend_from_slice(&data[..15].to_vec());
+            data.extend_from_within(..15);
             data.push(random(256) as u8);
-            data.extend_from_slice(&data[..15].to_vec());
+            data.extend_from_within(..15);
         }
         round_trip(&data);
         // 長い文字の続きのバイト（0xFF と 16 ビットの値）

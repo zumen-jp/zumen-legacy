@@ -30,7 +30,7 @@ const DATA_K: usize = 251;
 const TABLE_SIZE: usize = 0x270;
 
 /// GF(2^8) の Reed-Solomon (255, k) の符号（5.13）
-struct ReedSolomon {
+pub(crate) struct ReedSolomon {
     k: usize,
     exp: [u8; 510],
     log: [u8; 256],
@@ -58,16 +58,26 @@ impl ReedSolomon {
         };
         // g(x) = (x + α)(x + α^2)…(x + α^(255 − k))
         let mut generator = vec![1u8];
-        for power in 1..=255 - k {
+        for &root in &exp[1..=255 - k] {
             let mut next = vec![0u8; generator.len() + 1];
             for (degree, &coefficient) in generator.iter().enumerate() {
                 next[degree + 1] ^= coefficient;
-                next[degree] ^= mul(coefficient, exp[power]);
+                next[degree] ^= mul(coefficient, root);
             }
             generator = next;
         }
         generator.pop();
         Self { k, exp, log, generator }
+    }
+
+    /// システムのページの符号（255, 239）
+    pub fn system() -> Self {
+        Self::new(SYSTEM_K, 0x169)
+    }
+
+    /// データのページの符号（255, 251）
+    pub fn data() -> Self {
+        Self::new(DATA_K, 0x11d)
     }
 
     fn mul(&self, a: u8, b: u8) -> u8 {
@@ -79,7 +89,7 @@ impl ReedSolomon {
     }
 
     /// k バイトの組の誤り訂正のバイト（255 − k 個、次数の低い順）。組の初めのバイトが次数の低い係数
-    fn parity(&self, block: &[u8]) -> Vec<u8> {
+    pub fn parity(&self, block: &[u8]) -> Vec<u8> {
         let n = 255 - self.k;
         let mut parity = vec![0u8; n];
         for &byte in block.iter().rev() {
@@ -155,6 +165,12 @@ impl Random21 {
         u64::from(low) | (u64::from(high) << 32)
     }
 
+    /// 詰め物の並び（512 バイト）
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn padding(&self) -> &[u8] {
+        &self.padding
+    }
+
     /// out が length バイトになるまで詰め物を足す（512 バイトの並びを初めから繰り返す）
     fn pad_to(&self, out: &mut Vec<u8>, length: usize) {
         let count = length.saturating_sub(out.len());
@@ -177,6 +193,12 @@ fn check_data(random: &mut Random21) -> [u64; 5] {
     let random1 = random.next();
     let random2 = random.next();
     let seed = random.encode(0);
+    let (normal, mirrored) = check_crcs(random1, random2);
+    [normal, mirrored, random1, random2, seed]
+}
+
+/// 確かめのデータの 2 つの CRC（normal, mirrored）。2 つのランダムの値から作る
+pub(crate) fn check_crcs(random1: u64, random2: u64) -> (u64, u64) {
     let mut buffer = [0u64; 8];
     buffer[0] = rotate(random1, random2);
     buffer[1] = rotate(buffer[0], buffer[0]);
@@ -196,7 +218,7 @@ fn check_data(random: &mut Random21) -> [u64; 5] {
     buffer[6] = rotate(random2, buffer[5]);
     buffer[7] = rotate(buffer[6], buffer[6]);
     let mirrored = crc64_mirrored(!random1, &words(&buffer));
-    [normal, mirrored, random1, random2, seed]
+    (normal, mirrored)
 }
 
 fn round_up(value: usize, unit: usize) -> usize {
@@ -242,7 +264,7 @@ fn system_page(data: &[u8], random: &Random21) -> SystemPage {
     }
     let blocks = buffer.len().div_ceil(SYSTEM_K);
     random.pad_to(&mut buffer, blocks * SYSTEM_K);
-    let mut bytes = ReedSolomon::new(SYSTEM_K, 0x169).interleaved(&buffer, blocks);
+    let mut bytes = ReedSolomon::system().interleaved(&buffer, blocks);
     random.pad_to(&mut bytes, page_size);
     SystemPage {
         bytes,
@@ -299,7 +321,7 @@ fn data_page(chunk: &[u8], section: &DataSection21, random: &Random21) -> (Vec<u
     let mut data = packed.clone();
     data.resize(aligned, 0);
     let blocks = aligned.div_ceil(DATA_K);
-    let rs = ReedSolomon::new(DATA_K, 0x11d);
+    let rs = ReedSolomon::data();
     let mut bytes = if section.encoding == 4 {
         random.pad_to(&mut data, blocks * DATA_K);
         rs.interleaved(&data, blocks)
@@ -347,9 +369,15 @@ fn section_map(sections: &[DataSection21], pages: &[Vec<PageEntry>]) -> Vec<u8> 
             }
         }
         for page in entries {
-            for value in
-                [page.offset, section.max_size as u64, page.id, page.uncompressed, page.compressed, page.checksum, page.crc]
-            {
+            for value in [
+                page.offset,
+                section.max_size as u64,
+                page.id,
+                page.uncompressed,
+                page.compressed,
+                page.checksum,
+                page.crc,
+            ] {
                 put(&mut map, value);
             }
         }
@@ -383,7 +411,7 @@ fn file_header_page(fields: &mut [u64; 34], random: &mut Random21) -> Vec<u8> {
         buffer.extend_from_slice(&block);
     }
     random.pad_to(&mut buffer, 3 * SYSTEM_K);
-    let mut page = ReedSolomon::new(SYSTEM_K, 0x169).interleaved(&buffer, 3);
+    let mut page = ReedSolomon::system().interleaved(&buffer, 3);
     random.pad_to(&mut page, 0x3d8);
     page.extend_from_slice(&words(&check_data(random)));
     page
@@ -442,8 +470,7 @@ pub(crate) fn write_r2007(file: &R2007) -> Vec<u8> {
     let (sections_id, sections2_id) = (id, id + 1);
     let (pages_id, pages2_id) = (id + 4, id + 5);
     let sections_size = sections_map.bytes.len() as u64;
-    let mut map_entries: Vec<(u64, u64)> =
-        vec![(page_map_size as u64, pages_id), (page_map_size as u64, pages2_id)];
+    let mut map_entries: Vec<(u64, u64)> = vec![(page_map_size as u64, pages_id), (page_map_size as u64, pages2_id)];
     map_entries.extend_from_slice(&page_sizes);
     map_entries.push((sections_size, sections_id));
     map_entries.push((sections_size, sections2_id));
@@ -537,6 +564,51 @@ mod tests {
                 assert_eq!(value, 0, "k {k} root α^{power}");
             }
         }
+    }
+
+    #[test]
+    fn written_containers_read_back() {
+        use crate::file::R2007Container;
+        use zumen_core::NoticeList;
+        // 圧縮しない節（符号化 1）、1 ページ、何ページにもなる節、0 だけの節、空の節
+        let objects: Vec<u8> = (0..150_000u32).map(|index| ((index * 7) % 251) as u8 ^ (index / 1000) as u8).collect();
+        let section = |name: &str, data: Vec<u8>, max_size: usize, hash: u64, encoding: u64| DataSection21 {
+            name: name.into(),
+            data,
+            max_size,
+            encryption: 0,
+            hash,
+            encoding,
+            preview_base: None,
+        };
+        let sections = vec![
+            section("AcDb:SummaryInfo", b"summary information".to_vec(), 0x80, 0x717a_060f, 1),
+            section("AcDb:Preview", Preview::empty().data, 0x400, 0x40aa_0473, 1),
+            section("AcDb:AcDbObjects", objects, 0xf800, 0x674c_05a9, 4),
+            section("AcDb:Template", vec![0; 6], 0x400, 0x4a14_04ce, 4),
+            section("AcDb:Empty", Vec::new(), 0xf800, 0, 4),
+            section("AcDb:Header", (0..0x340).map(|index| index as u8).collect(), 0x800, 0x32b8_03d9, 4),
+        ];
+        let mut head = [0u8; 0x80];
+        head[..6].copy_from_slice(b"AC1021");
+        head[0x28] = 0x80;
+        let expected: Vec<(String, Vec<u8>)> =
+            sections.iter().map(|section| (section.name.clone(), section.data.clone())).collect();
+        let bytes = write_r2007(&R2007 { head, sections, stream_order: vec![0, 1, 2, 3, 4, 5], random_seed: 0x5eed });
+        crate::samples::check_r2007_container("written", &bytes);
+        let container = R2007Container::open(&bytes).unwrap();
+        let mut notices = NoticeList::new();
+        let read: Vec<(String, Vec<u8>)> =
+            container.sections.iter().map(|info| (info.name.clone(), container.data(info, &mut notices))).collect();
+        assert_eq!(read, expected);
+        assert!(notices.into_vec().is_empty());
+        // Meta Data の節の位置はページの始まり
+        let page = |name: &str| container.page(container.info(name).unwrap().pages[0].id).unwrap().0 as u32;
+        let at = |offset: usize| u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap());
+        assert_eq!(at(0x0d), page("AcDb:Preview"));
+        assert_eq!(at(0x20), page("AcDb:SummaryInfo"));
+        // 同じ図面からは同じバイト列
+        assert_eq!(bytes.len() % 0x20, 0);
     }
 
     #[test]

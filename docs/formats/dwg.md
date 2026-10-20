@@ -149,7 +149,7 @@ ACAD_TABLE beyond its block, proxy graphics, and DWG files over the section limi
 `zumen-dwg` writes DWG in Rust, following the same specification, in two ways: `rewrite_dwg` copies a drawing, and
 `write_dwg` writes the AutoCAD drawing model ([New drawings](#new-drawings)).
 
-`rewrite_dwg(bytes)` reads a DWG and writes it back
+`rewrite_dwg(bytes)` reads a DWG of AutoCAD 2000 to 2018 (AC1015 to AC1032, R2007 included) and writes it back
 in the same version: every object is copied as its bits, without decoding and encoding it again, into a new objects
 section in the order of the source, and the object map is written for the new positions. The header variables and the
 classes are copied with their CRCs computed again, and every other section (AcDb:AuxHeader, AcDb:SummaryInfo,
@@ -173,8 +173,16 @@ it (`tests/writer`).
   next multiple of 0x20 is filled from the start of the magic sequence (4.3). The fields of the file header that point
   at pages (0x0D preview, 0x20 summary info, 0x24 VBA project, 0x2C app info, 0x30 app info history) get the new
   addresses; the other fields of the first 0x80 bytes are copied.
-- AC1021 (R2007) is not written yet, and R13 and R14 are not supported. A password-protected drawing (security flag 1 at
-  0x18) and a section over the section limit of reading are refused.
+- **AC1021 (R2007)**: the 0x80 bytes of meta data, the file header page at 0x80 (0x400 bytes), the page map and its copy,
+  the data pages in the order of the source, the section map and its copy, and the copy of the file header page at the
+  end (5.1). Every page is Reed-Solomon coded (5.13) and compressed with the R2007 compression (5.10) when that makes it
+  shorter; the sections keep their order, page size, encoding, encryption value and hash code. A page that holds only
+  zeros is written too (AutoCAD leaves it out; the reader reads a section without pages as empty). Pages of a section
+  hold the page size each, the last one the rest. The meta data fields that point at pages (0x0D preview, 0x20 summary
+  info, 0x24 VBA project, 0x2C app info) get the new addresses; the other fields are copied. The random seed of the file
+  header is kept, so the same drawing gives the same bytes.
+- R13 and R14 are not supported. A password-protected drawing (security flag 1 at 0x18, or an R2007 section with
+  encryption 1) and a section over the section limit of reading are refused.
 
 ### Checks
 
@@ -186,8 +194,14 @@ it (`tests/writer`).
 - **Page checksums (4.2)**, which are Adler-32 with a seed: the data checksum from 0 over the stored data; the page header
   checksum seeded with the data checksum, over the 32 bytes of the header with its own field set to zero (4.6); a
   system page from 0 over its 0x14-byte header with the checksum set to zero, then over its compressed data (4.3).
-- Every one of these values stored in the 17 sample drawings is computed again to the same value
-  (`src/samples.rs`, run with `ZUMEN_SAMPLES`).
+- **R2007 (5.2–5.4, 5.12, 5.13)**: Reed-Solomon parity of every block of the file header page, the system pages and the
+  data pages; 64-bit CRCs of the file header data (normal, seeded with UpdateSeed2 of its length) and of its compressed
+  form (the same), of the check sequence (normal, UpdateSeed1), of the page map and section map before and after
+  compression and of each data page as stored (mirrored, UpdateSeed1); the two CRCs of the check data at the end of the
+  file header page; and the checksum of each data page (5.4.1, seed 0, over the decompressed data).
+- Every one of these values stored in the 17 sample drawings of R2000 to R2018 and in 8 drawings of R2007 is computed
+  again to the same value, and the rewritten R2007 drawings pass the same checks (`src/samples.rs`, run with
+  `ZUMEN_SAMPLES`).
 
 ### Compression
 
@@ -199,6 +213,14 @@ them: a first byte above 0x11 for a short first run of literals (LZO's form; the
 ezdwg reads it as an instruction), so the first run is at least four bytes; and 0x18–0x1F, which the specification reads
 as lengths and ACadSharp as an offset bit. The rewritten R2004 to 2018 samples are 3 to 11% smaller than the files AutoCAD
 saved (`farmhouse.dwg`: 1.79 MB against 1.93 MB), and rewriting takes 75 ms for `farmhouse.dwg` (release build).
+
+The R2007 compression (5.10) finds matches the same way. It uses every instruction of 5.10.2, as AutoCAD's files do:
+0x30–0xFF for 3 to 15 bytes up to 512 back, 0x10–0x1F for 3 to 18 bytes up to 8,192 back, 0x00–0x0F for 19 to 50
+bytes up to 4,096 back (0xF0–0xFF right after another match, where 0x00–0x0F marks literals), 0x20–0x27 for up to 255
+bytes and 0x28–0x2F for longer ones up to 65,535 back. The low three bits of an instruction's last byte count the
+literals that follow (1 to 7); longer runs get a literal length byte, and a first run shorter than eight bytes is
+written after a zero-length 0x20 instruction, as AutoCAD writes it. Literals are stored in the byte order that
+decompression undoes (5.10.1). The rewritten R2007 samples are 2 to 3% smaller than AutoCAD's files.
 
 ### Inferred rules
 
@@ -226,6 +248,28 @@ saved (`farmhouse.dwg`: 1.79 MB against 1.93 MB), and rewriting takes 75 ms for 
   from an earlier save) and puts the copy of the file header right after the page map's trailer. zumen records the
   written page rounded up to 0x20 and puts the copy at the same place. The pages are numbered without the gaps that
   AutoCAD leaves before the section map.
+- **R2007 Reed-Solomon (5.13)**: system pages use (255, 239) with x^8 + x^6 + x^5 + x^3 + 1 (0x169), data pages
+  (255, 251) with x^8 + x^4 + x^3 + x^2 + 1 (0x11D); the generator polynomial has the roots α^1 to α^(255 − k); a block
+  is its data followed by its parity, lowest degree first (the byte order of the Rockliff implementation that the
+  specification names). The parity of every block of the R2007 samples is reproduced.
+- **R2007 CRCs and checksums (5.12, 5.4.1)**: the mirrored table is that of the polynomial 0xAD93D23594C935A9 (Jones,
+  bits reversed) and the normal one ECMA-182; the CRC seed of AutoCAD's files is 0. Which flavor and seed update each
+  value uses is not stated for all of them; the choices above are those that give the stored values. The page checksum
+  is computed over the decompressed data.
+- **R2007 padding (5.11)**: the bytes that fill a Reed-Solomon block, follow a page or follow the encoded file header
+  are the 512-byte padding of the random encoding seeded with the file header's RandomSeed, from its start (repeated for
+  longer gaps). AutoCAD fills the bytes up to a multiple of eight before encoding with leftovers of earlier data; zumen
+  writes zeros in pages and the padding in the file header, as the specification says, and pads the page map with the
+  padding from its start too.
+- **R2007 pages of encoding 1** (AcDb:SummaryInfo, AcDb:Preview, AcDb:AppInfo and others that are not compressed):
+  the data padded to a multiple of eight, then the parity of each block (the last block is filled with the padding for
+  the parity but the fill is not written), then padding. The page is as large as a page full of data would be (the page
+  size plus four bytes per block, rounded up to 0x20). A page of encoding 4 is its interleaved blocks rounded up to 0x20.
+- **R2007 maps**: the section map ends with an unnamed empty section (size 0, page size 0xF800, encoding 4), as in every
+  sample. AutoCAD numbers the data pages from 3 in file order, then the section map and its copy, and two numbers later
+  the page map and its copy; zumen does the same. The page size recorded for each page in the section map varies in
+  AutoCAD's files and is not read; zumen records the section's page size. The page map's copy follows the page map, the
+  section map's copy the section map, as in AutoCAD's smaller files.
 
 ### Notices
 
@@ -239,13 +283,18 @@ saved (`farmhouse.dwg`: 1.79 MB against 1.93 MB), and rewriting takes 75 ms for 
 
 ### Verification
 
-- Each rewritten sample (R2000 to R2018, 15 drawings) reads to the same `DxfDocument` and the same scene in every view
-  as the original, and rewriting it again gives the same bytes (`tests/write.rs`); damaged copies of the test drawings
-  are rewritten without panicking.
+- Each rewritten sample (R2000 to R2018, 15 drawings, and 8 drawings of R2007) reads to the same `DxfDocument` and the
+  same scene in every view as the original, and rewriting it again gives the same bytes (`tests/write.rs`); damaged
+  copies of the test drawings are rewritten without panicking. Every section of a rewritten R2007 drawing holds the same
+  data with the same properties as the original (`src/samples.rs`).
+- Without real drawings, a small R2007 drawing built in the tests is rewritten with the same sections and the same bytes
+  on a second rewrite, 300 damaged copies of it are rewritten without panicking, and sections of every kind written into
+  an R2007 container read back unchanged and pass the checks above (`src/write`).
 - [ezdwg](https://github.com/monozukuri-ai/ezdwg) 0.16.3 reads every rewritten sample to the same entities, layers,
   layouts and header variables as the original.
 - ACadSharp 3.8.26 (`DwgReader`, failsafe off) reads every rewritten sample to the same entities and the same
-  notifications as the original.
+  notifications as the original. It cannot read an R2007 file header that is not compressed, so zumen compresses it as
+  AutoCAD does.
 - ODA File Converter (audit and conversion to DXF) and DWG TrueView: not run yet.
 
 ### New drawings

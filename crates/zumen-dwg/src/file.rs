@@ -397,12 +397,13 @@ fn r21_system_page(bytes: &[u8], offset: u64, compressed: u64, uncompressed: u64
 pub(crate) struct Page21 {
     /// 節の中の位置
     pub offset: u64,
-    /// ファイルの中のページの大きさ
-    pub size: u64,
     pub id: i64,
     pub uncompressed: u64,
     pub compressed: u64,
+    /// 伸長したデータの検査の値（5.4.1）と、圧縮したデータの CRC。読み取りは使わない（samples.rs で確かめる）
+    #[cfg_attr(not(test), allow(dead_code))]
     pub checksum: u64,
+    #[cfg_attr(not(test), allow(dead_code))]
     pub crc: u64,
 }
 
@@ -415,7 +416,6 @@ pub(crate) struct Section21 {
     pub max_size: u64,
     pub encryption: u64,
     pub hash: u64,
-    pub unknown: u64,
     /// 1 は Reed-Solomon の組を順に並べる、4 は交互に並べる（5.13）
     pub encoding: u64,
     pub pages: Vec<Page21>,
@@ -423,7 +423,6 @@ pub(crate) struct Section21 {
 
 /// R2007 のファイルの頭のデータ（5.2）の値の位置（8 バイトずつ 34 個、0x110 バイト）
 pub(crate) mod r21 {
-    pub const PAGES_MAP_CRC_COMPRESSED: usize = 2;
     pub const PAGES_MAP_FACTOR: usize = 3;
     pub const PAGES_MAP_OFFSET: usize = 7;
     pub const PAGES_MAP_SIZE_COMPRESSED: usize = 10;
@@ -432,6 +431,8 @@ pub(crate) mod r21 {
     pub const SECTIONS_MAP_ID: usize = 24;
     pub const SECTIONS_MAP_SIZE_UNCOMPRESSED: usize = 25;
     pub const SECTIONS_MAP_FACTOR: usize = 27;
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub const HEADER2_OFFSET: usize = 9;
     pub const RANDOM_SEED: usize = 32;
     pub const FIELDS: usize = 34;
 }
@@ -441,8 +442,6 @@ pub(crate) struct R2007Container<'a> {
     bytes: &'a [u8],
     /// ファイルの頭のデータの値
     pub header: [u64; r21::FIELDS],
-    /// ページの表の並び（大きさ, 番号）
-    pub page_map: Vec<(u64, i64)>,
     /// ページの番号 → (0x480 からの位置, 大きさ)
     pages: HashMap<i64, (u64, u64)>,
     /// 節の表に並ぶ順の節（名前のあるもの）
@@ -486,12 +485,10 @@ impl<'a> R2007Container<'a> {
         )
         .ok_or_else(broken)?;
         let mut pages: HashMap<i64, (u64, u64)> = HashMap::new();
-        let mut order = Vec::new();
         let mut reader = Bits::new(&page_map);
         let mut offset = 0u64;
         while reader.remaining() >= 128 {
             let (Ok(size), Ok(id)) = (reader.rll(), reader.rll()) else { break };
-            order.push((size, id as i64));
             pages.entry((id as i64).wrapping_abs()).or_insert((offset, size));
             offset = offset.saturating_add(size);
         }
@@ -515,7 +512,7 @@ impl<'a> R2007Container<'a> {
                 let encryption = reader.rll()?;
                 let hash = reader.rll()?;
                 let name_length = reader.rll()?;
-                let unknown = reader.rll()?;
+                let _unknown = reader.rll()?;
                 let encoding = reader.rll()?;
                 let page_count = reader.rll()?;
                 // 名前の長さはバイトの数（終わりの 2 バイトの 0 を含む）。仕様は文字の数と書くが、ACadSharp と同じく
@@ -534,9 +531,10 @@ impl<'a> R2007Container<'a> {
                 }
                 let mut pages = Vec::new();
                 for _ in 0..page_count.min(1 << 20) {
+                    let offset = reader.rll()?;
+                    let _size = reader.rll()?;
                     pages.push(Page21 {
-                        offset: reader.rll()?,
-                        size: reader.rll()?,
+                        offset,
                         id: reader.rll()? as i64,
                         uncompressed: reader.rll()?,
                         compressed: reader.rll()?,
@@ -544,7 +542,7 @@ impl<'a> R2007Container<'a> {
                         crc: reader.rll()?,
                     });
                 }
-                Ok(Section21 { name, size, max_size, encryption, hash, unknown, encoding, pages })
+                Ok(Section21 { name, size, max_size, encryption, hash, encoding, pages })
             })() else {
                 break;
             };
@@ -552,7 +550,7 @@ impl<'a> R2007Container<'a> {
                 sections.push(section);
             }
         }
-        Ok(Self { bytes, header, page_map: order, pages, sections })
+        Ok(Self { bytes, header, pages, sections })
     }
 
     pub fn info(&self, name: &str) -> Option<&Section21> {
