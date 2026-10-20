@@ -27,7 +27,7 @@ Usage:
                [--theme light|dark] [--thin] [--format <name>] [--view <id>]
   zumen compare <before> <after> [--tolerance <mm>] [--style] [--all-layers] [--no-align]
                 [-o <overlay.png> [--dpi <n> | --size <w>x<h>]] [--format <name>] [--view <id>]
-  zumen convert <file> -o <out.dxf|out.sfc> [--format <name>]
+  zumen convert <file> -o <out.dxf|out.sfc> [--target-version <version>] [--format <name>]
   zumen edit <file> <operations.json> -o <out> [--format <name>]
   zumen create <operations.json> -o <out.dxf> [--units mm|cm|m|inch|foot|unitless]
 
@@ -48,7 +48,8 @@ the conversion between pixels and paper millimeters, and the pixel box of every 
 compare matches entities by shape and text (not by id) and writes the removed, added and changed
 entities and the regions that changed as JSON; -o draws them over the unchanged ones (red before,
 blue after, gray unchanged).
-convert writes a drawing as DXF (AutoCAD 2013, UTF-8) or SFC (SXF Ver.3.1, CP932), by the extension of the output,
+convert writes a drawing as DXF (AutoCAD 2013, UTF-8, or the version of --target-version: 2000, 2004, 2007, 2010, 2013
+or 2018, before 2007 in a code page such as ANSI_932) or SFC (SXF Ver.3.1, CP932), by the extension of the output,
 and reports what it could not write. SXF and JWW are mapped into the AutoCAD model: model space at real size, the
 sheet as a layout with a viewport for each scale. SFC is written from that model: the layout is the sheet, each
 viewport a sub-figure at its scale and each block a drawing part.
@@ -77,6 +78,7 @@ struct Args {
     map: Option<String>,
     tolerance: f64,
     units: String,
+    target_version: Option<String>,
     style: bool,
     align: bool,
     limits: ReadLimits,
@@ -125,6 +127,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
         map: None,
         tolerance: 0.01,
         units: "mm".into(),
+        target_version: None,
         style: false,
         align: true,
         limits: ReadLimits::default(),
@@ -161,6 +164,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
             }
             "--style" => parsed.style = true,
             "--units" => parsed.units = value("--units")?,
+            "--target-version" => parsed.target_version = Some(value("--target-version")?),
             "--no-align" => parsed.align = false,
             "--max-bytes" => {
                 parsed.limits.max_bytes = Some(value("--max-bytes")?.parse().map_err(|_| "--max-bytes needs a count")?)
@@ -496,7 +500,8 @@ fn run(args: Args) -> Result<(), String> {
         // 書く形式は出力のファイルの拡張子
         let to = extension(&output);
         let options = ReadDrawingOptions { format: args.format.clone(), view: None, limits: args.limits };
-        let converted = zumen::convert(&bytes, &to, &options).map_err(|error| error.to_string())?;
+        let write = zumen::WriteOptions { version: args.target_version.clone() };
+        let converted = zumen::convert_with(&bytes, &to, &options, &write).map_err(|error| error.to_string())?;
         std::fs::write(&output, &converted.bytes).map_err(|error| format!("{output}: {error}"))?;
         print_notices(&converted.notices);
         return Ok(());

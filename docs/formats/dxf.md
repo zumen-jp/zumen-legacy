@@ -302,6 +302,34 @@ What cannot be written as it was is reported in `notices`:
 | `missing-block` | A block reference without a definition gets an empty block |
 | `mleader-block` | A multileader whose content block is missing is written without its content |
 
+### Versions (`write_dxf_as`)
+
+`write_dxf_as(doc, version)` writes AutoCAD 2000 (AC1015), 2004 (AC1018), 2007 (AC1021), 2010 (AC1024), 2013 (AC1027,
+the default of `write_dxf`) or 2018 (AC1032); R12 is not written yet. `zumen::convert_with` takes the version in
+`WriteOptions`, `zumen.convert(..., version="2000")` in Python and `zumen convert --target-version 2000` on the command
+line. `DxfVersion::parse` reads `2000`, `R2000` and `AC1015` alike. `$ACADVER` and `$ACADMAINTVER` are the values that
+ezdxf 1.4.5 writes for each version.
+
+- **Text encoding**: 2007 and later are UTF-8. Earlier versions are written in a code page (DXF Reference "Storage of
+  String Values"): the drawing's `$DWGCODEPAGE` when it is not western, else the code page of the encoding it was read
+  in when that is not western, else the ANSI code page that holds the most characters of its texts. On a tie the
+  single-byte code pages come first (ANSI_1252, 1250, 1251, 1253, 1254, 1257, 1258, 1255, 1256 and 874), then
+  ANSI_932, 936, 949 and 950: kana and kanji give ANSI_932, simplified Chinese ANSI_936, Hangul ANSI_949, and
+  Cyrillic ANSI_1251 although Shift_JIS has it too. A character the code page cannot hold is written as `\U+XXXX`,
+  which AutoCAD and zumen read back as the character; one outside the Basic Multilingual Plane is written as the two
+  escapes of its UTF-16 surrogates, which zumen reads back as one character.
+- **What a version cannot hold** is left out or written in another form, following the versions of ezdxf's attributes,
+  and reported:
+
+| Code | Versions | What is written |
+| --- | --- | --- |
+| `version-color` | 2000 | True colors (420) as the nearest ACI (62), for entities and layers |
+| `version-transparency` | 2000 | Transparency (440, and the `AcCmTransparency` data of layers) is left out |
+| `version-gradient` | 2000 | A gradient hatch is filled with its first color |
+| `version-dimension` | 2000 | ARC_DIMENSION and LARGE_RADIAL_DIMENSION are written as the INSERT of their block |
+| `version-background` | 2000, 2004 | The background fill of MTEXT (90, 63, 421, 45, 441) is left out, also in blocks: the text fill of a dimension (DIMTFILL, 2007 and later) is the MTEXT in its block |
+| `version-mleader` | 2000, 2004 | MULTILEADER is written as it is, as ezdxf writes it; AutoCAD before 2008 does not know it |
+
 ## Editing (`edit_dxf`)
 
 `zumen_dxf::edit_dxf` (through `zumen::edit`) changes a DXF drawing in place with the operations of
@@ -355,5 +383,6 @@ stay, and an edit without operations gives the same bytes.
 
 ## Verification
 
-See [verification.md](../verification.md#dxf) and [DXF writing](../verification.md#dxf-writing). The parser was compared with ezdxf 1.4.5 on public Japanese drawings
+See [verification.md](../verification.md#dxf), [DXF writing](../verification.md#dxf-writing) and
+[DXF versions](../verification.md#dxf-versions). The parser was compared with ezdxf 1.4.5 on public Japanese drawings
 (Yokosuka City and Imizu City), the ACadSharp samples (R12 to 2018, ASCII and binary) and generated drawings.
