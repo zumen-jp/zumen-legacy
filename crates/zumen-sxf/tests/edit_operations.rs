@@ -358,3 +358,20 @@ fn new_drawings_are_created_by_editing_an_empty_one() {
         assert_eq!(scene.layers.iter().map(|layer| layer.name.as_str()).collect::<Vec<_>>(), ["外構"], "{format}");
     }
 }
+
+#[test]
+fn adding_non_curve_elements_reports_unused_line_attributes() {
+    for format in ["sfc", "p21", "sfz", "p2z"] {
+        let source = new_sxf(format).unwrap();
+        let edited = edit_sxf(
+            &source,
+            format,
+            &operations(json!([
+                {"op":"add", "kind":"point", "position":[1,2], "lineType":"continuous", "lineWidth":0.5},
+                {"op":"add", "kind":"text", "position":[3,4], "text":"note", "height":2, "lineWidth":0.5}
+            ])),
+        )
+        .unwrap();
+        assert!(edited.notices.iter().any(|notice| notice.code == "edit-unused-attributes" && notice.count == 2));
+    }
+}

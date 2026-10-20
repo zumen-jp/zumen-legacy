@@ -480,6 +480,18 @@ impl Editor {
                 }
             }
         };
+        let unused = match kind {
+            "point" | "text" => reader.has("lineType") || reader.has("lineWidth"),
+            BLOCK_REFERENCE => reader.has("color") || reader.has("lineType") || reader.has("lineWidth"),
+            _ => false,
+        };
+        if unused {
+            self.notices.add(
+                NoticeLevel::Info,
+                "edit-unused-attributes",
+                "点・文字の線種と線幅、または複合図形配置の色・線種・線幅は SXF にないため、指定を使っていません",
+            );
+        }
         self.members_mut(&figure, |members| members.push(feature));
         self.created.push(Created::Feature(id));
         Ok(())
