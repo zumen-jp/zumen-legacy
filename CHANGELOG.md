@@ -4,6 +4,11 @@ All packages share one version during 0.x.
 
 ## Unreleased
 
+- Rust, Python and the command line: `zumen::convert` writes every format as DWG (AutoCAD 2013), JWW and SXF (SFC,
+  P21, SFZ and P2Z, with `version="2.0"`, `"3.0"` or `"3.1"`) besides DXF, and `zumen::edit` and `zumen::create`
+  handle DWG, JWW and SXF besides DXF. JWC and JWS drawings are read and converted like JWW. New JWW and SXF drawings
+  are in millimeters, so `create` takes only `units="mm"` for them.
+
 ## 0.1.0 — 2026-10-20
 
 - First public release under the MIT license, with third-party license notices, four npm packages

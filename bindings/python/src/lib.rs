@@ -946,7 +946,8 @@ fn edit(
     Ok(Edited { inner: edited })
 }
 
-/// 新しい図面を作り、操作を当てる。to は形式（dxf）、units は長さの単位（mm・cm・m・inch・foot・unitless）
+/// 新しい図面を作り、操作を当てる。to は形式（dxf・dwg・jww・sfc・p21・sfz・p2z）、units は長さの単位
+/// （mm・cm・m・inch・foot・unitless。JWW と SXF は mm だけ）
 #[pyfunction]
 #[pyo3(signature = (to, operations = None, *, units = "mm".to_string()))]
 fn create(py: Python<'_>, to: String, operations: Option<&Bound<'_, PyAny>>, units: String) -> PyResult<Edited> {
@@ -1115,7 +1116,7 @@ fn compare(
     Ok(Comparison { before: a, after: b, diff, overlay: OnceLock::new() })
 }
 
-/// 図面を読み、to の形式（dxf）に書き直す。どの形式の図面も書き直せる（SXF・JWW は AutoCAD の図面のモデルに写す）。
+/// 図面を読み、to の形式（dxf・dwg・jww・sfc・p21・sfz・p2z）に書き直す。どの形式の図面も書き直せる（SXF・JWW は AutoCAD の図面のモデルに写す）。
 /// format は分かっている場合の読む形式
 #[pyfunction]
 #[pyo3(signature = (data, to, *, format = None, version = None))]
