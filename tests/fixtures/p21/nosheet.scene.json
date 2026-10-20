@@ -1,6 +1,7 @@
 {
   "format": "p21",
   "version": "SXF",
+  "unit": "millimeter",
   "sheet": null,
   "bounds": {
     "minX": null,

@@ -275,6 +275,7 @@ mod tests {
         Scene {
             format: "test".into(),
             version: "1".into(),
+            unit: None,
             views: None,
             view: None,
             sheet: None,

@@ -1,6 +1,7 @@
 {
   "format": "dwg",
   "version": "DWG AC1015",
+  "unit": "meter",
   "views": [
     {
       "id": "Model",

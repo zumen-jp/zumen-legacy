@@ -1,6 +1,7 @@
 {
   "format": "dxf",
   "version": "DXF AC1009",
+  "unit": "inch",
   "views": [
     {
       "id": "Model",
@@ -33,7 +34,7 @@
   ],
   "entities": [
     {
-      "id": "?",
+      "id": "#21",
       "kind": "line",
       "type": "線分",
       "source": "LINE",
@@ -73,7 +74,7 @@
         {
           "key": "id",
           "label": "ハンドル",
-          "value": "?"
+          "value": "#21"
         },
         {
           "key": "layer",
@@ -137,7 +138,7 @@
       }
     },
     {
-      "id": "?",
+      "id": "#22",
       "kind": "polyline",
       "type": "ポリライン",
       "source": "POLYLINE",
@@ -398,7 +399,7 @@
         {
           "key": "id",
           "label": "ハンドル",
-          "value": "?"
+          "value": "#22"
         },
         {
           "key": "layer",
@@ -444,7 +445,7 @@
       }
     },
     {
-      "id": "?>?",
+      "id": "#27>#16",
       "kind": "circle",
       "type": "円",
       "source": "CIRCLE",
@@ -701,7 +702,7 @@
         {
           "key": "id",
           "label": "ハンドル",
-          "value": "?>?"
+          "value": "#27>#16"
         },
         {
           "key": "layer",
@@ -761,7 +762,7 @@
       }
     },
     {
-      "id": "?>?",
+      "id": "#27>#28",
       "kind": "attribute",
       "type": "属性",
       "source": "ATTRIB",
@@ -820,7 +821,7 @@
         {
           "key": "id",
           "label": "ハンドル",
-          "value": "?>?"
+          "value": "#27>#28"
         },
         {
           "key": "layer",

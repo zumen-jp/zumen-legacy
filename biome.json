@@ -8,6 +8,7 @@
       "!!**/dist",
       "!!**/playground-dist",
       "!!**/tests/fixtures",
+      "!crates/zumen/tests/ids.json",
       "!**/pnpm-lock.yaml"
     ]
   },

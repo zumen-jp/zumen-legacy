@@ -13,6 +13,14 @@ All packages share one version during 0.x.
   changes byte for byte, so extended data, objects and unread entities stay. `zumen::edit` and `zumen::create`,
   `zumen.edit`, `zumen.create`, `Edited` and `EditError` in Python, and `zumen edit` and `zumen create`.
 
+- The length unit of a drawing: `Scene.unit`, one of `LENGTH_UNITS` (`LengthUnit` in Rust), is the unit of the
+  drawing's own coordinates (the `raw` points and lengths of properties): `millimeter` in SXF and JWW, and in DXF and
+  DWG the unit of `$INSUNITS` (`inch`, `meter`, …), or the one assumed with the `unit-assumed` notice. `Scene.unit` in
+  Python, and `unit` in `zumen.tools.summary`.
+- Entity ids are a contract: the same bytes give the same ids in every version
+  ([Entity ids](docs/architecture.md#entity-ids)), and `crates/zumen/tests/ids.rs` checks them on every fixture. DXF
+  entities without a handle (files written without handles, such as many R12 files) all had the id `?`; they are now
+  `#n`, the number of their record in the file, unique like a handle.
 - Python: `zumen.tools`, the functions behind the MCP tools for applications that give an AI agent tools of their
   own (`summary`, `render`, `find_texts`, `find_entities`, `get_entity`, `measure`, `compare_revisions`, `Drawings`).
   Their results are JSON with keys described by `TypedDict` classes that are part of the API, bounded by `limit`,

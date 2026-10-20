@@ -278,6 +278,13 @@ impl Scene {
         &self.inner.version
     }
 
+    /// 図面の座標（values の点・長さ）の長さの単位（millimeter、inch、meter など）。SXF・JWW は millimeter、
+    /// DXF・DWG は $INSUNITS（指定がなければ見なした単位）
+    #[getter]
+    fn unit(&self) -> Option<&'static str> {
+        self.inner.unit.map(|unit| unit.name())
+    }
+
     /// 図面の作成時に想定された背景（dark か light）
     #[getter]
     fn background(&self) -> &'static str {

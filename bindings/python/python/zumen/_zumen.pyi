@@ -15,6 +15,29 @@ class Placement(TypedDict):
 
 Point: TypeAlias = tuple[float, float]
 PropertyValue: TypeAlias = float | str | bool | tuple[float, ...]
+LengthUnit: TypeAlias = Literal[
+    "millimeter",
+    "centimeter",
+    "decimeter",
+    "meter",
+    "decameter",
+    "hectometer",
+    "kilometer",
+    "gigameter",
+    "micrometer",
+    "nanometer",
+    "angstrom",
+    "inch",
+    "foot",
+    "yard",
+    "mile",
+    "microinch",
+    "mil",
+    "us-survey-foot",
+    "astronomical-unit",
+    "light-year",
+    "parsec",
+]
 
 class Polyline(TypedDict):
     """A line through points; curves come as the polyline drawn (type checking only)."""
@@ -148,6 +171,9 @@ class Scene:
     def format(self) -> str: ...
     @property
     def version(self) -> str: ...
+    @property
+    def unit(self) -> LengthUnit | None:
+        """The length unit of the drawing's own coordinates (the points and lengths in ``values``)."""
     @property
     def background(self) -> Literal["dark", "light"]: ...
     @property

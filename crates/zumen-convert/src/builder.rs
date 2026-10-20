@@ -410,6 +410,7 @@ impl Builder {
             base: DxfEntityBase {
                 kind: kind.to_string(),
                 handle: handle.clone(),
+                ordinal: 0,
                 owner: None,
                 space: space_kind,
                 block,

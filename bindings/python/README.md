@@ -30,6 +30,12 @@ rows = scene.entities(hidden_layers=[])  # [] includes the layers that the drawi
 table = scene.to_arrow()  # a pyarrow.Table, for pandas, Polars or DuckDB (pip install "zumen[arrow]")
 ```
 
+`scene.unit` is the length unit of the drawing's own coordinates, those of `values` (`"millimeter"` in SXF and JWW,
+the unit of `$INSUNITS` in DXF and DWG, such as `"inch"` or `"meter"`). Entity ids come from the file (an SXF instance
+number, a JWW record, a DXF or DWG handle, with the placements or block references the entity sits in) and stay the
+same for the same bytes in every version, so they can be stored and looked up again with `scene.entity(id)`
+([Entity ids](../../docs/architecture.md#entity-ids)).
+
 `texts` joins the parts of a text that share a line and puts a line break between lines.
 `properties` are the label and value pairs that the format gives, as in the viewer's property panel, and `values`
 maps their stable keys (`layer`, `start`, `radius`, `text` …) to the unformatted values, such as numbers and `(x, y)`.
@@ -200,7 +206,7 @@ read and report what the drawing holds; interpreting it is left to the agent.
 from zumen import tools
 
 scene = zumen.read(data, max_bytes=200_000_000, max_entities=1_000_000, timeout=30)
-info = tools.summary(scene)  # format, sheet, bounds (the frame), layers, kinds, placements, title block
+info = tools.summary(scene)  # format, unit, sheet, bounds (the frame), layers, kinds, placements, title block
 png, image = tools.render(scene, frame_region=[0.5, 0, 1, 0.5])  # the top right quarter, 1,568 pixels long
 page = tools.find_texts(scene, query="平面図", limit=50)  # texts with their position, height and box
 walls = tools.find_entities(scene, kind="polyline", layer="壁", geometry=True)  # with their shapes
@@ -210,7 +216,7 @@ tools.measure(scene, [10, 20], [110, 20])  # on the sheet, and in real-world mil
 
 | Function | Result | What it returns |
 | --- | --- | --- |
-| `summary` | `Summary` | Format, sheet, `bounds` (the frame), views, layers with entity counts, counts by type and kind, the placements drawn at a scale, notices, metadata and the title block fields |
+| `summary` | `Summary` | Format, the length unit of `values`, sheet, `bounds` (the frame), views, layers with entity counts, counts by type and kind, the placements drawn at a scale, notices, metadata and the title block fields |
 | `render` | `bytes`, `RenderInfo` | A PNG of the frame or a region, the region shown, the scale between pixels and paper millimeters, and the texts drawn with their pixel boxes |
 | `find_texts` | `TextPage` | Texts that contain a query (ignoring full-width and half-width forms, case and spaces), with position, height, angle and box |
 | `find_entities` | `EntityPage` | Entities in a region by kind, Japanese type or layer, with counts, and their shapes when asked |
@@ -232,6 +238,8 @@ tools.measure(scene, [10, 20], [110, 20])  # on the sheet, and in real-world mil
   the last eight scenes until their files change. A `Scene` does not change once read, so applications can keep scenes
   in their own cache and call the functions from threads (`asyncio.to_thread`); reading, rendering and comparing
   release the GIL. Errors that the agent can act on raise `tools.DrawingError` with an English message.
+- **Ids.** Entity ids come from the file and stay the same for the same bytes, so an application can cite an entity
+  by its id (next to the file's digest) and fetch it again later with `get_entity`.
 - Texts, names and properties come from the drawing file: agents should treat them as data, not as instructions.
 
 ## Drawings from others
