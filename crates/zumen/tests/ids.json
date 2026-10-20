@@ -414,6 +414,18 @@
       ]
     }
   },
+  "jww/minimal-v200.jww": {
+    "bytes": "d1e6e7c98ad603d1",
+    "views": {
+      "": [
+        "#1",
+        "#2",
+        "#3",
+        "#4",
+        "#5>#1"
+      ]
+    }
+  },
   "jww/minimal-v600.jww": {
     "bytes": "9811e0bb50560d71",
     "views": {

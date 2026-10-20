@@ -14,6 +14,7 @@ use crate::features::{
     SfigOrg, Styled, SxfFeature, TextFont, UserColour, UserLineType, WidthDefinition,
 };
 use crate::tables::{PREDEFINED_COLORS, PREDEFINED_LINE_TYPES, PREDEFINED_WIDTHS};
+use crate::version::{SxfVersion, downgrade};
 use encoding_rs::SHIFT_JIS;
 use std::collections::{HashMap, HashSet};
 use zumen_core::{Notice, NoticeLevel, NoticeList};
@@ -264,6 +265,7 @@ pub(crate) fn definition(item: Definition<'_>) -> (&'static str, &'static str, V
                     }
                 })
                 .collect();
+            // 図面表題欄は Ver.3.0 で加わった
             ("drawing_attribute_feature", "3", params)
         }
         Definition::Sheet(sheet) => (
@@ -344,7 +346,8 @@ pub(crate) fn drawable(feature: &SxfFeature) -> Option<(&'static str, &'static s
                 Num(*start_length),
                 Num(*end_length),
             ]);
-            ("clothoid_feature", "3", params)
+            // クロソイド曲線は Ver.3.1 で加わった
+            ("clothoid_feature", "3.1", params)
         }
         SxfFeature::SfigLocate { layer, name, x, y, angle, ratio_x, ratio_y, .. } => (
             "sfig_locate_feature",
@@ -389,9 +392,11 @@ pub(crate) fn drawable(feature: &SxfFeature) -> Option<(&'static str, &'static s
             arrow(&mut params, &dimension.arrow1);
             arrow(&mut params, &dimension.arrow2);
             annotation(&mut params, &dimension.text);
-            let name =
-                if matches!(feature, SxfFeature::CurveDim(_)) { "curve_dim_feature" } else { "angular_dim_feature" };
-            (name, "", params)
+            // 弧長寸法は Ver.3.1 で加わった
+            match feature {
+                SxfFeature::CurveDim(_) => ("curve_dim_feature", "3.1", params),
+                _ => ("angular_dim_feature", "", params),
+            }
         }
         SxfFeature::RadiusDim { style, line, arrow: tip, text } => {
             let mut params = styled(style);
@@ -568,10 +573,12 @@ pub(crate) fn sub_figure_order(doc: &SxfDocument) -> Vec<String> {
     out
 }
 
-/// SXF の図面を SFC ファイル（SXF Ver.3.1）に新しく書く（番号を 10 から振り直す）
-pub(crate) fn write_sfc_new(drawing: &SxfDrawing) -> SxfWritten {
-    let doc = &drawing.document;
+/// SXF の図面を SFC ファイルの版 version に新しく書く（番号を 10 から振り直す）。その版にないフィーチャは近い形に
+/// する（version.rs）
+pub(crate) fn write_sfc_new(drawing: &SxfDrawing, version: SxfVersion) -> SxfWritten {
     let mut writer = Writer { out: Vec::new(), notices: NoticeList::new(), next: 10.0, ids: Vec::new() };
+    let document = downgrade(&drawing.document, version, &mut writer.notices);
+    let doc = document.as_ref();
     let header = &drawing.header;
     let file_name = if header.file_name.is_empty() { "drawing.sfc" } else { header.file_name.as_str() };
     let quote = |writer: &mut Writer, value: &str| {
@@ -585,8 +592,8 @@ pub(crate) fn write_sfc_new(drawing: &SxfDrawing) -> SxfWritten {
     let name = quote(&mut writer, file_name);
     head.extend(name);
     head.extend_from_slice(b",'',(''),(''),");
-    // 出力ライブラリ名の末尾の $$3.1 が SXF の版（読み取りの sxf_version）
-    let preprocessor = quote(&mut writer, "zumen$$3.1");
+    // 出力ライブラリ名の末尾の $$3.1 などが SXF の版（読み取りの sxf_version）
+    let preprocessor = quote(&mut writer, &format!("zumen$${}", version.as_str()));
     head.extend(preprocessor);
     head.push(b',');
     let system = if header.originating_system.is_empty() { "zumen" } else { header.originating_system.as_str() };

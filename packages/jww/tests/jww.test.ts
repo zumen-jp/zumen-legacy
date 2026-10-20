@@ -65,6 +65,14 @@ describe("JWW の読み取り", () => {
     expect(points(entity(scene.entities, "#5>#1"))).toEqual([260, 148.5, 262, 148.5]);
   });
 
+  it("版 300 より前の図面も、ヘッダのレイヤ名・線色・線幅・線種を読む", () => {
+    const old = readDrawing(build(200), [jww]);
+    expect(old.layers).toContainEqual({ id: 1, name: "0-0 通り芯", visible: true, group: "平面" });
+    expect(entity(old.entities, "#1").primitives[0]).toMatchObject({ width: 0.25, dashes: [] });
+    expect(entity(old.entities, "#2").primitives[0]).toMatchObject({ dashes: [2, 2] });
+    expect(old.notices.map((notice) => notice.code)).not.toContain("default-palette");
+  });
+
   it.each([600, 700])("版 %i の文字列（CP932・UTF-16）を復号する", (version) => {
     const text = entity(readDrawing(build(version), [jww]).entities, "#3");
     expect(text.properties).toContainEqual({ key: "text", label: "文字列", value: "表示ソ能" });
