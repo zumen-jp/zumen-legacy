@@ -1,13 +1,13 @@
 """Checks the wheels and the sdist that maturin built (CI: .github/workflows/python-wheels.yml).
 
-    python bindings/python/scripts/check_dist.py <folder with the wheels and the sdist>
-
 The bundled font (BIZ UDGothic, SIL Open Font License 1.1) is compiled into the extension module, and the license asks
 every copy of the font to carry its text. So a wheel must hold the bytes of the font in its module and the text of the
 license in dist-info/licenses, and the sdist the font and the license that building it needs. A wheel must also be an
-abi3 wheel (one file for every Python from 3.10) with a manylinux or macOS tag, never a bare linux_x86_64.
+abi3 wheel (one file for every Python from 3.10) with a manylinux or macOS tag, never a bare linux_x86_64, unless
+--any-platform accepts the tag of a wheel that was built on the machine itself.
 """
 
+import argparse
 import re
 import sys
 import tarfile
@@ -17,15 +17,18 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 FONT = (ROOT / "crates/zumen-render/fonts/BIZUDGothic-Regular.ttf").read_bytes()
 LICENSE = (ROOT / "crates/zumen-render/fonts/OFL.txt").read_bytes()
-WHEEL = re.compile(r"zumen-(?P<version>[^-]+)-cp310-abi3-(?P<platform>(?:manylinux|macosx)_[\w.]+)\.whl")
+WHEEL = re.compile(r"zumen-(?P<version>[^-]+)-cp310-abi3-(?P<platform>[\w.]+)\.whl")
+RELEASE_PLATFORM = re.compile(r"(?:manylinux|macosx)_[\w.]+")
 SDIST = re.compile(r"zumen-(?P<version>[^-]+)\.tar\.gz")
 
 
-def check_wheel(path: Path) -> list[str]:
+def check_wheel(path: Path, any_platform: bool) -> list[str]:
     """Returns what is wrong with a wheel; the list is empty when it is right."""
     match = WHEEL.fullmatch(path.name)
     if match is None:
-        return [f"{path.name} is not named zumen-<version>-cp310-abi3-<manylinux or macOS tag>.whl"]
+        return [f"{path.name} is not named zumen-<version>-cp310-abi3-<platform>.whl"]
+    if not any_platform and RELEASE_PLATFORM.fullmatch(match["platform"]) is None:
+        return [f"{path.name} has the platform tag {match['platform']}, which is not manylinux or macOS"]
     with zipfile.ZipFile(path) as wheel:
         names = wheel.namelist()
         modules = [name for name in names if name.startswith("zumen/_zumen.") and name.endswith(".so")]
@@ -63,15 +66,21 @@ def check_sdist(path: Path) -> list[str]:
     return errors
 
 
-def main(folder: Path) -> int:
-    wheels = sorted(folder.glob("*.whl"))
-    sdists = sorted(folder.glob("*.tar.gz"))
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("folder", type=Path, help="the folder with the wheels and the sdist")
+    parser.add_argument("--any-platform", action="store_true", help="accept any platform tag in the name of a wheel")
+    args = parser.parse_args()
+    wheels = sorted(args.folder.glob("*.whl"))
+    sdists = sorted(args.folder.glob("*.tar.gz"))
     if not wheels and not sdists:
-        print(f"FAIL no wheel or sdist in {folder}")
+        print(f"FAIL no wheel or sdist in {args.folder}")
         return 1
     failed = False
-    for path, check in [*((wheel, check_wheel) for wheel in wheels), *((sdist, check_sdist) for sdist in sdists)]:
-        errors = check(path)
+    for path, errors in [
+        *((wheel, check_wheel(wheel, args.any_platform)) for wheel in wheels),
+        *((sdist, check_sdist(sdist)) for sdist in sdists),
+    ]:
         failed = failed or bool(errors)
         print(f"{'FAIL' if errors else 'ok  '} {path.name}")
         for error in errors:
@@ -80,6 +89,4 @@ def main(folder: Path) -> int:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        sys.exit(__doc__)
-    sys.exit(main(Path(sys.argv[1])))
+    sys.exit(main())

@@ -93,13 +93,13 @@ jobs:
           if-no-files-found: error
           retention-days: 14
       # The sdist alone must build a wheel that has the font and its license. It does not hold rust-toolchain.toml, so
-      # the Rust of the runner builds it, as it would for anyone who installs the sdist
+      # the Rust of the runner builds it, as it would for anyone who installs the sdist, outside a manylinux container
       # astral-sh/setup-uv v10.3.0 (without its cache, since this workflow publishes)
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
         with:
           enable-cache: false
       - run: uv build --wheel --out-dir "$RUNNER_TEMP/from-sdist" dist/zumen-*.tar.gz
-      - run: python3 bindings/python/scripts/check_dist.py "$RUNNER_TEMP/from-sdist"
+      - run: python3 bindings/python/scripts/check_dist.py --any-platform "$RUNNER_TEMP/from-sdist"
 
   test:
     name: test (${{ matrix.wheel }}, Python ${{ matrix.python }})
