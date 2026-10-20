@@ -64,7 +64,7 @@ class Writer {
   }
 }
 
-export function build(version: number): Uint8Array {
+function header(version: number): Writer {
   const w = new Writer(version >= 700);
   w.ascii("JwwData.");
   w.u32(version);
@@ -115,6 +115,11 @@ export function build(version: number): Uint8Array {
     w.u32(0);
     w.zeros(80);
   }
+  return w;
+}
+
+export function build(version: number): Uint8Array {
+  const w = header(version);
   // 図形の一覧（クラス番号: CDataSen 1、CDataMoji 4、CDataEnko 6、CDataBlock 8、CDataList 11）
   w.u16(6);
   w.newClass("CDataSen", version);
@@ -159,5 +164,26 @@ export function build(version: number): Uint8Array {
   w.base(version);
   for (const value of [0, 0, 1, 0]) w.f64(value);
   w.u32(0); // 画像の件数
+  return Uint8Array.from(w.bytes);
+}
+
+/** CDataSolid serialises its boundary in storage order, despite the point numbers in its member names. */
+export function buildSolids(version: number): Uint8Array {
+  const w = header(version);
+  const boundaries = [
+    [0, 0, 0, 10, 20, 10, 20, 0],
+    [30, 0, 34, 10, 49, 8, 45, -2],
+    [60, 0, 65, 10, 70, 0, 70, 0],
+  ];
+  w.u16(boundaries.length);
+  for (const [index, points] of boundaries.entries()) {
+    if (index === 0) w.newClass("CDataSolid", version);
+    else w.u16(0x8001);
+    w.base(version, { color: 10 });
+    for (const value of points) w.f64(value);
+    w.u32(0xc0c0c0);
+  }
+  w.u16(0); // No block definitions.
+  w.u32(0); // No images.
   return Uint8Array.from(w.bytes);
 }

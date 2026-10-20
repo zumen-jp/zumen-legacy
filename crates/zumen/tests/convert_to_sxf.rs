@@ -585,7 +585,8 @@ fn writes_viewports_as_sub_figures_placed_at_their_scale_and_twist() {
         .filter_map(|member| match member {
             zumen::sxf::SxfFeature::SfigLocate { name, angle, ratio_x, ratio_y, .. } => {
                 assert_eq!(document.sub_figures.get(name).unwrap().feature.flag, 1.0, "部分図");
-                assert_eq!(ratio_x, ratio_y);
+                // Decomposing a rotated viewport uses hypot: MSVC and other platforms may differ by one ULP.
+                assert!((ratio_x - ratio_y).abs() <= ratio_x.abs().max(ratio_y.abs()) * 1e-12);
                 Some((*ratio_x, *angle))
             }
             _ => None,

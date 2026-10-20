@@ -6,16 +6,14 @@
 // ブラウザと Node.js から読む JavaScript と型を書く。wasm-opt は通さない（brotli では 2% しか小さくならない。
 // docs/architecture.md）。Rust を変えていなければ cargo は何もしないので、試用画面を開くたびに走らせてよい。
 import { execFileSync } from "node:child_process";
-import { readFileSync, rmSync, statSync } from "node:fs";
+import { rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { version } from "./wasm-bindgen-version.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const out = fileURLToPath(new URL("../packages/reader/wasm/", import.meta.url));
 
-const lock = readFileSync(new URL("../Cargo.lock", import.meta.url), "utf8");
-const version = /\nname = "wasm-bindgen"\nversion = "([^"]+)"/.exec(lock)?.[1];
-if (!version) throw new Error("Cargo.lock に wasm-bindgen がありません");
 let installed = null;
 try {
   installed = execFileSync("wasm-bindgen", ["--version"], { encoding: "utf8" }).trim().split(" ")[1] ?? null;

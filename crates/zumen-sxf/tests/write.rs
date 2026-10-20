@@ -59,3 +59,30 @@ fn written_sfc_reads_back_as_the_same_drawing() {
         }
     }
 }
+
+#[test]
+fn declares_predefined_widths_before_geometry_without_shifting_user_width_codes() {
+    // A round trip through our reader cannot detect missing predefined declarations:
+    // it resolves codes 1–9 even without them. Jw_cad drops those strokes instead.
+    let source = b"ISO-10303-21;\nDATA;
+/*SXF
+#10 = width_feature('0.42')
+SXF*/
+/*SXF
+#20 = line_feature('0','1','1','2','0','0','10','10')
+SXF*/
+/*SXF
+#30 = line_feature('0','1','1','11','0','10','10','0')
+SXF*/
+ENDSEC;\nEND-ISO-10303-21;";
+    let drawing = zumen_sxf::parse_sfc(source).unwrap();
+    let written = write_sfc(&drawing);
+    let text = String::from_utf8(written.bytes.clone()).unwrap();
+    let standard = text.find("width_feature('0.18')").expect("used predefined width must be declared");
+    let custom = text.find("width_feature('0.42')").unwrap();
+    assert!(standard < custom && custom < text.find("line_feature(").unwrap());
+    let again = zumen_sxf::parse_sfc(&written.bytes).unwrap();
+    assert_eq!(again.document.user_widths.len(), 1);
+    assert_eq!(again.document.width(2.0), Some(0.18));
+    assert_eq!(again.document.width(11.0), Some(0.42));
+}

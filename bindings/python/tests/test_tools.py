@@ -2,6 +2,8 @@
 
 import json
 import pathlib
+import subprocess
+import sys
 import types
 import typing
 from concurrent.futures import ThreadPoolExecutor
@@ -323,21 +325,41 @@ def test_renders_a_region_with_its_long_edge_in_pixels():
         tools.render(scene, size=10_000)
 
 
-def test_reads_only_from_its_roots_and_up_to_its_size_limit(tmp_path):
+def test_reads_only_from_its_roots_and_up_to_its_size_limit():
     drawings = tools.Drawings([FIXTURES / "sfc"])
     assert drawings.scene(SFC) is drawings.scene(SFC)  # read once while the file is unchanged
     with pytest.raises(tools.DrawingError, match="outside"):
         drawings.scene(str(FIXTURES / "jww" / "minimal-v700.jww"))
-    link = tmp_path / "link.sfc"
-    link.symlink_to(SFC)
-    with pytest.raises(tools.DrawingError, match="outside"):
-        tools.Drawings([tmp_path]).scene(str(link))  # the real path is outside the root
     with pytest.raises(tools.DrawingError, match="limit"):
         tools.Drawings(max_bytes=10).scene(SFC)
     with pytest.raises(tools.DrawingError, match="cannot read"):
         tools.Drawings().scene(__file__)
     with pytest.raises(tools.DrawingError, match="entities limit"):
         tools.Drawings(max_entities=5).scene(SFC)
+
+
+def test_rejects_symlinks_outside_its_roots(tmp_path):
+    link = tmp_path / "link.sfc"
+    try:
+        link.symlink_to(SFC)
+    except OSError as error:
+        if getattr(error, "winerror", None) == 1314:
+            pytest.skip("Windows symlinks require Developer Mode or the create-symlink privilege")
+        raise
+    with pytest.raises(tools.DrawingError, match="outside"):
+        tools.Drawings([tmp_path]).scene(str(link))
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows directory junctions")
+def test_rejects_junctions_outside_its_roots(tmp_path):
+    # Junctions do not require Developer Mode. Exercise real path resolution on ordinary Windows accounts too.
+    link = tmp_path / "図面 link"
+    subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(FIXTURES / "sfc")], check=True, capture_output=True)
+    try:
+        with pytest.raises(tools.DrawingError, match="outside"):
+            tools.Drawings([tmp_path]).scene(str(link / "features.sfc"))
+    finally:
+        link.rmdir()  # Remove the junction itself, never its target.
 
 
 def test_reads_and_answers_from_threads():

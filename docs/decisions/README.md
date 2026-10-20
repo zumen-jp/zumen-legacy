@@ -42,3 +42,4 @@ Choices made before this folder existed are described in [the architecture notes
 - [0011: Give AI agents the functions behind the MCP tools as `zumen.tools`, with a documented schema](0011-tool-functions-for-agents.md) (2026-10-20, Proposed)
 - [0012: Edit drawings in place, keeping everything an operation does not name, and write every format zumen reads](0012-edit-in-place-and-write-every-format.md) (2026-10-20, Accepted)
 - [0013: Keep zumen free of formats that need permission and of non-permissive dependencies, and move ST-Bridge out](0013-st-bridge-out-of-zumen.md) (2026-10-20, Accepted)
+- [0014: Verify native Windows builds and CAD interoperability](0014-verify-on-native-windows.md) (2026-10-20, Accepted)
