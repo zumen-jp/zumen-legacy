@@ -383,9 +383,8 @@ impl Context<'_> {
                 // 円のソリッドと分ける線種（101 以上は円のソリッド）
                 let base = self.solid_style(e.base, false);
                 write_base(out, &base, version);
-                // 値の並びは 始点・終点・第 2 点・第 3 点。四角形の順は 始点 → 第 2 点 → 第 3 点 → 終点
-                let p = &e.points;
-                out.f64s(&[p[0], p[1], p[6], p[7], p[2], p[3], p[4], p[5]]);
+                // jwdatafmt.txt CDataSolid::Serialize: 格納順が外周順（docs/formats/jww.md）。
+                out.f64s(&e.points);
                 if base.pen_color == 10 {
                     out.u32(e.color.unwrap_or(0));
                 }
@@ -544,7 +543,7 @@ mod tests {
 
     #[test]
     fn writes_the_same_bytes_from_the_values_alone() {
-        for name in ["minimal-v600.jww", "minimal-v700.jww"] {
+        for name in ["minimal-v600.jww", "minimal-v700.jww", "solids-v600.jww", "solids-v700.jww"] {
             let bytes = fixture(name);
             assert_eq!(first_difference(&rewrite_from_values(&bytes), &bytes), None, "{name}");
         }

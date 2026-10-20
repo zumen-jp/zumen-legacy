@@ -290,6 +290,35 @@ fn keeps_header_fields_and_text_bytes_it_does_not_use() {
 }
 
 #[test]
+fn sheared_circles_in_nested_blocks_are_approximated_and_reported() {
+    let place = |definition, scale_x, rotation| {
+        JwwEntity::Block(JwwBlock {
+            base: base(0, 0, 2, 1),
+            x: 0.0,
+            y: 0.0,
+            scale_x,
+            scale_y: 1.0,
+            rotation,
+            definition,
+        })
+    };
+    let mut doc = drawing(vec![place(1, 2.0, 0.0)]);
+    doc.blocks = vec![
+        JwwBlockDefinition { number: 1, name: "outer".into(), entities: vec![place(2, 1.0, PI / 4.0)] },
+        JwwBlockDefinition {
+            number: 2,
+            name: "inner".into(),
+            entities: vec![arc(base(0, 0, 2, 1), 0.0, 0.0, 10.0, 0.0, TAU, 0.0, 1.0, true)],
+        },
+    ];
+    let written = write_jwc(&doc);
+    let file = JwcFile::read(&written.bytes).unwrap();
+    assert!(file.arcs.is_empty());
+    assert_eq!(file.lines.len(), 64);
+    assert!(written.notices.iter().any(|notice| notice.code == "jwc-arc" && notice.count == 1));
+}
+
+#[test]
 fn bounds_the_records_that_nested_blocks_give() {
     // 10 個の配置を 8 段重ねたブロック（分解すると 1 億本の線）
     let place = |definition: u32| {
@@ -385,4 +414,24 @@ fn rewrites_the_jwc_samples_byte_for_byte() {
         checked += 1;
     }
     assert!(checked > 0, "no JWC in {folder}");
+}
+
+#[test]
+fn growing_the_text_pool_near_the_address_limit_remains_readable() {
+    let mut file = JwcFile::new();
+    patch_csv(&mut file.fixed, 2, &[(0, "FFFF:FFFE".into()), (1, "FFFF:FFFE".into())]);
+    let original = file.write().bytes;
+    let mut file = JwcFile::read(&original).unwrap();
+    assert_eq!(file.write().bytes, original);
+    file.texts.push(JwcText {
+        start: [0.0, 0.0],
+        end: [2.0, 0.0],
+        style: 1,
+        layer: 0,
+        flags: 0,
+        content: JwcString::new("hello"),
+    });
+    let written = file.write();
+    let again = JwcFile::read(&written.bytes).unwrap();
+    assert_eq!(again.texts[0].content.text, "hello");
 }
