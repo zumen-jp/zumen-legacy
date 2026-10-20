@@ -417,6 +417,10 @@ pub fn read_dwg(bytes: &[u8]) -> Result<DxfDocument, String> {
     read_book_colors(&mut reader, &header, &mut names);
 
     for record in &records {
+        // 読み取りの上限（zumen_core::limits）
+        if zumen_core::limits::tick() {
+            break;
+        }
         let space = if record.handle == header.model_space || is_model_name(&record.block.name) {
             DxfSpace::Model
         } else if record.block.layout {
@@ -1100,6 +1104,10 @@ fn read_block_entities(
     let owner = hex(record.handle);
     let mut viewports = 0.0;
     chain(reader, &record.owned, record.first_last, |reader, handle| {
+        // 読み取りの上限（zumen_core::limits）
+        if zumen_core::limits::tick() {
+            return None;
+        }
         let opened = reader.open(handle)?;
         let Ok((mut object, kind)) = opened else {
             Reader::count(&mut reader.broken, "?");

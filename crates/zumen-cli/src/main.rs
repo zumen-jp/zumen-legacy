@@ -1,13 +1,15 @@
 //! zumen のコマンド。図面の形式の判定、表示用モデル（Scene）の JSON の出力、文字と図形の取り出し、PNG への描画、
-//! DXF への書き出しを行う。
+//! 2 つの版の比較、DXF への書き出しを行う。
 #![forbid(unsafe_code)]
 
 use serde_json::{Map, Value, json};
 use std::collections::HashSet;
 use std::io::{BufWriter, Write};
 use std::process::ExitCode;
+use zumen::compare::{CompareOptions, compare_scenes, diff_scene};
 use zumen::extract::{EntityFilter, EntityText, entity_text, layer_names, scene_texts, select_entities};
-use zumen::{BBox, Background, ReadDrawingOptions, Scene, SceneEntity};
+use zumen::title::{TitleKey, title_block, title_fields};
+use zumen::{BBox, Background, ReadDrawingOptions, ReadLimits, Scene, SceneEntity};
 use zumen_render::{ImageSize, RenderOptions, RenderedImage};
 
 const USAGE: &str = "\
@@ -16,21 +18,34 @@ Usage:
   zumen scene <file> [--format <name>] [--view <id>] [--pretty]
   zumen texts <file> [--region <x0>,<y0>,<x1>,<y1>] [--all-layers] [--format <name>] [--view <id>]
   zumen entities <file> [--region <x0>,<y0>,<x1>,<y1>] [--all-layers] [--format <name>] [--view <id>]
-  zumen render <file> -o <out.png> [--dpi <n> | --size <w>x<h> [--margin <px>]] [--dpr <n>]
+  zumen title <file> [--format <name>] [--view <id>]
+  zumen render <file> -o <out.png|out.svg|out.pdf> [--dpi <n> | --size <w>x<h> [--margin <px>]] [--dpr <n>]
                [--region <x0>,<y0>,<x1>,<y1>] [--all-layers] [--map <out.json>]
                [--theme light|dark] [--thin] [--format <name>] [--view <id>]
+  zumen compare <before> <after> [--tolerance <mm>] [--style] [--all-layers] [--no-align]
+                [-o <overlay.png> [--dpi <n> | --size <w>x<h>]] [--format <name>] [--view <id>]
   zumen convert <file> -o <out.dxf> [--format <name>]
+
+Every command that reads takes --max-bytes <n>, --max-entities <n> and --timeout <seconds>, to stop
+reading an untrusted drawing that is too large (P2Z and SFZ after unpacking), too complex or too slow.
 
 Reads SXF, JWW, DXF and DWG drawings into zumen's scene model.
 texts and entities write one JSON object per line, in paper millimeters (Y up) rounded to 0.001.
+title finds the drawing number, revision, title, project, scale and date in the title block.
+render writes SVG or PDF when the output ends in .svg or .pdf: the sheet (or --region) at its real size,
+with text that can be searched. --dpi, --size, --dpr and --map are for PNG only.
 --region selects a part of the sheet in paper millimeters, and --all-layers includes the layers
 that the drawing hides. --map writes the size of the image,
 the conversion between pixels and paper millimeters, and the pixel box of every entity drawn.
+compare matches entities by shape and text (not by id) and writes the removed, added and changed
+entities and the regions that changed as JSON; -o draws them over the unchanged ones (red before,
+blue after, gray unchanged).
 convert writes a DXF or DWG drawing as DXF (AutoCAD 2013, UTF-8) and reports what it could not write.";
 
 struct Args {
     command: String,
     file: String,
+    other: Option<String>,
     format: Option<String>,
     view: Option<String>,
     pretty: bool,
@@ -44,6 +59,10 @@ struct Args {
     region: Option<BBox>,
     all_layers: bool,
     map: Option<String>,
+    tolerance: f64,
+    style: bool,
+    align: bool,
+    limits: ReadLimits,
 }
 
 fn parse_region(text: &str) -> Result<BBox, String> {
@@ -72,6 +91,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
     let mut parsed = Args {
         command,
         file: String::new(),
+        other: None,
         format: None,
         view: None,
         pretty: false,
@@ -85,6 +105,10 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
         region: None,
         all_layers: false,
         map: None,
+        tolerance: 0.01,
+        style: false,
+        align: true,
+        limits: ReadLimits::default(),
     };
     while let Some(arg) = args.next() {
         let mut value = |name: &str| args.next().ok_or_else(|| format!("{name} needs a value"));
@@ -112,8 +136,27 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
             "--region" => parsed.region = Some(parse_region(&value("--region")?)?),
             "--all-layers" => parsed.all_layers = true,
             "--map" => parsed.map = Some(value("--map")?),
+            "--tolerance" => {
+                parsed.tolerance = value("--tolerance")?.parse().map_err(|_| "--tolerance needs a number")?
+            }
+            "--style" => parsed.style = true,
+            "--no-align" => parsed.align = false,
+            "--max-bytes" => {
+                parsed.limits.max_bytes = Some(value("--max-bytes")?.parse().map_err(|_| "--max-bytes needs a count")?)
+            }
+            "--max-entities" => {
+                parsed.limits.max_entities =
+                    Some(value("--max-entities")?.parse().map_err(|_| "--max-entities needs a count")?)
+            }
+            "--timeout" => {
+                let seconds: f64 = value("--timeout")?.parse().map_err(|_| "--timeout needs seconds")?;
+                let duration =
+                    std::time::Duration::try_from_secs_f64(seconds).map_err(|_| "--timeout needs seconds")?;
+                parsed.limits.max_duration = Some(duration);
+            }
             _ if arg.starts_with('-') => return Err(format!("unknown option: {arg}\n\n{USAGE}")),
             _ if parsed.file.is_empty() => parsed.file = arg,
+            _ if parsed.command == "compare" && parsed.other.is_none() => parsed.other = Some(arg),
             _ => return Err(format!("unexpected argument: {arg}")),
         }
     }
@@ -211,7 +254,86 @@ fn write_lines(lines: impl Iterator<Item = Value>) -> Result<(), String> {
     out.flush().map_err(|error| error.to_string())
 }
 
+/// 比べた図形の要約（id、種類、外接矩形、文字）
+fn brief_json(entity: &SceneEntity) -> Value {
+    let mut object = Map::new();
+    object.insert("id".into(), json!(entity.id));
+    object.insert("type".into(), json!(entity.kind));
+    object.insert("bbox".into(), bbox_json(&entity.bbox));
+    if let Some(text) = entity_text(entity) {
+        object.insert("text".into(), json!(text.text));
+    }
+    Value::Object(object)
+}
+
+fn compare(args: &Args) -> Result<(), String> {
+    let other = args.other.as_ref().ok_or("compare needs two files: <before> <after>")?;
+    let options = ReadDrawingOptions { format: args.format.clone(), view: args.view.clone(), limits: args.limits };
+    let read = |path: &str| -> Result<Scene, String> {
+        if let Some(max) = args.limits.max_bytes
+            && std::fs::metadata(path).map_err(|error| format!("{path}: {error}"))?.len() > max
+        {
+            return Err(format!("{path}: {}", zumen::limit_error(zumen::Limit::Bytes, &args.limits)));
+        }
+        let bytes = std::fs::read(path).map_err(|error| format!("{path}: {error}"))?;
+        zumen::read(&bytes, &options).map_err(|error| format!("{path}: {error}"))
+    };
+    let (before, after) = (read(&args.file)?, read(other)?);
+    let compare_options =
+        CompareOptions { tolerance: args.tolerance, style: args.style, all_layers: args.all_layers, align: args.align };
+    let diff = compare_scenes(&before, &after, &compare_options);
+    let regions: Vec<Value> = diff
+        .regions
+        .iter()
+        .map(|region| {
+            json!({
+                "bbox": bbox_json(&region.bbox),
+                "removed": region.removed,
+                "added": region.added,
+                "changed": region.changed,
+            })
+        })
+        .collect();
+    let summary = json!({
+        "unchanged": diff.unchanged.len(),
+        "removed": diff.removed.len(),
+        "added": diff.added.len(),
+        "changed": diff.changed.len(),
+        "offset": [mm(diff.offset.0), mm(diff.offset.1)],
+        "regions": regions,
+        "removedEntities": diff.removed.iter().map(|&i| brief_json(&before.entities[i])).collect::<Vec<_>>(),
+        "addedEntities": diff.added.iter().map(|&i| brief_json(&after.entities[i])).collect::<Vec<_>>(),
+        "changedEntities": diff
+            .changed
+            .iter()
+            .map(|&(a, b)| json!({ "before": brief_json(&before.entities[a]), "after": brief_json(&after.entities[b]) }))
+            .collect::<Vec<_>>(),
+    });
+    println!("{}", serde_json::to_string_pretty(&summary).map_err(|error| error.to_string())?);
+    if let Some(output) = &args.output {
+        let overlay = diff_scene(&before, &after, &diff);
+        let size = match args.size {
+            Some((width, height)) => ImageSize::Fit { width, height, margin: args.margin },
+            None => ImageSize::Dpi(args.dpi),
+        };
+        let options = RenderOptions { line_weights: !args.thin, ..RenderOptions::default() };
+        let image =
+            zumen_render::render_image(&overlay, args.region, size, &options).map_err(|error| error.to_string())?;
+        std::fs::write(output, &image.png).map_err(|error| format!("{output}: {error}"))?;
+    }
+    Ok(())
+}
+
 fn run(args: Args) -> Result<(), String> {
+    if args.command == "compare" {
+        return compare(&args);
+    }
+    // 大きすぎるファイルは、メモリに読む前に断る
+    if let Some(max) = args.limits.max_bytes
+        && std::fs::metadata(&args.file).map_err(|error| format!("{}: {error}", args.file))?.len() > max
+    {
+        return Err(zumen::limit_error(zumen::Limit::Bytes, &args.limits).to_string());
+    }
     let bytes = std::fs::read(&args.file).map_err(|error| format!("{}: {error}", args.file))?;
     if args.command == "detect" {
         let format = zumen::detect(&bytes).ok_or("unknown format")?;
@@ -226,13 +348,13 @@ fn run(args: Args) -> Result<(), String> {
             .and_then(|extension| extension.to_str())
             .map(str::to_ascii_lowercase)
             .unwrap_or_default();
-        let options = ReadDrawingOptions { format: args.format.clone(), view: None };
+        let options = ReadDrawingOptions { format: args.format.clone(), view: None, limits: args.limits };
         let converted = zumen::convert(&bytes, &to, &options).map_err(|error| error.to_string())?;
         std::fs::write(&output, &converted.bytes).map_err(|error| format!("{output}: {error}"))?;
         print_notices(&converted.notices);
         return Ok(());
     }
-    let options = ReadDrawingOptions { format: args.format.clone(), view: args.view.clone() };
+    let options = ReadDrawingOptions { format: args.format.clone(), view: args.view.clone(), limits: args.limits };
     let scene = zumen::read(&bytes, &options).map_err(|error| error.to_string())?;
     let filter = EntityFilter { region: args.region, hidden_layers: args.all_layers.then(HashSet::new) };
     match args.command.as_str() {
@@ -242,6 +364,31 @@ fn run(args: Args) -> Result<(), String> {
         }
         "texts" => {
             write_lines(scene_texts(&scene, &filter).iter().map(|(entity, text)| text_json(&scene, entity, text)))?
+        }
+        "title" => {
+            let mut object = Map::new();
+            let best = title_block(&scene);
+            for key in TitleKey::ALL {
+                let value = best.iter().find(|field| field.key == key).map(|field| field.value.clone());
+                object.insert(key.name().into(), json!(value));
+            }
+            let fields: Vec<Value> = title_fields(&scene)
+                .into_iter()
+                .map(|field| {
+                    json!({
+                        "key": field.key.name(),
+                        "value": field.value,
+                        "label": field.label,
+                        "source": field.source.name(),
+                        "entity": field.entity,
+                        "labelEntity": field.label_entity,
+                        "x": mm(field.x),
+                        "y": mm(field.y),
+                    })
+                })
+                .collect();
+            object.insert("fields".into(), Value::Array(fields));
+            println!("{}", serde_json::to_string_pretty(&Value::Object(object)).map_err(|error| error.to_string())?);
         }
         "entities" => {
             write_lines(select_entities(&scene, &filter).into_iter().map(|entity| entity_json(&scene, entity)))?
@@ -255,6 +402,29 @@ fn run(args: Args) -> Result<(), String> {
                 hidden_layers: filter.hidden_layers.clone(),
                 ..RenderOptions::default()
             };
+            let extension = output.rsplit_once('.').map(|(_, extension)| extension.to_ascii_lowercase());
+            if matches!(extension.as_deref(), Some("svg" | "pdf")) {
+                if args.map.is_some() {
+                    return Err("--map is for PNG output".into());
+                }
+                let (bytes, missing) = if extension.as_deref() == Some("svg") {
+                    let svg = zumen_render::render_svg(&scene, args.region, &options).map_err(|e| e.to_string())?;
+                    (svg.into_bytes(), Default::default())
+                } else {
+                    let (pdf, report) =
+                        zumen_render::render_pdf(&scene, args.region, &options).map_err(|e| e.to_string())?;
+                    (pdf, report.missing_glyphs)
+                };
+                std::fs::write(&output, bytes).map_err(|error| format!("{output}: {error}"))?;
+                if !missing.is_empty() {
+                    let chars: String = missing.iter().collect();
+                    eprintln!("warning: no glyph in the bundled font for: {chars}");
+                }
+                for notice in &scene.notices {
+                    eprintln!("notice ({:?}, {}): {} × {}", notice.level, notice.code, notice.message, notice.count);
+                }
+                return Ok(());
+            }
             let size = match args.size {
                 Some((width, height)) => ImageSize::Fit { width, height, margin: args.margin },
                 None => ImageSize::Dpi(args.dpi),

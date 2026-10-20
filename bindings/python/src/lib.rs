@@ -1,4 +1,4 @@
-//! zumen の Python の結合部。図面を読み（`read`）、表示用モデル（`Scene`）を JSON や PNG にし、文字と図形を取り出す。
+//! zumen の Python の結合部。図面を読み（`read`）、表示用モデル（`Scene`）を JSON・PNG・SVG・PDF にし、文字と図形を取り出す。
 //! 図面を DXF に書き直す（`convert`）。
 //! 読み取りと描画の間は GIL を外す（FastAPI のスレッドなどで並行に動く）。
 
@@ -7,12 +7,34 @@ use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict, PyList};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, OnceLock};
+use zumen::compare::{CompareOptions, SceneDiff, compare_scenes, diff_scene};
 use zumen::extract::{EntityFilter, EntityText, entity_text, layer_names, scene_texts, select_entities};
+use zumen::title::{TitleKey, title_fields};
 use zumen::{BBox, Background, ReadDrawingOptions, SceneEntity};
 use zumen_render::{ImageSize, RenderOptions, View};
 
 pyo3::create_exception!(zumen, ReadError, PyValueError, "図面を読めなかった（形式が違う、壊れているなど）");
 pyo3::create_exception!(zumen, RenderError, PyValueError, "図面を描けなかった（範囲が空、画像が大きすぎるなど）");
+pyo3::create_exception!(
+    zumen,
+    LimitError,
+    ReadError,
+    "読み取りの上限（max_bytes・max_entities・timeout）を超えたので途中でやめた。limit に上限の種類（bytes・entities・time）がある"
+);
+
+/// 読み取りの失敗を Python の例外にする。上限を超えたものは LimitError にして、limit に種類を入れる
+fn read_error(py: Python<'_>, error: zumen::ReadError) -> PyErr {
+    match error.exceeded() {
+        Some(limit) => {
+            let err = LimitError::new_err(error.message().to_string());
+            if let Err(failure) = err.value(py).setattr("limit", limit.name()) {
+                return failure;
+            }
+            err
+        }
+        None => ReadError::new_err(error.message().to_string()),
+    }
+}
 
 /// 形式に依存しない表示用の図面。座標は用紙の mm で、Y 軸は上向き
 #[pyclass(frozen, module = "zumen")]
@@ -260,6 +282,59 @@ impl Scene {
         Ok(PyBytes::new(py, &png))
     }
 
+    /// 図面を SVG にする。region は用紙の mm の範囲で、省略すると用紙（用紙がなければ図面全体）。
+    /// 単位は mm で、文字は検索できる text 要素になる。theme・line_weights・hidden_layers・sheet_frame は render_png と同じ
+    #[pyo3(signature = (*, region = None, theme = None, line_weights = true, hidden_layers = None, sheet_frame = true))]
+    fn render_svg(
+        &self,
+        py: Python<'_>,
+        region: Option<Region>,
+        theme: Option<&str>,
+        line_weights: bool,
+        hidden_layers: Option<Vec<u32>>,
+        sheet_frame: bool,
+    ) -> PyResult<String> {
+        let options = RenderOptions {
+            theme: parse_theme(theme)?,
+            line_weights,
+            hidden_layers: hidden_layers.map(|ids| ids.into_iter().collect::<HashSet<u32>>()),
+            sheet_frame,
+            ..RenderOptions::default()
+        };
+        let scene = self.inner.clone();
+        let region = region.map(to_bbox);
+        py.detach(move || zumen_render::render_svg(&scene, region, &options))
+            .map_err(|error| RenderError::new_err(error.message().to_string()))
+    }
+
+    /// 図面を 1 ページの PDF にする。ページは用紙の大きさ（region を指定すればその範囲）で、線の太さは図面のとおり。
+    /// 文字は同梱の BIZ UDゴシックの使う字形だけを埋め込み、検索・コピーできる。引数は render_svg と同じ
+    #[pyo3(signature = (*, region = None, theme = None, line_weights = true, hidden_layers = None, sheet_frame = true))]
+    fn render_pdf<'py>(
+        &self,
+        py: Python<'py>,
+        region: Option<Region>,
+        theme: Option<&str>,
+        line_weights: bool,
+        hidden_layers: Option<Vec<u32>>,
+        sheet_frame: bool,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        let options = RenderOptions {
+            theme: parse_theme(theme)?,
+            line_weights,
+            hidden_layers: hidden_layers.map(|ids| ids.into_iter().collect::<HashSet<u32>>()),
+            sheet_frame,
+            ..RenderOptions::default()
+        };
+        let scene = self.inner.clone();
+        let region = region.map(to_bbox);
+        let (pdf, report) = py
+            .detach(move || zumen_render::render_pdf(&scene, region, &options))
+            .map_err(|error| RenderError::new_err(error.message().to_string()))?;
+        warn_missing_glyphs(py, &report)?;
+        Ok(PyBytes::new(py, &pdf))
+    }
+
     /// 図面を PNG にし、画像の px と用紙の mm の変換と、描いた図形の位置を合わせて返す（`Rendering`）。
     /// 大きさは dpi か、size=(幅, 高さ) の px に余白 margin px を残して収めるかで決める。
     /// region・theme・line_weights・hidden_layers・sheet_frame は render_png と同じ
@@ -343,6 +418,35 @@ impl Scene {
             list.append(entity_dict(py, scene, entity)?)?;
         }
         Ok(list)
+    }
+
+    /// 表題欄の項目（number、revision、title、project、scale、date）。見つからない項目は None。
+    /// 図面番号は「図面番号」「図番」「DWG NO.」などの項目名の右か下の文字、または属性のタグ（DWGNO など）から推定する。
+    /// fields は見つけたすべての候補（key、value、label、source、entity、label_entity、x、y）を項目ごとに確からしい順に
+    /// 並べたもの。source は attribute（属性のタグ）、label（項目名の文字の右か下）、inline（項目名と値が 1 つの文字）、
+    /// sheet（用紙の名前）、metadata（図面の情報）
+    fn title_block<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let fields = title_fields(&self.inner);
+        let dict = PyDict::new(py);
+        for key in TitleKey::ALL {
+            let value = fields.iter().find(|field| field.key == key).map(|field| field.value.as_str());
+            dict.set_item(key.name(), value)?;
+        }
+        let list = PyList::empty(py);
+        for field in &fields {
+            let item = PyDict::new(py);
+            item.set_item("key", field.key.name())?;
+            item.set_item("value", &field.value)?;
+            item.set_item("label", &field.label)?;
+            item.set_item("source", field.source.name())?;
+            item.set_item("entity", field.entity.as_deref())?;
+            item.set_item("label_entity", field.label_entity.as_deref())?;
+            item.set_item("x", field.x)?;
+            item.set_item("y", field.y)?;
+            list.append(item)?;
+        }
+        dict.set_item("fields", list)?;
+        Ok(dict)
     }
 
     /// id の図形（entities と同じ dict）。ない id なら None
@@ -634,21 +738,162 @@ fn detect(data: &[u8]) -> Option<&'static str> {
     zumen::detect(data)
 }
 
-/// 図面のバイト列を読み、表示用の図面にする。format は分かっている場合の形式、view は描く表示の id
+/// 図面のバイト列を読み、表示用の図面にする。format は分かっている場合の形式、view は描く表示の id。
+/// max_bytes（圧縮した SXF は展開した後）・max_entities・timeout（秒）を超えたら途中でやめ、LimitError を出す
 #[pyfunction]
-#[pyo3(signature = (data, *, format = None, view = None))]
-fn read(py: Python<'_>, data: &[u8], format: Option<String>, view: Option<String>) -> PyResult<Scene> {
-    let options = ReadDrawingOptions { format, view };
-    let scene =
-        py.detach(|| zumen::read(data, &options)).map_err(|error| ReadError::new_err(error.message().to_string()))?;
+#[pyo3(signature = (data, *, format = None, view = None, max_bytes = None, max_entities = None, timeout = None))]
+#[allow(clippy::too_many_arguments)]
+fn read(
+    py: Python<'_>,
+    data: &[u8],
+    format: Option<String>,
+    view: Option<String>,
+    max_bytes: Option<u64>,
+    max_entities: Option<u64>,
+    timeout: Option<f64>,
+) -> PyResult<Scene> {
+    let max_duration = timeout
+        .map(|seconds| {
+            std::time::Duration::try_from_secs_f64(seconds)
+                .map_err(|_| PyValueError::new_err(format!("timeout は 0 以上の秒数です: {seconds}")))
+        })
+        .transpose()?;
+    let limits = zumen::ReadLimits { max_bytes, max_entities, max_duration };
+    let options = ReadDrawingOptions { format, view, limits };
+    let scene = py.detach(|| zumen::read(data, &options)).map_err(|error| read_error(py, error))?;
     Ok(Scene::new(scene))
+}
+
+/// 2 つの版の比較（compare の結果）。図形の dict は entities と同じ形で、それぞれの版の座標を持つ
+#[pyclass(frozen, module = "zumen")]
+struct Comparison {
+    before: Arc<zumen::Scene>,
+    after: Arc<zumen::Scene>,
+    diff: SceneDiff,
+    /// 重ねた図（scene で初めて使うときに作る）
+    overlay: OnceLock<Py<Scene>>,
+}
+
+#[pymethods]
+impl Comparison {
+    /// 前の版にだけある図形
+    #[getter]
+    fn removed<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+        let list = PyList::empty(py);
+        for &i in &self.diff.removed {
+            list.append(entity_dict(py, &self.before, &self.before.entities[i])?)?;
+        }
+        Ok(list)
+    }
+
+    /// 後の版にだけある図形
+    #[getter]
+    fn added<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+        let list = PyList::empty(py);
+        for &i in &self.diff.added {
+            list.append(entity_dict(py, &self.after, &self.after.entities[i])?)?;
+        }
+        Ok(list)
+    }
+
+    /// 変わったとみなした図形の組（before、after）
+    #[getter]
+    fn changed<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+        let list = PyList::empty(py);
+        for &(a, b) in &self.diff.changed {
+            let pair = PyDict::new(py);
+            pair.set_item("before", entity_dict(py, &self.before, &self.before.entities[a])?)?;
+            pair.set_item("after", entity_dict(py, &self.after, &self.after.entities[b])?)?;
+            list.append(pair)?;
+        }
+        Ok(list)
+    }
+
+    /// 変わらなかった図形の数
+    #[getter]
+    fn unchanged(&self) -> usize {
+        self.diff.unchanged.len()
+    }
+
+    /// 後の版を前の版に合わせるために、後の版の座標から引いたずれ (dx, dy)（用紙の mm）
+    #[getter]
+    fn offset(&self) -> (f64, f64) {
+        self.diff.offset
+    }
+
+    /// 変わった場所（bbox、removed、added、changed）。前の版の用紙の mm で、変わった図形の多い順
+    #[getter]
+    fn regions<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+        let list = PyList::empty(py);
+        for region in &self.diff.regions {
+            let dict = PyDict::new(py);
+            dict.set_item("bbox", from_bbox(&region.bbox))?;
+            dict.set_item("removed", region.removed)?;
+            dict.set_item("added", region.added)?;
+            dict.set_item("changed", region.changed)?;
+            list.append(dict)?;
+        }
+        Ok(list)
+    }
+
+    /// 重ねた図。変わらない図形は灰、前の版だけの図形（削除・変更前）は赤、後の版だけの図形（追加・変更後）は青。
+    /// render・render_png で描け、to_json でブラウザの表示に渡せる
+    #[getter]
+    fn scene(&self, py: Python<'_>) -> PyResult<Py<Scene>> {
+        if let Some(scene) = self.overlay.get() {
+            return Ok(scene.clone_ref(py));
+        }
+        let (before, after) = (self.before.clone(), self.after.clone());
+        let diff = &self.diff;
+        let overlay = py.detach(|| diff_scene(&before, &after, diff));
+        let scene = Py::new(py, Scene::new(overlay))?;
+        Ok(self.overlay.get_or_init(|| scene).clone_ref(py))
+    }
+
+    /// 違いの数（削除・追加・変更）
+    fn __len__(&self) -> usize {
+        self.diff.removed.len() + self.diff.added.len() + self.diff.changed.len()
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "<zumen.Comparison unchanged {}, removed {}, added {}, changed {}>",
+            self.diff.unchanged.len(),
+            self.diff.removed.len(),
+            self.diff.added.len(),
+            self.diff.changed.len()
+        )
+    }
+}
+
+/// 2 つの版の図面を比べる。図形の id は使わず、種類・形・文字で照合する。
+/// tolerance は同じ位置とみなす差（用紙の mm）、style を真にすると色・線の太さ・線種・レイヤの違いも変更とみなす。
+/// all_layers を真にすると描かないレイヤも比べ、align を真にすると同じ文字の位置から全体のずれを見つけて合わせる
+#[pyfunction]
+#[pyo3(signature = (before, after, *, tolerance = 0.01, style = false, all_layers = false, align = true))]
+fn compare(
+    py: Python<'_>,
+    before: &Scene,
+    after: &Scene,
+    tolerance: f64,
+    style: bool,
+    all_layers: bool,
+    align: bool,
+) -> PyResult<Comparison> {
+    if !(tolerance.is_finite() && tolerance > 0.0) {
+        return Err(PyValueError::new_err("tolerance は正の数です"));
+    }
+    let options = CompareOptions { tolerance, style, all_layers, align };
+    let (a, b) = (before.inner.clone(), after.inner.clone());
+    let diff = py.detach(|| compare_scenes(&a, &b, &options));
+    Ok(Comparison { before: a, after: b, diff, overlay: OnceLock::new() })
 }
 
 /// 図面を読み、to の形式（dxf）に書き直す。書き直せる図面は DXF・DWG。format は分かっている場合の読む形式
 #[pyfunction]
 #[pyo3(signature = (data, to, *, format = None))]
 fn convert(py: Python<'_>, data: &[u8], to: String, format: Option<String>) -> PyResult<Converted> {
-    let options = ReadDrawingOptions { format, view: None };
+    let options = ReadDrawingOptions { format, ..ReadDrawingOptions::default() };
     let converted = py
         .detach(|| zumen::convert(data, &to, &options))
         .map_err(|error| ReadError::new_err(error.message().to_string()))?;
@@ -659,9 +904,12 @@ fn convert(py: Python<'_>, data: &[u8], to: String, format: Option<String>) -> P
 fn _zumen(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     m.add("ReadError", m.py().get_type::<ReadError>())?;
+    m.add("LimitError", m.py().get_type::<LimitError>())?;
     m.add("RenderError", m.py().get_type::<RenderError>())?;
     m.add_class::<Scene>()?;
     m.add_class::<Rendering>()?;
+    m.add_class::<Comparison>()?;
+    m.add_function(wrap_pyfunction!(compare, m)?)?;
     m.add_class::<Converted>()?;
     m.add_function(wrap_pyfunction!(detect, m)?)?;
     m.add_function(wrap_pyfunction!(read, m)?)?;

@@ -270,6 +270,10 @@ impl<'a> Builder<'a> {
             Property::new("線種", base.pen_style.to_string()),
         ];
         all.extend(properties);
+        // 読み取りの上限（zumen_core::limits）。上限を超えたら図形を加えない
+        if !zumen_core::limits::admit() {
+            return;
+        }
         self.entities.push(SceneEntity {
             id,
             kind: kind.to_string(),
@@ -283,6 +287,10 @@ impl<'a> Builder<'a> {
     }
 
     fn emit(&mut self, entity: &'a JwwEntity, id: usize, ctx: &Context) {
+        // 読み取りの上限（zumen_core::limits）を超えたら、残りの図形を描かない
+        if zumen_core::limits::tick() {
+            return;
+        }
         match entity {
             JwwEntity::Line(e) => {
                 let stroke = self.stroke(ctx, &e.base, &[e.x1, e.y1, e.x2, e.y2], false);

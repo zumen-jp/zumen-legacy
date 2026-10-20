@@ -4,6 +4,30 @@ All packages share one version during 0.x.
 
 ## Unreleased (0.1.0)
 
+- Rust and Python: compare two revisions of a drawing. `zumen_core::compare` matches entities by shape and text, not
+  by id, so revisions saved again or in another format compare too. It reports the removed, added and changed entities
+  and the regions that changed, aligns a revision that moved as a whole by its texts, and draws the result as a scene
+  (red before, blue after, gray unchanged). `zumen.compare` and `Comparison` in Python, `zumen compare` in the command
+  line, and `compare_drawings` in the MCP server.
+- Rust and Python: the fields of the title block (drawing number, revision, title, project, scale and date), guessed
+  from attribute tags (`DWGNO`, `REV`), from labels such as 図面番号 or 図　面　名 and the text to their right or
+  below, from a label and value in one text (`縮尺 1/100`), from the sheet name and from the metadata (the title
+  block attributes of SXF). `zumen_core::title`, `Scene.title_block` in Python, `zumen title`, and `open_drawing` in the
+  MCP server.
+- Rust and Python: SVG and PDF output of a scene, the sheet (or a region) at its real size, with the colors, line
+  weights, fills, clipping and text placement of the PNG renderer. PDF embeds the glyphs of the bundled BIZ UDGothic
+  that the page uses, so its text can be searched and copied, and SVG keeps text as `<text>`.
+  `zumen_render::render_svg` and `render_pdf`, `Scene.render_svg` and `Scene.render_pdf` in Python, and
+  `zumen render -o plan.svg` or `plan.pdf`.
+- Rust and Python: limits for drawings received from others. `ReadDrawingOptions::limits` (`max_bytes`,
+  `max_entities`, `max_duration`) stops reading part way and returns an error that names the limit
+  (`ReadError::exceeded`; `zumen.LimitError` with `limit` in Python). The readers count the entities they add and check
+  the clock in their heavy loops, and do nothing without limits, so results stay those of TypeScript.
+  `zumen.read(..., max_bytes=, max_entities=, timeout=)`, `--max-bytes`, `--max-entities` and `--timeout` on every
+  command that reads, and `zumen-mcp` now stops at 2,000,000 entities or 60 seconds by default.
+- Rust: compressed SXF (P2Z and SFZ, a ZIP archive with one P21 or SFC file) is unpacked and read, up to `max_bytes`
+  after unpacking, or 2 GiB without it, against ZIP bombs. The scene is that of the P21 or SFC, with the archive in
+  its metadata.
 - Rust and Python: write DXF and DWG drawings as DXF of AutoCAD 2013 in UTF-8 through the AutoCAD drawing model
   (`zumen::convert` and `zumen_dxf::write_dxf`, `zumen convert <file> -o <out.dxf>`, `zumen.convert` and `Converted` in
   Python; [decision 0006](docs/decisions/0006-write-through-the-autocad-model.md)). Handles, tables, blocks, layouts and
@@ -100,6 +124,11 @@ All packages share one version during 0.x.
   notation of ASCII DXF (`^J`, `^I`, `^ `), so the line feeds of MTEXT in binary DXF of AutoCAD 2004 and later break
   paragraphs, and TEXT draws `^ ` as `^` and `^I` as a tab. A dimension style whose DIMASZ or DIMTXT AutoCAD left out
   of the DXF gets 0.18 instead of 0, so a leader no longer takes its arrow size from `$DIMASZ`.
+- `@zumenjs/dxf`, `zumen-dxf` and `zumen-dwg`: the multi-line attributes of AutoCAD 2018 are drawn. Their text is in an
+  embedded MTEXT, which no reader read, and AutoCAD leaves the attribute's own text empty, so these attributes were
+  neither drawn nor reported. `DxfAttrib` and `DxfAttdef` keep it in `mtext` (`DxfEmbeddedMText`), drawn as MTEXT with
+  the attribute's color, layer and line type. `zumen-dwg` reads the "Is NOT annotative" bit of R2018 MTEXT the right
+  way round: the values after an embedded MTEXT were out of step, which gave these attributes wrong flags.
 - `zumen-core`: `js::sort_by` follows V8's `Array.prototype.sort` (TimSort), so orders match TypeScript even when a
   comparison is inconsistent (NaN); `js::string_to_number`, `parse_int` and `to_precision` follow `Number`, `parseInt`
   and `toPrecision`; and `js::to_fixed` computes `toFixed` with 128-bit integers, which builds scenes faster.

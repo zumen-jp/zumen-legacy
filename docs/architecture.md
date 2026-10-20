@@ -154,14 +154,14 @@ bytes ─▶ zumen-sxf, zumen-jww, zumen-dxf, zumen-dwg ─▶ Scene (zumen-core
 
 | Crate | Responsibility |
 | --- | --- |
-| `zumen-core` | The `Scene` types (serde, the same JSON as `sceneToJson`), `NoticeList`, `DrawingReader` and `read_drawing`, geometry (`geometry`), text layout (`text`), measurement, texts and entities for servers (`extract`), and JavaScript-compatible number handling (`js`). |
+| `zumen-core` | The `Scene` types (serde, the same JSON as `sceneToJson`), `NoticeList`, `DrawingReader` and `read_drawing`, geometry (`geometry`), text layout (`text`), measurement, texts and entities for servers (`extract`), the fields of the title block (`title`), the comparison of two revisions (`compare`), read limits (`limits`), and JavaScript-compatible number handling (`js`). |
 | `zumen-sxf` | SFC and P21 parsing into the SXF feature model (`parse_sfc`, `parse_p21` → `SxfDrawing`), conversion to a scene (`sxf_to_scene`), and the `SXF` reader. |
 | `zumen-jww` | JWW parsing into the JWW document model (`read_jww`), conversion to a scene (`jww_to_scene`), and the `JWW` reader. |
 | `zumen-dxf` | DXF parsing (ASCII and binary) into the AutoCAD drawing model (`parse_dxf` → `DxfDocument`), conversion of model space or a layout to a scene (`dxf_to_scene`), the `DXF` reader, and writing the model as DXF (`write_dxf`). |
 | `zumen-dwg` | DWG decoding (AutoCAD 2000 to 2018) into the AutoCAD drawing model of `zumen-dxf` (`read_dwg` → `DxfDocument`), drawn with `dxf_to_scene`, and the `DWG` reader. |
-| `zumen` | `read` and `detect` over every reader, and `convert` (DXF and DWG to DXF). The entry point for applications. |
-| `zumen-render` | Draws a scene to PNG with the rules of `render.ts` in `@zumenjs/viewer` (color inversion, line weights with a 1 px minimum, dash rules, even-odd fills, clipping, per-character text, small text as a line), and reports which entities it drew and where (`render_image`, `drawn_entities`, `View::pixel_box`). |
-| `zumen-cli` | The `zumen` command (`detect`, `scene`, `texts`, `entities`, `render`, `convert`). |
+| `zumen` | `read` and `detect` over every reader, with limits for untrusted drawings (`ReadDrawingOptions::limits`), and `convert` (DXF and DWG to DXF). The entry point for applications. |
+| `zumen-render` | Draws a scene to PNG with the rules of `render.ts` in `@zumenjs/viewer` (color inversion, line weights with a 1 px minimum, dash rules, even-odd fills, clipping, per-character text, small text as a line), and reports which entities it drew and where (`render_image`, `drawn_entities`, `View::pixel_box`). It also writes SVG (`render_svg`) and one-page PDF (`render_pdf`) with the same colors, fills, clipping and text placement. |
+| `zumen-cli` | The `zumen` command (`detect`, `scene`, `texts`, `entities`, `title`, `render`, `compare`, `convert`). |
 | `bindings/python` | PyO3 bindings, built with maturin as an abi3 wheel for Python 3.10 and later. The GIL is released while reading, rendering and converting. `Scene.to_arrow` needs pyarrow (Apache-2.0, `zumen[arrow]`), and the MCP server `zumen.mcp` needs the MCP SDK (MIT, `zumen[mcp]`); both are optional dependencies. |
 | `bindings/wasm` | wasm-bindgen bindings that detect the format (`detect`) and return scene JSON (`readSceneJson`). `scripts/wasm.mjs` builds them into `packages/dwg/wasm` for `@zumenjs/dwg`. |
 
@@ -223,10 +223,44 @@ conversion between pixels and paper millimeters, and `drawn_entities` with `View
 entity drawn, in pixels. An application can then show the entity that a model refers to, or render the part of the
 sheet around it. These work on the scene, so every format gets them at once. There is no TypeScript counterpart yet.
 
+`zumen_core::compare` compares two revisions of a drawing. Entity ids change when some formats are saved again, so
+entities are matched by type, shape and text instead, in three passes: shapes equal after rounding coordinates to the
+tolerance (0.01 mm by default; the direction of a line and the start of a ring do not matter), shapes split by the
+rounding (coordinates within twice the tolerance), and then entities of the same type that sit in the same place,
+which count as changed (a text at the same position, or boxes that overlap by half). Colors, line weights, line types
+and layers count only when asked. When a revision moved as a whole (DXF model space shifted by different extents),
+the most common offset between texts that occur once in both revisions moves it back. Changes near each other are
+grouped into regions, and `diff_scene` draws the result as a scene with three layers: unchanged entities in gray,
+removed ones and the old state of changed ones in red, added ones and the new state in blue.
+
+`zumen_core::title` guesses the fields of the title block, so that drawings can be filed by drawing number and
+revision: the drawing number, revision, title, project, scale and date. In order of trust, it reads attribute tags
+(DXF and DWG `ATTRIB`, such as `DWGNO` or `REV`), labels such as 図面番号, 図　面　名 or `DWG. NO.` with the nearest text to
+their right in the same row or else below them (in the label's own direction, so rotated title blocks work too),
+labels with their value in the same text (`縮尺 1/100`), the sheet name, and the metadata (the title block attributes
+that SXF files carry, with the year, month and day joined into one date). Labels are compared after NFKC, case
+folding and removing spaces and punctuation; a bare 番号 or `NO` is not taken for a drawing number. When a drawing
+has several title blocks, the one nearest the bottom right of the sheet comes first. Every candidate is kept with
+its source, label and entities, so an application can show where a value came from.
+
 `zumen.mcp` serves them to AI applications as MCP tools over stdio (`zumen-mcp`): open a drawing, render a region,
-find texts and entities, show one entity and measure in real-world millimeters through the scale of a placement. The
+find texts and entities, show one entity, measure in real-world millimeters through the scale of a placement and
+compare two revisions. The
 tools only read, take local paths limited by `--root`, and bound file sizes, image sizes and result counts
 ([decision 0004](decisions/0004-mcp-server-in-the-python-package.md)).
+
+### Limits for untrusted drawings
+
+Applications that read drawings from others set limits on bytes, entities and time (`ReadLimits`), and reading stops
+part way with an error that names the limit (`ReadError::exceeded`). `zumen::read` checks the size first, then runs
+the reader inside `zumen_core::limits::with_limits`, a budget kept in thread-local cells. Readers ask it whether they
+may add each entity (`admit`, at the one place where a scene builder pushes an entity; `release` gives back the parts
+that a DXF dimension merges into one) and call `tick` in loops over input records and at the start of each entity
+they draw, including entities inside blocks; `tick` reads the clock every 256 calls. Once a limit is reached, every
+later `admit` and `tick` says stop, loops end, and `zumen::read` returns the limit error instead of the partial scene.
+Outside `with_limits` these calls do nothing, so a read without limits returns what the TypeScript reader returns.
+The time limit is not available in WebAssembly, where there is no clock. P2Z and SFZ (ZIP archives of P21 and SFC)
+are unpacked up to `max_bytes`, or 2 GiB without it, so that a small archive cannot unpack to fill the memory.
 
 ### Writing and converting
 
@@ -302,9 +336,22 @@ Runtime dependencies are permissive and work in WebAssembly. Recorded with the r
 | `unicode-normalization` | (MIT OR Apache-2.0) AND Unicode-3.0 | NFKC for font names, as `String.prototype.normalize` (about 128 KB of the WebAssembly build) |
 | `libm` | MIT | The same trigonometry on every target |
 | `tiny-skia` | BSD-3-Clause | CPU rasterization for PNG, with anti-aliasing, dashes, even-odd fills and masks |
+| `pdf-writer` | MIT OR Apache-2.0 | PDF objects and content streams for `render_pdf` (no dependencies beyond number formatting) |
+| `subsetter` | MIT OR Apache-2.0 | The glyphs of the bundled font that a PDF uses, embedded as a subset; default features off (no variable fonts) |
+| `miniz_oxide` | MIT OR Zlib OR Apache-2.0 | Flate compression of PDF streams; already compiled for PNG encoding |
 | `ttf-parser` | MIT OR Apache-2.0 | Glyph outlines of the bundled font |
 | `pyo3` | MIT OR Apache-2.0 | Python bindings |
 | `wasm-bindgen` | MIT OR Apache-2.0 | WebAssembly bindings |
+
+SVG and PDF draw the sheet, or a region given in paper millimeters, at its real size; without a sheet, the bounds of
+the drawing. Coordinates stay paper millimeters, moved so that the page starts at zero before they are written as
+32-bit numbers. Lines keep their weights: in SVG no thinner than 1 CSS pixel at 100% (0.2646 mm), as the viewer
+draws them at zoom 1, and in PDF exactly as drawn, with weight 0 as the thinnest line the device draws. Dash lengths
+stay in millimeters, since vector output is zoomed and printed rather than drawn at one scale. SVG writes text as
+`<text>` in the scene's CSS fonts, one character per cell, so it can be searched and selected. PDF embeds the glyphs
+of BIZ UDGothic that the page uses (a CID font with Identity-H and a ToUnicode map, so text can be searched and
+copied) and places each glyph like the PNG renderer: the middle of its advance and of the em box at the center of
+its cell. A page that is the sheet itself has no sheet frame.
 
 `zumen-render` bundles BIZ UDGothic Regular (SIL Open Font License 1.1, `crates/zumen-render/fonts/OFL.txt`),
 a Japanese gothic close to the MS Gothic that SXF and Jw_cad drawings assume. Characters without a glyph are reported

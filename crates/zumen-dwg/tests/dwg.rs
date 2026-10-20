@@ -339,6 +339,162 @@ fn a_leader_with_an_annotation_gets_its_hook_point() {
     }
 }
 
+/// 複数行の属性（ATTRIB・ATTDEF）を、DXF に AutoCAD 2018 が書く形で書く。DWG と同じハンドル・持ち主・色・値
+fn dxf_attribute(handle: u64, owner: u64, color: i16, a: &Attribute) -> String {
+    let (kind, subclass, prompt, kind_code) = match a.prompt {
+        Some(prompt) => ("ATTDEF", "AcDbAttributeDefinition", format!("3|{prompt}|"), 4),
+        None => ("ATTRIB", "AcDbAttribute", String::new(), 2),
+    };
+    let (value, [x, y, _]) = a.mtext.expect("複数行の属性");
+    let ([tx, ty], height) = (a.insert, a.height);
+    format!(
+        "0|{kind}|5|{handle:X}|330|{owner:X}|100|AcDbEntity|8|0|62|{color}|100|AcDbText|10|{tx}|20|{ty}|30|0|40|{height}|\
+         1|{}|7|Standard|100|{subclass}|280|0|{prompt}2|{}|70|{}|280|0|71|{kind_code}|72|0|\
+         101|Embedded Object|10|{x}|20|{y}|30|0|40|{height}|41|0|46|0|71|1|72|1|1|{value}|7|Standard|73|1|44|1",
+        a.text, a.tag, a.flags
+    )
+}
+
+/// AutoCAD 2018 の複数行の属性は、文字を図形のモードからの埋め込みの MTEXT に持ち（20.4.4）、1 行の文字は空。MTEXT の
+/// 「Is NOT annotative」（20.4.46）の向きを誤ると、続くタグの後の値（属性のフラグ）がずれる。値と定数の属性定義のブロック、
+/// 2 行の属性と非表示の属性の配置、図面に置いた属性定義が、同じ図面の DXF と同じモデル・同じ表示になる
+#[test]
+fn multi_line_attributes_read_the_same_as_their_dxf() {
+    let v = Version::R2018;
+    let attribute = |tag, prompt, flags, value, [x, y]: [f64; 2]| Attribute {
+        tag,
+        prompt,
+        flags,
+        text: "",
+        insert: [x, y - 2.5],
+        height: 2.5,
+        mtext: Some((value, [x, y, 0.0])),
+    };
+    // ハンドル、持ち主（ブロック LABEL、配置、モデル空間）、色、値
+    let attributes = [
+        (0x33, BOX, 256, attribute("NOTE", Some("note"), 0, "", [0.0, 0.0])),
+        (0x34, BOX, 256, attribute("FIXED", Some("fixed"), 2, "Fixed\\Pvalue", [0.0, -10.0])),
+        (0x41, 0x40, 3, attribute("NOTE", None, 8, "First line\\PSecond line", [100.0, 0.0])),
+        (0x42, 0x40, 3, attribute("HIDDEN", None, 1, "Hidden", [100.0, -20.0])),
+        (0x44, MODEL, 256, attribute("TITLE", Some("title"), 4, "Default", [0.0, 20.0])),
+    ];
+    let mut extra = vec![
+        (BOX, block_header(v, BOX, "LABEL", false, 0x31, 0x32, &[0x33, 0x34], 0)),
+        (0x31, block_entity(v, 0x31, BOX, "LABEL")),
+        (0x32, endblk(v, 0x32, BOX)),
+        (
+            0x40,
+            insert_with_attributes(
+                v,
+                0x40,
+                &place(LAYER_0, 1, None),
+                BOX,
+                [100.0, 0.0, 0.0],
+                [1.0, 1.0, 1.0],
+                0.0,
+                &[0x41, 0x42],
+                0x43,
+            ),
+        ),
+        (0x43, seqend(v, 0x43, &place(LAYER_0, 256, Some(0x40)))),
+    ];
+    for (handle, owner, color, a) in &attributes {
+        let place = place(LAYER_0, *color, (*owner != MODEL).then_some(*owner));
+        extra.push((*handle, writer::attribute(v, *handle, &place, a, STANDARD)));
+    }
+    let dwg = zumen_dwg::read_dwg(&small(v, extra, &[0x40, 0x44], &[BOX])).unwrap();
+    assert!(dwg.notices.is_empty(), "{:?}", dwg.notices);
+    // ハンドル → 図形（配置の属性を含む）
+    let by_handle = |doc: &DxfDocument| -> std::collections::BTreeMap<String, DxfEntityData> {
+        let mut map = std::collections::BTreeMap::new();
+        for entity in &doc.entities {
+            map.insert(entity.base.handle.clone(), entity.data.clone());
+            if let DxfEntityData::Insert(insert) = &entity.data {
+                for attribute in &insert.attribs {
+                    map.insert(attribute.base.handle.clone(), attribute.data.clone());
+                }
+            }
+        }
+        map
+    };
+    let read = by_handle(&dwg);
+    let Some(DxfEntityData::Attrib { text, tag, attribute_flags, mtext: Some(mtext) }) = read.get("41") else {
+        panic!("ATTRIB 41")
+    };
+    assert_eq!((text.text.as_str(), tag.as_str(), *attribute_flags), ("", "NOTE", 8.0));
+    assert_eq!(
+        (mtext.content.raw_text.as_str(), mtext.content.insert, mtext.content.char_height, mtext.extrusion),
+        ("First line\\PSecond line", [100.0, 0.0, 0.0], 2.5, None)
+    );
+    let flags: Vec<f64> = ["42", "44"]
+        .iter()
+        .map(|handle| match read.get(*handle) {
+            Some(DxfEntityData::Attrib { attribute_flags, .. } | DxfEntityData::Attdef { attribute_flags, .. }) => {
+                *attribute_flags
+            }
+            _ => panic!("ATTRIB・ATTDEF {handle}"),
+        })
+        .collect();
+    assert_eq!(flags, [1.0, 4.0]);
+
+    let dxf_text = |handle: u64| {
+        let (_, owner, color, a) = attributes.iter().find(|(h, ..)| *h == handle).unwrap();
+        dxf_attribute(handle, *owner, *color, a)
+    };
+    let dxf = [
+        "0|SECTION|2|HEADER|9|$ACADVER|1|AC1032|9|$INSUNITS|70|4|9|$MEASUREMENT|70|1|0|ENDSEC",
+        "0|SECTION|2|TABLES",
+        "0|TABLE|2|LAYER|0|LAYER|5|10|2|0|70|0|62|7|6|Continuous|0|ENDTAB",
+        "0|TABLE|2|STYLE|0|STYLE|5|18|2|Standard|70|0|40|0.0|41|1.0|50|0.0|71|0|42|2.5|3|txt|4||0|ENDTAB",
+        "0|TABLE|2|BLOCK_RECORD|0|BLOCK_RECORD|5|1F|2|*Model_Space|0|BLOCK_RECORD|5|1B|2|*Paper_Space",
+        "0|BLOCK_RECORD|5|30|2|LABEL|0|ENDTAB|0|ENDSEC",
+        "0|SECTION|2|BLOCKS",
+        "0|BLOCK|5|20|330|1F|100|AcDbEntity|8|0|100|AcDbBlockBegin|2|*Model_Space|70|0|10|0|20|0|30|0",
+        "0|ENDBLK|5|21|330|1F|100|AcDbEntity|8|0|100|AcDbBlockEnd",
+        "0|BLOCK|5|1C|330|1B|100|AcDbEntity|8|0|100|AcDbBlockBegin|2|*Paper_Space|70|0|10|0|20|0|30|0",
+        "0|ENDBLK|5|1D|330|1B|100|AcDbEntity|8|0|100|AcDbBlockEnd",
+        "0|BLOCK|5|31|330|30|100|AcDbEntity|8|0|100|AcDbBlockBegin|2|LABEL|70|0|10|0|20|0|30|0",
+        &dxf_text(0x33),
+        &dxf_text(0x34),
+        "0|ENDBLK|5|32|330|30|100|AcDbEntity|8|0|100|AcDbBlockEnd",
+        "0|ENDSEC|0|SECTION|2|ENTITIES",
+        "0|INSERT|5|40|330|1F|100|AcDbEntity|8|0|62|1|100|AcDbBlockReference|66|1|2|LABEL|10|100|20|0|30|0",
+        &dxf_text(0x41),
+        &dxf_text(0x42),
+        "0|SEQEND|5|43|330|40|100|AcDbEntity|8|0",
+        &dxf_text(0x44),
+        "0|ENDSEC|0|EOF",
+    ]
+    .join("|")
+    .replace('|', "\r\n");
+    let dxf = parse_dxf(dxf.as_bytes());
+    assert!(dxf.notices.is_empty(), "{:?}", dxf.notices);
+    let written = by_handle(&dxf);
+    for handle in ["33", "34", "41", "42", "44"] {
+        assert_eq!(read.get(handle), written.get(handle), "{handle}");
+    }
+    let out = scene_differences(&dwg, &dxf, None);
+    assert!(out.is_empty(), "{}", out.join("\n"));
+    let scene = dxf_to_scene(&dwg, None);
+    let texts = |id: &str| -> Vec<String> {
+        let entity = scene.entities.iter().find(|entity| entity.id == id);
+        entity.map_or_else(Vec::new, |entity| {
+            entity
+                .primitives
+                .iter()
+                .filter_map(|primitive| match primitive {
+                    zumen_core::Primitive::Text(text) => Some(text.text.clone()),
+                    _ => None,
+                })
+                .collect()
+        })
+    };
+    assert_eq!(texts("40>41"), ["First line", "Second line"]);
+    assert_eq!(texts("40>34"), ["Fixed", "value"]);
+    assert_eq!(texts("44"), ["TITLE"]);
+    assert!(texts("40>42").is_empty() && texts("40>33").is_empty());
+}
+
 /// 無名のブロックの名前は BLOCK の名前（*D7 など）。R2000 に保存した動的ブロックは BLOCK が元の名前を持つので、
 /// BLOCK_HEADER の *U と表の中の順の番号にする（AutoCAD の DXF の *U17 と同じ）
 #[test]
