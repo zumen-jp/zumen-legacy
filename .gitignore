@@ -15,4 +15,6 @@ target/
 __pycache__/
 *.so
 packages/reader/wasm/
+# Generated files left by checkouts before @zumenjs/dwg became @zumenjs/reader.
+packages/dwg/wasm/
 bindings/wasm/pkg/
