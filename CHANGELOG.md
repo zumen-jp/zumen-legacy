@@ -4,6 +4,13 @@ All packages share one version during 0.x.
 
 ## Unreleased (0.1.0)
 
+- Rust, Python and the command line: write every format as SXF (SFC of SXF Ver.3.1) through the AutoCAD drawing model
+  ([decision 0010](docs/decisions/0010-write-sxf-from-the-autocad-model.md)). `zumen::convert(bytes, "sfc", …)`,
+  `zumen.convert(source, "sfc")` and `zumen convert plan.dwg -o plan.sfc`. The layout that the drawing opens in is the
+  sheet, each viewport a sub-figure at real size placed at its scale and twist, and each block a drawing part (one for
+  each set of BYBLOCK values it inherits). Entities that SXF has no feature for (multiline texts, attributes, leaders,
+  dimensions, solids) are written as the lines, fills and texts that zumen draws for them, and hatch patterns as SXF
+  hatching. `zumen_convert::dxf_to_sxf` maps the model, and `zumen_sxf::write_sfc` writes any SXF drawing as SFC.
 - Rust, Python and MCP: the shapes that an entity draws, for AI clients and data pipelines to compute with
   ([decision 0009](docs/decisions/0009-geometry-for-ai-clients.md)). `zumen_core::extract::entity_shapes` gives
   polylines (curves as drawn), segments, fills, hatched areas, points and text parts in paper millimeters, and
