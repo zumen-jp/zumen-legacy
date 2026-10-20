@@ -78,7 +78,7 @@ pub fn dxf_to_sxf(doc: &DxfDocument) -> MappedSxf {
 }
 
 /// ハンドルのない・重なる図形があるか（R12 の DXF）
-fn needs_handles(doc: &DxfDocument) -> bool {
+pub(crate) fn needs_handles(doc: &DxfDocument) -> bool {
     let mut seen = HashSet::new();
     doc.entities.iter().flat_map(with_attribs).any(|base| base.handle.is_empty() || !seen.insert(base.handle.as_str()))
 }
@@ -92,7 +92,7 @@ fn with_attribs(entity: &DxfEntity) -> Vec<&DxfEntityBase> {
     out
 }
 
-fn with_handles(doc: &DxfDocument) -> DxfDocument {
+pub(crate) fn with_handles(doc: &DxfDocument) -> DxfDocument {
     let mut out = doc.clone();
     let mut seen = HashSet::new();
     let mut next = 0;
@@ -116,7 +116,7 @@ fn with_handles(doc: &DxfDocument) -> DxfDocument {
 
 /// 色。前景色（ACI 7）は SXF の黒、背景色の塗り（ワイプアウト）は白
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum Paint {
+pub(crate) enum Paint {
     Foreground,
     Background,
     Rgb([u8; 3]),
@@ -132,7 +132,7 @@ fn rgb_of(hex: &str) -> Option<[u8; 3]> {
 }
 
 /// 表示の色（#rrggbb）。白は ACI 7（前景色）の表示の色なので前景色にする
-fn paint_of_hex(hex: &str) -> Paint {
+pub(crate) fn paint_of_hex(hex: &str) -> Paint {
     if hex == BACKGROUND_COLOR {
         return Paint::Background;
     }
@@ -142,7 +142,7 @@ fn paint_of_hex(hex: &str) -> Paint {
     }
 }
 
-fn paint_of_aci(index: f64) -> Paint {
+pub(crate) fn paint_of_aci(index: f64) -> Paint {
     if index == 7.0 { Paint::Foreground } else { paint_of_hex(&aci_color(index)) }
 }
 
@@ -205,7 +205,7 @@ impl Item {
 type InheritKey = (Paint, u64, String, Option<String>);
 
 /// 文字範囲の変換を分けた値（配置基点の x・y、角度、X の倍率、斜体のずれと Y の倍率）
-type TextPlacement = (f64, f64, f64, f64, (f64, f64));
+pub(crate) type TextPlacement = (f64, f64, f64, f64, (f64, f64));
 
 /// 表示が描く形から写す図形
 struct Pending {
@@ -284,7 +284,7 @@ fn sheet_of(name: &str, width: f64, height: f64) -> DrawingSheet {
 }
 
 /// 表示の id の先頭（> の前。ビューポートの中は : の後）
-fn top_id(id: &str) -> &str {
+pub(crate) fn top_id(id: &str) -> &str {
     let id = id.split_once(':').map_or(id, |(_, rest)| rest);
     id.split('>').next().unwrap_or(id)
 }
@@ -1934,7 +1934,7 @@ impl<'a> Mapper<'a> {
 
 impl Paint {
     /// トゥルーカラーの白は SXF の白（ACI 7 の前景色と違い、表示の色が白の図形）
-    fn with_white(self) -> Paint {
+    pub(crate) fn with_white(self) -> Paint {
         match self {
             Paint::Foreground => Paint::Rgb([255, 255, 255]),
             other => other,
@@ -1943,7 +1943,7 @@ impl Paint {
 }
 
 /// 文字範囲の変換（平行移動 · 回転 · 一様な拡大 · 斜体のずれ）を、配置基点・角度・X の倍率と、斜体のずれ・Y の倍率に分ける
-fn decompose_text(m: &Matrix) -> Option<TextPlacement> {
+pub(crate) fn decompose_text(m: &Matrix) -> Option<TextPlacement> {
     let rx = m[0].hypot(m[1]);
     if !(rx.is_finite() && rx > 0.0) {
         return None;
@@ -1960,7 +1960,7 @@ fn decompose_text(m: &Matrix) -> Option<TextPlacement> {
 }
 
 /// 線分を矩形（最小 x・y、最大 x・y）で切る（Liang–Barsky）。外なら None
-fn clip_segment([x1, y1, x2, y2]: [f64; 4], [min_x, min_y, max_x, max_y]: [f64; 4]) -> Option<[f64; 4]> {
+pub(crate) fn clip_segment([x1, y1, x2, y2]: [f64; 4], [min_x, min_y, max_x, max_y]: [f64; 4]) -> Option<[f64; 4]> {
     let (dx, dy) = (x2 - x1, y2 - y1);
     let (mut t0, mut t1) = (0.0f64, 1.0f64);
     for (p, q) in [(-dx, x1 - min_x), (dx, max_x - x1), (-dy, y1 - min_y), (dy, max_y - y1)] {
