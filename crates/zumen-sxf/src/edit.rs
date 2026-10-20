@@ -78,9 +78,11 @@ pub fn edit_sxf(bytes: &[u8], format: &str, operations: &[EditOperation]) -> Res
     }
     let written =
         write_sxf(&editor.drawing, format).map_err(|error| EditError::new("unreadable", error.to_string()))?;
+    // 書き手の知らせも、編集の知らせとして edit- を付ける（DXF・JWW の編集と同じ）
     let mut notices = editor.notices;
     for notice in &written.notices {
-        notices.add_count(notice.level, &notice.code, notice.message.clone(), notice.count);
+        let code = if notice.code.starts_with("edit-") { notice.code.clone() } else { format!("edit-{}", notice.code) };
+        notices.add_count(notice.level, &code, notice.message.clone(), notice.count);
     }
     let created = editor
         .created
@@ -209,7 +211,7 @@ impl Editor {
         }
         let id = self.temporary();
         self.drawing.document.layers.push(LayerDefinition { id, name: name.to_string(), visible: true });
-        self.notices.add(NoticeLevel::Info, "layer-added", "図面にないレイヤを足しました");
+        self.notices.add(NoticeLevel::Info, "edit-added-layer", "図面にないレイヤを足しました");
         self.drawing.document.layers.len() as f64
     }
 
@@ -245,7 +247,7 @@ impl Editor {
             EditColor::ByLayer | EditColor::ByBlock => {
                 self.notices.add(
                     NoticeLevel::Info,
-                    "color-by-layer",
+                    "edit-color-by-layer",
                     "SXF の色はレイヤ・配置から継がないため、黒にしました",
                 );
                 DEFAULT_COLOR
@@ -285,7 +287,7 @@ impl Editor {
             EditLineWidth::ByLayer | EditLineWidth::ByBlock => {
                 self.notices.add(
                     NoticeLevel::Info,
-                    "width-by-layer",
+                    "edit-width-by-layer",
                     "SXF の線幅はレイヤ・配置から継がないため、0.25 mm にしました",
                 );
                 DEFAULT_WIDTH_CODE
@@ -691,7 +693,7 @@ fn layer_style(editor: &mut Editor, reader: &ValueReader<'_>) -> Result<(), Edit
     if color.is_some() || line_type.is_some() || width.is_some() {
         editor.notices.add(
             NoticeLevel::Info,
-            "layer-style",
+            "edit-layer-attributes",
             "SXF のレイヤは色・線種・線幅を持たないため、レイヤの色・線種・線幅の指定は使っていません",
         );
     }

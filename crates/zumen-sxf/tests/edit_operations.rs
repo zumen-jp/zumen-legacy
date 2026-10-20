@@ -333,7 +333,7 @@ fn values_sxf_cannot_hold_are_refused_or_reported() {
     )
     .unwrap();
     let codes: Vec<&str> = edited.notices.iter().map(|notice| notice.code.as_str()).collect();
-    assert!(codes.contains(&"layer-style") && codes.contains(&"color-by-layer"), "{codes:?}");
+    assert!(codes.contains(&"edit-layer-attributes") && codes.contains(&"edit-color-by-layer"), "{codes:?}");
     let error = edit_sxf(&bytes, "sfc", &operations(json!([{"op": "add-layer", "name": "部分"}]))).unwrap_err();
     assert_eq!(error.code, "already-exists");
 }

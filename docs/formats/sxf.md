@@ -211,15 +211,17 @@ writes an empty drawing (an A3 landscape sheet) for `create`.
 | `text` | `position`, `text` (one line), `height`, `rotation`, `textStyle` (font name), `width` (of the text box) | text_string_feature, base point at the lower left; without `width`, full-width characters are as wide as the height and half-width ones half of it |
 | `block-reference` | `block` (composite figure), `position`, `rotation`, `scale` (a number or `[x, y]`) | sfig_locate_feature |
 
-- Every kind takes `layer` (a name; a missing layer is added, `layer-added`), `color` (an SXF color code, or `"#rrggbb"`:
+- Every kind takes `layer` (a name; a missing layer is added, `edit-added-layer`), `color` (an SXF color code, or `"#rrggbb"`:
   a predefined color when equal, else an existing or new user-defined color), `lineType` (a predefined SXF name such as
   `dashed`, or a user-defined line type of the drawing) and `lineWidth` (millimeters: a predefined width when equal, else
   a user-defined width). New elements are black, continuous and 0.25 mm. SXF has no BYLAYER or BYBLOCK, so `bylayer` and
-  `byblock` become black and 0.25 mm (`color-by-layer`, `width-by-layer`). Other elements (dimensions, leaders,
+  `byblock` become black and 0.25 mm (`edit-color-by-layer`, `edit-width-by-layer`). Other elements (dimensions, leaders,
   hatches, splines, clothoids, symbols) can change their layer and style, not their shape.
 - Layers take `visible`; SXF layers have no color, line type or width, so those values are checked and left unused
-  (`layer-style`). A layer without elements cannot be written to P21.
+  (`edit-layer-attributes`). A layer without elements cannot be written to P21.
 - The ids of added elements are their written instance numbers (`#n`); the ids of added layers are their names.
+- Notices of the writers below come with `edit-` before their code (`edit-rewrite`, `edit-encoding`), as the notices of
+  the editor itself do.
 
 ### Editing SFC in place
 
