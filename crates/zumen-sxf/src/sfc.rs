@@ -3,6 +3,7 @@
 use crate::document::{SxfDrawing, assemble_document};
 use crate::features::{InvalidFeature, feature_from_record};
 use crate::sfc_reader::read_sfc;
+use crate::source::SxfSource;
 use zumen_core::{NoticeLevel, NoticeList, ReadError, js};
 
 /// 出力ライブラリ名の末尾の `$$3.1` などの版（`/\$\$(\d+(?:\.\d+)?)\s*$/`）
@@ -81,5 +82,6 @@ pub fn parse_sfc(bytes: &[u8]) -> Result<SxfDrawing, ReadError> {
         header: read.header,
         document,
         notices: notices.into_vec(),
+        source: Some(SxfSource::new(bytes)),
     })
 }

@@ -23,6 +23,8 @@ pub struct SfcRecord {
     /// /*SXF、/*SXF3、/*SXF3.1 のどれで囲まれていたか
     pub version: &'static str,
     pub params: Vec<SfcValue>,
+    /// ファイルの中の位置（/*SXF の先頭から SXF*/ の終わりまで）。書き出しが元の文字列を残すのに使う
+    pub span: (usize, usize),
 }
 
 pub struct SfcReadResult {
@@ -231,7 +233,10 @@ pub fn read_sfc(bytes: &[u8]) -> SfcReadResult {
         };
         pos = close + opener.closer.len();
         match read_record(bytes, start + opener.marker.len(), close, opener.version) {
-            Ok(Some(record)) => records.push(record),
+            Ok(Some(mut record)) => {
+                record.span = (start, pos);
+                records.push(record);
+            }
             Ok(None) | Err(ParseError) => skipped += 1,
         }
     }
@@ -280,5 +285,5 @@ fn read_record(bytes: &[u8], from: usize, to: usize, version: &'static str) -> R
     }
     let mut reader = ParamReader { bytes, pos: i + 1, end: to };
     let params = reader.read_list(0)?;
-    Ok(Some(SfcRecord { id, name, version, params }))
+    Ok(Some(SfcRecord { id, name, version, params, span: (from, to) }))
 }
