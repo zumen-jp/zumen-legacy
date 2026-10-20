@@ -554,6 +554,7 @@ name = "zumen-jww"
 version = "0.1.0"
 dependencies = [
  "encoding_rs",
+ "serde_json",
  "zumen-core",
 ]
 
