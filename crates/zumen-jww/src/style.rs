@@ -114,6 +114,24 @@ impl JwwDocument {
         None
     }
 
+    /// 画面色（#rrggbb）が最も近い線色 1〜9。色が分からなければ線色 2（古い版・JWC が持てない色を書くとき）
+    pub fn nearest_pen_color(&self, color: Option<&str>) -> u16 {
+        let rgb = |value: &str| u32::from_str_radix(value.trim_start_matches('#'), 16).ok();
+        let Some(target) = color.and_then(rgb) else {
+            return 2;
+        };
+        let channels = |value: u32| [(value >> 16) & 0xff, (value >> 8) & 0xff, value & 0xff];
+        (1..=9u16)
+            .filter_map(|pen| {
+                let value = self.pen_color(&JwwBase { pen_color: pen, ..JwwBase::default() }, None)?;
+                let distance: u32 =
+                    channels(rgb(&value)?).iter().zip(channels(target)).map(|(a, b)| a.abs_diff(b).pow(2)).sum();
+                Some((distance, pen))
+            })
+            .min()
+            .map_or(2, |(_, pen)| pen)
+    }
+
     /// 線種の線分・空白の長さ（mm、実線は空）。ヘッダの設定があればそれを使い、奇数個なら 2 周期にする
     pub fn line_dashes(&self, style: u8) -> Vec<f64> {
         if style <= 1 || is_random_line(style) {
