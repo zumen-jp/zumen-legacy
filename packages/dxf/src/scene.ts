@@ -1015,7 +1015,14 @@ class Builder {
   }
 
   /** フォントの CSS の名前。SHX は同梱しないので代わりのフォントで描き、数を知らせる */
-  private fontFamily(style: DxfTextStyle | undefined, override?: TextRun["font"]): { family: string; shx: boolean } {
+  /**
+   * フォントの CSS の名前。SHX は同梱しないので代わりのフォントで描き、数を知らせる。
+   * vertical は Windows の縦書きのフォント（名前の先頭が @ の TrueType）
+   */
+  private fontFamily(
+    style: DxfTextStyle | undefined,
+    override?: TextRun["font"],
+  ): { family: string; shx: boolean; vertical: boolean } {
     const file = override?.name ?? style?.font ?? "";
     const truetype =
       override?.truetype ||
@@ -1027,7 +1034,7 @@ class Builder {
       "",
     );
     if (!truetype) this.shxFonts.add((file || "txt").replace(/\.shx$/i, "").toLowerCase());
-    return { family: fontFamilyFor(name || undefined), shx: !truetype };
+    return { family: fontFamilyFor(name || undefined), shx: !truetype, vertical: truetype && name.startsWith("@") };
   }
 
   /**
@@ -1056,7 +1063,28 @@ class Builder {
       if (!text) continue;
       const em = emFor(text) * run.height;
       const width = units(text) * em * run.widthFactor;
-      if (text.trim() !== "") {
+      if (text.trim() !== "" && face.vertical) {
+        // 縦書きのフォントは、字形をベースラインに対して 90° 左に回して並べる（ベースラインを 270° に向けると字が立つ）。
+        // 文字範囲は、ベースラインの向きに長さ width、横に em（em の下端から DESCENT 上がベースライン）
+        const primitive = layoutText(
+          {
+            text,
+            x: 0,
+            y: 0,
+            height: width,
+            width: em,
+            spacing: 0,
+            angle: 0,
+            slant: run.oblique,
+            anchor: 1,
+            vertical: true,
+            color,
+            fontFamily: face.family,
+          },
+          multiply(transform, multiply(translate(x, 0), [0, 1, -1, 0, width, -DESCENT * em])),
+        );
+        if (primitive) out.push(primitive);
+      } else if (text.trim() !== "") {
         const primitive = layoutText(
           {
             text,

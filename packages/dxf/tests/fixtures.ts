@@ -772,6 +772,28 @@ export const DIMSTYLE_DEFAULTS = latin1(ascii(
   0, "ENDSEC", 0, "EOF",
 ));
 
+/**
+ * Windows の縦書きのフォント（名前の先頭が @ の TrueType）は、字形をベースラインに対して 90° 左に回して並べる。
+ * AutoCAD・Jw_cad の DXF は縦書きを、このフォントの文字を 270° 回して書く。横書きと同じに描くと、字が寝て読めない
+ */
+// biome-ignore format: DXF のタグ（グループコードと値）の組を 1 行に並べて読めるようにする
+export const VERTICAL_TEXT = new TextEncoder().encode(ascii(
+  0, "SECTION", 2, "HEADER", 9, "$ACADVER", 1, "AC1027", 9, "$INSUNITS", 70, 4, 0, "ENDSEC",
+  0, "SECTION", 2, "TABLES", 0, "TABLE", 2, "STYLE", 70, 2,
+  0, "STYLE", 5, "30", 100, "AcDbSymbolTableRecord", 100, "AcDbTextStyleTableRecord", 2, "縦書き", 70, 0, 40, 0,
+  41, 1, 50, 0, 71, 0, 42, 2.5, 3, "msmincho.ttc", 4, "", 1001, "ACAD", 1000, "@ＭＳ 明朝", 1071, 0,
+  0, "STYLE", 5, "31", 100, "AcDbSymbolTableRecord", 100, "AcDbTextStyleTableRecord", 2, "横書き", 70, 0, 40, 0,
+  41, 1, 50, 0, 71, 0, 42, 2.5, 3, "msgothic.ttc", 4, "", 1001, "ACAD", 1000, "ＭＳ ゴシック", 1071, 0,
+  0, "ENDTAB", 0, "ENDSEC",
+  0, "SECTION", 2, "ENTITIES",
+  ...entity("TEXT", "40", "0", [], "AcDbText", 10, 10, 20, 50, 30, 0, 40, 3.5, 1, "縦書きAB", 50, 270, 7, "縦書き",
+    100, "AcDbText"),
+  ...entity("TEXT", "41", "0", [], "AcDbText", 10, 30, 20, 50, 30, 0, 40, 3.5, 1, "幅0.8", 50, 270, 41, 0.8, 51, 10,
+    7, "縦書き", 100, "AcDbText"),
+  ...entity("TEXT", "42", "0", [], "AcDbText", 10, 50, 20, 50, 30, 0, 40, 3.5, 1, "横書き", 7, "横書き", 100, "AcDbText"),
+  0, "ENDSEC", 0, "EOF",
+));
+
 /** 正解ファイルにする図面と、既定の表示のほかに描く表示（レイアウト） */
 export const DRAWINGS: [string, Uint8Array, string[]][] = [
   ["codepage", CODEPAGE, []],
@@ -795,4 +817,5 @@ export const DRAWINGS: [string, Uint8Array, string[]][] = [
   ["attributes-r2018", ATTRIBUTES_R2018, []],
   ["binary-text", BINARY_TEXT, []],
   ["dimstyle-defaults", DIMSTYLE_DEFAULTS, []],
+  ["vertical-text", VERTICAL_TEXT, []],
 ];

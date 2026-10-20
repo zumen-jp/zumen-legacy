@@ -1211,8 +1211,13 @@ impl<'a> Builder<'a> {
         self.styles.get(&name.to_uppercase()).or_else(|| self.styles.get("STANDARD")).copied()
     }
 
-    /// フォントの CSS の名前。SHX は同梱しないので代わりのフォントで描き、数を知らせる
-    fn font_family(&mut self, style: Option<&DxfTextStyle>, override_font: Option<&RunFont>) -> (&'static str, bool) {
+    /// フォントの CSS の名前と、SHX か、縦書きか。SHX は同梱しないので代わりのフォントで描き、数を知らせる。
+    /// 縦書きは Windows の縦書きのフォント（名前の先頭が @ の TrueType）
+    fn font_family(
+        &mut self,
+        style: Option<&DxfTextStyle>,
+        override_font: Option<&RunFont>,
+    ) -> (&'static str, bool, bool) {
         let file = match override_font {
             Some(font) => font.name.clone(),
             None => style.map(|style| style.font.clone()).unwrap_or_default(),
@@ -1236,7 +1241,7 @@ impl<'a> Builder<'a> {
                 self.shx_fonts.push(font);
             }
         }
-        (font_family_for(name), !truetype)
+        (font_family_for(name), !truetype, truetype && name.starts_with('@'))
     }
 
     /// 1 行の run を、ベースラインの左端を原点とする文字の座標系に並べて描く。
@@ -1257,7 +1262,7 @@ impl<'a> Builder<'a> {
                 Some(RunColor::Aci(index)) => aci_color(*index),
                 Some(RunColor::Rgb(color)) => color.clone(),
             };
-            let (family, uses_shx) = self.font_family(style, run.font.as_ref());
+            let (family, uses_shx, vertical) = self.font_family(style, run.font.as_ref());
             if uses_shx {
                 shx = true;
             }
@@ -1271,7 +1276,30 @@ impl<'a> Builder<'a> {
             }
             let em = em_for(&text) * run.height;
             let width = units(&text) * em * run.width_factor;
-            if !js::trim(&text).is_empty() {
+            if !js::trim(&text).is_empty() && vertical {
+                // 縦書きのフォントは、字形をベースラインに対して 90° 左に回して並べる（ベースラインを 270° に向けると字が
+                // 立つ）。文字範囲は、ベースラインの向きに長さ width、横に em（em の下端から DESCENT 上がベースライン）
+                let primitive = layout_text(
+                    TextLayoutInput {
+                        text: &text,
+                        x: 0.0,
+                        y: 0.0,
+                        height: width,
+                        width: em,
+                        spacing: 0.0,
+                        angle: 0.0,
+                        slant: run.oblique,
+                        anchor: 1.0,
+                        vertical: true,
+                        color: color.clone(),
+                        font_family: family.to_string(),
+                    },
+                    &multiply(transform, &multiply(&translate(x, 0.0), &[0.0, 1.0, -1.0, 0.0, width, -DESCENT * em])),
+                );
+                if let Some(primitive) = primitive {
+                    out.push(Primitive::Text(primitive));
+                }
+            } else if !js::trim(&text).is_empty() {
                 let primitive = layout_text(
                     TextLayoutInput {
                         text: &text,
