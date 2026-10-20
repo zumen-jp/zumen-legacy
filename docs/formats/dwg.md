@@ -292,6 +292,7 @@ of an object and write it back; each of them gives the same bits for every objec
 - **Strings** are stored as UTF-16. The model holds the caret notation of DXF (`^J`, `^ `), which the DWG reader also
   produces, so it is turned back into characters; reading gives the same string, except for a string that is not in that
   notation (a control character in a DXF, or `^` followed by another character), which reading gives in the notation.
+  The length of a string is a BS (2.2), so a string is cut at 32,767 UTF-16 units, without splitting a surrogate pair.
 - **Angles**: degrees become radians chosen so that the reader's `r × 180 / π` gives the same degrees when such a value
   exists (the double rounding leaves some degrees out). The start and end of an arc are chosen together so that their
   difference is the same as in the model: the scene divides an arc by its sweep, and one unit in the last place over
@@ -325,7 +326,7 @@ of an object and write it back; each of them gives the same bits for every objec
 
 #### Notices of new drawings
 
-The codes of the DXF writer, with the same messages, and one more:
+The codes of the DXF writer, with the same messages, and two more:
 
 | Code | When | What is written |
 | --- | --- | --- |
@@ -339,6 +340,7 @@ The codes of the DXF writer, with the same messages, and one more:
 | `dimension-block` | A dimension without its block | Nothing |
 | `mleader-block` | A MULTILEADER whose block content is not defined | No content |
 | `multiline-attrib` | A multi-line attribute, which AutoCAD 2013 DWG cannot hold (the embedded MTEXT is R2018) | A single-line attribute with the text on one line |
+| `long-text` | A string longer than 32,767 UTF-16 units, the longest a DWG string can be | The string up to that length |
 
 What the model does not hold is not written: entity types that the readers skip (counted in `skipped`), extended data
 and extension dictionaries, the handles of vertices, the lock position of attributes, the associativity of hatches and
@@ -347,7 +349,8 @@ of leaders to their annotation (a leader keeps the hook vertex that the reader a
 #### Verification of new drawings
 
 - Every DXF and DWG of `tests/fixtures`, written as DWG and read again, draws the same in every view as the model it was
-  written from (`tests/write_model.rs`, as `crates/zumen/tests/convert.rs` checks the DXF writer). The model is first
+  written from (`tests/write_model.rs`, as `crates/zumen/tests/convert.rs` checks the DXF writer). Models read from
+  damaged copies of them are written without panicking, and the written drawings read again. The model is first
   given the values that reading a DWG gives (multi-line attributes made single-line, strings in caret notation, polygon
   boundaries closed), and splines with only fit points are not compared: the DWG reader computes their control points as
   AutoCAD does, while the DXF reader draws a curve through the points.

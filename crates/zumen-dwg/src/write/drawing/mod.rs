@@ -21,6 +21,7 @@ use crate::bits::HandleRef;
 use crate::codec::RawText;
 use crate::codec::object::ObjectCommon;
 use crate::file::Version;
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use zumen_core::{NoticeLevel, NoticeList};
 use zumen_dxf::{DxfBlock, DxfDocument, DxfEntity, DxfEntityData, DxfLayout, DxfMLineStyle, DxfSpace, Vec3};
@@ -231,6 +232,8 @@ pub(super) struct Writer<'a> {
     pub sort_tables: Vec<SortTable>,
     /// 書いた VIEWPORT（レイアウトのビューポートの並び）
     pub viewports: HashSet<u64>,
+    /// TV の長さ（BS）に入らないので切った文字列の数
+    pub long_texts: Cell<u64>,
 }
 
 /// 図形（属性を含む）
@@ -388,6 +391,7 @@ impl<'a> Writer<'a> {
             fixed: Fixed::default(),
             sort_tables: Vec::new(),
             viewports: HashSet::new(),
+            long_texts: Cell::new(0),
         }
     }
 
@@ -409,13 +413,24 @@ impl<'a> Writer<'a> {
     }
 
     /// 文字列を DWG の形（R2007 以降の UTF-16）にする。モデルの文字列はテキストの DXF と同じキャレット表記（「^ 」は ^、
-    /// ^J は改行。DWG の読み取りも同じ形にする）なので、文字に戻す
+    /// ^J は改行。DWG の読み取りも同じ形にする）なので、文字に戻す。TV の長さは BS（2.2、読み取りは符号付き）なので、
+    /// 32,767 単位を超える文字列はそこまで（サロゲートの対を分けない）で切り、数える
     pub(super) fn text(&self, value: &str) -> RawText {
-        if value.contains('^') {
+        let mut text = if value.contains('^') {
             RawText::new(&uncaret(value), VERSION, encoding_rs::UTF_8)
         } else {
             RawText::new(value, VERSION, encoding_rs::UTF_8)
+        };
+        if let RawText::Units(units) = &mut text
+            && units.len() > i16::MAX as usize
+        {
+            units.truncate(i16::MAX as usize);
+            if units.last().is_some_and(|unit| (0xd800..0xdc00).contains(unit)) {
+                units.pop();
+            }
+            self.long_texts.set(self.long_texts.get() + 1);
         }
+        text
     }
 
     /// クラスの番号（500 から）。使った数を数える
@@ -820,6 +835,14 @@ impl<'a> Writer<'a> {
     fn finish(mut self) -> DwgWritten {
         let seed = self.handles.next.max(self.objects.iter().map(|(handle, _)| handle + 1).max().unwrap_or(1));
         let header = header::header_section(&self, seed);
+        if self.long_texts.get() > 0 {
+            self.notices.add_count(
+                NoticeLevel::Warning,
+                "long-text",
+                "DWG の文字列の長さの上限（UTF-16 で 32,767 単位）を超える文字列は、その長さまでを書きました",
+                self.long_texts.get(),
+            );
+        }
         let classes: Vec<ClassDef> = self
             .classes
             .iter()

@@ -135,8 +135,9 @@ const DATES: [(&str, &str, &str); 4] = [
     ("$TDUSRTIMER", "$TDUSRTIMER", "$TDUSRTIMER_MS"),
 ];
 
-/// モデルの変数（DXF の値）をヘッダ変数の形にする。形が合わないもの・ハンドルは None
-fn from_dxf(kind: Kind, value: &DxfHeaderValue) -> Option<Value> {
+/// モデルの変数（DXF の値）をヘッダ変数の形にする。形が合わないもの・ハンドルは None。文字列は図形と同じく
+/// キャレット表記を戻す（Writer::text）
+fn from_dxf(w: &Writer<'_>, kind: Kind, value: &DxfHeaderValue) -> Option<Value> {
     let number = |value: &DxfHeaderValue| match value {
         DxfHeaderValue::Number(number) if number.is_finite() => Some(*number),
         _ => None,
@@ -160,7 +161,7 @@ fn from_dxf(kind: Kind, value: &DxfHeaderValue) -> Option<Value> {
         }
         Kind::Tv => {
             let DxfHeaderValue::Text(text) = value else { return None };
-            Value::Text(RawText::new(text, VERSION, encoding_rs::UTF_8))
+            Value::Text(w.text(text))
         }
         _ => return None,
     })
@@ -240,7 +241,7 @@ pub(super) fn header_section(w: &Writer<'_>, seed: u64) -> Vec<u8> {
             continue;
         }
         let Some(kind) = field_kind(name) else { continue };
-        if let Some(value) = from_dxf(kind, value) {
+        if let Some(value) = from_dxf(w, kind, value) {
             vars.set(name, value);
         }
     }

@@ -272,6 +272,71 @@ fn written_samples_draw_the_same() {
     assert!(failures.is_empty(), "{failures:#?}");
 }
 
+/// 壊れた・途中で切れた図面から読んだモデルでも panic せずすぐに書け、書いた図面は読み取りが開ける
+#[test]
+fn models_of_damaged_drawings_are_written() {
+    let mut seed: u64 = 0x5eed_0003;
+    let mut random = move |bound: usize| {
+        seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        (seed >> 33) as usize % bound.max(1)
+    };
+    for format in ["dxf", "dwg"] {
+        for file in drawings(&fixtures().join(format)) {
+            let name = file.file_name().unwrap().to_string_lossy().to_string();
+            let original = fs::read(&file).unwrap();
+            for round in 0..30 {
+                let mut bytes = original.clone();
+                match round % 3 {
+                    0 => bytes.truncate(random(bytes.len())),
+                    1 => {
+                        for _ in 0..1 + random(8) {
+                            let at = random(bytes.len());
+                            bytes[at] = random(256) as u8;
+                        }
+                    }
+                    _ => {
+                        let at = random(bytes.len());
+                        let length = random(64).min(bytes.len() - at);
+                        bytes.drain(at..at + length);
+                    }
+                }
+                let Some(doc) = model(&bytes) else { continue };
+                let start = std::time::Instant::now();
+                let written = zumen_dwg::write_dwg(&doc);
+                assert!(
+                    zumen_dwg::read_dwg(&written.bytes).is_ok(),
+                    "{name} round {round}: the written drawing does not read"
+                );
+                assert!(start.elapsed().as_secs() < 5, "{name} round {round} took too long");
+            }
+        }
+    }
+}
+
+/// DWG の文字列は 32,767 単位（UTF-16）までなので、長い文字列はサロゲートの対を分けずにそこまでで切り、notices で知らせる
+#[test]
+fn long_strings_are_cut_with_a_notice() {
+    let mut doc = parse_dxf(&fs::read(fixtures().join("dxf/features.dxf")).unwrap());
+    let mtext = |entity: &DxfEntity| match &entity.data {
+        DxfEntityData::MText(mtext) => Some(mtext.raw_text.clone()),
+        _ => None,
+    };
+    let handle = doc.entities.iter().find(|entity| mtext(entity).is_some()).unwrap().base.handle.clone();
+    for entity in &mut doc.entities {
+        if entity.base.handle == handle
+            && let DxfEntityData::MText(mtext) = &mut entity.data
+        {
+            mtext.raw_text = "\u{2000b}".repeat(20_000);
+        }
+    }
+    let written = zumen_dwg::write_dwg(&doc);
+    let notice = written.notices.iter().find(|notice| notice.code == "long-text").expect("no long-text notice");
+    assert_eq!(notice.count, 1);
+    let again = zumen_dwg::read_dwg(&written.bytes).unwrap();
+    let text = again.entities.iter().find(|entity| entity.base.handle == handle).and_then(mtext).unwrap();
+    assert_eq!(text, "\u{2000b}".repeat(16_383));
+}
+
 #[test]
 fn reports_what_could_not_be_written_as_it_was() {
     let bytes = fs::read(fixtures().join("dxf/features.dxf")).unwrap();
