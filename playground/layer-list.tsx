@@ -1,5 +1,3 @@
-"use client";
-
 import type { SceneLayer } from "@zumenjs/core";
 import { useMemo } from "react";
 
@@ -29,11 +27,11 @@ export function LayerList({ layers, hidden, counts, idPrefix, onChange }: LayerL
   }, [layers]);
 
   const items = (members: SceneLayer[]) => (
-    <ul className="cadv-layers">
+    <ul className="sample-layers">
       {members.map((layer) => {
         const id = `${idPrefix}-${layer.id}`;
         return (
-          <li key={layer.id} className="cadv-layer">
+          <li key={layer.id} className="sample-layer">
             <input
               id={id}
               type="checkbox"
@@ -41,9 +39,9 @@ export function LayerList({ layers, hidden, counts, idPrefix, onChange }: LayerL
               onChange={(event) => onChange([layer.id], event.currentTarget.checked)}
             />
             <label htmlFor={id}>{layer.name}</label>
-            <span className="cadv-count">
+            <span className="sample-count">
               {counts.get(layer.id) ?? 0}
-              <span className="cadv-visually-hidden"> 要素</span>
+              <span className="sample-visually-hidden"> 要素</span>
             </span>
           </li>
         );
@@ -59,8 +57,8 @@ export function LayerList({ layers, hidden, counts, idPrefix, onChange }: LayerL
         const visibleCount = ids.filter((id) => !hidden.has(id)).length;
         const id = `${idPrefix}-group-${group.layers[0]?.id ?? 0}`;
         return (
-          <fieldset key={group.key} className="cadv-layer-group">
-            <legend className="cadv-layer cadv-layer-group-title">
+          <fieldset key={group.key} className="sample-layer-group">
+            <legend className="sample-layer sample-layer-group-title">
               <input
                 id={id}
                 type="checkbox"
@@ -71,9 +69,9 @@ export function LayerList({ layers, hidden, counts, idPrefix, onChange }: LayerL
                 onChange={(event) => onChange(ids, event.currentTarget.checked)}
               />
               <label htmlFor={id}>{group.name || "（名前なし）"}</label>
-              <span className="cadv-count">
+              <span className="sample-count">
                 {ids.length}
-                <span className="cadv-visually-hidden"> レイヤ</span>
+                <span className="sample-visually-hidden"> レイヤ</span>
               </span>
             </legend>
             {items(group.layers)}

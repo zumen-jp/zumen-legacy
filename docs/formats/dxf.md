@@ -44,6 +44,12 @@ the differences that remain are in [How DWG is handled](dwg.md).
   after optional `999` comments.
 - **Binary DXF**: group codes are 2 bytes (1 byte and the `255` escape in R12); values are read by the type of the group code range
   ([Group Code Value Types Reference](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-2553CF98-44F6-4828-82DD-FE3BC7448113.htm)).
+  Strings are read into the form that ASCII DXF uses
+  ([About ASCII Control Characters in DXF Files](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-77D34F88-73CC-495D-B48C-37628EE61D73.htm)):
+  a control character becomes `^` and the character 64 above it (`^J` for a line feed, `^I` for a tab) and `^` becomes `^ `.
+  Binary DXF keeps them as they are, so without this the line feeds that AutoCAD 2004 and later write in MTEXT (R2000
+  writes `\P`) would not break paragraphs. The model therefore holds the same strings for ASCII and binary DXF, and for
+  DWG. ezdxf writes `^` without the space in ASCII DXF as well; MTEXT stacks (`\S+0.1^-0.2;`) are drawn the same either way.
 - **Text encoding**: AC1021 (2007) and later are UTF-8. Earlier files use `$DWGCODEPAGE` (`ANSI_932` is Japanese Shift_JIS/CP932;
   the table follows ezdxf). When the code page is missing, or is Western (`ANSI_1252`) but the bytes are valid UTF-8, UTF-8 is used.
   When it is missing and the bytes are valid Shift_JIS with kana or at least two kanji, Shift_JIS is used.
@@ -54,6 +60,18 @@ the differences that remain are in [How DWG is handled](dwg.md).
 - 102 groups (`{ACAD_REACTORS`…), extended data (1001 and later) and embedded objects (101) are skipped when reading entity attributes.
   Common attributes are taken from the `AcDbEntity` subclass only, so table cell colors of `ACAD_TABLE` are not mistaken for its color.
 - `POLYLINE`/`VERTEX`/`SEQEND` and `INSERT`/`ATTRIB`/`SEQEND` sequences are assembled into one entity.
+- ATTRIB and ATTDEF take the text generation flags (71) from the `AcDbText` subclass only. The
+  [ATTRIB table](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-7DD8B495-C3F8-48CD-A766-14F9D7D0DD9B.htm)
+  lists them in `AcDbAttribute`, but AutoCAD 2018 writes the attribute type there (1 single line, 2 multi-line
+  attribute, 4 multi-line attribute definition), as ezdxf (`attribute_type`) and ACadSharp (`AttributeType`) read it;
+  taken as generation flags, it drew multi-line attribute definitions upside down. The text of a multi-line attribute is
+  in its embedded MTEXT (101), which is not read yet: AutoCAD 2018 leaves the attribute's own text empty, so it is not
+  drawn.
+- **Dimension styles**: AutoCAD (R2000 and later in the samples; R12 writes every value) leaves out of DIMSTYLE the
+  values equal to its defaults. A missing DIMSCALE is 1, and a missing DIMASZ or DIMTXT is 0.18, which the DWG of the
+  same drawing stores, whatever `$MEASUREMENT` says: the imperial ACadSharp sample writes the 2.5 of its ISO-25 style
+  and leaves out the 0.18 of the others, and ACadSharp and netDxf read missing values as 0.18 too (*inferred* for metric
+  drawings, as no AutoCAD DXF of a metric drawing was at hand).
 - R12 files without `LAYOUT` objects get one `Layout1` when they have paper space entities. R12 viewport settings are read
   from the `ACAD` `MVIEW` extended data, as ezdxf does.
 
@@ -108,13 +126,13 @@ the differences that remain are in [How DWG is handled](dwg.md).
 | LINE, POINT, CIRCLE, ARC, ELLIPSE | Lines and dots, arcs and ellipses flattened within 0.02 mm (or 1/10,000 of the radius), OCS applied |
 | LWPOLYLINE, POLYLINE | Bulges as arcs; widths as filled bands; curve- and spline-fit vertices; 3D polylines, polygon and polyface meshes as wireframes |
 | SPLINE, HELIX | NURBS with knots and weights (de Boor). Splines with only fit points are approximated through the points and reported |
-| TEXT, ATTRIB, ATTDEF | Horizontal and vertical justification (72/73, 74 for attributes), aligned and fit text, backward and upside-down, oblique, `%%c` `%%d` `%%p` `%%nnn`, `%%u` `%%o` `%%k` |
+| TEXT, ATTRIB, ATTDEF | Horizontal and vertical justification (72/73, 74 for attributes), aligned and fit text, backward and upside-down, oblique, `%%c` `%%d` `%%p` `%%nnn`, `%%u` `%%o` `%%k`, and `^ ` (a caret) and `^I` (a tab, as four spaces) of ASCII DXF |
 | MTEXT | Attachment point, direction or rotation, line spacing, word wrap at the reference width (at spaces, or between full-width characters), paragraph alignment, background mask, and the codes `\P` `\H` `\W` `\Q` `\C` `\c` `\F` `\f` `\L` `\O` `\K` `\S` `\~` `\U+` `\M+` and `{}` |
 | INSERT (MINSERT), ACAD_TABLE | Nested blocks with base point, scale, rotation, OCS and arrays; constant attribute definitions; the table's anonymous block |
 | DIMENSION, ARC_DIMENSION, LARGE_RADIAL_DIMENSION | The anonymous block (`*D…`) in the dimension's OCS, moved to group 12, merged into one selectable entity |
 | HATCH, MPOLYGON | Polyline and edge boundaries (lines, arcs, ellipses, splines; clockwise edges as ezdxf reads them). Solid fills, pattern lines (with dashes) clipped to the boundary, gradients as one color |
 | SOLID, TRACE, 3DFACE | Filled quadrilaterals; visible 3DFACE edges |
-| LEADER | The path (straight or spline-fit) and a closed arrowhead sized by `DIMASZ × DIMSCALE` |
+| LEADER | The path (straight or spline-fit) and a closed arrowhead sized by `DIMASZ × DIMSCALE` of its dimension style |
 | MULTILEADER (MLEADER) | Text content (MTEXT at the stored position, with background, frame and underline or overline) or block content with its attribute values; straight or spline leaders from the arrowhead to the landing point and the dogleg, with dimension breaks; the closed filled arrowhead or the arrow block (`_Dot`, `_ArchTick`…) scaled by the arrow size. Merged into one selectable entity |
 | MLINE | The elements of the MLINESTYLE at their miter offsets, without the parts cut by MLEDIT, with their colors and line types; fill, square and round caps, inner arcs and miters |
 | WIPEOUT | Filled with the background color |

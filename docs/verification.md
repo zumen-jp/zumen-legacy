@@ -82,6 +82,41 @@ Checked on 2026-10-18 on macOS (Apple M2 Pro), Node.js 24.21.0 and Chromium, aga
   blocks (the ACadSharp samples only have straight leaders with closed filled arrows and text), tolerance content, text columns,
   non-rectangular text frames, dimension breaks, MLINE fill breaks, and MLEDIT cuts in elements that start after the miter point.
 
+## DXF against the DWG of the same drawing
+
+Checked on 2026-10-20 on macOS (Apple M2 Pro) with Node.js 24.21.0 and Rust 1.99.0. Comparing DWG with the DXF of the
+same drawing (`crates/zumen-dwg/examples/compare.rs`, see [DWG in Rust](#dwg-in-rust)) found three values that the DXF
+reader read differently from AutoCAD. Both DXF readers now read them as [How DXF is handled](formats/dxf.md#reading)
+describes.
+
+- Three synthetic drawings in `tests/fixtures/dxf` and three unit tests pin the rules: a multi-line ATTDEF as AutoCAD
+  2018 writes it (attribute type 4 in `AcDbAttributeDefinition`, text in the embedded MTEXT) is drawn upright, and an
+  ATTRIB whose `AcDbText` 71 is 2 is still mirrored (`attributes-r2018`); binary MTEXT with a line feed and a tab, MTEXT
+  `x^2` and TEXT `m^2` read as the ASCII DXF of the same strings and draw two lines, `x^2` and `m^2` (`binary-text`);
+  and in a metric drawing whose `$DIMASZ` is 2.5, a leader whose dimension style leaves DIMASZ out gets an arrow of 0.18
+  (`dimstyle-defaults`). Undoing any of the four changes (the subclass of 71, the caret notation, `^ ` in TEXT, the
+  0.18) in TypeScript or in Rust makes them fail.
+- The ACadSharp samples, one drawing saved by AutoCAD as DWG 2000 to 2018 and as ASCII and binary DXF:
+  - The dimension styles of DXF and DWG are now equal in every version; DIMASZ and DIMTXT of four of the six styles were
+    0 in DXF.
+  - The R2018 multi-line ATTRIB and ATTDEF have the generation flags of DWG (0; DXF had 2 and 4). They still differ in
+    their attribute flags (70: 0 in DXF, 28 and 235 in DWG), which the first difference had hidden; that is for the DWG
+    reader.
+  - The four MTEXT with line feeds in binary DXF of 2004 and later equal those of ASCII DXF and DWG (`^J`), so 328
+    entities of 2004 to 2013 and 326 of 2018 equal DWG, as for ASCII DXF (324 and 322 before).
+  - Model space of ASCII and of binary DXF now differs from DWG only in the ids of the three entities AutoCAD renumbered
+    in DXF; before, binary DXF of 2004 and later also drew the four MTEXT with their line feeds inside one paragraph.
+  - In TypeScript, ASCII and binary DXF of 2000 to 2018 give the same scenes in every view except those three ids.
+    R12 differs only in the numbers that ASCII DXF rounds and in handles.
+- The Yokosuka City survey plan as DWG 2018 and DXF: its dimension style is now the same; nothing else changed.
+- The TypeScript scenes of the 26 local DXF samples in all 106 views are unchanged except the four MTEXT in model space
+  of each binary ACadSharp file of 2004 and later. `pnpm run parity` gives the same scenes in TypeScript and Rust for
+  the 37 local drawings and their 54 other views, and the 20 layouts of the 7 DWG with a DXF still equal the DXF ones.
+  Parsing the binary 2000 and 2018 samples takes 22 and 15 ms (21 and 17 ms before, within the variation between runs).
+- Not checked: an AutoCAD DXF of a metric drawing (whether AutoCAD also leaves out the imperial defaults there), DXF
+  from other programs that leave dimension style values out, control characters in TEXT other than the tab, and drawing
+  the text of multi-line attributes (their embedded MTEXT is not read yet).
+
 ## SXF in Rust
 
 Checked on 2026-10-19 on macOS (Apple Silicon) with Rust 1.99.0, Node.js 24.21.0 and wasm-pack 0.15.0.
@@ -168,24 +203,25 @@ TypeScript DWG reader, so each DWG is compared with the DXF that AutoCAD wrote f
   - 327 (2000), 328 (2004 to 2013) and 326 (2018) of the 335 entities and attributes equal those of the ASCII DXF
     value for value (numbers to a relative 1e-9). The others are the SPLINE flags that DWG does not store (2), the
     background index (63) that DXF adds to MTEXT with a true color background (2, 2004 and later), the background colors
-    of R2000 MULTILEADER, which are indexes in DWG (3), the generation flags (71) that the DXF reader takes from the
-    attribute type of R2018 multi-line ATTRIB and ATTDEF (2), and two INSERT and one MTEXT that AutoCAD wrote with new
-    handles in DXF.
+    of R2000 MULTILEADER, which are indexes in DWG (3), the generation flags (71) that the DXF reader took from the
+    attribute type of R2018 multi-line ATTRIB and ATTDEF (2; fixed since, see
+    [DXF against the DWG of the same drawing](#dxf-against-the-dwg-of-the-same-drawing)), and two INSERT and one MTEXT
+    that AutoCAD wrote with new handles in DXF.
   - The tables, blocks, layouts and draw order are the same, except the handles of two layers and a block that AutoCAD
     renumbered in DXF, the index (62) that DXF adds to the three layers with a true color or a color book color (2004
     and later; DWG stores only the color), and DIMASZ and DIMTXT of the four dimension styles, which DXF leaves out at
-    their default (0.18) and the DXF reader takes as 0 (the drawing then uses `$DIMASZ`, the same value, and does not
-    use DIMTXT).
+    their default (0.18) and the DXF reader took as 0 (the drawing then used `$DIMASZ`, the same value, and does not
+    use DIMTXT; read as 0.18 since).
   - The three layouts give the same scenes in every version. Model space differs only in the ids of the three entities
-    with new handles. Against binary DXF of 2004 and later, four MTEXT also differ, because the DXF reader keeps their
-    line feeds instead of breaking paragraphs.
+    with new handles. Against binary DXF of 2004 and later, four MTEXT also differed, because the DXF reader kept their
+    line feeds instead of breaking paragraphs (fixed since).
   - The AC1014 (R14) file is refused with a message.
 - The Yokosuka City survey plan as DWG 2018 (0.4 MB, read locally), against the DXF of the same drawing used in
   [DXF](#dxf): all 9,260 entities equal those of the DXF value for value, including the Japanese layer names and texts,
-  and so do the tables, except the index that DXF adds to two layers with a true color and the dimension style
-  defaults that DXF leaves out. In the scene, 37 hatches and 31 arcs have a different number of segments, because DXF
-  rounds numbers to 16 digits: a hatch bulge of 1.0000000000000002 is 1.0 in DXF, and a half circle from
-  225.73767313748996° to 45.737673137489956° is 225.7376731374899° to 45.73767313748995°.
+  and so do the tables, except the index that DXF adds to two layers with a true color and the dimension style defaults
+  that DXF leaves out (read as DWG has them since). In the scene, 37 hatches and 31 arcs have a different number of
+  segments, because DXF rounds numbers to 16 digits: a hatch bulge of 1.0000000000000002 is 1.0 in DXF, and a half
+  circle from 225.73767313748996° to 45.737673137489956° is 225.7376731374899° to 45.73767313748995°.
 - Samples without a DXF, read without broken objects: the ezdwg samples ([ezdwg](https://github.com/monozukuri-ai/ezdwg)
   (MIT), commit d5e4336, `examples/data`) of an arc, a line, a 2D polyline, a text and an MTEXT (2000, code page
   `ANSI_1251`), an INSERT (2004, code page number 45, unknown, read as Windows-1252 and reported) and an imperial
@@ -254,6 +290,40 @@ Chromium 152. Times are medians of seven runs after a warm-up.
   in Node.js.
 - Not checked: Firefox and Safari, webpack and other bundlers, Web Workers, slow networks and devices, and pages with a
   Content Security Policy.
+
+## The 2D engine to embed
+
+Checked on 2026-10-20 on macOS (Apple M2 Pro), Node.js 24.21.0 and Chromium 156 (Playwright 1.64.0, headless), for
+the first step of [decision 0005](decisions/0005-browser-packages-for-embedding.md): `@zumenjs/viewer`, the hooks of
+`@zumenjs/react` and the 2D sample of the playground.
+
+- 15 tests in Chromium (`packages/viewer/tests`, `packages/react/tests`). The view: `jumpTo` and `getView` give back
+  the same center and zoom, `move` and `moveend` come only when the view changes (so two views that follow each other
+  stop), `fitBounds` keeps its padding and fits again on resize until the view is moved, and `zoomBy` and the wheel
+  keep the paper point under the pointer. The input handlers: the three wheel modes (the page scroll is left alone
+  when the wheel does not zoom) and `moveend` after the wheel stops, dragging, pinching with two touch pointers, double
+  click and keys, each also turned off. The state and the tools: selection with Shift and Escape, no new state for an
+  unchanged selection, queries by point and box without hidden layers, measurement snapped to vertices with the
+  real-world distance of a 1/100 placement, and a tool of the application that receives clicks and drags in paper
+  millimeters and draws. The style: the background, the selection, a named highlight and the hover color from CSS
+  custom properties and `setStyle`, checked on canvas pixels, and near-white lines drawn black on a light color given
+  as the dark background. The hooks: `useViewerState` re-renders only when its part changes (also with a selector that
+  builds arrays), `useDrawingViewer` destroys the engine, and `useDrawing` loads only the reader that recognizes the
+  file and reports a failed load. Each of seven deliberate mistakes in the engine and two in the hooks made a test fail.
+- The same steps in the playground before the change (`main` at 75a227c, with `CadViewer`) and after it, with synthetic
+  events in headless Chromium at device pixel ratios 1 and 2 in a 1280 × 860 window: fit, wheel zoom with and without
+  Ctrl, a drag, the `+` and arrow keys, a double click and `-`, `0`, three clicks to select, line weights off, the light
+  background, hiding the first layer, two measurement clicks with snapping and the pointer moved on, and Escape. On
+  `D0LS004Z.SFC` (1,201 entities), the Jw_cad sample `サンプル.jww` (version 600, 695 entities, light background), the
+  Yokosuka survey plan as DXF (9,260 entities) and `farmhouse.dwg` (25,873 entities, read through WebAssembly), all 96
+  snapshots of the drawing canvas and of the overlay canvas were the same, pixel for pixel, and the pages logged no
+  errors.
+- In the playground (built-in browser of the Claude desktop app): switching an ACadSharp drawing to `MyLayout` and
+  measuring inside its viewport gives 57.9 mm on paper and 83.1 mm real, as before; Shift adds a second wall of the
+  Jw_cad sample to the selection and both are highlighted; the layer groups, the properties and the notices show as
+  before; at 375 px the panels start closed and the page does not scroll sideways; ST-Bridge models still open in 3D.
+- Not checked: Firefox and Safari, real touch devices (pinching only with synthetic touch pointers), screen readers,
+  and the 3D view, which keeps its current interface until the next step.
 
 ## Rust readers, rendering and bindings
 

@@ -64,7 +64,8 @@ function hex(rgb: number): string {
 
 /**
  * TEXT・ATTRIB の文字列を run にする。%%u・%%o・%%k は下線・上線・取り消し線の切り替え、
- * %%nnn は文字コード nnn の文字（DXF Reference「TEXT」、AutoCAD の「Control Codes and Special Characters」）。
+ * %%nnn は文字コード nnn の文字（DXF Reference「TEXT」、AutoCAD の「Control Codes and Special Characters」）、
+ * 「^ 」は ^、^I（タブ）は 4 つの空白。1 行の文字に改行はないので、ほかのキャレット表記（^J など）はそのまま残す。
  */
 export function parseTextCodes(text: string, height: number, widthFactor: number, oblique: number): TextRun[] {
   const runs: TextRun[] = [];
@@ -76,6 +77,13 @@ export function parseTextCodes(text: string, height: number, widthFactor: number
   };
   for (let i = 0; i < text.length; i++) {
     const ch = text[i] as string;
+    if (ch === "^" && (text[i + 1] === " " || text[i + 1] === "I")) {
+      // テキストの DXF は ^ を「^ 」、タブを ^I と書く（DXF Reference「About ASCII Control Characters in DXF Files」）。
+      // タブは MTEXT と同じく 4 つの空白にする
+      buffer += text[i + 1] === " " ? "^" : "    ";
+      i++;
+      continue;
+    }
     if (ch !== "%" || text[i + 1] !== "%" || i + 2 >= text.length) {
       buffer += ch;
       continue;

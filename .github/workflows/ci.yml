@@ -40,4 +40,7 @@ jobs:
       # astral-sh/setup-uv v10.3.0 (Python comes from bindings/python/.python-version)
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
       - run: pnpm install --frozen-lockfile
+      # The tests of the drawing engine and the React hooks (*.browser.test.*) run in the Chromium headless shell of
+      # the Playwright version in package.json
+      - run: pnpm exec playwright install --with-deps --only-shell chromium
       - run: pnpm run check

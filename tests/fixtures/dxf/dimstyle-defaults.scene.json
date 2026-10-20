@@ -1,0 +1,219 @@
+{
+  "format": "dxf",
+  "version": "DXF AC1015",
+  "views": [
+    {
+      "id": "Model",
+      "name": "モデル"
+    }
+  ],
+  "view": "Model",
+  "sheet": null,
+  "bounds": {
+    "minX": 0,
+    "minY": -0.03,
+    "maxX": 10,
+    "maxY": 10.416666666666666
+  },
+  "layers": [
+    {
+      "id": 1,
+      "name": "0",
+      "visible": true
+    }
+  ],
+  "entities": [
+    {
+      "id": "30",
+      "type": "引出線",
+      "source": "LEADER",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "fill",
+          "color": "#ffffff",
+          "rings": [
+            [
+              0,
+              0,
+              0.18,
+              0.03,
+              0.18,
+              -0.03
+            ]
+          ]
+        },
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            0,
+            10,
+            0
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 0,
+        "minY": -0.03,
+        "maxX": 10,
+        "maxY": 0.03
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "引出線（LEADER）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "30"
+        },
+        {
+          "label": "レイヤ",
+          "value": "0"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "頂点",
+          "value": "2 点"
+        }
+      ],
+      "placement": {
+        "name": "モデル空間（mm）",
+        "scaleX": 1,
+        "scaleY": 1,
+        "inverse": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": "31",
+      "type": "引出線",
+      "source": "LEADER",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "fill",
+          "color": "#ffffff",
+          "rings": [
+            [
+              0,
+              10,
+              2.5,
+              10.416666666666666,
+              2.5,
+              9.583333333333334
+            ]
+          ]
+        },
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            10,
+            10,
+            10
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 0,
+        "minY": 9.583333333333334,
+        "maxX": 10,
+        "maxY": 10.416666666666666
+      },
+      "properties": [
+        {
+          "label": "種類",
+          "value": "引出線（LEADER）"
+        },
+        {
+          "label": "ハンドル",
+          "value": "31"
+        },
+        {
+          "label": "レイヤ",
+          "value": "0"
+        },
+        {
+          "label": "色",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "label": "頂点",
+          "value": "2 点"
+        }
+      ],
+      "placement": {
+        "name": "モデル空間（mm）",
+        "scaleX": 1,
+        "scaleY": 1,
+        "inverse": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ]
+      }
+    }
+  ],
+  "notices": [],
+  "metadata": [
+    {
+      "label": "形式",
+      "value": "DXF AutoCAD 2000（AC1015、テキスト）"
+    },
+    {
+      "label": "文字コード",
+      "value": "西欧（Windows-1252）（指定なし）"
+    },
+    {
+      "label": "単位",
+      "value": "mm"
+    },
+    {
+      "label": "表示",
+      "value": "モデル空間"
+    }
+  ],
+  "background": "dark"
+}
