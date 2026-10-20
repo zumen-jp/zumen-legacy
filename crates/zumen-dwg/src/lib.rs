@@ -5,6 +5,7 @@
 #![forbid(unsafe_code)]
 
 mod bits;
+mod codec;
 mod compress;
 mod crc;
 mod document;

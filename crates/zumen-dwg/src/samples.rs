@@ -262,3 +262,184 @@ fn classes_of_real_drawings_are_written_back_unchanged() {
         assert_eq!(bits.bit_len().div_ceil(8), framed.data.len() as u64, "{name}");
     }
 }
+
+/// 区切りで囲む節の値（R2004 以降は伸長したもの）。number は R2000 の節の位置の記録の番号
+fn framed_section(bytes: &[u8], version: Version, number: u8, name: &str) -> Framed {
+    let section = match version {
+        Version::R2000 => {
+            let records = file::r2000_records(bytes).unwrap();
+            file::r2000_slice(bytes, &records, number).unwrap().to_vec()
+        }
+        _ => {
+            let mut notices = NoticeList::new();
+            R2004Container::open(bytes).unwrap().section(name, &mut notices).unwrap()
+        }
+    };
+    let extra = crate::write::database::has_extra(version, bytes[0x0b]);
+    let (start, end) = if number == 0 { (&HEADER_SENTINEL, &HEADER_END) } else { (&CLASSES_SENTINEL, &CLASSES_END) };
+    Framed::parse(&section, start, end, extra).unwrap()
+}
+
+/// ヘッダ変数をすべて読んで書くと、同じビット列になる（読み残しもない）
+#[test]
+fn header_variables_of_real_drawings_are_written_back_unchanged() {
+    use crate::codec::header::{LEFTOVER, header_bits, read_header_vars};
+    for (name, bytes) in samples() {
+        let Some(version) = Version::from_magic(&bytes[..6]) else { continue };
+        if !matches!(version, Version::R2000 | Version::R2004 | Version::R2010 | Version::R2013 | Version::R2018) {
+            continue;
+        }
+        let framed = framed_section(&bytes, version, 0, "AcDb:Header");
+        let vars = read_header_vars(&framed.data, version).unwrap_or_else(|_| panic!("{name}: read"));
+        // 残りは終わりを埋めるビットだけ（AutoCAD は 1 バイトを足して埋めることもある）
+        let [data, strings, handles] = LEFTOVER.get();
+        assert!(data < 16 && strings == 0 && handles < 16, "{name}: left {data} {strings} {handles} bits");
+        let bits = header_bits(&vars);
+        let differs = same_bits(bits.as_bytes(), &framed.data, bits.bit_len());
+        assert_eq!(differs, None, "{name}: {} values", vars.values.len());
+        let length = bits.bit_len().div_ceil(8);
+        assert!((length..=length + 1).contains(&(framed.data.len() as u64)), "{name}");
+    }
+}
+
+#[test]
+#[ignore]
+fn dump_object_types() {
+    use crate::bits::TextCodec;
+    use crate::objects::{Format, open_object};
+    for (name, bytes) in samples() {
+        if !name.starts_with("sample_AC1027") && !name.starts_with("BLOCKPOINT") {
+            continue;
+        }
+        let version = Version::from_magic(&bytes[..6]).unwrap();
+        let mut notices = NoticeList::new();
+        let container = R2004Container::open(&bytes).unwrap();
+        let objects = container.section("AcDb:AcDbObjects", &mut notices).unwrap();
+        let handles = container.section("AcDb:Handles", &mut notices).unwrap();
+        let classes = framed_section(&bytes, version, 1, "AcDb:Classes");
+        let defs = crate::write::classes::read_class_defs(&classes.data, version, TextCodec::Utf16);
+        let map = read_object_map(&handles);
+        let format = Format { version, maintenance: bytes[0x0b], codec: TextCodec::Utf16 };
+        let mut counts: std::collections::BTreeMap<String, usize> = Default::default();
+        for (handle, offset) in &map {
+            let Ok(object) = open_object(&objects, *offset, format) else { continue };
+            let kind = if object.kind >= 500 {
+                defs.iter().find(|class| class.number == object.kind).map_or("?".into(), |class| class.dxf_name.clone())
+            } else {
+                format!("{}", object.kind)
+            };
+            *counts.entry(kind).or_default() += 1;
+            let _ = handle;
+        }
+        println!("{name}: {counts:?}");
+    }
+}
+
+/// 読み書きできるオブジェクトの種類と、読んで書く関数
+type Codec = fn(&mut crate::codec::In<'_>, u16, &mut crate::write::object::ObjectWriter) -> crate::bits::Read<()>;
+
+fn codec(kind: u16) -> Option<Codec> {
+    use crate::codec::tables::*;
+    Some(match kind {
+        48 | 50 | 52 | 56 | 60 | 62 | 64 | 66 | 68 | 70 => |s, kind, o| {
+            Control::read(s, kind)?.write(o, kind);
+            Ok(())
+        },
+        49 => |s, _, o| {
+            BlockHeader::read(s)?.write(o);
+            Ok(())
+        },
+        51 => |s, _, o| {
+            Layer::read(s)?.write(o);
+            Ok(())
+        },
+        53 => |s, _, o| {
+            TextStyle::read(s)?.write(o);
+            Ok(())
+        },
+        57 => |s, _, o| {
+            Linetype::read(s)?.write(o);
+            Ok(())
+        },
+        65 => |s, _, o| {
+            Vport::read(s)?.write(o);
+            Ok(())
+        },
+        67 => |s, _, o| {
+            Appid::read(s)?.write(o);
+            Ok(())
+        },
+        69 => |s, _, o| {
+            DimStyle::read(s)?.write(o);
+            Ok(())
+        },
+        _ => return None,
+    })
+}
+
+/// 図面のオブジェクトの節とオブジェクトの表
+fn objects_of(bytes: &[u8], version: Version) -> (Vec<u8>, std::collections::HashMap<u64, usize>) {
+    match version {
+        Version::R2000 => {
+            let records = file::r2000_records(bytes).unwrap();
+            (bytes.to_vec(), read_object_map(file::r2000_slice(bytes, &records, 2).unwrap()))
+        }
+        _ => {
+            let mut notices = NoticeList::new();
+            let container = R2004Container::open(bytes).unwrap();
+            let handles = container.section("AcDb:Handles", &mut notices).unwrap();
+            (container.section("AcDb:AcDbObjects", &mut notices).unwrap(), read_object_map(&handles))
+        }
+    }
+}
+
+/// 読み書きできる種類のオブジェクトをすべて読んで書くと、同じビット列になる（読み残しもない）
+#[test]
+fn objects_of_real_drawings_are_written_back_unchanged() {
+    use crate::codec::object::{open_raw, writer};
+    let mut checked: std::collections::BTreeMap<u16, usize> = Default::default();
+    let mut failures: Vec<String> = Vec::new();
+    for (name, bytes) in samples() {
+        let Some(version) = Version::from_magic(&bytes[..6]) else { continue };
+        if !matches!(version, Version::R2000 | Version::R2004 | Version::R2010 | Version::R2013 | Version::R2018) {
+            continue;
+        }
+        let (objects, map) = objects_of(&bytes, version);
+        let mut handles: Vec<(&u64, &usize)> = map.iter().collect();
+        handles.sort();
+        for (handle, &offset) in handles {
+            let Ok(mut raw) = open_raw(&objects, offset, version) else { continue };
+            let Some(codec) = codec(raw.kind) else { continue };
+            let kind = raw.kind;
+            let mut out = writer(version, kind, raw.handle, &raw.eed);
+            if codec(&mut raw.input, kind, &mut out).is_err() {
+                failures.push(format!("{name} {handle:X} type {kind}: read"));
+                continue;
+            }
+            let left = [
+                raw.input.data.remaining(),
+                raw.input.strings.as_ref().map_or(0, crate::bits::Bits::remaining),
+                raw.input.handles.as_ref().map_or(0, crate::bits::Bits::remaining),
+            ];
+            let length = object_length(&objects, offset, version >= Version::R2010).unwrap();
+            let original = &objects[offset..offset + length];
+            let (written, padding) = out.frame();
+            let meaningful = (written.len() as u64 - 2) * 8 - padding;
+            let same = written.len() == original.len() && same_bits(&written, original, meaningful).is_none();
+            if left[0] != 0 || left[1] != 0 || left[2] >= 8 || !same {
+                if failures.iter().filter(|line| line.contains(&format!("type {kind}:"))).count() < 3 {
+                    failures.push(format!(
+                        "{name} {handle:X} type {kind}: left {left:?}, length {} vs {}, first different bit {:?}",
+                        written.len(),
+                        original.len(),
+                        same_bits(&written, original, meaningful)
+                    ));
+                }
+            } else {
+                *checked.entry(kind).or_default() += 1;
+            }
+        }
+    }
+    println!("checked {checked:?}");
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
