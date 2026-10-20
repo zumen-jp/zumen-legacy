@@ -1,7 +1,7 @@
 # Builds the Python package of bindings/python as abi3 wheels (manylinux_2_28 x86_64 and aarch64, macOS arm64) and an
-# sdist, installs each wheel to run the Python tests, and attaches them to a GitHub Release when a tag v* is pushed.
-# Nothing goes to PyPI: the package has the classifier "Private :: Do Not Upload" until the license is decided
-# (docs/releasing.md).
+# sdist, installs each wheel to run the Python tests, and when a tag v* is pushed attaches them to a GitHub Release and,
+# if the repository variable PUBLISH_TO_PYPI is "true", uploads them to PyPI by trusted publishing with attestations.
+# PyPI refuses the package while it has the classifier "Private :: Do Not Upload" (docs/releasing.md).
 name: Python wheels
 
 on:
@@ -159,7 +159,8 @@ jobs:
       - run: bindings/python/.venv/bin/python -m pytest bindings/python/tests -q -ra
 
   release:
-    # Only for a pushed tag v*: the wheels and the sdist go to a GitHub Release, never to PyPI
+    # Only for a pushed tag v*: the wheels and the sdist go to a GitHub Release. The upload to PyPI waits for this job,
+    # which checks the tag against the version of the files
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [wheels, sdist, test]
     runs-on: ubuntu-latest
@@ -198,4 +199,32 @@ jobs:
             esac
           done
           gh release create "$TAG" dist/* --verify-tag --title "$TAG" --generate-notes \
-            --notes "Wheels (manylinux_2_28 x86_64 and aarch64, macOS arm64) and the sdist of the Python package. Not on PyPI; see docs/releasing.md."
+            --notes "Wheels (manylinux_2_28 x86_64 and aarch64, macOS arm64) and the sdist of the Python package."
+
+  pypi:
+    # Needs the repository variable PUBLISH_TO_PYPI set to "true" and a trusted publisher on PyPI for this workflow and
+    # the environment "pypi" (docs/releasing.md). It uploads the files that the jobs above built and tested, all at once
+    if: startsWith(github.ref, 'refs/tags/v') && vars.PUBLISH_TO_PYPI == 'true'
+    needs: [wheels, sdist, test, release]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: pypi
+      url: https://pypi.org/p/zumen
+    permissions:
+      # Trusted publishing with PyPI, and the attestations of the files (PEP 740) that this workflow signs
+      id-token: write
+    steps:
+      # actions/download-artifact v8.0.2
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          pattern: wheel-*
+          merge-multiple: true
+          path: dist
+      # actions/download-artifact v8.0.2
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: sdist
+          path: dist
+      # pypa/gh-action-pypi-publish v1.14.2 uploads dist/ without a token and attaches the attestations
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33

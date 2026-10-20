@@ -4,12 +4,21 @@ All packages share one version during 0.x.
 
 ## Unreleased (0.1.0)
 
+- zumen is released under the MIT license (`LICENSE`, Copyright (c) 2026 Yusuke Hayashi), declared in every
+  `package.json`, `Cargo.toml` and `pyproject.toml`. The wheels and the sdist carry its text next to that of the bundled
+  font, and `bindings/python/scripts/check_dist.py` fails a build without them. `CODE_OF_CONDUCT.md` adapts the
+  Contributor Covenant 2.1; its contact is still to be filled in. The npm packages stay private and the Python package
+  keeps `Private :: Do Not Upload` until the last step of [docs/releasing.md](docs/releasing.md).
+- A tag `v*` can publish: `python-wheels.yml` uploads the wheels and the sdist to PyPI by trusted publishing, with
+  attestations, and the new `npm-release.yml` publishes the npm packages in dependency order with provenance, from
+  tarballs that its first job built and checked. Each waits for a repository variable (`PUBLISH_TO_PYPI`,
+  `PUBLISH_TO_NPM`) and for the trusted publisher that you set up on PyPI and npm.
 - Python: wheels and an sdist of `zumen` from `.github/workflows/python-wheels.yml`, so that an application installs it
   without a Rust toolchain. One abi3 wheel serves every Python from 3.10, for manylinux_2_28 (x86_64 and aarch64) and
   macOS (arm64). Pull requests and `main` upload them as workflow artifacts after the tests of `bindings/python` ran
   against each installed wheel on Python 3.10 and 3.14, and a pushed tag `v*` attaches them to a GitHub Release
-  ([docs/releasing.md](docs/releasing.md)). Nothing goes to PyPI until the license is decided. The wheels now hold the
-  license text of the bundled BIZ UDGothic (SIL OFL 1.1) in `dist-info/licenses`, which they lacked.
+  ([docs/releasing.md](docs/releasing.md)). The wheels now hold the license text of the bundled BIZ UDGothic
+  (SIL OFL 1.1) in `dist-info/licenses`, which they lacked.
 - Rust, Python and the command line: write every format as SXF (SFC of SXF Ver.3.1) through the AutoCAD drawing model
   ([decision 0010](docs/decisions/0010-write-sxf-from-the-autocad-model.md)). `zumen::convert(bytes, "sfc", …)`,
   `zumen.convert(source, "sfc")` and `zumen convert plan.dwg -o plan.sfc`. The layout that the drawing opens in is the
