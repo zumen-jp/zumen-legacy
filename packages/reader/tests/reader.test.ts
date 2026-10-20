@@ -103,6 +103,9 @@ describe("@zumenjs/reader", () => {
     const sfc = read("sfc/sample.sfc");
     const inputs = [
       ...drawings.map(read),
+      ...["MC0.0", "AC1.2", "AC1.40", "AC1.50", "AC2.10"].flatMap((magic) =>
+        [magic, `${magic}\0`, `${magic}x`].map(latin1),
+      ),
       ...["AC1032", "AC1014", "AC1099", "AC1032AC", "AC103", "AC10", "AC1A32", "ac1032", "AC2032", " AC1032"].map(
         latin1,
       ),

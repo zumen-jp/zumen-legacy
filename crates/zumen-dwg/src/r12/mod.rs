@@ -14,7 +14,7 @@ use crate::entities::{deg, hex, mview};
 use crate::objects::{Eed, caret_notation};
 use records::{Body, Cursor, Record, Step, Vars, kind};
 use std::collections::{HashMap, HashSet};
-use zumen_core::{NoticeLevel, NoticeList};
+use zumen_core::{NoticeLevel, NoticeList, limits};
 use zumen_dxf::*;
 
 /// R13 より前の版（ファイルの頭の文字列）
@@ -80,7 +80,8 @@ pub(crate) fn is_old_dwg(bytes: &[u8]) -> bool {
 }
 
 /// 読む図形の数の上限（JUMP が輪になっていても止まる）
-const MAX_RECORDS: usize = 10_000_000;
+const MAX_RECORDS: usize = 1_000_000;
+const MAX_WALK_BYTES: usize = 64 * 1024 * 1024;
 
 /// 読んだ表と図形（文字列は文字コードを決める前のバイト列）
 #[derive(Default)]
@@ -125,16 +126,24 @@ fn sectioned(bytes: &[u8], version: Old) -> Result<(Vars, Parsed), String> {
     for section in [header.entities, header.blocks, header.extras] {
         let mut position = section.start;
         while section.start > 0 && position < section.end && (number as usize) < MAX_RECORDS {
+            if limits::tick() {
+                break;
+            }
             let Ok((_, next)) = records::record(bytes, position, section.end, version) else { break };
             number += 1;
             parsed.numbers.insert(position, number);
             position = next;
         }
     }
-    let mut walker = Walker { bytes, version, header: &header, broken: 0 };
+    parsed.broken += parsed.layers.iter().filter(|r| r.is_none()).count() as u64
+        + parsed.linetypes.iter().filter(|r| r.is_none()).count() as u64
+        + parsed.styles.iter().filter(|r| r.is_none()).count() as u64
+        + parsed.dimstyles.iter().filter(|r| r.is_none()).count() as u64;
+    let mut walker = Walker { bytes, version, header: &header, broken: 0, remaining: MAX_RECORDS, walked_bytes: 0 };
     for block in records::records(bytes, tables.block, |c| records::block(c, version)) {
         // 消したブロックも番号を数える（INSERT はブロックの表の中の番号で引く）
         let Some(block) = block else {
+            parsed.broken += 1;
             parsed.blocks.push((Vec::new(), 0x80, Vec::new()));
             continue;
         };
@@ -157,7 +166,7 @@ fn sectioned(bytes: &[u8], version: Old) -> Result<(Vars, Parsed), String> {
             false
         });
     }
-    parsed.broken = walker.broken;
+    parsed.broken += walker.broken;
     Ok((vars, parsed))
 }
 
@@ -167,6 +176,8 @@ struct Walker<'a> {
     version: Old,
     header: &'a records::FileHeader,
     broken: u64,
+    remaining: usize,
+    walked_bytes: usize,
 }
 
 impl Walker<'_> {
@@ -203,12 +214,18 @@ impl Walker<'_> {
         let mut position = start;
         let mut back: Option<usize> = None;
         let mut seen: HashSet<usize> = HashSet::new();
-        while Some(position) != end && seen.len() < MAX_RECORDS {
+        while Some(position) != end {
+            if self.remaining == 0 || self.walked_bytes >= MAX_WALK_BYTES {
+                self.broken += 1;
+                break;
+            }
+            self.remaining -= 1;
             // 読み取りの上限（zumen_core::limits）
             if zumen_core::limits::tick() {
                 break;
             }
             let Some(section) = self.section(position).filter(|_| seen.insert(position)) else {
+                self.broken += 1;
                 match back.take() {
                     Some(to) if !seen.contains(&to) => {
                         position = to;
@@ -217,7 +234,11 @@ impl Walker<'_> {
                     _ => break,
                 }
             };
-            match records::record(self.bytes, position, section.end, self.version) {
+            let result = records::record(self.bytes, position, section.end, self.version);
+            if let Ok((_, next)) = &result {
+                self.walked_bytes += next - position;
+            }
+            match result {
                 Ok((Step::Record(record), next)) => {
                     position = next;
                     if visit(*record) {
@@ -331,6 +352,9 @@ fn text_bytes(parsed: &Parsed) -> Vec<u8> {
     }
     let records = parsed.entities.iter().chain(parsed.blocks.iter().flat_map(|(_, _, list)| list));
     for record in records {
+        if limits::tick() {
+            break;
+        }
         match &record.body {
             Body::Text(text) => push(&text.value),
             Body::Attdef { text, prompt, tag, .. } => {
@@ -503,8 +527,17 @@ fn build(version: Old, vars: Vars, parsed: Parsed) -> DxfDocument {
         notices: Vec::new(),
     };
     tables(&parsed, &text, &mut names, &mut doc);
-    let mut builder =
-        Builder { names: &names, text: &text, numbers: &parsed.numbers, skipped: Vec::new(), viewports: 0.0 };
+    let mut builder = Builder {
+        names: &names,
+        text: &text,
+        numbers: &parsed.numbers,
+        skipped: Vec::new(),
+        viewports: 0.0,
+        next_ordinal: parsed.numbers.values().copied().max().unwrap_or(0) + 1,
+        admitted: 0,
+        repeat_cost: 0,
+        repeat_omitted: 0,
+    };
     for (index, (_, flags, list)) in parsed.blocks.iter().enumerate() {
         let Some(name) = names.blocks.get(index).filter(|name| !name.is_empty()) else { continue };
         if flags & 0x80 != 0 || list.is_empty() {
@@ -532,6 +565,17 @@ fn build(version: Old, vars: Vars, parsed: Parsed) -> DxfDocument {
     builder.entities(&parsed.entities, &Place { space: DxfSpace::Model, block: None }, &mut doc.entities);
     add_paper_layout(&mut doc);
 
+    // Scene construction counts the visible entities again. Release this temporary
+    // model budget, keeping any exceeded limit for the caller to report.
+    limits::release(builder.admitted);
+    if builder.repeat_omitted > 0 {
+        notices.add_count(
+            NoticeLevel::Warning,
+            "dwg-repeat-limit",
+            "繰り返しの図形が多すぎるため、上限を超えた写しを省きました",
+            builder.repeat_omitted,
+        );
+    }
     let mut skipped = std::mem::take(&mut builder.skipped);
     zumen_core::js::order_object_keys(&mut skipped);
     if !skipped.is_empty() {
@@ -549,7 +593,7 @@ fn build(version: Old, vars: Vars, parsed: Parsed) -> DxfDocument {
         notices.add_count(
             NoticeLevel::Warning,
             "dwg-broken-object",
-            "読めなかった図形の記録の後を省きました",
+            "読めない記録、循環参照、または読み取り上限を超えた記録を省きました",
             parsed.broken,
         );
     }
@@ -705,11 +749,15 @@ struct Builder<'a> {
     skipped: Vec<(String, u64)>,
     /// 紙空間のビューポートの番号（DXF の 69）
     viewports: f64,
+    next_ordinal: u32,
+    admitted: u64,
+    repeat_cost: usize,
+    repeat_omitted: u64,
 }
 
 /// 集めている途中の図形（頂点・属性を待つ）
 enum Pending {
-    Polyline(Box<DxfEntity>, f64),
+    Polyline(Box<DxfEntity>, f64, [f64; 2]),
     Insert(Box<DxfEntity>),
 }
 
@@ -728,11 +776,14 @@ impl Builder<'_> {
 
     fn entities(&mut self, list: &[Record], place: &Place, out: &mut Vec<DxfEntity>) {
         let mut pending: Option<Pending> = None;
-        let mut repeat: Option<Repeat> = None;
+        let mut repeats: Vec<Repeat> = Vec::new();
         for record in list {
+            if limits::tick() {
+                break;
+            }
             match (&record.body, &mut pending) {
-                (Body::Vertex(vertex), Some(Pending::Polyline(polyline, elevation))) => {
-                    add_vertex(polyline, vertex, *elevation);
+                (Body::Vertex(vertex), Some(Pending::Polyline(polyline, elevation, widths))) => {
+                    add_vertex(polyline, vertex, *elevation, *widths);
                     continue;
                 }
                 (Body::Attrib { .. }, Some(Pending::Insert(insert))) => {
@@ -747,22 +798,22 @@ impl Builder<'_> {
             }
             if let Some(done) = pending.take() {
                 out.push(match done {
-                    Pending::Polyline(entity, _) | Pending::Insert(entity) => *entity,
+                    Pending::Polyline(entity, _, _) | Pending::Insert(entity) => *entity,
                 });
             }
             match &record.body {
                 Body::Seqend | Body::Vertex(_) | Body::Attrib { .. } | Body::Block { .. } | Body::EndBlock => {}
-                Body::Repeat => repeat = Some(Repeat { start: out.len() }),
+                Body::Repeat => repeats.push(Repeat { start: out.len() }),
                 Body::EndRepeat { columns, rows, spacing } => {
-                    if let Some(repeat) = repeat.take() {
-                        repeat_entities(out, repeat.start, *columns, *rows, *spacing);
+                    if let Some(repeat) = repeats.pop() {
+                        self.repeat_entities(out, repeat.start, *columns, *rows, *spacing);
                     }
                 }
                 Body::Other => self.skip(if record.kind == kind::SHAPE { "SHAPE" } else { "LOAD" }),
-                Body::Polyline(_) => {
+                Body::Polyline(fields) => {
                     let elevation = record.common.elevation;
                     if let Some(entity) = self.entity(record, place) {
-                        pending = Some(Pending::Polyline(Box::new(entity), elevation));
+                        pending = Some(Pending::Polyline(Box::new(entity), elevation, fields.widths));
                     }
                 }
                 Body::Insert(_) if record.common.follows => {
@@ -779,7 +830,7 @@ impl Builder<'_> {
         }
         if let Some(done) = pending.take() {
             out.push(match done {
-                Pending::Polyline(entity, _) | Pending::Insert(entity) => *entity,
+                Pending::Polyline(entity, _, _) | Pending::Insert(entity) => *entity,
             });
         }
     }
@@ -924,6 +975,7 @@ impl Builder<'_> {
                     view_twist_angle: 0.0,
                     status_flags: 0.0,
                     frozen_layer_handles: Vec::new(),
+                    frozen_layer_names: Vec::new(),
                     clipping_boundary_handle: None,
                 };
                 // 表示の値は拡張データ ACAD の MVIEW（R13・R14 と同じ）
@@ -935,6 +987,22 @@ impl Builder<'_> {
                         .collect(),
                 };
                 mview(&eed, &mut viewport);
+                viewport.frozen_layer_names = eed
+                    .apps
+                    .iter()
+                    .flat_map(|(_, values)| values)
+                    .filter_map(|(code, value)| {
+                        if let (1003, crate::objects::EedValue::Number(index)) = (code, value) {
+                            usize::try_from(*index as i16)
+                                .ok()
+                                .and_then(|i| names.layers.get(i))
+                                .filter(|name| !name.is_empty())
+                                .cloned()
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
                 ("VIEWPORT", DxfEntityData::Viewport(viewport)).with(None)
             }
             _ => return None,
@@ -963,6 +1031,10 @@ impl Builder<'_> {
             thickness: (common.thickness != 0.0).then_some(common.thickness),
             extrusion: data.1.filter(|extrusion| *extrusion != [0.0, 0.0, 1.0]),
         };
+        if !limits::admit() {
+            return None;
+        }
+        self.admitted += 1;
         Some(DxfEntity { base, data: data.0 })
     }
 
@@ -1001,10 +1073,9 @@ fn insert_place(insert: &DxfEntity) -> Place {
 
 /// POLYLINE に頂点を足す（DXF の読み取りと同じ）。ポリフェースメッシュの面の記録は面にし、2D の頂点の Z は POLYLINE の
 /// 標高、幅がなければ POLYLINE の既定の幅
-fn add_vertex(entity: &mut DxfEntity, vertex: &records::Vertex, elevation: f64) {
+fn add_vertex(entity: &mut DxfEntity, vertex: &records::Vertex, elevation: f64, defaults: [f64; 2]) {
     let DxfEntityData::Polyline(polyline) = &mut entity.data else { return };
     let bits = js_bits(polyline.vertices.flags);
-    let defaults = polyline.vertices.widths.first().copied().unwrap_or([0.0, 0.0]);
     if polyline.vertices.points.is_empty() {
         polyline.vertices.widths.clear();
     }
@@ -1030,23 +1101,66 @@ fn js_bits(value: f64) -> i32 {
 }
 
 /// 繰り返し（AutoCAD 1.x〜2.x の REPEAT〜ENDREP）。start からの図形を、列（X）と行（Y）の間隔で並べた写しを足す
-fn repeat_entities(out: &mut Vec<DxfEntity>, start: usize, columns: i16, rows: i16, spacing: [f64; 2]) {
-    let originals: Vec<DxfEntity> = out[start.min(out.len())..].to_vec();
-    let columns = columns.clamp(1, 1000);
-    let rows = rows.clamp(1, 1000);
-    for row in 0..rows {
-        for column in 0..columns {
-            if row == 0 && column == 0 {
-                continue;
-            }
-            let offset = [f64::from(column) * spacing[0], f64::from(row) * spacing[1]];
-            for entity in &originals {
-                let mut copy = entity.clone();
-                translate(&mut copy.data, offset);
-                out.push(copy);
+impl Builder<'_> {
+    fn repeat_entities(&mut self, out: &mut Vec<DxfEntity>, start: usize, columns: i16, rows: i16, spacing: [f64; 2]) {
+        let end = out.len();
+        let start = start.min(end);
+        if start == end {
+            return;
+        }
+        let columns = columns.max(1);
+        let rows = rows.max(1);
+        let requested = (u64::from(columns as u16) * u64::from(rows as u16) - 1) * (end - start) as u64;
+        let mut added = 0;
+        for row in 0..rows {
+            for column in 0..columns {
+                if row == 0 && column == 0 {
+                    continue;
+                }
+                let offset = [f64::from(column) * spacing[0], f64::from(row) * spacing[1]];
+                for index in start..end {
+                    let cost = repeat_cost(&out[index]);
+                    // Bound all expansions together, including nested REPEATs and
+                    // large polylines/text. Do not clone the original list first.
+                    if self.repeat_cost.saturating_add(cost) > 100_000 || !limits::admit() {
+                        self.repeat_omitted += requested - added;
+                        return;
+                    }
+                    self.repeat_cost += cost;
+                    self.admitted += 1;
+                    let mut copy = out[index].clone();
+                    self.number_copy(&mut copy);
+                    translate(&mut copy.data, offset);
+                    out.push(copy);
+                    added += 1;
+                }
             }
         }
     }
+
+    fn number_copy(&mut self, copy: &mut DxfEntity) {
+        copy.base.handle.clear();
+        copy.base.ordinal = self.next_ordinal;
+        self.next_ordinal += 1;
+        if let DxfEntityData::Insert(insert) = &mut copy.data {
+            for attribute in &mut insert.attribs {
+                self.number_copy(attribute);
+            }
+        }
+    }
+}
+
+fn repeat_cost(entity: &DxfEntity) -> usize {
+    let extra = match &entity.data {
+        DxfEntityData::Polyline(p) => p.vertices.points.len() + p.faces.as_ref().map_or(0, Vec::len),
+        DxfEntityData::Text(t) | DxfEntityData::Attrib { text: t, .. } | DxfEntityData::Attdef { text: t, .. } => {
+            t.text.len().div_ceil(64)
+        }
+        DxfEntityData::Insert(i) => i.attribs.iter().map(repeat_cost).sum(),
+        DxfEntityData::Dimension(d) => d.text.len().div_ceil(64),
+        _ => 0,
+    };
+    1 + extra
 }
 
 fn translate(data: &mut DxfEntityData, [dx, dy]: [f64; 2]) {
@@ -1061,7 +1175,7 @@ fn translate(data: &mut DxfEntityData, [dx, dy]: [f64; 2]) {
         }
         DxfEntityData::Point { location, .. } => shift(location),
         DxfEntityData::Circle { center, .. } | DxfEntityData::Arc { center, .. } => shift(center),
-        DxfEntityData::Text(text) => {
+        DxfEntityData::Text(text) | DxfEntityData::Attrib { text, .. } | DxfEntityData::Attdef { text, .. } => {
             shift(&mut text.insert);
             if let Some(align) = &mut text.align_point {
                 shift(align);
@@ -1072,7 +1186,26 @@ fn translate(data: &mut DxfEntityData, [dx, dy]: [f64; 2]) {
                 shift(p);
             }
         }
-        DxfEntityData::Insert(insert) => shift(&mut insert.insert),
+        DxfEntityData::Insert(insert) => {
+            shift(&mut insert.insert);
+            for attribute in &mut insert.attribs {
+                translate(&mut attribute.data, [dx, dy]);
+            }
+        }
+        DxfEntityData::Dimension(d) => {
+            shift(&mut d.defpoint);
+            shift(&mut d.text_midpoint);
+            if d.insert.is_none() {
+                d.insert = Some([0.0; 3]);
+            }
+            for point in [&mut d.defpoint2, &mut d.defpoint3, &mut d.defpoint4, &mut d.defpoint5, &mut d.insert]
+                .into_iter()
+                .flatten()
+            {
+                shift(point);
+            }
+        }
+        DxfEntityData::Viewport(v) => shift(&mut v.center),
         DxfEntityData::Polyline(polyline) => polyline.vertices.points.iter_mut().for_each(shift),
         _ => {}
     }

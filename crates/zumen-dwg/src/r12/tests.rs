@@ -958,3 +958,84 @@ fn real_old_drawings_read_without_broken_records() {
     }
     eprintln!("{versions:?}");
 }
+
+#[test]
+fn repeated_entities_have_unique_ids() {
+    let doc = crate::read_dwg(&early_drawing(Old::Ac140)).unwrap();
+    let ids: HashSet<_> = doc.entities.iter().map(|e| (e.base.handle.clone(), e.base.ordinal)).collect();
+    assert_eq!(ids.len(), doc.entities.len());
+}
+
+#[test]
+fn vertex_width_overrides_do_not_change_the_polyline_default() {
+    let version = Old::Ac1009;
+    let mut polyline = W::default();
+    polyline.f64(2.0).f64(3.0);
+    let mut first = W::default();
+    first.p2([0.0, 0.0]).f64(5.0).f64(6.0);
+    let mut second = W::default();
+    second.p2([10.0, 0.0]);
+    let d = Drawing {
+        entities: vec![
+            encode(version, &e(kind::POLYLINE, 6, &polyline)),
+            encode(version, &e(kind::VERTEX, 3, &first)),
+            encode(version, &e(kind::VERTEX, 0, &second)),
+        ],
+        ..Drawing::default()
+    };
+    let doc = crate::read_dwg(&file(version, &d)).unwrap();
+    let DxfEntityData::Polyline(p) = &doc.entities[0].data else { panic!("polyline") };
+    assert_eq!(p.vertices.widths, [[5.0, 6.0], [2.0, 3.0]]);
+}
+
+#[test]
+fn repeat_expansion_honors_limits_and_reports_the_fixed_cap() {
+    use zumen_core::limits::{self, Limit, ReadLimits};
+    let version = Old::Ac210;
+    let mut text = W::default();
+    text.p2([0.0, 0.0]).f64(1.0).text(&[b'A'; 1024]);
+    let mut end = W::default();
+    end.i16(i16::MAX).i16(i16::MAX).p2([1.0, 1.0]);
+    let drawing = Drawing {
+        entities: vec![
+            encode(version, &e(kind::REPEAT, 0, &W::default())),
+            encode(version, &e(kind::TEXT, 0, &text)),
+            encode(version, &e(kind::ENDREP, 0, &end)),
+        ],
+        ..Drawing::default()
+    };
+    let bytes = file(version, &drawing);
+    let limits = ReadLimits { max_entities: Some(3), ..ReadLimits::default() };
+    let (_, exceeded) = limits::with_limits(&limits, || crate::read_dwg(&bytes).unwrap());
+    assert_eq!(exceeded, Some(Limit::Entities));
+    let doc = crate::read_dwg(&bytes).unwrap();
+    assert!(doc.entities.len() < 6000);
+    let omitted = doc.notices.iter().find(|n| n.code == "dwg-repeat-limit").unwrap().count;
+    assert_eq!(omitted + doc.entities.len() as u64, 32767_u64 * 32767);
+}
+
+#[test]
+fn cyclic_jump_is_reported_instead_of_silently_truncating() {
+    let version = Old::Ac1009;
+    let drawing = Drawing { entities: vec![jump(version, 0x700)], ..Drawing::default() };
+    let doc = crate::read_dwg(&file(version, &drawing)).unwrap();
+    assert!(doc.notices.iter().any(|n| n.code == "dwg-broken-object"));
+}
+
+#[test]
+fn legacy_mview_resolves_frozen_layer_indices() {
+    let version = Old::Ac1009;
+    let mut viewport = W::default();
+    viewport.p3([0.0; 3]).f64(10.0).f64(10.0).i16(1);
+    let mut eed = W::default();
+    eed.u8(1).i16(0).u8(0).u8(5).raw(b"MVIEW").u8(2).u8(0);
+    eed.u8(40).f64(0.0).u8(40).f64(10.0).u8(2).u8(0).u8(3).i16(1).u8(2).u8(1).u8(2).u8(1);
+    let drawing = Drawing {
+        layers: vec![(b"0".to_vec(), 7, 0), (b"HIDDEN".to_vec(), 7, 0)],
+        entities: vec![encode(version, &E { paper: true, eed: eed.0, ..e(kind::VIEWPORT, 0, &viewport) })],
+        ..Drawing::default()
+    };
+    let doc = crate::read_dwg(&file(version, &drawing)).unwrap();
+    let DxfEntityData::Viewport(v) = &doc.entities[0].data else { panic!("viewport") };
+    assert_eq!(v.frozen_layer_names, ["HIDDEN"]);
+}

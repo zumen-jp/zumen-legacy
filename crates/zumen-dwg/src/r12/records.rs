@@ -320,6 +320,7 @@ pub(super) fn records<T>(
 ) -> Vec<Option<T>> {
     let Some(table) = table else { return Vec::new() };
     (0..table.items.min(1 << 16))
+        .take_while(|_| !zumen_core::limits::tick())
         .map(|index| {
             let start = table.begin + index * table.item_size;
             let mut c = Cursor::new(bytes, start, start + table.item_size);
@@ -695,6 +696,9 @@ fn common(c: &mut Cursor<'_>, kind: i8, mode: u8, version: Old) -> Read<(Common,
     }
     if r10 && mode & 0x20 != 0 {
         let length = usize::from(c.u8()?);
+        if length > 8 {
+            return Err(Eof);
+        }
         let mut handle = 0u64;
         for _ in 0..length {
             handle = (handle << 8) | u64::from(c.u8()?);
@@ -733,10 +737,7 @@ fn eed_values(data: &mut Cursor<'_>, apps: &mut EedApps) -> Read<()> {
                 continue;
             }
             2 => EedValue::Control(data.u8()? != 0),
-            3 => {
-                data.i16()?;
-                EedValue::Other
-            }
+            3 => EedValue::Number(f64::from(data.i16()?)),
             4 => {
                 let length = usize::from(data.u8()?);
                 data.skip(length)?;
