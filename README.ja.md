@@ -10,12 +10,15 @@ AutoCAD などの **DXF**（Shift_JIS の日本語、バイナリを含む）も
 どの形式も Rust の同じ読み取りで読み、ブラウザでは `@zumenjs/reader` がその WebAssembly の build をページか Web Worker で動かす。
 読み取りは Rust で書き、Python（サーバーやデータ処理）と WebAssembly（ブラウザ）から同じ結果で使う。
 
-> 状態: 公開前（0.x）。npm にはまだ公開していない。
+> 状態: 初期リリース（0.x）。マイナーバージョン間で API が変わることがある。
 
 ## パッケージ
 
 pnpm の workspace で、形式ごとの読み取りと、形式に依存しないモデル、利用側の画面に組み込む図面エンジン、React のフックに分ける。
-npm には未公開（0.x の公開準備中）。
+
+```bash
+npm install @zumenjs/core @zumenjs/viewer @zumenjs/reader @zumenjs/react
+```
 
 | パッケージ | フォルダー | 中身 |
 | --- | --- | --- |
@@ -151,13 +154,13 @@ viewer.setTool("pin");
 
 表示範囲・状態・操作のハンドラ・道具・見た目の詳細は [packages/viewer](packages/viewer/README.md)（英語）を参照。
 
-表示せずに解析だけを使う場合は、形式のままのモデルを読む（Node.js でも動く）。
+表示せずに図面を読む場合も、同じ読み取りを使う（Node.js でも動く）。
 
 ```ts
-import { parseSfc, sxfToScene } from "@zumenjs/sxf";
+import { initReader, readScene } from "@zumenjs/reader";
 
-const drawing = parseSfc(bytes); // フィーチャ、レイヤ、部分図、表題欄
-const scene = sxfToScene(drawing); // 必要なら表示用モデルにする
+await initReader();
+const scene = readScene(bytes); // 形式は中身で判定する
 ```
 
 `Scene` は用紙の mm・Y 軸上向きの座標で、部分図・作図部品の配置を解決済みの図形を持つ。

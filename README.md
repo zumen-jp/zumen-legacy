@@ -6,7 +6,7 @@ Read, view and measure architectural and civil engineering 2D drawings in the br
 **zumen** (図面, "drawing" in Japanese) parses the drawing files themselves, so nothing is uploaded to a server,
 and gives you a framework-agnostic drawing engine to embed in your own interface, with React hooks and a sample UI.
 
-> **Status:** pre-release (0.x). The packages are not published to npm yet.
+> **Status:** early release (0.x). The API may change between minor versions.
 
 ## Why
 
@@ -62,6 +62,10 @@ The TypeScript readers in `packages/sxf`, `packages/jww` and `packages/dxf` are 
 that writes the expected scenes of the tests, and are not published.
 
 ## Quick start
+
+```bash
+npm install @zumenjs/core @zumenjs/viewer @zumenjs/reader @zumenjs/react
+```
 
 React: `useDrawing` reads a file with the readers you pass, `useDrawingViewer` creates the engine on an element of
 your interface, and `useViewerState` reads the part of its state a component needs.
@@ -162,17 +166,14 @@ viewer.setTool("pin");
 
 See [packages/viewer](packages/viewer/README.md) for the view, the state, the input handlers, the tools and the style.
 
-Parsing only (works in Node.js):
+Reading without a viewer (also works in Node.js):
 
 ```ts
-import { dxfToScene, parseDxf } from "@zumenjs/dxf";
-import { parseSfc, sxfToScene } from "@zumenjs/sxf";
+import { initReader, readScene } from "@zumenjs/reader";
 
-const drawing = parseSfc(bytes); // features, layers, sub-figures, title block
-const scene = sxfToScene(drawing); // convert to the scene model when you need it
-
-const doc = parseDxf(dxfBytes); // entities with ezdxf attribute names, tables, blocks, layouts
-const sheet = dxfToScene(doc, { layout: "Layout1" }); // or the default view (model space or the saved layout)
+await initReader();
+const scene = readScene(bytes); // the format is detected from the contents
+const sheet = readScene(dxfBytes, { view: "Layout1" }); // or the default view (model space or the saved layout)
 ```
 
 A `Scene` uses paper millimeters with the Y axis up. Placements of sub-figures and blocks are resolved,
