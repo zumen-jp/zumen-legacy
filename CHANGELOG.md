@@ -32,6 +32,25 @@ All packages share one version during 0.x.
   ACAD_TABLE as the INSERT of its block, line types with texts or shapes, dimensions without their block) is reported
   in `notices`, and missing definitions are added. ezdxf reads the written files in the Python tests.
 - `zumen-dxf` and `zumen-dwg`: hatches keep the angle, shift, one-color flag and tint of their gradient.
+- `@zumenjs/viewer`: the 2D engine that applications embed in their own interface
+  ([decision 0005](docs/decisions/0005-browser-packages-for-embedding.md)). The Canvas renderer, hit testing and
+  `DrawingViewer` move here from `@zumenjs/core`. `DrawingViewer` sets and reads the view (`jumpTo`, `fitBounds`,
+  `zoomBy`, `panBy`, `getView`) and sends `move`, `moveend` and `cursor` events; its state holds several selected
+  entities, the hovered entity, named highlights, the active tool and the measurement; dragging, the wheel (always,
+  with Ctrl or ⌘ only, or never), pinching, double click and keys can each be turned off; tools (`select`, `measure`,
+  `pan` and the application's own) receive pointer events in paper millimeters and draw on the overlay; colors come
+  from `--zumen-*` CSS custom properties and `setStyle`; and `entitiesAt`, `entitiesIn` and `snapAt` query the drawing.
+  It has no text, so the canvas gets no default label. Drawings look and respond as before: in the playground, the
+  same wheel, drag, key, selection, measurement, background, line weight and layer steps on SXF, JWW, DXF and DWG
+  drawings give the same canvas pixels.
+- `@zumenjs/core` keeps what `zumen-core` covers (the model and its JSON, geometry, text layout, measurement, notices,
+  `isEntityVisible` and `readDrawing`) and builds without the DOM types. `DrawingReader` gains an optional `load`, and
+  `dwg.load()` of `@zumenjs/dwg` calls `initDwg()`.
+- `@zumenjs/react` has hooks only: `useDrawingViewer`, `useViewerState(viewer, selector)`, `useViewerEvent` and
+  `useDrawing`, which replaces `useCadFile` and waits for the `load` of the reader that recognizes the file.
+  `CadViewer`, its layer list and its CSS become the 2D sample of the playground, with the Japanese text.
+- The engine and the hooks are tested in Chromium (Vitest browser mode with Playwright, `*.browser.test.*`); CI installs
+  the Chromium headless shell.
 - `@zumenjs/dwg`: read DWG in browsers and Node.js with the WebAssembly build of `zumen-dwg`. `initDwg` loads it, `dwg`
   is the reader for `readDrawing` (model space and layouts through `view`), and `isDwg` tells DWG apart without it. The
   playground opens DWG and loads the reader (1.6 MB, 494 KB with brotli) when the first DWG is opened.

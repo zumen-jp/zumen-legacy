@@ -22,6 +22,8 @@ const layout = readDrawing(bytes, [dxf, dwg], { view: "Layout1" }); // a layout;
   `WebAssembly.Module` to `initDwg`. Every call returns the same promise, and a failed load is retried by the next call.
 - `dwg.detect` and `isDwg` look at the version string at the start of the file without the WebAssembly reader, so an
   application can load it only when a DWG is opened. Reading before `initDwg` has resolved throws an error that says so.
+- `dwg.load()` calls `initDwg()` without an argument. `useDrawing` of `@zumenjs/react` waits for the `load` of the
+  reader that recognizes the file, so it loads the WebAssembly reader when the first DWG is opened.
 - Versions that are not read (R13 and R14) and damaged files throw the reader's message. Content that is not drawn is
   counted in `scene.notices`, as for the other formats.
 - The drawing stays in the browser; the only request is for the WebAssembly file. Under a Content Security Policy,

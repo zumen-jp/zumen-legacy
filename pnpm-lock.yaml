@@ -47,6 +47,9 @@ importers:
       '@zumenjs/sxf':
         specifier: workspace:*
         version: link:packages/sxf
+      '@zumenjs/viewer':
+        specifier: workspace:*
+        version: link:packages/viewer
       playwright:
         specifier: 1.64.0
         version: 1.64.0
@@ -94,6 +97,9 @@ importers:
       '@zumenjs/core':
         specifier: workspace:*
         version: link:../core
+      '@zumenjs/viewer':
+        specifier: workspace:*
+        version: link:../viewer
       react:
         specifier: ^19.3.0
         version: 19.3.0
@@ -108,6 +114,12 @@ importers:
         version: 0.186.1
 
   packages/sxf:
+    dependencies:
+      '@zumenjs/core':
+        specifier: workspace:*
+        version: link:../core
+
+  packages/viewer:
     dependencies:
       '@zumenjs/core':
         specifier: workspace:*
