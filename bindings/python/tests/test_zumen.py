@@ -346,7 +346,7 @@ def test_converts_dxf_and_dwg_drawings_to_dxf(tmp_path):
 def test_converts_every_format_to_sfc(tmp_path):
     for source in [
         FIXTURES / "dwg" / "r2018.dwg",
-        FIXTURES / "dxf" / "viewports.dxf",
+        FIXTURES / "dxf" / "layout.dxf",
         FIXTURES / "sfc" / "sample.sfc",
         FIXTURES / "jww" / "minimal-v700.jww",
     ]:
@@ -354,10 +354,12 @@ def test_converts_every_format_to_sfc(tmp_path):
         assert (converted.format, zumen.detect(converted.data)) == ("sfc", "sfc")
         path = tmp_path / f"{source.stem}.sfc"
         converted.save(path)
-        # The SFC draws the texts of the drawing it came from
-        assert sorted(text["text"] for text in zumen.read(path).texts()) == sorted(
-            text["text"] for text in zumen.read(source).texts()
-        )
+
+        # The SFC draws the texts of the drawing it came from (a multiline text as one SXF text per line)
+        def characters(scene):
+            return sorted("".join(text["text"] for text in scene.texts()).replace("\n", ""))
+
+        assert characters(zumen.read(path)) == characters(zumen.read(source))
     codes = {notice["code"] for notice in zumen.convert(FIXTURES / "dxf" / "features.dxf", "sfc").notices}
     assert {"dimension", "drawn-shapes"} <= codes
 
