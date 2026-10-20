@@ -2,54 +2,29 @@ import { dwg } from "@zumenjs/dwg";
 import { dxf } from "@zumenjs/dxf";
 import { jww } from "@zumenjs/jww";
 import { useDrawing } from "@zumenjs/react";
-import { isStb } from "@zumenjs/stb";
 import { sxf } from "@zumenjs/sxf";
-import { type DragEvent, lazy, StrictMode, Suspense, useEffect, useState } from "react";
+import { type DragEvent, StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { DrawingSample } from "./drawing-sample.js";
-import type { StructureStatus } from "./structure-view.js";
 
-const ACCEPT = ".sfc,.p21,.jww,.dxf,.dwg,.stb";
+const ACCEPT = ".sfc,.p21,.jww,.dxf,.dwg";
 const READERS = [sxf, jww, dxf, dwg];
-const StructureView = lazy(() => import("./structure-view.js").then((module) => ({ default: module.StructureView })));
 
-/** 図面・構造モデルを選ぶ・ドロップする・?sample=名前 で開く試用画面 */
+/** 図面を選ぶ・ドロップする・?sample=名前 で開く試用画面 */
 function App() {
   const [file, setFile] = useState<File | null>(null);
-  // ST-Bridge の構造モデルか図面かは、拡張子ではなく中身で決める。今のファイルについて決まるまでは null
-  const [detected, setDetected] = useState<{ file: File; structure: boolean } | null>(null);
-  const structure = file && detected?.file === file ? detected.structure : null;
-  const [structureStatus, setStructureStatus] = useState<StructureStatus>({ loading: false, error: null });
   // DXF のモデル空間・レイアウトなど、図面の中の表示。ファイルを変えたら既定の表示に戻す
   const [view, setView] = useState<string | undefined>(
     () => new URLSearchParams(window.location.search).get("view") ?? undefined,
   );
   const [over, setOver] = useState(false);
   // DWG の読み取り（WebAssembly、約 1.6 MB）は、useDrawing が初めて DWG を開いたときに dwg.load で読み込む
-  const drawing = useDrawing(structure === false ? file : null, READERS, { view });
-  const { error, loading } = structure
-    ? structureStatus
-    : { error: drawing.error, loading: drawing.loading || (file !== null && structure === null) };
+  const drawing = useDrawing(file, READERS, { view });
+  const { error, loading } = drawing;
   const open = (next: File | null) => {
     setView(undefined);
     setFile(next);
   };
-
-  useEffect(() => {
-    if (!file) return;
-    let current = true;
-    // 頭を読めないファイルは図面として渡し、useDrawing がエラーを伝える
-    file
-      .slice(0, 4096)
-      .arrayBuffer()
-      .catch(() => null)
-      .then((head) => {
-        if (current) setDetected({ file, structure: head !== null && isStb(head) });
-      });
-    return () => {
-      current = false;
-    };
-  }, [file]);
 
   useEffect(() => {
     const sample = new URLSearchParams(window.location.search).get("sample");
@@ -88,9 +63,9 @@ function App() {
       onDrop={onDrop}
     >
       <header style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12 }}>
-        <h1 style={{ margin: 0, fontSize: 18 }}>図面・構造モデルのビューア</h1>
+        <h1 style={{ margin: 0, fontSize: 18 }}>図面のビューア</h1>
         <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-          図面（SFC・P21・JWW・DXF・DWG）・構造モデル（ST-Bridge）
+          図面（SFC・P21・JWW・DXF・DWG）
           <input type="file" accept={ACCEPT} onChange={(event) => open(event.currentTarget.files?.[0] ?? null)} />
         </label>
         <span aria-live="polite">
@@ -104,13 +79,7 @@ function App() {
         </span>
       </header>
       <div style={{ minHeight: 0, outline: over ? "3px dashed #0031d8" : undefined }}>
-        {structure && file ? (
-          <Suspense fallback={null}>
-            <StructureView file={file} onStatus={setStructureStatus} />
-          </Suspense>
-        ) : drawing.scene ? (
-          <DrawingSample scene={drawing.scene} label={file?.name} onViewChange={setView} />
-        ) : null}
+        {drawing.scene ? <DrawingSample scene={drawing.scene} label={file?.name} onViewChange={setView} /> : null}
       </div>
     </main>
   );
