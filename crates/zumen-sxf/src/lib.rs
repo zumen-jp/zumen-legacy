@@ -21,6 +21,7 @@ mod step;
 mod style;
 mod symbols;
 pub mod tables;
+mod version;
 mod write;
 mod zip;
 
@@ -38,40 +39,65 @@ pub use sfc::parse_sfc;
 pub use source::{SxfArchive, SxfSource};
 pub use style::DEFAULT_WIDTH;
 pub use symbols::{arrow_primitives, marker_primitives};
+pub use version::SxfVersion;
 pub use write::{SxfWritten, written_ids};
 
-/// SXF の図面を SFC ファイル（SXF Ver.3.1）に書く。SFC から読んだ図面（`source` があるもの）は、元のファイルを
-/// 書き換えて、変えたフィーチャだけを書き直す（変えていないフィーチャは元の文字列のまま）。ほかの図面は、
-/// フィーチャを定義の順に並べ、番号を 10 から振って新しく書く
+/// SXF の図面を SFC ファイルに書く。SFC から読んだ図面（`source` があるもの）は、元のファイルを書き換えて、
+/// 変えたフィーチャだけを書き直す（変えていないフィーチャは元の文字列のまま）。ほかの図面は、フィーチャを定義の順に
+/// 並べ、番号を 10 から振って、図面の版（`SxfDrawing::version`、分からなければ Ver.3.1）で新しく書く
 pub fn write_sfc(drawing: &SxfDrawing) -> SxfWritten {
-    match &drawing.source {
-        Some(source) if drawing.format == "sfc" => sfc_edit::write_sfc_edit(drawing, &source.bytes),
-        _ => write::write_sfc_new(drawing),
+    write_sfc_as(drawing, None)
+}
+
+/// SFC に書く。version を選べば、読んだ図面も新しく書く
+fn write_sfc_as(drawing: &SxfDrawing, version: Option<SxfVersion>) -> SxfWritten {
+    match (&drawing.source, version) {
+        (Some(source), None) if drawing.format == "sfc" => sfc_edit::write_sfc_edit(drawing, &source.bytes),
+        _ => write::write_sfc_new(drawing, version.unwrap_or_else(|| SxfVersion::written(drawing))),
     }
 }
 
-/// SXF の図面を P21 ファイル（SXF Ver.3.1、STEP AP202 のサブセット）に書く。P21 から読んだ図面（`source` が
-/// あるもの）は、元のファイルを書き換えて、変えたフィーチャのインスタンスだけを書き直す。ほかの図面は、フィーチャ
-/// ごとのインスタンスを AP202 サブセット編のテンプレートで組み立てて新しく書く
+/// SXF の図面を P21 ファイル（STEP AP202 のサブセット）に書く。P21 から読んだ図面（`source` があるもの）は、
+/// 元のファイルを書き換えて、変えたフィーチャのインスタンスだけを書き直す。ほかの図面は、フィーチャごとの
+/// インスタンスを AP202 サブセット編のテンプレートで組み立て、図面の版（分からなければ Ver.3.1）で新しく書く
 pub fn write_p21(drawing: &SxfDrawing) -> SxfWritten {
-    match &drawing.source {
-        Some(source) if drawing.format == "p21" => p21_edit::write_p21_edit(drawing, &source.bytes),
-        _ => p21_writer::write_p21_new(drawing),
+    write_p21_as(drawing, None)
+}
+
+/// P21 に書く。version を選べば、読んだ図面も新しく書く
+fn write_p21_as(drawing: &SxfDrawing, version: Option<SxfVersion>) -> SxfWritten {
+    match (&drawing.source, version) {
+        (Some(source), None) if drawing.format == "p21" => p21_edit::write_p21_edit(drawing, &source.bytes),
+        _ => p21_writer::write_p21_new(drawing, version.unwrap_or_else(|| SxfVersion::written(drawing))),
     }
+}
+
+/// SXF の図面を、版を選んで format（sfc・p21・sfz・p2z）で書く。図面の版と同じなら `write_sxf` と同じ（読んだ
+/// 図面は元のファイルを書き換える）。違う版は新しく書き、その版にないフィーチャを近い形にする（Ver.3.0 より前は
+/// 図面表題欄を除き、Ver.3.1 より前はクロソイド曲線を折線に、弧長寸法を角度寸法にして、notices で知らせる）
+pub fn write_sxf_version(drawing: &SxfDrawing, format: &str, version: SxfVersion) -> Result<SxfWritten, ReadError> {
+    let keep =
+        drawing.source.is_some() && SxfVersion::of(drawing) == Some(version) && SxfVersion::written(drawing) <= version;
+    write_sxf_as(drawing, format, (!keep).then_some(version))
 }
 
 /// SXF の図面を format（sfc・p21、圧縮した sfz・p2z）で書く。読んだ図面を同じ形式に書くときは、変えていない
 /// フィーチャ・インスタンスを元の文字列のまま書く。圧縮した SXF から読んだ図面を同じ形式に書くときは、元の書庫の
 /// SXF だけを置き換え、同じ書庫のほかのファイル（属性ファイル・画像）と名前・日時を残す
 pub fn write_sxf(drawing: &SxfDrawing, format: &str) -> Result<SxfWritten, ReadError> {
+    write_sxf_as(drawing, format, None)
+}
+
+/// format に書く。version を選べば、図面の内容を新しく書く。元の書庫があれば付属ファイルは残す
+fn write_sxf_as(drawing: &SxfDrawing, format: &str, version: Option<SxfVersion>) -> Result<SxfWritten, ReadError> {
     let inner = match format {
-        "sfc" => return Ok(write_sfc(drawing)),
-        "p21" => return Ok(write_p21(drawing)),
+        "sfc" => return Ok(write_sfc_as(drawing, version)),
+        "p21" => return Ok(write_p21_as(drawing, version)),
         "sfz" => "sfc",
         "p2z" => "p21",
         _ => return Err(ReadError::new(format!("SXF は {format} に書けません（書けるのは SFC・P21・SFZ・P2Z）"))),
     };
-    let mut written = if inner == "sfc" { write_sfc(drawing) } else { write_p21(drawing) };
+    let mut written = if inner == "sfc" { write_sfc_as(drawing, version) } else { write_p21_as(drawing, version) };
     let source = drawing.source.as_ref().filter(|_| drawing.format == inner);
     if let Some((source, archive)) = source.and_then(|source| Some((source, source.archive.as_ref()?))) {
         if *written.bytes == *source.bytes {
