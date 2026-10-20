@@ -279,6 +279,7 @@ mod tests {
                 compressed: false,
                 encrypted: 0,
                 preview_base: None,
+                keep_zero_pages: false,
             }],
             stream_order: vec![0],
         });
