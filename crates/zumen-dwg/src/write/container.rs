@@ -67,7 +67,7 @@ impl Preview {
     }
 
     /// at に置いたときのバイト列。画像の始まりの位置（RL）を、元の基準からの差のまま at を基準にする
-    fn placed(&self, at: u64) -> Vec<u8> {
+    pub(super) fn placed(&self, at: u64) -> Vec<u8> {
         let mut data = self.data.clone();
         let count = usize::from(*data.get(20).unwrap_or(&0));
         for index in 0..count {

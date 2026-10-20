@@ -1,4 +1,4 @@
-//! テストの図面を書く（R2000 と R2018）。ビット単位の値・オブジェクトの枠・節の区切りと CRC・入れ物は、zumen_dwg の
+//! テストの図面を書く（R14、R2000 と R2018）。ビット単位の値・オブジェクトの枠・節の区切りと CRC・入れ物は、zumen_dwg の
 //! 書き出し（zumen_dwg::raw）を使う。ここでは、読み取りが前提とする並びの最小のヘッダ変数と、規則を確かめる
 //! オブジェクトを作る。Open Design Specification for .dwg files 5.4.1 の節の番号は読み取り側の注記を見る。
 #![allow(dead_code)]
@@ -9,6 +9,21 @@ use zumen_dwg::raw::{Database, ObjectWriter};
 /// R2007 以降の書き方（文字列の並び・UTF-16）。R2010 以降の型（OT）とハンドルの並びの大きさ（MC）もこれで決める
 fn r2018(version: Version) -> bool {
     version >= Version::R2018
+}
+
+/// R13・R14 の書き方（値を省かない、R2000 からの値がない、R13・R14 だけの値がある）
+fn r14(version: Version) -> bool {
+    version < Version::R2000
+}
+
+/// 厚さ。R2000 以降は BT、R13・R14 は BD
+fn thickness(o: &mut Obj, value: f64) {
+    if r14(o.version) { o.data.bd(value) } else { o.data.bt(value) }
+}
+
+/// 押し出しの向き。R2000 以降は BE、R13・R14 は 3BD
+fn extrusion(o: &mut Obj, value: [f64; 3]) {
+    if r14(o.version) { o.data.bd3(value) } else { o.data.be(value) }
 }
 
 /// 1 つのオブジェクト。文字列は R2007 より前は Shift_JIS（テストの図面の文字コード）
@@ -64,8 +79,9 @@ impl Common for Obj {
     }
 
     fn entity(&mut self, layer: u64, color: i16, links: Option<(u64, u64)>, owner: Option<u64>) {
-        // 画像（代わりの表示）はない
+        // 画像（代わりの表示）はない。R13・R14 は値の並びの大きさがこの後
         self.data.bit(false);
+        self.r14_size_at = self.data.bit_len();
         self.entity_mode(layer, color, links, owner);
     }
 
@@ -83,6 +99,11 @@ impl Common for Obj {
             self.data.bit(false);
         } else {
             self.h(3, 0);
+            if r14(self.version) {
+                // レイヤと、BYLAYER の線種（ハンドルなし）
+                self.h(5, layer);
+                self.data.bit(true);
+            }
             match links {
                 Some((previous, next)) => {
                     self.data.bit(false);
@@ -94,6 +115,11 @@ impl Common for Obj {
         }
         self.data.bs(color);
         self.data.bd(1.0);
+        if r14(self.version) {
+            // 見えるかどうか。線種のフラグ・印刷スタイル・線の太さは R2000 から
+            self.data.bs(0);
+            return;
+        }
         self.h(5, layer);
         self.data.bb(0);
         self.data.bb(0);
@@ -126,9 +152,12 @@ impl Common for Obj {
         self.data.bd(0.0);
         self.tv(value);
         self.h(5, style);
-        self.data.bs(1);
-        self.data.bd(1.0);
-        self.data.bit(false);
+        // 行間は R2000 から
+        if !r14(self.version) {
+            self.data.bs(1);
+            self.data.bd(1.0);
+            self.data.bit(false);
+        }
         if r2018 {
             self.data.bl(0);
             self.data.bit(true);
@@ -191,26 +220,32 @@ pub fn header_section(version: Version, h: &Header) -> Vec<u8> {
     let handle = |o: &mut Obj, code: u8, value: u64| {
         if r2018 { o.handles.handle(code, value) } else { o.data.handle(code, value) }
     };
+    // R13・R14 だけの値（不明の BS、DIMSAV、BLIPMODE、ATTREQ、ATTDIA、WIREFRAME、DELOBJ、DRAGMODE、OSMODE、COORDS、
+    // PICKSTYLE）
+    let r14 = r14(version);
+    if r14 {
+        o.data.bs(0);
+    }
     if !r2018 {
         handle(&mut o, 5, 0);
     }
-    for _ in 0..7 {
+    for _ in 0..if r14 { 8 } else { 7 } {
         o.data.bit(false);
     }
-    // PSLTSCALE、LIMCHECK、（R2004 以降）不明
+    // PSLTSCALE、LIMCHECK、（R13・R14 の BLIPMODE、R2004 以降の不明）
     o.data.bit(true);
     o.data.bit(false);
-    if r2018 {
+    if r2018 || r14 {
         o.data.bit(false);
     }
-    for _ in 0..6 {
+    for _ in 0..if r14 { 9 } else { 6 } {
         o.data.bit(false);
     }
     o.data.bit(h.tilemode);
-    for _ in 0..4 {
+    for _ in 0..if r14 { 5 } else { 4 } {
         o.data.bit(false);
     }
-    for _ in 0..8 {
+    for _ in 0..if r14 { 12 } else { 8 } {
         o.data.bs(0);
     }
     if r2018 {
@@ -244,7 +279,10 @@ pub fn header_section(version: Version, h: &Header) -> Vec<u8> {
     for _ in 0..if r2018 { 6 } else { 5 } {
         handle(&mut o, 5, 0);
     }
-    o.data.bd(1.0);
+    // PSVPSCALE（R2000 から）
+    if !r14 {
+        o.data.bd(1.0);
+    }
     // 紙空間: INSBASE、EXTMIN、EXTMAX、LIMMIN、LIMMAX、ELEVATION、UCS
     o.data.bd3([0.0; 3]);
     o.data.bd3([0.0; 3]);
@@ -256,11 +294,13 @@ pub fn header_section(version: Version, h: &Header) -> Vec<u8> {
         o.data.bd3([0.0; 3]);
     }
     handle(&mut o, 5, 0);
-    handle(&mut o, 5, 0);
-    o.data.bs(0);
-    handle(&mut o, 5, 0);
-    for _ in 0..6 {
-        o.data.bd3([0.0; 3]);
+    if !r14 {
+        handle(&mut o, 5, 0);
+        o.data.bs(0);
+        handle(&mut o, 5, 0);
+        for _ in 0..6 {
+            o.data.bd3([0.0; 3]);
+        }
     }
     // モデル空間
     o.data.bd3([0.0; 3]);
@@ -273,14 +313,36 @@ pub fn header_section(version: Version, h: &Header) -> Vec<u8> {
         o.data.bd3([0.0; 3]);
     }
     handle(&mut o, 5, 0);
-    handle(&mut o, 5, 0);
-    o.data.bs(0);
-    handle(&mut o, 5, 0);
-    for _ in 0..6 {
-        o.data.bd3([0.0; 3]);
+    if r14 {
+        // R13・R14 の寸法の値（B × 11、RC × 2、B × 2、RC × 3、B、RC × 4、BS × 6、DIMTXSTY）
+        for _ in 0..11 {
+            o.data.bit(false);
+        }
+        o.data.rc(0);
+        o.data.rc(0);
+        o.data.bit(false);
+        o.data.bit(false);
+        for _ in 0..3 {
+            o.data.rc(0);
+        }
+        o.data.bit(false);
+        for _ in 0..4 {
+            o.data.rc(0);
+        }
+        for _ in 0..6 {
+            o.data.bs(0);
+        }
+        handle(&mut o, 5, 0);
+    } else {
+        handle(&mut o, 5, 0);
+        o.data.bs(0);
+        handle(&mut o, 5, 0);
+        for _ in 0..6 {
+            o.data.bd3([0.0; 3]);
+        }
+        o.tv("");
+        o.tv("");
     }
-    o.tv("");
-    o.tv("");
     // DIMSCALE、DIMASZ と 7 つの BD
     o.data.bd(1.0);
     o.data.bd(2.5);
@@ -293,20 +355,33 @@ pub fn header_section(version: Version, h: &Header) -> Vec<u8> {
         o.data.bs(0);
         o.cmc(0, None);
     }
-    for _ in 0..6 {
-        o.data.bit(false);
-    }
-    for _ in 0..3 {
-        o.data.bs(0);
+    if !r14 {
+        for _ in 0..6 {
+            o.data.bit(false);
+        }
+        for _ in 0..3 {
+            o.data.bs(0);
+        }
     }
     if r2018 {
         o.data.bs(0);
     }
-    // DIMTXT と 8 つの BD
+    // DIMTXT と 7 つの BD
     o.data.bd(2.5);
-    for _ in 0..8 {
+    for _ in 0..7 {
         o.data.bd(0.0);
     }
+    if r14 {
+        // DIMPOST、DIMAPOST、DIMBLK、DIMBLK1、DIMBLK2
+        for _ in 0..5 {
+            o.tv("");
+        }
+        for _ in 0..3 {
+            o.cmc(0, None);
+        }
+        return finish_r14_header(o, h);
+    }
+    o.data.bd(0.0);
     o.data.bit(false);
     o.data.bs(0);
     for _ in 0..4 {
@@ -382,7 +457,28 @@ pub fn header_section(version: Version, h: &Header) -> Vec<u8> {
     handle(&mut o, 5, h.bylayer);
     handle(&mut o, 5, h.byblock);
     handle(&mut o, 5, h.continuous);
-    // 並びをまとめる（R2007 以降は RL のビット数、値、文字列、その大きさ、印、ハンドル）
+    finish_header(o, r2018)
+}
+
+/// R13・R14 のヘッダ変数の表の管理のオブジェクトから終わりまで（R2000 からの値を除く）
+fn finish_r14_header(mut o: Obj, h: &Header) -> Vec<u8> {
+    for value in [h.block_control, h.layer_control, h.style_control, h.linetype_control, 0, 0, 0] {
+        o.data.handle(3, value);
+    }
+    o.data.handle(3, h.appid_control);
+    o.data.handle(3, h.dimstyle_control);
+    o.data.handle(3, 0);
+    o.data.handle(5, 0);
+    o.data.handle(5, h.mlinestyle_dictionary);
+    o.data.handle(3, h.named_objects);
+    for value in [h.paper_space, h.model_space, h.bylayer, h.byblock, h.continuous] {
+        o.data.handle(5, value);
+    }
+    finish_header(o, false)
+}
+
+/// 並びをまとめる（R2007 以降は RL のビット数、値、文字列、その大きさ、印、ハンドル）
+fn finish_header(o: Obj, r2018: bool) -> Vec<u8> {
     let mut body = Bits::new();
     if r2018 {
         let mut data = o.data.clone();
@@ -441,7 +537,7 @@ impl Drawing {
             ],
         }
         .bytes()
-        .expect("R2000 と R2018 は書ける")
+        .expect("R14、R2000 と R2018 は書ける")
     }
 }
 
@@ -478,11 +574,21 @@ pub fn layer(version: Version, handle: u64, control: u64, name: &str, color: i16
     let mut o = obj(version, 51, handle);
     o.non_entity(control);
     entry_name(&mut o, name);
-    // 印刷する（16）と、線の太さ（既定 31）
-    o.data.bs(16 | if off { 2 } else { 0 } | (31 << 5));
+    if r14(version) {
+        // 凍結・非表示・新しいビューポートで凍結・ロック
+        o.data.bit(false);
+        o.data.bit(off);
+        o.data.bit(false);
+        o.data.bit(false);
+    } else {
+        // 印刷する（16）と、線の太さ（既定 31）
+        o.data.bs(16 | if off { 2 } else { 0 } | (31 << 5));
+    }
     o.cmc(color, None);
     o.h(5, 0);
-    o.h(5, 0);
+    if !r14(version) {
+        o.h(5, 0);
+    }
     if r2018(version) {
         o.h(5, 0);
     }
@@ -545,8 +651,29 @@ pub fn dimstyle(version: Version, handle: u64, control: u64, name: &str, dimasz:
     let mut o = obj(version, 69, handle);
     o.non_entity(control);
     entry_name(&mut o, name);
-    o.tv("");
-    o.tv("");
+    if r14(version) {
+        // R13・R14 の値（B × 11、RC × 2、B × 2、RC × 3、B、RC × 4、BS × 6）
+        for _ in 0..11 {
+            o.data.bit(false);
+        }
+        o.data.rc(0);
+        o.data.rc(0);
+        o.data.bit(false);
+        o.data.bit(false);
+        for _ in 0..3 {
+            o.data.rc(0);
+        }
+        o.data.bit(false);
+        for _ in 0..4 {
+            o.data.rc(0);
+        }
+        for _ in 0..6 {
+            o.data.bs(0);
+        }
+    } else {
+        o.tv("");
+        o.tv("");
+    }
     o.data.bd(1.0);
     o.data.bd(dimasz);
     for _ in 0..7 {
@@ -558,11 +685,13 @@ pub fn dimstyle(version: Version, handle: u64, control: u64, name: &str, dimasz:
         o.data.bs(0);
         o.cmc(0, None);
     }
-    for _ in 0..6 {
-        o.data.bit(false);
-    }
-    for _ in 0..3 {
-        o.data.bs(0);
+    if !r14(version) {
+        for _ in 0..6 {
+            o.data.bit(false);
+        }
+        for _ in 0..3 {
+            o.data.bs(0);
+        }
     }
     if r2018(version) {
         o.data.bs(0);
@@ -590,15 +719,21 @@ pub fn block_header(
     o.data.bit(false);
     o.data.bit(false);
     o.data.bit(false);
-    o.data.bit(false);
+    // 読み込んだ外部参照（R2000 から）
+    if !r14(version) {
+        o.data.bit(false);
+    }
     if r2018(version) {
         o.data.bl(entities.len() as i32);
     }
     o.data.bd3([0.0, 0.0, 0.0]);
     o.tv("");
-    o.data.rc(0);
-    o.tv("");
-    o.data.bl(0);
+    // 挿入の数・説明・プレビュー（R2000 から）
+    if !r14(version) {
+        o.data.rc(0);
+        o.tv("");
+        o.data.bl(0);
+    }
     if r2018(version) {
         o.data.bs(0);
         o.data.bit(true);
@@ -615,7 +750,9 @@ pub fn block_header(
         o.h(4, entities.last().copied().unwrap_or(0));
     }
     o.h(3, endblk);
-    o.h(5, layout);
+    if !r14(version) {
+        o.h(5, layout);
+    }
     o.bytes()
 }
 
@@ -639,8 +776,13 @@ pub fn dictionary(version: Version, handle: u64, owner: u64, entries: &[(&str, u
     let mut o = obj(version, 42, handle);
     o.non_entity(owner);
     o.data.bl(entries.len() as i32);
-    o.data.bs(0);
-    o.data.rc(1);
+    if version == Version::R14 {
+        // R14 だけの不明の RC（つねに 0）
+        o.data.rc(0);
+    } else if version >= Version::R2000 {
+        o.data.bs(0);
+        o.data.rc(1);
+    }
     for (name, item) in entries {
         o.tv(name);
         o.h(2, *item);
@@ -727,6 +869,13 @@ pub struct Place {
 pub fn line(version: Version, handle: u64, place: &Place, start: [f64; 3], end: [f64; 3]) -> Vec<u8> {
     let mut o = obj(version, 19, handle);
     o.entity(place.layer, place.color, place.links, place.owner);
+    if r14(version) {
+        o.data.bd3(start);
+        o.data.bd3(end);
+        o.data.bd(0.0);
+        o.data.bd3([0.0, 0.0, 1.0]);
+        return o.bytes();
+    }
     let z_zero = start[2] == 0.0 && end[2] == 0.0;
     o.data.bit(z_zero);
     o.data.rd(start[0]);
@@ -748,8 +897,8 @@ pub fn arc(version: Version, handle: u64, place: &Place, center: [f64; 3], radiu
     o.entity(place.layer, place.color, place.links, place.owner);
     o.data.bd3(center);
     o.data.bd(radius);
-    o.data.bt(0.0);
-    o.data.be([0.0, 0.0, 1.0]);
+    thickness(&mut o, 0.0);
+    extrusion(&mut o, [0.0, 0.0, 1.0]);
     o.data.bd(angles[0]);
     o.data.bd(angles[1]);
     o.bytes()
@@ -769,6 +918,10 @@ pub fn text(
 ) -> Vec<u8> {
     let mut o = obj(version, 1, handle);
     o.entity(place.layer, place.color, place.links, place.owner);
+    if r14(version) {
+        text_r14(&mut o, value, insert, height, rotation, style);
+        return o.bytes();
+    }
     // 標高・揃え点・斜体・幅・生成・揃えを省き、回転だけを持つ
     o.data.rc(0x01 | 0x02 | 0x04 | 0x10 | 0x20 | 0x40 | 0x80);
     o.data.rd2(insert);
@@ -779,6 +932,24 @@ pub fn text(
     o.tv(value);
     o.h(5, style);
     o.bytes()
+}
+
+/// R13・R14 の TEXT の値（20.4.3）。省かずに持つ。位置合わせは左・ベースライン
+fn text_r14(o: &mut Obj, value: &str, insert: [f64; 2], height: f64, rotation: f64, style: u64) {
+    o.data.bd(0.0);
+    o.data.rd2(insert);
+    o.data.rd2([0.0, 0.0]);
+    o.data.bd3([0.0, 0.0, 1.0]);
+    o.data.bd(0.0);
+    o.data.bd(0.0);
+    o.data.bd(rotation);
+    o.data.bd(height);
+    o.data.bd(1.0);
+    o.tv(value);
+    for _ in 0..3 {
+        o.data.bs(0);
+    }
+    o.h(5, style);
 }
 
 /// MTEXT（20.4.46）
@@ -814,14 +985,18 @@ pub struct Attribute<'a> {
 pub fn attribute(version: Version, handle: u64, place: &Place, a: &Attribute, style: u64) -> Vec<u8> {
     let mut o = obj(version, if a.prompt.is_some() { 3 } else { 2 }, handle);
     o.entity(place.layer, place.color, place.links, place.owner);
-    // 20.4.3 の値。標高・揃え点・斜体・回転・幅・生成・揃えを省く
-    o.data.rc(0xff);
-    o.data.rd2(a.insert);
-    o.data.be([0.0, 0.0, 1.0]);
-    o.data.bt(0.0);
-    o.data.rd(a.height);
-    o.tv(a.text);
-    o.h(5, style);
+    if r14(version) {
+        text_r14(&mut o, a.text, a.insert, a.height, 0.0, style);
+    } else {
+        // 20.4.3 の値。標高・揃え点・斜体・回転・幅・生成・揃えを省く
+        o.data.rc(0xff);
+        o.data.rd2(a.insert);
+        o.data.be([0.0, 0.0, 1.0]);
+        o.data.bt(0.0);
+        o.data.rd(a.height);
+        o.tv(a.text);
+        o.h(5, style);
+    }
     if r2018(version) {
         // 版（R2010 以降）と属性の種類（R2018 以降。1 は 1 行、2 は複数行の属性、4 は複数行の属性定義）
         o.data.rc(0);
@@ -889,10 +1064,17 @@ pub fn insert_with_attributes(
     let mut o = obj(version, 7, handle);
     o.entity(place.layer, place.color, place.links, place.owner);
     o.data.bd3(point);
-    o.data.bb(0);
-    o.data.rd(scale[0]);
-    o.data.dd(scale[1], scale[0]);
-    o.data.dd(scale[2], scale[0]);
+    if r14(version) {
+        // R13・R14 は尺度を省かない
+        for value in scale {
+            o.data.bd(value);
+        }
+    } else {
+        o.data.bb(0);
+        o.data.rd(scale[0]);
+        o.data.dd(scale[1], scale[0]);
+        o.data.dd(scale[2], scale[0]);
+    }
     o.data.bd(rotation);
     o.data.bd3([0.0, 0.0, 1.0]);
     o.data.bit(!attributes.is_empty());
@@ -929,7 +1111,8 @@ pub fn lwpolyline(
     o.data.bl(points.len() as i32);
     o.data.bl(bulges.len() as i32);
     for (index, point) in points.iter().enumerate() {
-        if index == 0 {
+        // R13・R14 はすべての頂点を 2RD で持つ
+        if index == 0 || r14(version) {
             o.data.rd2(*point);
         } else {
             o.data.dd(point[0], points[index - 1][0]);
@@ -968,10 +1151,13 @@ pub fn linear_dimension(
     o.data.bd(0.0);
     o.data.bd3([1.0, 1.0, 1.0]);
     o.data.bd(0.0);
-    o.data.bs(5);
-    o.data.bs(1);
-    o.data.bd(1.0);
-    o.data.bd(measurement);
+    // 文字の配置・行間・実測値は R2000 から
+    if !r14(version) {
+        o.data.bs(5);
+        o.data.bs(1);
+        o.data.bd(1.0);
+        o.data.bd(measurement);
+    }
     if r2018(version) {
         o.data.bit(false);
         o.data.bit(false);
@@ -1031,7 +1217,13 @@ pub fn leader(
     o.data.bd3([0.0, 0.0, 1.0]);
     o.data.bd3([1.0, 0.0, 0.0]);
     o.data.bd3([0.0; 3]);
-    o.data.bd3([0.0; 3]);
+    if version >= Version::R14 {
+        o.data.bd3([0.0; 3]);
+    }
+    if r14(version) {
+        // R13・R14 は作ったときの DIMGAP
+        o.data.bd(0.0);
+    }
     if !r2018(version) {
         // 文字の枠の高さと幅は R2007 まで
         o.data.bd(1.0);
@@ -1039,9 +1231,21 @@ pub fn leader(
     }
     o.data.bit(false);
     o.data.bit(true);
-    o.data.bs(0);
-    o.data.bit(false);
-    o.data.bit(false);
+    if r14(version) {
+        // 矢印の種類、作ったときの DIMASZ、不明（B・B・BS）、BYBLOCK の色、不明（B・B）
+        o.data.bs(0);
+        o.data.bd(0.0);
+        o.data.bit(false);
+        o.data.bit(false);
+        o.data.bs(0);
+        o.data.bs(0);
+        o.data.bit(false);
+        o.data.bit(false);
+    } else {
+        o.data.bs(0);
+        o.data.bit(false);
+        o.data.bit(false);
+    }
     o.h(5, annotation);
     o.h(5, dimstyle);
     o.bytes()

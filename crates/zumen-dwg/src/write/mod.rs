@@ -7,11 +7,13 @@
 pub(crate) mod bits;
 pub(crate) mod classes;
 pub(crate) mod compress;
+mod compress21;
 pub(crate) mod container;
+pub(crate) mod container21;
 pub(crate) mod database;
-mod drawing;
+pub(crate) mod drawing;
 pub(crate) mod object;
-mod rewrite;
+pub(crate) mod rewrite;
 pub(crate) mod sections;
 
 pub use drawing::write_dwg;

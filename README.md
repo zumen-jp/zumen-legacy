@@ -14,7 +14,7 @@ and gives you a framework-agnostic drawing engine to embed in your own interface
   In our survey (October 2026) we found no JavaScript library that reads SXF in the browser,
   and no browser package or React component for JWW.
 - **DXF** from AutoCAD and other CAD software is read, including Japanese drawings in Shift_JIS and binary DXF.
-  **DWG** (AutoCAD 2000 to 2018) is read into the same AutoCAD drawing model by our own decoder in Rust, without GPL
+  **DWG** (AutoCAD R13 to 2018) is read into the same AutoCAD drawing model by our own decoder in Rust, without GPL
   components.
 - Every format is read by the same Rust code on servers, in Python and in the browser, where `@zumenjs/reader` runs its
   WebAssembly build on the page or in a Web Worker.
@@ -26,7 +26,7 @@ and gives you a framework-agnostic drawing engine to embed in your own interface
   DXF R12 to 2018 in ASCII and binary (lines, arcs, polylines with bulges and widths, splines, text and formatted MTEXT,
   blocks with attributes and arrays, dimensions, hatches, leaders, solids, wipeouts), with layers, line types,
   line weights, ACI and true colors, transparency and text styles;
-  DWG AutoCAD 2000 to 2018, drawn like DXF (see [How DWG is handled](docs/formats/dwg.md)).
+  DWG AutoCAD R13 to 2018, drawn like DXF (see [How DWG is handled](docs/formats/dwg.md)).
 - Drawings you receive: limits on bytes, entities and time, and reading in a Web Worker that can be stopped.
 - DXF and DWG model space and layouts: viewports draw model space at their scale, and measurements inside them return
   real-world units.
@@ -271,7 +271,7 @@ anything is written. DXF (R12 to 2018, ASCII and binary) is done; DWG, SXF and J
 | [`zumen-sxf`](crates/zumen-sxf) | `parse_sfc` and `parse_p21` (the SXF feature model), `sxf_to_scene`, the `SXF` reader, and `write_sfc` (the feature model as SFC) |
 | [`zumen-jww`](crates/zumen-jww) | `read_jww` (the JWW document model), `jww_to_scene`, the `JWW` reader |
 | [`zumen-dxf`](crates/zumen-dxf) | `parse_dxf` (the AutoCAD drawing model, shared with DWG), `dxf_to_scene`, the `DXF` reader, `write_dxf` (the model as DXF of AutoCAD 2013), and `edit_dxf` (editing in place) |
-| [`zumen-dwg`](crates/zumen-dwg) | `read_dwg` (DWG 2000 to 2018 into the AutoCAD drawing model of `zumen-dxf`), the `DWG` reader |
+| [`zumen-dwg`](crates/zumen-dwg) | `read_dwg` (DWG R13 to 2018 into the AutoCAD drawing model of `zumen-dxf`), the `DWG` reader |
 | [`zumen-convert`](crates/zumen-convert) | `sxf_to_dxf` and `jww_to_dxf` (SXF and JWW into the AutoCAD drawing model, to be written as DXF), and `dxf_to_sxf` (the model as an SXF drawing, to be written as SFC) |
 | [`zumen`](crates/zumen) | `read` and `detect` over every reader, with limits on bytes, entities and time for untrusted drawings, `convert` (every format to DXF and SFC), `edit` and `create` |
 | [`zumen-render`](crates/zumen-render) | PNG, SVG and PDF rendering with the rules of the browser renderer, and the pixel box of every entity drawn; BIZ UDGothic is bundled for Japanese text |
@@ -297,8 +297,7 @@ sending them anywhere.
 1. Split into readers, the drawing engine and React (done).
 2. DXF, with an AutoCAD object model shared with DWG (done, including MULTILEADER and MLINE).
 3. Rust readers with Python and WebAssembly bindings, and PNG, SVG and PDF rendering on servers (JWW, SXF and DXF done).
-4. DWG, read into the same AutoCAD object model (2000 to 2018 done in Rust and in the browser through WebAssembly;
-   R13 and R14 are next).
+4. DWG, read into the same AutoCAD object model (R13 to 2018 done in Rust and in the browser through WebAssembly).
 5. Writing, converting and editing drawings (every format to DXF and SFC, and editing DXF in place, done in Rust;
    DWG, P21 and JWW writers and the editors of DWG, SXF and JWW next),
    analysis (tables, rooms and areas; the comparison of revisions is done), markup and PDF drawings.

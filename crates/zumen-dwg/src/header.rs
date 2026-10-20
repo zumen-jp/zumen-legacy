@@ -39,8 +39,9 @@ pub(crate) struct Header {
     pub bylayer: u64,
     pub byblock: u64,
     pub continuous: u64,
-    /// 次に振るハンドル（HANDSEED）
+    /// 次に振るハンドル（HANDSEED）と、その値の節の中のビットの範囲（その場の編集が書き換える）
     pub handseed: u64,
+    pub handseed_at: (u64, u64),
     pub view_control: u64,
     pub ucs_control: u64,
     pub vport_control: u64,
@@ -90,31 +91,37 @@ fn read_variables(s: &mut Streams<'_>) -> Read<Header> {
     }
     s.data.bl()?;
     s.data.bl()?;
+    // R13・R14 だけの値（不明の BS、DIMSAV、BLIPMODE など。R2000 からは登録簿にある）は r14 が真のときに読む
+    let r14 = !f.r2000();
+    if r14 {
+        s.data.bs()?;
+    }
     if !f.r2004() {
         // 今のビューポートの図形のヘッダ
         s.handle()?;
     }
-    // DIMASO、DIMSHO、PLINEGEN、ORTHOMODE、REGENMODE、FILLMODE、QTEXTMODE
-    for _ in 0..7 {
+    // DIMASO、DIMSHO、（R13・R14）DIMSAV、PLINEGEN、ORTHOMODE、REGENMODE、FILLMODE、QTEXTMODE
+    for _ in 0..if r14 { 8 } else { 7 } {
         s.data.bit()?;
     }
     h.psltscale = s.data.bit()?;
-    // LIMCHECK
+    // LIMCHECK、（R13・R14）BLIPMODE、（R2004 以降）不明
     s.data.bit()?;
-    if f.r2004() {
+    if r14 || f.r2004() {
         s.data.bit()?;
     }
-    // USRTIMER、SKPOLY、ANGDIR、SPLFRAME、MIRRTEXT、WORLDVIEW
-    for _ in 0..6 {
+    // USRTIMER、SKPOLY、ANGDIR、SPLFRAME、（R13・R14）ATTREQ、ATTDIA、MIRRTEXT、WORLDVIEW、（R13・R14）WIREFRAME
+    for _ in 0..if r14 { 9 } else { 6 } {
         s.data.bit()?;
     }
     h.tilemode = s.data.bit()?;
-    // PLIMCHECK、VISRETAIN、DISPSILH、PELLIPSE
-    for _ in 0..4 {
+    // PLIMCHECK、VISRETAIN、（R13・R14）DELOBJ、DISPSILH、PELLIPSE
+    for _ in 0..if r14 { 5 } else { 4 } {
         s.data.bit()?;
     }
-    // PROXYGRAPHICS、TREEDEPTH、LUNITS、LUPREC、AUNITS、AUPREC、ATTMODE、PDMODE
-    for _ in 0..8 {
+    // PROXYGRAPHICS、（R13・R14）DRAGMODE、TREEDEPTH、LUNITS、LUPREC、AUNITS、AUPREC、（R13・R14）OSMODE、ATTMODE、
+    // （R13・R14）COORDS、PDMODE、（R13・R14）PICKSTYLE
+    for _ in 0..if r14 { 12 } else { 8 } {
         s.data.bs()?;
     }
     if f.r2004() {
@@ -151,13 +158,17 @@ fn read_variables(s: &mut Streams<'_>) -> Read<Header> {
     }
     s.cmc()?;
     // HANDSEED は R2007 以降も値の並びの中
+    let at = s.data.pos();
     h.handseed = s.data.handle()?.value;
+    h.handseed_at = (at, s.data.pos());
     // CLAYER、TEXTSTYLE、CELTYPE、（R2007 以降）CMATERIAL、DIMSTYLE、CMLSTYLE
     for _ in 0..if f.r2007() { 6 } else { 5 } {
         s.handle()?;
     }
-    // PSVPSCALE
-    s.data.bd()?;
+    // PSVPSCALE（R2000 から）
+    if !r14 {
+        s.data.bd()?;
+    }
     // 紙空間: INSBASE、EXTMIN、EXTMAX、LIMMIN、LIMMAX、ELEVATION、UCSORG、UCSXDIR、UCSYDIR、UCSNAME
     s.data.bd3()?;
     h.pextmin = s.data.bd3()?;
@@ -169,12 +180,14 @@ fn read_variables(s: &mut Streams<'_>) -> Read<Header> {
         s.data.bd3()?;
     }
     s.handle()?;
-    // PUCSORTHOREF、PUCSORTHOVIEW、PUCSBASE、PUCSORGTOP〜BACK
-    s.handle()?;
-    s.data.bs()?;
-    s.handle()?;
-    for _ in 0..6 {
-        s.data.bd3()?;
+    // PUCSORTHOREF、PUCSORTHOVIEW、PUCSBASE、PUCSORGTOP〜BACK（R2000 から）
+    if !r14 {
+        s.handle()?;
+        s.data.bs()?;
+        s.handle()?;
+        for _ in 0..6 {
+            s.data.bd3()?;
+        }
     }
     // モデル空間
     s.data.bd3()?;
@@ -187,15 +200,39 @@ fn read_variables(s: &mut Streams<'_>) -> Read<Header> {
         s.data.bd3()?;
     }
     s.handle()?;
-    s.handle()?;
-    s.data.bs()?;
-    s.handle()?;
-    for _ in 0..6 {
-        s.data.bd3()?;
+    if !r14 {
+        // UCSORTHOREF、UCSORTHOVIEW、UCSBASE、UCSORGTOP〜BACK、DIMPOST、DIMAPOST
+        s.handle()?;
+        s.data.bs()?;
+        s.handle()?;
+        for _ in 0..6 {
+            s.data.bd3()?;
+        }
+        s.tv()?;
+        s.tv()?;
+    } else {
+        // R13・R14 の寸法の値: DIMTOL、DIMLIM、DIMTIH、DIMTOH、DIMSE1、DIMSE2、DIMALT、DIMTOFL、DIMSAH、DIMTIX、DIMSOXD、
+        // DIMALTD（RC）、DIMZIN（RC）、DIMSD1、DIMSD2、DIMTOLJ（RC）、DIMJUST（RC）、DIMFIT（RC）、DIMUPT、DIMTZIN（RC）、
+        // DIMALTZ（RC）、DIMALTTZ（RC）、DIMTAD（RC）、DIMUNIT、DIMAUNIT、DIMDEC、DIMTDEC、DIMALTU、DIMALTTD、DIMTXSTY
+        for _ in 0..11 {
+            s.data.bit()?;
+        }
+        s.data.rc()?;
+        s.data.rc()?;
+        s.data.bit()?;
+        s.data.bit()?;
+        for _ in 0..3 {
+            s.data.rc()?;
+        }
+        s.data.bit()?;
+        for _ in 0..4 {
+            s.data.rc()?;
+        }
+        for _ in 0..6 {
+            s.data.bs()?;
+        }
+        s.handle()?;
     }
-    // DIMPOST、DIMAPOST
-    s.tv()?;
-    s.tv()?;
     h.dimscale = s.data.bd()?;
     h.dimasz = s.data.bd()?;
     // DIMEXO、DIMDLI、DIMEXE、DIMRND、DIMDLE、DIMTP、DIMTM
@@ -209,30 +246,43 @@ fn read_variables(s: &mut Streams<'_>) -> Read<Header> {
         s.data.bs()?;
         s.cmc()?;
     }
-    // DIMTOL、DIMLIM、DIMTIH、DIMTOH、DIMSE1、DIMSE2、DIMTAD、DIMZIN、DIMAZIN
-    for _ in 0..6 {
-        s.data.bit()?;
-    }
-    for _ in 0..3 {
-        s.data.bs()?;
+    // DIMTOL、DIMLIM、DIMTIH、DIMTOH、DIMSE1、DIMSE2、DIMTAD、DIMZIN、DIMAZIN（R2000 から）
+    if !r14 {
+        for _ in 0..6 {
+            s.data.bit()?;
+        }
+        for _ in 0..3 {
+            s.data.bs()?;
+        }
     }
     if f.r2007() {
         s.data.bs()?;
     }
     h.dimtxt = s.data.bd()?;
-    // DIMCEN、DIMTSZ、DIMALTF、DIMLFAC、DIMTVP、DIMTFAC、DIMGAP、DIMALTRND
-    for _ in 0..8 {
+    // DIMCEN、DIMTSZ、DIMALTF、DIMLFAC、DIMTVP、DIMTFAC、DIMGAP
+    for _ in 0..7 {
         s.data.bd()?;
     }
-    // DIMALT、DIMALTD、DIMTOFL、DIMSAH、DIMTIX、DIMSOXD
-    s.data.bit()?;
-    s.data.bs()?;
-    for _ in 0..4 {
+    if r14 {
+        // DIMPOST、DIMAPOST、DIMBLK、DIMBLK1、DIMBLK2（R13・R14 は名前の文字列）
+        for _ in 0..5 {
+            s.tv()?;
+        }
+    } else {
+        // DIMALTRND、DIMALT、DIMALTD、DIMTOFL、DIMSAH、DIMTIX、DIMSOXD
+        s.data.bd()?;
         s.data.bit()?;
+        s.data.bs()?;
+        for _ in 0..4 {
+            s.data.bit()?;
+        }
     }
     // DIMCLRD、DIMCLRE、DIMCLRT
     for _ in 0..3 {
         s.cmc()?;
+    }
+    if r14 {
+        return read_controls(s, h);
     }
     // DIMADEC、DIMDEC、DIMTDEC、DIMALTU、DIMALTTD、DIMAUNIT、DIMFRAC、DIMLUNIT、DIMDSEP、DIMTMOVE、DIMJUST
     for _ in 0..11 {
@@ -264,6 +314,12 @@ fn read_variables(s: &mut Streams<'_>) -> Read<Header> {
     // DIMLWD、DIMLWE
     s.data.bs()?;
     s.data.bs()?;
+    read_controls(s, h)
+}
+
+/// 表の管理のオブジェクトから終わりまで（R13・R14 は R2000 からの値を除く）
+fn read_controls(s: &mut Streams<'_>, mut h: Header) -> Read<Header> {
+    let f = s.format;
     h.block_control = s.handle()?.value;
     h.layer_control = s.handle()?.value;
     h.style_control = s.handle()?.value;
@@ -281,6 +337,9 @@ fn read_variables(s: &mut Streams<'_>) -> Read<Header> {
     h.groups = s.handle()?.value;
     h.mlinestyle_dictionary = s.handle()?.value;
     h.named_objects = s.handle()?.value;
+    if !f.r2000() {
+        return read_tail_handles(s, h);
+    }
     // TSTACKALIGN、TSTACKSIZE、HYPERLINKBASE、STYLESHEET
     s.data.bs()?;
     s.data.bs()?;
@@ -326,6 +385,11 @@ fn read_variables(s: &mut Streams<'_>) -> Read<Header> {
         s.data.rc()?;
         s.tv()?;
     }
+    read_tail_handles(s, h)
+}
+
+/// 紙空間・モデル空間の BLOCK_HEADER と BYLAYER・BYBLOCK・CONTINUOUS の線種
+fn read_tail_handles(s: &mut Streams<'_>, mut h: Header) -> Read<Header> {
     h.paper_space = s.handle()?.value;
     h.model_space = s.handle()?.value;
     h.bylayer = s.handle()?.value;
