@@ -3,6 +3,7 @@ name = "zumen-python"
 description = "Python bindings for zumen: read 2D drawings and render them to PNG"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 repository.workspace = true
 publish.workspace = true
 

@@ -3,6 +3,7 @@ name = "zumen-sxf"
 description = "Read SXF drawings (SFC and P21) of Japanese public works into the zumen scene model"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 repository.workspace = true
 publish.workspace = true
 

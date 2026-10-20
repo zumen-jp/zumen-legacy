@@ -5,8 +5,9 @@ members = ["crates/zumen-core", "crates/zumen-jww", "crates/zumen-sxf", "crates/
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
 repository = "https://github.com/zumenjs/zumen"
-# 公開の前にライセンスを決める（docs/releasing.md）
+# crates.io へはまだ公開しない（公開先は npm と PyPI。docs/releasing.md）
 publish = false
 
 [workspace.dependencies]

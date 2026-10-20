@@ -3,6 +3,7 @@ name = "zumen-wasm"
 description = "WebAssembly bindings for zumen: read drawings into scene JSON in the browser"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 repository.workspace = true
 publish.workspace = true
 

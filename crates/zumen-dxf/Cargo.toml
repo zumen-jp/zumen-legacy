@@ -3,6 +3,7 @@ name = "zumen-dxf"
 description = "Read DXF drawings (R12 to 2018, ASCII and binary) into the AutoCAD drawing model and the zumen scene model, and write the model as DXF"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 repository.workspace = true
 publish.workspace = true
 

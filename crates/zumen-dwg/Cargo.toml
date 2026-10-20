@@ -3,6 +3,7 @@ name = "zumen-dwg"
 description = "Read AutoCAD DWG drawings (R2000 to 2018) into the AutoCAD drawing model of zumen-dxf and the zumen scene model"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 repository.workspace = true
 publish.workspace = true
 

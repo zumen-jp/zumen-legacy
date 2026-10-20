@@ -19,7 +19,7 @@
   },
   "private": true,
   "type": "module",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "sideEffects": false,
   "files": [
     "dist"
