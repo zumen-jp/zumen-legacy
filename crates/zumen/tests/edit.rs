@@ -7,7 +7,6 @@
 //! を確かめる。形式ごとの fixtures のフォルダーは `FOLDERS`。
 
 use serde_json::{Value, json};
-use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use zumen::edit::{EditOperation, parse_operations};
@@ -74,40 +73,35 @@ fn shapes_json(shapes: &[Shape]) -> Value {
     )
 }
 
-/// 図形の id（同じ id が続くときは何番目か）→ 比べる値（種類・属性と、図面自体の座標の形）。用紙の上の位置は
-/// 図面の範囲で決まり、範囲の端の図形を足したり消したりすると全体が動くので、配置を戻した座標で比べる。
-/// 無限の線（construction-line）は図面の範囲で描く長さが変わるので、属性だけを比べる
-fn entities(scene: &Scene) -> BTreeMap<String, Value> {
-    let mut seen: BTreeMap<&str, usize> = BTreeMap::new();
+/// 図形の id と比べる値（種類・属性と、図面自体の座標の形）を描く順に。用紙の上の位置は図面の範囲で決まり、範囲の端の
+/// 図形を足したり消したりすると全体が動くので、配置を戻した座標で比べる。無限の線（construction-line）は図面の範囲で
+/// 描く長さが変わるので、属性だけを比べる。属性の id は除く（ハンドルのない図面の id はファイルの中の位置で、前の
+/// レコードを足したり消したりすると変わる）
+fn entities(scene: &Scene) -> Vec<(String, Value)> {
     scene
         .entities
         .iter()
         .map(|entity| {
-            let count = seen.entry(entity.id.as_str()).or_insert(0);
-            *count += 1;
-            let key = if *count == 1 { entity.id.clone() } else { format!("{}#{count}", entity.id) };
-            let mut value = json!({ "kind": entity.kind, "source": entity.source, "properties": entity.properties });
+            let properties: Vec<&zumen::Property> =
+                entity.properties.iter().filter(|property| property.key != "id").collect();
+            let mut value = json!({ "kind": entity.kind, "source": entity.source, "properties": properties });
             if entity.kind.name() != "construction-line" {
                 let shapes = real_shapes(entity).unwrap_or_else(|| entity_shapes(entity, None));
                 value["shapes"] = shapes_json(&shapes);
             }
-            (key, value)
+            (entity.id.clone(), value)
         })
         .collect()
 }
 
-/// 選べる図形（ブロック参照やビューポートの中ではなく、ハンドルのある図形）
+/// 選べる図形（ブロック参照やビューポートの中ではない図形）
 fn top_level(scene: &Scene) -> Vec<&zumen::SceneEntity> {
-    scene
-        .entities
-        .iter()
-        .filter(|entity| !entity.id.contains(['>', ':']) && entity.id != "?" && !entity.id.is_empty())
-        .collect()
+    scene.entities.iter().filter(|entity| !entity.id.contains(['>', ':']) && !entity.id.is_empty()).collect()
 }
 
-fn layer_of(scene: &Scene, id: &str) -> Option<String> {
-    let entity = scene.entities.iter().find(|entity| entity.id == id)?;
-    entity.properties.iter().find(|property| property.key == "layer").map(|property| property.value.clone())
+/// 比べる値の layer の値
+fn layer_value(entity: &Value) -> Option<&str> {
+    entity["properties"].as_array()?.iter().find(|property| property["key"] == "layer")?["value"].as_str()
 }
 
 /// 1 つの図面を編集して確かめる。違いを文で返す
@@ -140,40 +134,42 @@ fn check(name: &str, bytes: &[u8]) -> Vec<String> {
         Err(error) => return vec![format!("{name}: {error}")],
     };
     let after = read(&edited.bytes);
-    let added: Vec<&String> = edited.created.iter().skip(1).collect();
+    let added: Vec<&str> = edited.created.iter().skip(1).map(String::as_str).collect();
     let (before_entities, after_entities) = (entities(&before), entities(&after));
-    for id in added.iter().filter(|id| !id.is_empty()) {
-        if !after_entities.contains_key(id.as_str()) {
+    for id in &added {
+        if !after_entities.iter().any(|(other, _)| other == id) {
             problems.push(format!("{name}: added {id} is not in the drawing read again"));
         }
     }
-    if let Some(id) = &deleted
-        && after_entities.contains_key(id)
-    {
-        problems.push(format!("{name}: deleted {id} is still there"));
-    }
-    if let Some(id) = &updated
-        && layer_of(&after, id).as_deref() != Some(LAYER)
-    {
-        problems.push(format!("{name}: the layer of {id} is {:?}", layer_of(&after, id)));
-    }
+    // 消した図形を除いた元の図形と、足した図形を除いた編集後の図形は、同じ順に同じ値（変えた図形はレイヤだけが違う）
+    let mut kept = Vec::new();
+    let mut updated_at = None;
     for (id, entity) in &before_entities {
-        if Some(id) == updated.as_ref() || Some(id) == deleted.as_ref() {
+        if Some(id) == deleted.as_ref() {
             continue;
         }
-        match after_entities.get(id) {
-            None => problems.push(format!("{name}: {id} disappeared")),
-            // 足したレイヤで、レイヤの id が変わることがある
-            Some(other) if strip_layer_ids(other) != strip_layer_ids(entity) => {
-                problems.push(format!("{name}: {id} changed"));
-            }
-            _ => {}
+        if Some(id) == updated.as_ref() {
+            updated_at = Some(kept.len());
         }
+        kept.push((id, entity));
     }
-    let count =
-        before_entities.len() + added.iter().filter(|id| !id.is_empty()).count() - usize::from(deleted.is_some());
-    if added.iter().all(|id| !id.is_empty()) && after_entities.len() != count {
-        problems.push(format!("{name}: {} entities after the edit, expected {count}", after_entities.len()));
+    let remaining: Vec<&(String, Value)> = after_entities.iter().filter(|(id, _)| !added.contains(&id.as_str())).collect();
+    if kept.len() != remaining.len() {
+        problems.push(format!("{name}: {} entities kept, {} after the edit", kept.len(), remaining.len()));
+        return problems;
+    }
+    // ハンドルのある図面は id も変わらない
+    let positional = before.entities.iter().any(|entity| entity.id.starts_with('#'));
+    for (index, ((id, entity), (other_id, other))) in kept.iter().zip(&remaining).enumerate() {
+        if !positional && *id != other_id {
+            problems.push(format!("{name}: {id} became {other_id}"));
+        } else if Some(index) == updated_at {
+            if layer_value(other) != Some(LAYER) {
+                problems.push(format!("{name}: the layer of {id} is {:?}", layer_value(other)));
+            }
+        } else if strip_layer_ids(entity) != strip_layer_ids(other) {
+            problems.push(format!("{name}: {id} changed"));
+        }
     }
     // 読み直しても、元にない読み取りの注意が増えない（足した文字の文字スタイルのフォントの注意は除く）
     for notice in &after.notices {

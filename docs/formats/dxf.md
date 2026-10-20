@@ -316,8 +316,9 @@ stay, and an edit without operations gives the same bytes.
   AutoCAD and zumen read back as the character (DXF Reference "Storage of String Values"). Control characters and the
   caret are written in caret notation (`^J`, `^ `) in ASCII DXF.
 - **Handles**: new records take handles from `$HANDSEED` (or above the largest handle, if the seed is lower), and
-  `$HANDSEED` is set to the next one. R12 drawings without `$HANDLING` 1 get no handles; entities without handles
-  cannot be chosen by id.
+  `$HANDSEED` is set to the next one. R12 drawings without `$HANDLING` 1 get no handles: their entities are chosen
+  by their place in the file (`#12`, the id of the scene), which an edit that adds or removes records before them
+  changes, and `created` gives the places of the new entities in the edited file.
 - **Where `add` puts an entity**: model space at the end of ENTITIES; `layout:<name>` in the paper space of that
   layout (the active one in ENTITIES with 67 = 1, the others at the end of their `*Paper_Space…` block);
   `block:<name>` at the end of the block definition, before ENDBLK. From R13 on, the owner (330) is the block record.

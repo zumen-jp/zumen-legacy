@@ -119,6 +119,8 @@ struct Editor<'a> {
     deleted: HashSet<usize>,
     inserted: BTreeMap<usize, Vec<Vec<Tag>>>,
     created: Vec<String>,
+    /// created の図形の先頭のレコードの場所（足す位置、そこでの順）。ハンドルのない図形の id を書いた後で決める
+    created_places: Vec<Option<(usize, usize)>>,
     notices: NoticeList,
 }
 
@@ -324,6 +326,7 @@ impl<'a> Editor<'a> {
             deleted: HashSet::new(),
             inserted: BTreeMap::new(),
             created: Vec::new(),
+            created_places: Vec::new(),
             notices: NoticeList::new(),
         };
         editor.index();
@@ -457,18 +460,24 @@ impl<'a> Editor<'a> {
     }
 
     /// 図形と、それに従うレコードを集める。次に見るレコードを返す
+    /// 図形の id の部分。ハンドル、ハンドルのない図形はファイルの中の位置（#3。先頭から何番目のコード 0 のレコードか）
+    /// で、読み取りの id と同じ（docs/architecture.md「Entity ids」）
+    fn entity_key(&self, record: usize) -> String {
+        value(&self.records[record], 5).map_or_else(|| format!("#{record}"), upper)
+    }
+
     fn index_entity(&mut self, record: usize, kind: &str) -> usize {
-        let tags = &self.records[record];
-        let handle = value(tags, 5).map(upper);
+        let key = self.entity_key(record);
         let mut end = record + 1;
-        let attributes = kind == "INSERT" && number(tags, 66) == Some(1.0);
+        let attributes = kind == "INSERT" && number(&self.records[record], 66) == Some(1.0);
         if kind == "POLYLINE" || attributes {
             let follower = if kind == "POLYLINE" { "VERTEX" } else { "ATTRIB" };
             while end < self.records.len() && self.kind(end) == follower {
-                if attributes && let Some(attribute) = value(&self.records[end], 5).map(upper) {
+                if attributes {
+                    let attribute = self.entity_key(end);
                     self.entities.insert(
                         attribute,
-                        EntityInfo { record: end, end: end + 1, kind: "ATTRIB".into(), parent: handle.clone() },
+                        EntityInfo { record: end, end: end + 1, kind: "ATTRIB".into(), parent: Some(key.clone()) },
                     );
                 }
                 end += 1;
@@ -477,9 +486,7 @@ impl<'a> Editor<'a> {
                 end += 1;
             }
         }
-        if let Some(handle) = handle {
-            self.entities.insert(handle, EntityInfo { record, end, kind: kind.to_string(), parent: None });
-        }
+        self.entities.insert(key, EntityInfo { record, end, kind: kind.to_string(), parent: None });
         end
     }
 
@@ -542,25 +549,47 @@ impl<'a> Editor<'a> {
         }
     }
 
-    fn write(&self) -> Vec<u8> {
+    /// 書く。ハンドルのない図面に足した図形の id（ファイルの中の位置）も、書いた位置で決める
+    fn write(&mut self) -> Vec<u8> {
         let mut out = Vec::with_capacity(self.source.bytes.len() + 4096);
         self.source.write_prefix(&mut out);
+        // 書いたコード 0 のレコードの数
+        let mut count = 0usize;
+        let mut positions: HashMap<(usize, usize), usize> = HashMap::new();
         for (index, record) in self.records.iter().enumerate() {
-            for added in [self.inserted.get(&index), self.closers.get(&index)].into_iter().flatten() {
-                for tags in added {
+            if let Some(added) = self.inserted.get(&index) {
+                for (position, tags) in added.iter().enumerate() {
+                    count += usize::from(tags.first().is_some_and(|tag| tag.code == 0));
+                    positions.insert((index, position), count);
                     for tag in tags {
                         self.source.write_tag(tag, &mut out);
                     }
                 }
             }
+            for tags in self.closers.get(&index).into_iter().flatten() {
+                count += usize::from(tags.first().is_some_and(|tag| tag.code == 0));
+                for tag in tags {
+                    self.source.write_tag(tag, &mut out);
+                }
+            }
             if self.deleted.contains(&index) {
                 continue;
             }
-            for tag in self.modified.get(&index).unwrap_or(record) {
+            let tags = self.modified.get(&index).unwrap_or(record);
+            count += usize::from(tags.first().is_some_and(|tag| tag.code == 0));
+            for tag in tags {
                 self.source.write_tag(tag, &mut out);
             }
         }
         self.source.write_trailer(&mut out);
+        for (created, place) in self.created.iter_mut().zip(&self.created_places) {
+            if let Some(place) = place
+                && created.is_empty()
+                && let Some(number) = positions.get(place)
+            {
+                *created = format!("#{number}");
+            }
+        }
         out
     }
 
@@ -978,10 +1007,13 @@ impl<'a> Editor<'a> {
             }
         };
         let handle = value(&tags[0], 5).map(str::to_string).unwrap_or_default();
+        let mut first = None;
         for record in tags {
-            self.insert(place.before, record);
+            let position = self.insert(place.before, record);
+            first.get_or_insert((place.before, position));
         }
         self.created.push(handle);
+        self.created_places.push(first);
         Ok(())
     }
 
@@ -1071,13 +1103,6 @@ impl<'a> Editor<'a> {
         let segments: Vec<&str> = id.split('>').collect();
         let clean = |segment: &str| upper(segment.split('[').next().unwrap_or(segment));
         let handle = clean(segments[segments.len() - 1]);
-        if handle == "?" || handle.is_empty() {
-            return Err(EditError::at(
-                index,
-                "not-found",
-                "ハンドルのない図形（ハンドルを持たない R12 の図面など）は id で選べません",
-            ));
-        }
         let info = self
             .entities
             .get(&handle)
@@ -1552,6 +1577,7 @@ impl<'a> Editor<'a> {
         }
         if !implicit {
             self.created.push(name.to_string());
+            self.created_places.push(None);
         }
         Ok(())
     }

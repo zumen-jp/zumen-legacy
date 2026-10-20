@@ -332,7 +332,10 @@ fn writes_new_text_in_the_code_page_of_older_drawings() {
         ]"#,
     )
     .unwrap();
-    assert_eq!(edited.created, ["", ""]);
+    // ハンドルのない図面の id はファイルの中の位置（読み取りと同じ #番号）
+    let scene = crate::dxf_to_scene(&parse_dxf(&edited.bytes), None);
+    let ids: Vec<&str> = scene.entities.iter().map(|entity| entity.id.as_str()).collect();
+    assert!(edited.created.iter().all(|id| id.starts_with('#') && ids.contains(&id.as_str())), "{:?} {ids:?}", edited.created);
     let (expected, _, _) = encoding_rs::SHIFT_JIS.encode("確認済み \\U+0100");
     assert!(edited.bytes.windows(expected.len()).any(|window| window == &*expected));
     // 改行は元の図面と同じ CRLF
@@ -374,4 +377,30 @@ fn splits_long_multiline_text_into_chunks() {
     assert_eq!(parts.iter().map(|part| part.chars().count()).collect::<Vec<_>>(), [250, 250, 100]);
     assert_eq!(chunks("short", 250), ["short"]);
     assert_eq!(mtext_content("a\\b{c}\nd"), "a\\\\b\\{c\\}\\Pd");
+}
+
+#[test]
+fn chooses_entities_without_handles_by_their_place_in_the_file() {
+    // R12 の図面（ハンドルなし）。id は先頭から何番目のコード 0 のレコードか
+    let text = "0\nSECTION\n2\nENTITIES\n0\nLINE\n8\n0\n10\n0\n20\n0\n11\n1\n21\n0\n\
+                0\nCIRCLE\n8\n0\n10\n5\n20\n5\n40\n1\n0\nENDSEC\n0\nEOF\n";
+    let scene = crate::dxf_to_scene(&parse_dxf(text.as_bytes()), None);
+    let ids: Vec<&str> = scene.entities.iter().map(|entity| entity.id.as_str()).collect();
+    assert_eq!(ids, ["#2", "#3"]);
+    let edited = edit(
+        text.as_bytes(),
+        r##"[
+            {"op": "update", "id": "#3", "set": {"radius": 2}},
+            {"op": "delete", "id": "#2"},
+            {"op": "add", "kind": "point", "position": [9, 9]}
+        ]"##,
+    )
+    .unwrap();
+    let doc = parse_dxf(&edited.bytes);
+    assert!(matches!(doc.entities[0].data, DxfEntityData::Circle { radius: 2.0, .. }));
+    // 線を消したので円は #2 になり、足した点は #3
+    let scene = crate::dxf_to_scene(&doc, None);
+    let ids: Vec<&str> = scene.entities.iter().map(|entity| entity.id.as_str()).collect();
+    assert_eq!(ids, ["#2", "#3"]);
+    assert_eq!(edited.created, ["#3"]);
 }

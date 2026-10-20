@@ -116,6 +116,8 @@ edited.save("plan.dxf")
 
 - Entities are chosen by the `id` of the scene and described by the `kind` and the property keys that `Scene` reports.
   Coordinates are the drawing's own, the `raw` of properties (`Scene.entity(id)["values"]`), not paper millimeters.
+  Every id in one edit names an entity of the drawing as it was read. Ids that are places in the file (`#12`, in DXF
+  without handles) change when an edit adds or removes records before them, so read the edited drawing again.
 - `add` takes `container`: `"model"` (the default), `"layout:<name>"` or `"block:<name>"` in DXF.
 - Kinds that can be added: `line`, `polyline` (`vertices`, `bulges`, `closed`), `arc`, `circle`, `ellipse`,
   `ellipse-arc`, `point`, `text` (MTEXT when it has line breaks) and `block-reference` (`block`, `position`, `scale`,

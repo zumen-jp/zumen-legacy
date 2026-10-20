@@ -66,9 +66,12 @@ The operations are a JSON array, the same for every format:
   counts (`vertices`, `bulges`, `closed`, `width`, `majorAxis`, `ratio`, `parameter`, `rotation`, `wrapWidth`).
   Coordinates are the drawing's own, the numbers that the `raw` of a property gives: a DXF entity in drawing units,
   in the space, block or object coordinate system where it is stored. They are not paper millimeters.
-- `id` is the id of the scene. An id inside a block reference (`…>…`) is refused, because changing the entity would
+- `id` is the id of the scene ([Entity ids](../architecture.md#entity-ids)), and every id in one edit names an entity
+  of the drawing as it was read. An id inside a block reference (`…>…`) is refused, because changing the entity would
   change the block definition and every reference to it; the error says which ids change the reference and the
-  definition. An id seen through a viewport (`…:…`) is the entity itself.
+  definition. An id seen through a viewport (`…:…`) is the entity itself. Ids that are positions in the file (`#12`,
+  entities without a handle) change when an edit adds or removes records before them, so an application reads the
+  edited drawing again; handles do not change.
 - `container` says where `add` puts an entity: `model` (the default), `layout:<name>` or `block:<name>` in DXF and
   DWG. SXF and JWW define their own names when their editors come.
 - `color` is a color number of the format (ACI 1 to 255 in DXF and DWG), `"#rrggbb"`, `"bylayer"` or `"byblock"`;
