@@ -51,6 +51,8 @@ TypeScript の読み取り（`packages/sxf`・`packages/jww`・`packages/dxf`）
   背景と見分けにくい色（白背景の白、黒背景の黒）は反対の色で描く。
 - 線の太さどおりの表示と、細線表示の切り替え。
 - 図面の情報（表題欄、作成ソフト、用紙）と、省略・代替した内容の件数（読み取りの注意）。
+- 線で閉じた領域（部屋）の検出。外形・穴・面積・周長を用紙と実寸（㎡）で求め、境界の図形と中の室名を添える。
+  Rust・Python・コマンド・MCP サーバーで使える（[決定 0015（英語）](docs/decisions/0015-analysis-in-zumen-core.md)）。
 - Rust と Python での書き出し。どの形式も DXF（R12〜2018）・DWG（AutoCAD 2013）・JWW・SXF（SFC・P21・SFZ・P2Z。
   Ver.2.0・3.0・3.1）に書ける。
 - Rust と Python での編集。DXF・DWG・JWW・SXF の図形とレイヤを、その場で足す・変える・消す。版・文字コードと、操作で名指ししない
@@ -193,6 +195,7 @@ json_text = scene.to_json()  # @zumenjs/core の sceneFromJson で Scene に戻�
 
 texts = scene.texts()  # 文字列・位置・高さ・向き・レイヤ（用紙の mm）
 scene.title_block()  # 表題欄の図面番号・改訂・図面名・工事名・縮尺・作成年月日
+rooms = scene.regions(layers=[1])  # レイヤ 1 の線で閉じた領域（部屋）の外形・面積・中の文字
 door = scene.entity("#120")  # 1 つの図形の種類・レイヤ・外接矩形・文字・属性
 table = scene.to_arrow()  # すべての図形を pyarrow.Table に（pip install "zumen[arrow]"）
 image = scene.render(size=(2000, 2000))  # PNG と、画像の px と用紙の mm の変換
@@ -226,6 +229,7 @@ cargo run --release -p zumen-cli -- render plan.jww -o plan.png --dpi 150 --map 
 cargo run --release -p zumen-cli -- render plan.jww -o plan.pdf  # plan.svg でも
 cargo run --release -p zumen-cli -- texts plan.jww --region 100,50,200,120  # 1 行に 1 つの JSON
 cargo run --release -p zumen-cli -- title plan.jww  # 表題欄の項目
+cargo run --release -p zumen-cli -- regions plan.dxf --layer WALL  # 線で閉じた領域（部屋）と面積
 cargo run --release -p zumen-cli -- convert plan.dwg -o plan.dxf
 cargo run --release -p zumen-cli -- convert plan.sfc -o plan.dxf
 cargo run --release -p zumen-cli -- convert plan.dxf -o plan.sfc  # plan.p21 --target-version 2.0 も
@@ -254,7 +258,7 @@ DXF（R12〜2018、テキストとバイナリ）・DWG（R2000〜2018）・JWW�
 
 | クレート | 中身 |
 | --- | --- |
-| `zumen-core` | 表示用モデル（`@zumenjs/core` と同じ JSON）、幾何、文字の配置、図面の文字と図形と表題欄の項目の取り出し、2 つの版の比較、編集の操作 |
+| `zumen-core` | 表示用モデル（`@zumenjs/core` と同じ JSON）、幾何、文字の配置、図面の文字と図形と表題欄の項目の取り出し、線で閉じた領域（部屋）と面積、2 つの版の比較、編集の操作 |
 | `zumen-sxf` | `parse_sfc`・`parse_p21`（SXF のフィーチャのモデル）、`sxf_to_scene`、読み取りの `SXF`、`write_sfc`（フィーチャのモデルを SFC に書く） |
 | `zumen-jww` | `read_jww`（JWW のままのモデル）、`jww_to_scene`、読み取りの `JWW` |
 | `zumen-dxf` | `parse_dxf`（DWG と共有する AutoCAD の図形モデル）、`dxf_to_scene`、読み取りの `DXF`、`write_dxf`（モデルを AutoCAD 2013 の DXF に書く）、`edit_dxf`（その場の編集） |
@@ -262,7 +266,7 @@ DXF（R12〜2018、テキストとバイナリ）・DWG（R2000〜2018）・JWW�
 | `zumen-convert` | `sxf_to_dxf`・`jww_to_dxf`（SXF・JWW を AutoCAD の図形モデルに写し、DXF に書けるようにする）、`dxf_to_sxf`（モデルを SXF の図面に写し、SFC に書けるようにする） |
 | `zumen` | すべての読み取りをまとめた `read`・`detect` と、`convert`（どの形式も DXF・DWG・JWW・SXF に書き直す）、`edit`・`create`（DXF・DWG・JWW・SXF）。受け取った図面のためのバイト数・図形の数・時間の上限 |
 | `zumen-render` | ブラウザの描画と同じ規則で PNG・SVG・PDF に描き、描いた図形の画像の上の位置を返す。日本語の文字は同梱の BIZ UDゴシックで描く |
-| `zumen-cli` | `zumen` コマンド（`detect`、`scene` で JSON、`texts`・`entities` で 1 行 1 つの JSON、`title` で表題欄、`render` で PNG、`compare` で版の比較、`convert` で DXF・DWG・JWW・SXF、`edit` で編集、`create` で新しい図面） |
+| `zumen-cli` | `zumen` コマンド（`detect`、`scene` で JSON、`texts`・`entities` で 1 行 1 つの JSON、`title` で表題欄、`regions` で部屋と面積、`render` で PNG、`compare` で版の比較、`convert` で DXF・DWG・JWW・SXF、`edit` で編集、`create` で新しい図面） |
 
 Python では、読み取り・描画・書き出し・編集の間 GIL を外す。
 
