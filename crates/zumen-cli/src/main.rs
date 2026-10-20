@@ -28,6 +28,8 @@ Usage:
   zumen compare <before> <after> [--tolerance <mm>] [--style] [--all-layers] [--no-align]
                 [-o <overlay.png> [--dpi <n> | --size <w>x<h>]] [--format <name>] [--view <id>]
   zumen convert <file> -o <out.dxf> [--format <name>]
+  zumen edit <file> <operations.json> -o <out> [--format <name>]
+  zumen create <operations.json> -o <out.dxf> [--units mm|cm|m|inch|foot|unitless]
 
 Every command that reads takes --max-bytes <n>, --max-entities <n> and --timeout <seconds>, to stop
 reading an untrusted drawing that is too large (P2Z and SFZ after unpacking), too complex or too slow.
@@ -47,7 +49,11 @@ compare matches entities by shape and text (not by id) and writes the removed, a
 entities and the regions that changed as JSON; -o draws them over the unchanged ones (red before,
 blue after, gray unchanged).
 convert writes a drawing as DXF (AutoCAD 2013, UTF-8) and reports what it could not write. SXF and JWW are
-mapped into the AutoCAD model: model space at real size, the sheet as a layout with a viewport for each scale.";
+mapped into the AutoCAD model: model space at real size, the sheet as a layout with a viewport for each scale.
+edit changes a drawing in place: it applies the operations (a JSON array of add, update, delete, add-layer and
+update-layer) and keeps everything else as it was, in the same format and version. create starts a new drawing in
+the format of the output and applies the operations. Both write the ids of what they added and the notices as
+JSON, and on an error write the number of the operation that failed.";
 
 struct Args {
     command: String,
@@ -68,6 +74,7 @@ struct Args {
     geometry: bool,
     map: Option<String>,
     tolerance: f64,
+    units: String,
     style: bool,
     align: bool,
     limits: ReadLimits,
@@ -115,6 +122,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
         geometry: false,
         map: None,
         tolerance: 0.01,
+        units: "mm".into(),
         style: false,
         align: true,
         limits: ReadLimits::default(),
@@ -150,6 +158,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
                 parsed.tolerance = value("--tolerance")?.parse().map_err(|_| "--tolerance needs a number")?
             }
             "--style" => parsed.style = true,
+            "--units" => parsed.units = value("--units")?,
             "--no-align" => parsed.align = false,
             "--max-bytes" => {
                 parsed.limits.max_bytes = Some(value("--max-bytes")?.parse().map_err(|_| "--max-bytes needs a count")?)
@@ -166,7 +175,9 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
             }
             _ if arg.starts_with('-') => return Err(format!("unknown option: {arg}\n\n{USAGE}")),
             _ if parsed.file.is_empty() => parsed.file = arg,
-            _ if parsed.command == "compare" && parsed.other.is_none() => parsed.other = Some(arg),
+            _ if matches!(parsed.command.as_str(), "compare" | "edit") && parsed.other.is_none() => {
+                parsed.other = Some(arg)
+            }
             _ => return Err(format!("unexpected argument: {arg}")),
         }
     }
@@ -414,9 +425,50 @@ fn compare(args: &Args) -> Result<(), String> {
     Ok(())
 }
 
+/// 操作の JSON のファイルを読む
+fn operations(path: &str) -> Result<Vec<zumen::edit::EditOperation>, String> {
+    let text = std::fs::read_to_string(path).map_err(|error| format!("{path}: {error}"))?;
+    zumen::edit::parse_operations(&text).map_err(|error| format!("{path}: {error}"))
+}
+
+/// 編集の結果（足した id と notices）を書き、図面をファイルに書く
+fn write_edited(edited: &zumen::edit::Edited, output: &str) -> Result<(), String> {
+    std::fs::write(output, &edited.bytes).map_err(|error| format!("{output}: {error}"))?;
+    let notices: Vec<Value> = edited
+        .notices
+        .iter()
+        .map(|notice| json!({ "code": notice.code, "message": notice.message, "count": notice.count }))
+        .collect();
+    let summary = json!({ "created": edited.created, "notices": notices });
+    println!("{}", serde_json::to_string_pretty(&summary).map_err(|error| error.to_string())?);
+    Ok(())
+}
+
+/// 編集のエラー（code と操作の番号を含む）
+fn edit_error(error: zumen::edit::EditError) -> String {
+    match error.operation {
+        Some(index) => format!("{} (operation {index}, {})", error.message, error.code),
+        None => format!("{} ({})", error.message, error.code),
+    }
+}
+
+/// 出力のファイルの拡張子（書く形式）
+fn extension(output: &str) -> String {
+    std::path::Path::new(output)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default()
+}
+
 fn run(args: Args) -> Result<(), String> {
     if args.command == "compare" {
         return compare(&args);
+    }
+    if args.command == "create" {
+        let output = args.output.as_deref().ok_or("create needs -o <out.dxf>")?;
+        let created = zumen::create(&extension(output), &args.units, &operations(&args.file)?).map_err(edit_error)?;
+        return write_edited(&created, output);
     }
     // 大きすぎるファイルは、メモリに読む前に断る
     if let Some(max) = args.limits.max_bytes
@@ -430,14 +482,17 @@ fn run(args: Args) -> Result<(), String> {
         println!("{format}");
         return Ok(());
     }
+    if args.command == "edit" {
+        let output = args.output.as_deref().ok_or("edit needs -o <out>")?;
+        let path = args.other.as_deref().ok_or("edit needs a file of operations: <file> <operations.json>")?;
+        let options = ReadDrawingOptions { format: args.format.clone(), view: None, limits: args.limits };
+        let edited = zumen::edit(&bytes, &operations(path)?, &options).map_err(edit_error)?;
+        return write_edited(&edited, output);
+    }
     if args.command == "convert" {
         let output = args.output.ok_or("convert needs -o <out.dxf>")?;
         // 書く形式は出力のファイルの拡張子
-        let to = std::path::Path::new(&output)
-            .extension()
-            .and_then(|extension| extension.to_str())
-            .map(str::to_ascii_lowercase)
-            .unwrap_or_default();
+        let to = extension(&output);
         let options = ReadDrawingOptions { format: args.format.clone(), view: None, limits: args.limits };
         let converted = zumen::convert(&bytes, &to, &options).map_err(|error| error.to_string())?;
         std::fs::write(&output, &converted.bytes).map_err(|error| format!("{output}: {error}"))?;

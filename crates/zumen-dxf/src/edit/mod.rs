@@ -97,6 +97,12 @@ struct Editor<'a> {
     layouts: HashMap<String, String>,
     /// 表（LAYER など）の TABLE と ENDTAB のレコード
     tables: HashMap<String, (usize, Option<usize>)>,
+    /// 節（HEADER など）の SECTION と ENDSEC のレコード
+    sections: HashMap<String, (usize, Option<usize>)>,
+    /// 図面にレイヤの表がないときに作った表（足す位置、TABLE のレコードの位置、ハンドル）
+    created_table: Option<(usize, usize, Option<String>)>,
+    /// 足したレコードの後に閉じるレコード（作った表の ENDTAB・ENDSEC）
+    closers: HashMap<usize, Vec<Vec<Tag>>>,
     /// レイヤの名前（大文字）→ レコード（足したレイヤは足すレコードの番号）
     layers: HashMap<String, LayerRef>,
     linetypes: HashMap<String, String>,
@@ -224,6 +230,29 @@ impl Record {
     }
 }
 
+/// 新しい図面（AutoCAD 2013 の DXF、UTF-8）。units は長さの単位（mm、cm、m、inch、foot、unitless）で、
+/// $INSUNITS と $MEASUREMENT にする（DXF Reference「HEADER Section Group Codes」）
+pub fn new_dxf(units: &str) -> Result<Vec<u8>, EditError> {
+    let (insunits, measurement) = match units.trim().to_ascii_lowercase().as_str() {
+        "mm" => (4.0, 1.0),
+        "cm" => (5.0, 1.0),
+        "m" => (6.0, 1.0),
+        "inch" | "in" => (1.0, 0.0),
+        "foot" | "ft" => (2.0, 0.0),
+        "unitless" => (0.0, 1.0),
+        other => {
+            return Err(EditError::new(
+                "invalid-value",
+                format!("長さの単位 {other} は使えません（mm、cm、m、inch、foot、unitless）"),
+            ));
+        }
+    };
+    let mut doc = crate::parse_dxf(b"0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n");
+    doc.header.insunits = insunits;
+    doc.header.measurement = Some(measurement);
+    Ok(crate::write_dxf(&doc).bytes)
+}
+
 /// 図形の共通の値
 struct Common {
     layer: String,
@@ -280,6 +309,9 @@ impl<'a> Editor<'a> {
             block_record_names: HashMap::new(),
             layouts: HashMap::new(),
             tables: HashMap::new(),
+            sections: HashMap::new(),
+            created_table: None,
+            closers: HashMap::new(),
             layers: HashMap::new(),
             linetypes: HashMap::new(),
             styles: HashMap::new(),
@@ -325,12 +357,16 @@ impl<'a> Editor<'a> {
             match kind.as_str() {
                 "SECTION" => {
                     section = upper(value(tags, 2).unwrap_or(""));
+                    self.sections.insert(section.clone(), (record, None));
                     if section == "HEADER" {
                         self.header = Some(record);
                         self.read_header();
                     }
                 }
                 "ENDSEC" => {
+                    if let Some(entry) = self.sections.get_mut(&section) {
+                        entry.1 = Some(record);
+                    }
                     if section == "ENTITIES" {
                         self.entities_end = Some(record);
                     }
@@ -510,7 +546,7 @@ impl<'a> Editor<'a> {
         let mut out = Vec::with_capacity(self.source.bytes.len() + 4096);
         self.source.write_prefix(&mut out);
         for (index, record) in self.records.iter().enumerate() {
-            if let Some(added) = self.inserted.get(&index) {
+            for added in [self.inserted.get(&index), self.closers.get(&index)].into_iter().flatten() {
                 for tags in added {
                     for tag in tags {
                         self.source.write_tag(tag, &mut out);
@@ -565,7 +601,7 @@ impl<'a> Editor<'a> {
         if let Some(existing) = self.layers.get(&upper(name)) {
             return Ok(self.layer_name(existing).unwrap_or_else(|| name.to_string()));
         }
-        if !self.tables.contains_key("LAYER") {
+        if !self.tables.contains_key("LAYER") && self.created_table.is_none() {
             // 表のない図面（ENTITIES だけの DXF など）は、読む側がレイヤを作る
             return Ok(name.to_string());
         }
@@ -1400,6 +1436,49 @@ impl<'a> Editor<'a> {
         Ok(())
     }
 
+    /// レイヤのレコードを足す位置と、表のハンドル。表がなければ作る（TABLES の節もなければ、BLOCKS・ENTITIES の前に作る。
+    /// DXF Reference「TABLES Section」の並び）
+    fn layer_table(&mut self, index: usize) -> Result<(usize, Option<String>), EditError> {
+        if let Some(&(table, Some(end))) = self.tables.get("LAYER") {
+            return Ok((end, self.record_handles.get(&table).cloned()));
+        }
+        if let Some((at, _, handle)) = &self.created_table {
+            return Ok((*at, handle.clone()));
+        }
+        let (at, section) = match self.sections.get("TABLES") {
+            Some(&(_, Some(end))) => (end, false),
+            _ => {
+                let start = ["BLOCKS", "ENTITIES", "OBJECTS"]
+                    .iter()
+                    .filter_map(|name| self.sections.get(*name).map(|entry| entry.0))
+                    .min()
+                    .ok_or_else(|| EditError::at(index, "unreadable", "図面に節（SECTION）がありません"))?;
+                (start, true)
+            }
+        };
+        let handle = self.next_handle();
+        let mut opener = Record::new("TABLE");
+        opener.tag(2, "LAYER");
+        if let Some(handle) = &handle {
+            opener.tag(5, handle.clone());
+        }
+        if self.r13 {
+            opener.tag(330, "0").tag(100, "AcDbSymbolTable");
+        }
+        opener.int(70, 0);
+        let mut closers = vec![Record::new("ENDTAB").tags];
+        if section {
+            let mut start = Record::new("SECTION");
+            start.tag(2, "TABLES");
+            self.insert(at, start.tags);
+            closers.push(Record::new("ENDSEC").tags);
+        }
+        let position = self.insert(at, opener.tags);
+        self.closers.insert(at, closers);
+        self.created_table = Some((at, position, handle.clone()));
+        Ok((at, handle))
+    }
+
     fn add_layer(&mut self, index: usize, name: &str, values: &EditValues, implicit: bool) -> Result<(), EditError> {
         if !valid_name(name) {
             return Err(EditError::at(index, "invalid-value", format!("レイヤの名前 {name} は使えません")));
@@ -1409,9 +1488,7 @@ impl<'a> Editor<'a> {
         }
         let reader = ValueReader::new(values, index);
         reader.allow(&LAYER_KEYS, "レイヤ")?;
-        let Some(&(table, Some(end))) = self.tables.get("LAYER") else {
-            return Err(EditError::at(index, "unreadable", "図面にレイヤの表（LAYER）がありません"));
-        };
+        let (end, owner) = self.layer_table(index)?;
         // レイヤ 0 のレコードを写して、名前・ハンドル・値を変える（線種・印刷スタイルなどの参照を保つ）
         let template: Vec<Tag> = match self.layers.get("0") {
             Some(LayerRef::Record(record)) => self.tags(*record).to_vec(),
@@ -1432,7 +1509,7 @@ impl<'a> Editor<'a> {
         if tags.is_empty() {
             tags.push(Tag::new(0, "LAYER"));
             if self.r13 {
-                if let Some(owner) = self.record_handles.get(&table) {
+                if let Some(owner) = &owner {
                     tags.push(Tag::new(330, owner.clone()));
                 }
                 tags.push(Tag::new(100, "AcDbSymbolTableRecord"));
@@ -1462,10 +1539,16 @@ impl<'a> Editor<'a> {
         let position = self.insert(end, tags);
         self.layers.insert(upper(name), LayerRef::Added(end, position));
         // 表の項目の数（70）を数え直す
-        let count = self.layers.len();
-        let table_tags = self.tags_mut(table);
-        if number(table_tags, 70).is_some_and(|current| (current as usize) < count) {
-            set(table_tags, 70, count.to_string(), &[100]);
+        let count = self.layers.len().to_string();
+        let table_tags = match (self.tables.get("LAYER").copied(), self.created_table.clone()) {
+            (Some((table, _)), _) => Some(self.tags_mut(table)),
+            (None, Some((at, position, _))) => self.inserted.get_mut(&at).and_then(|list| list.get_mut(position)),
+            _ => None,
+        };
+        if let Some(table_tags) = table_tags
+            && number(table_tags, 70).is_none_or(|current| current < count.parse::<f64>().unwrap_or(0.0))
+        {
+            set(table_tags, 70, count, &[100, 2]);
         }
         if !implicit {
             self.created.push(name.to_string());

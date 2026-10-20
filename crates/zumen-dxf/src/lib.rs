@@ -14,7 +14,7 @@ mod tags;
 mod write;
 
 pub use colors::{ACI, aci_color, is_transparent, true_color};
-pub use edit::edit_dxf;
+pub use edit::{edit_dxf, new_dxf};
 pub use model::*;
 pub use mtext::{
     ParagraphAlign, RunColor, RunFont, RunStack, TextParagraph, TextRun, mtext_plain_text, parse_mtext,
