@@ -1,5 +1,5 @@
 //! AutoCAD の図面のモデル（`DxfDocument`）を SXF の図面（`SxfDrawing`）に写す（決定 0006・0007・0008・0010、
-//! docs/formats/sxf.md「SXF への書き出し」）。SXF から DXF への写し方（sxf.rs）の逆で、表示（zumen-dxf の scene.rs）と
+//! docs/formats/sxf.md「Converting to SXF」）。SXF から DXF への写し方（sxf.rs）の逆で、表示（zumen-dxf の scene.rs）と
 //! 同じ順・同じ規則で辿り、表示と同じ所に同じ形を描く SXF にする。
 //!
 //! - 用紙: 表示する空間（`dxf_to_scene` の既定の表示）がレイアウトなら、その紙空間が SXF の用紙（大きさは A0〜A4 の縦・

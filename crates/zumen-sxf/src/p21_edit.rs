@@ -1,5 +1,5 @@
 //! 元の P21 を書き換えて、図面（`SxfDocument`）と違うフィーチャのインスタンスだけを書き直す。変えていない
-//! インスタンスは元の文字列のまま残す（その場の編集）。
+//! インスタンスは元の文字列のまま残す（その場の編集。docs/formats/sxf.md「Editing P21 in place」）。
 //!
 //! 図面の要素がどのインスタンスから来たかは読み取り（p21.rs の P21Roots）が覚えている。用紙・複合図形の要素の並び
 //! （DRAWING_SHEET_REVISION・DRAUGHTING_SUBFIGURE_REPRESENTATION の items）と複合曲線ごとに、要素をインスタンス番号で

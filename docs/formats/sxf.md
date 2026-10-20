@@ -1,170 +1,339 @@
-# SXF（SFC・P21）の扱い
+# How SXF is handled
 
-仕様は国交省の SXF Ver.3.1 仕様書（第 2 版、2009-06）の附属書 SFC 編・フィーチャ仕様編・共通既定義要素編と、
-実装規約、国総研の表示機能及び確認機能要件書（案）令和 7 年 12 月版に従う。
+SXF is read and written as the MLIT SXF Ver.3.1 specification (2nd edition, 2009-06) describes it: its annexes on SFC,
+on features and on common predefined elements, the implementation rules (実装規約), and the NILIM requirements for display
+and checking functions (表示機能及び確認機能要件書（案）, December 2025 edition). The specification is not distributed with
+this repository; it can be obtained from the MLIT page listed under [References](#references).
 
-- 文字列は CP932。2 バイト目が 0x5C の文字（表・ソ・能など）と、`\\` で書いた `\` を区別して読む。
-- 色・線種・線幅・文字フォント・レイヤのコードは、仕様どおり出現順に割り当てる。
-  既定義の値の線幅は 1〜9 の固定コードで、ユーザ定義の線幅だけが 11 から番号を持つ。
-- 複合図形定義・複合曲線定義は、直前の定義以降に書かれた要素を構成要素にする。
-  用紙は残りの要素を持つ。用紙より後の要素は仕様では無効だが、読み落とさないよう用紙に加えて件数を知らせる。
-- 部分図（数学・測地座標系）、作図グループ、作図部品を入れ子で配置する。作図グループは配置値を使わない。
-- 点マーカ・矢印の大きさは部分図の縮尺の影響を受けない。ハッチング線の間隔と角度は配置の影響を受ける。
-- スプラインは 3 次ベジェ、クロソイドは R・L = A² の積分で点列にする。
+## Reading
 
-P21 は AP202 サブセット編のテンプレートに従って SFC と同じフィーチャに変換し、同じ描画を使う。
+- Strings are CP932. Characters whose second byte is 0x5C (表, ソ, 能 …) are told apart from a `\` written as `\\`.
+- The codes of colors, line types, line widths, text fonts and layers are assigned in order of appearance, as the
+  specification says. Line widths with predefined values have the fixed codes 1–9; only user-defined widths are numbered
+  from 11.
+- A composite figure definition (sfig_org) or composite curve definition takes as its members the elements written after
+  the previous definition. The sheet takes the rest. Elements after the sheet are invalid in the specification, but they
+  are added to the sheet with a notice so that nothing is lost.
+- Sub-figures (mathematical and geodetic coordinates), drawing groups and drawing parts are placed, nested. Drawing groups
+  ignore their placement values.
+- The size of point markers and arrows does not depend on the scale of the sub-figure. The spacing and angle of hatch
+  lines do depend on the placement.
+- Splines are cubic Bézier curves; clothoids are turned into points by integrating R·L = A².
 
-圧縮した SXF（P2Z・SFZ）は、P21・SFC のファイルを 1 つ入れた ZIP の書庫として、Rust の読み取り（`crates/zumen-sxf`）が
-展開して読む（TypeScript の読み取りはまだ読まない）。中央ディレクトリで名前が .p21・.sfc で終わる最初のファイルを選び、
-無圧縮と deflate を展開して CRC-32 を確かめる。名前は UTF-8 の印がなければ Shift_JIS として読み、図面の情報の「圧縮」に
-書庫の形式と中のファイルの名前を示す。展開した後の大きさは読み取りの上限（`max_bytes`）まで、上限がなければ 2 GiB までにする
-（小さな書庫が大量に展開される ZIP 爆弾を防ぐ）。暗号化した書庫と ZIP64 には対応しない。
+P21 is mapped onto the same features as SFC following the templates of the STEP/AP202 subset volume, and drawn the same.
 
-- 文字は、出力ライブラリが配置基点を下・中・上の行ごとに高さの 1/2・−1/2・−1 だけずらして書くため、
-  逆にずらして SXF の配置基点に戻す。同じ図面の SFC・P21 の組で確かめた規則で、
-  [ezsxf](https://github.com/monozukuri-ai/ezsxf/blob/main/docs/p21-writing.md) の記録とも一致する。
-- 円弧は sense_agreement の .T. を反時計回り、.F. を時計回りにする。寸法の円弧は SFC と同じく始角から終角へ反時計回り。
-- 寸法の矢印の向き（X 軸）を、寸法線に対する外向き・内向きに直す。引出し線の矢印は線の向きから決める。
-- レイヤの割り当てと INVISIBILITY を、レイヤの表示指定と、複合曲線の外形の非表示に使う。
-  子図を入れる仮のレイヤ（$$SXF_dummy_layer_for_subfigure）はレイヤ一覧に出さない。
-- 文字列は ISO 10303-21 のエスケープ（`''`、`\X2\…\X0\`、`\X4\…\X0\`、`\X\hh`、`\S\c`、`\P?\`）を戻す。
-  規格では使えない 8 ビットのバイトをそのまま書く出力ソフトもあるため、1 バイトを 1 文字（ISO 8859-1）として読み、
-  0x80 以上のバイトを Shift_JIS として復号する。2 バイト文字の 2 バイト目は 0x40〜0x7E（`\` を含む）のこともあるので、
-  先頭バイトと次の 1 バイトを組にして復号する（TextDecoder の "latin1" は windows-1252 で、0x80〜0x9F を別の文字にするため使わない）。
-- 寸法補助線（PROJECTION_CURVE）は、名前（$$SXF_prj_1・$$SXF_prj_2）を符号単位で比べた順に補助線 1・2 とする。
-  利用者のロケールでは並べない（同じ図面がロケールで違う結果にならないように）。
+- The output library writes the base point of a text shifted, for the bottom, middle and top rows, by 1/2, −1/2 and −1
+  of the height; the reader shifts it back to the SXF base point. The rule was confirmed on pairs of SFC and P21 files
+  of the same drawing and matches the record in
+  [ezsxf](https://github.com/monozukuri-ai/ezsxf/blob/main/docs/p21-writing.md).
+- For arcs, sense_agreement .T. is counterclockwise and .F. clockwise. Arcs of dimensions run counterclockwise from the
+  start angle to the end angle, as in SFC.
+- The direction of dimension arrows (their X axis) is turned into outward or inward relative to the dimension line.
+  Leader arrows take their direction from the line.
+- Layer assignments and INVISIBILITY give the visibility of layers and hide the outlines of composite curves. The
+  temporary layer for sub-figures (`$$SXF_dummy_layer_for_subfigure`) is not listed as a layer.
+- Strings undo the ISO 10303-21 escapes (`''`, `\X2\…\X0\`, `\X4\…\X0\`, `\X\hh`, `\S\c`, `\P?\`). Some output
+  programs write 8-bit bytes, which the standard does not allow, so each byte is read as one character (ISO 8859-1) and
+  bytes from 0x80 are decoded as Shift_JIS. The second byte of a double-byte character can be 0x40–0x7E (including
+  `\`), so a lead byte is decoded together with the byte after it. (TextDecoder's "latin1" is windows-1252, which maps
+  0x80–0x9F to other characters, so it is not used.)
+- Extension lines (PROJECTION_CURVE) are ordered as extension line 1 and 2 by comparing their names (`$$SXF_prj_1`,
+  `$$SXF_prj_2`) code unit by code unit, not in the user's locale, so that a drawing does not read differently from one
+  locale to another.
 
-描かない・代わりに示すもの（「読み取りの注意」に件数を出す）:
+Compressed SXF (P2Z, SFZ) is a ZIP archive that holds one P21 or SFC file. The Rust reader (`crates/zumen-sxf`)
+extracts it (the TypeScript reader does not read it yet): it takes the first file of the central directory whose name
+ends in .p21 or .sfc, inflates stored or deflated data and checks the CRC-32. Names are Shift_JIS unless the UTF-8 flag
+is set, and the drawing information (圧縮) shows the archive format and the name of the file in it. The extracted size is
+limited by the read limit (`max_bytes`), or by 2 GiB when there is no limit, against ZIP bombs (a small archive that
+extracts to a huge file). Encrypted archives and ZIP64 are not supported.
 
-| 内容 | 扱い |
+What is not drawn or is shown otherwise (counted in the reader's notices):
+
+| Content | Handling |
 | --- | --- |
-| パターンハッチング・外部定義ハッチングの模様 | 外形だけを描く |
-| 既定義シンボル | 形の代わりに名前を表示する（実装規約 1-10） |
-| ラスタ画像（別の TIFF・JPEG） | 表示しない |
-| Area_control | 空白の領域なので描かず、選択だけできる |
+| Patterns of pattern hatching and externally defined hatching | Only the outline is drawn |
+| Predefined symbols | Their name is shown instead of the shape (実装規約 1-10) |
+| Raster images (separate TIFF and JPEG files) | Not shown |
+| Area_control | A blank region; not drawn, but it can be selected |
 
-壊れた図面・悪意のある図面でも止まらないよう、次の上限を置く。TypeScript と Rust（`crates/zumen-sxf`）で同じ規則にしている。
+Broken or hostile drawings must not stop the reader, so these limits apply, with the same rules in TypeScript and Rust
+(`crates/zumen-sxf`):
 
-| 内容 | 扱い |
+| Content | Handling |
 | --- | --- |
-| 引数の集合・型付きの値の入れ子が 64 段より深い | そのフィーチャ（SFC）・インスタンス（P21）を読めないものとして省く（unreadable） |
-| P21 の子図の定義の入れ子が 64 段より深い | 深い定義を読まずに件数を知らせる（sfig-depth） |
-| 複合図形の配置の入れ子が 32 段より深い、または循環する | その配置を省く（sfig-cycle） |
-| クロソイドの長さがパラメータ A の 256 倍を超える | 積分（シンプソン則）の分割を 4096 で打ち切る（長さ 10¹¹ のクロソイドで止まっていた） |
-| ハッチング線が 20,000 本を超える | その模様を省く（hatch-dense） |
-| レイヤコードが 4,294,967,295 を超える | レイヤなしとして扱う（layer-range）。Scene のレイヤの id は 32 ビット |
+| Lists of arguments or typed values nested deeper than 64 levels | The feature (SFC) or instance (P21) is left out as unreadable (`unreadable`) |
+| P21 sub-figure definitions nested deeper than 64 levels | Deeper definitions are not read, with a count (`sfig-depth`) |
+| Placements of composite figures nested deeper than 32 levels, or in a cycle | The placement is left out (`sfig-cycle`) |
+| A clothoid longer than 256 times its parameter A | The integration (Simpson's rule) stops at 4096 divisions (a clothoid of length 10¹¹ used to hang) |
+| More than 20,000 hatch lines | The pattern is left out (`hatch-dense`) |
+| Layer codes above 4,294,967,295 | Treated as no layer (`layer-range`); the scene's layer ids are 32-bit |
 
-Rust の読み取り（`crates/zumen-sxf`）は TypeScript と同じ構造・同じ順で読み、同じ `Scene` を返す。
-`tests/fixtures/sfc`・`tests/fixtures/p21` の図面（全 34 種のフィーチャと読み取りの注意を含む合成の図面）と
-公開見本で比べ、`pnpm run fuzz` で壊した図面でも同じ結果かエラーになることを確かめている。
+The Rust reader (`crates/zumen-sxf`) reads with the same structure and in the same order as TypeScript and returns the
+same `Scene`. This is compared on the drawings of `tests/fixtures/sfc` and `tests/fixtures/p21` (synthetic drawings with
+all 34 features and the reader's notices) and on public samples, and `pnpm run fuzz` checks that broken drawings give
+the same result or an error.
 
-## DXF への変換（zumen-convert）
+<a id="dxf-への変換zumen-convert"></a>
 
-`zumen::convert` は SXF を AutoCAD の図面のモデル（`DxfDocument`）に写し、AutoCAD 2013 の DXF に書く
-（[決定 0007](../decisions/0007-mapping-crate-between-formats.md)・[0008](../decisions/0008-sheets-and-scales-in-the-autocad-model.md)）。
-写し方は上の表示の規則と同じで、書いた DXF のレイアウトは、元の SXF と同じ所に同じ形を描く。
+## Converting to DXF (zumen-convert)
+
+`zumen::convert` maps an SXF drawing into the AutoCAD drawing model (`DxfDocument`) and writes AutoCAD 2013 DXF
+([decision 0007](../decisions/0007-mapping-crate-between-formats.md),
+[0008](../decisions/0008-sheets-and-scales-in-the-autocad-model.md)). The mapping follows the drawing rules above, and the
+layout of the written DXF draws the same shapes at the same places as the SXF.
 
 | SXF | DXF |
 | --- | --- |
-| 用紙（drawing_sheet） | 紙空間のレイアウト。用紙の大きさ（A0〜A4 の縦・横、自由）とその名前。DXF はこのレイアウトで開く（`$TILEMODE` 0） |
-| 用紙にじかに描いた要素 | 紙空間（用紙の mm） |
-| 用紙に配置した部分図（縦横の縮尺が同じ） | 部分図の要素をモデル空間に実寸で置き、配置の位置・縮尺・回転のビューポートで見せる。同じ部分図を 2 か所に置けばビューポートが 2 つ。ビューポートの枠は VIEWPORTS レイヤ（非表示・印刷しない） |
-| 測地座標系の部分図 | X と Y を入れ替えて表示の向き（X が東）にする。表示と同じく、円弧の角度・文字の向きは入れ替えない |
-| 縦横の縮尺が違う・裏返しの部分図、作図部品、作図グループ | ブロック（名前は P21 の接頭語を除いた複合図形名）と配置（INSERT）。作図グループの配置値は使わない（フィーチャ仕様編 3-5 補足） |
-| 部分図のない図面 | 用紙の座標のままモデル空間に置き、1:1 のビューポートで見せる |
-| レイヤ | 同じ名前のレイヤ（名前のないものは「レイヤ n」、定義のないコードは「未定義のレイヤ n」）。非表示のレイヤは非表示。コード 0 は DXF のレイヤ 0 |
-| 色 | 既定義色の赤・黄・緑・シアン・青・マジェンタ・暗灰・明灰は ACI 1〜6・8・9、黒と白は前景色（ACI 7）、ほかはトゥルーカラー（420）と近い ACI |
-| 線種 | 既定義線種は SXF の名前（dashed・chain など、説明は日本語の名前）、ユーザ定義線種はその名前の LTYPE。ピッチは用紙の mm（`$PSLTSCALE` 1 で、ビューポートの縮尺によらず同じ長さに印刷する） |
-| 線幅 | DXF の線の太さ（370）。既定義線幅 0.13〜2.0 mm はそのまま、それ以外はいちばん近い太さ |
-| 文字フォント | フォント名の文字スタイル（TrueType、MS ゴシック・MS 明朝はそのファイル名）。フォントのない文字は Standard（MS ゴシック） |
-| 文字 | TEXT。文字範囲の高さを字形の em、幅を幅の係数にし、ベースラインの左端を挿入点にする（配置基点・スラントを含めて同じ文字範囲）。縦書きは縦書きのフォント（@MS 明朝など）の文字を 270° 回す。%% と ^ は TEXT の制御コードにならないよう書く |
-| 線分・折線・円・円弧・楕円・楕円弧 | LINE・LWPOLYLINE・CIRCLE・ARC（時計回りは始角と終角を入れ替える）・ELLIPSE（長い方の軸を長軸にする） |
-| スプライン | 3 次の NURBS（区間の境の節点を 3 重にしたベジェ曲線）。3n+1 個の余りの点は LWPOLYLINE |
-| クロソイド | 表示と同じ点を結ぶ LWPOLYLINE（AutoCAD にクロソイドはない） |
-| 点マーカ | dot は POINT、ほかの形は表示と同じ点を結ぶ LINE・LWPOLYLINE（用紙で 2.5 mm × 倍率の大きさ） |
-| 寸法（直線・半径・直径・角度・弧長） | 寸法線・補助線・矢印・寸法値を表示のブロック（*D）に入れた DIMENSION（回転・半径・直径・3 点の角度寸法、弧長は ARC_DIMENSION）。定義点は寸法線の端と補助線の基点、寸法値は SXF の文字列 |
-| 矢印 | 表示と同じ形で、塗りの矢印・箱は SOLID、白抜きは背景色で塗る WIPEOUT と外形の LWPOLYLINE、塗りの点は塗りつぶしの HATCH、線の矢印は LINE・LWPOLYLINE |
-| 引出し線・バルーン | 線（LWPOLYLINE）・矢印・円・文字の図形に分ける。AutoCAD の LEADER・MULTILEADER は矢印の形と文字の置き方が SXF と違う |
-| ハッチング（塗り） | 塗りつぶしの HATCH。境界は複合曲線（線・円弧は弧の膨らみ、楕円弧・スプライン・クロソイドは表示と同じ点） |
-| ハッチング（ユーザ定義） | 線の組ごとに利用者定義の HATCH（破線の組はカスタムの模様）。間隔と角度は配置の影響を受ける（実装規約 1-7） |
-| 複合曲線の外形 | 表示する指定のものを、閉じた LWPOLYLINE |
+| Sheet (drawing_sheet) | A paper space layout with the sheet size (A0–A4 portrait or landscape, or free) and its name. The DXF opens in this layout (`$TILEMODE` 0) |
+| Elements drawn on the sheet itself | Paper space (sheet millimeters) |
+| A sub-figure placed on the sheet with equal horizontal and vertical scales | Its elements go to model space at real size and are shown through a viewport with the position, scale and rotation of the placement. A sub-figure placed twice gets two viewports. Viewport frames are on the layer VIEWPORTS (off, not plotted) |
+| A sub-figure in geodetic coordinates | X and Y are swapped to the display orientation (X east). As in the display, the angles of arcs and the direction of texts are not swapped |
+| Sub-figures with different horizontal and vertical scales or mirrored, drawing parts, drawing groups | A block (named after the composite figure, without the P21 prefix) and its placement (INSERT). Drawing groups ignore their placement values (フィーチャ仕様編 3-5, note) |
+| A drawing without sub-figures | The sheet coordinates go to model space as they are, shown through a 1:1 viewport |
+| Layers | Layers of the same name (unnamed ones as レイヤ n, undefined codes as 未定義のレイヤ n). Hidden layers are off. Code 0 is the DXF layer 0 |
+| Colors | The predefined red, yellow, green, cyan, blue, magenta, dark gray and light gray are ACI 1–6, 8 and 9; black and white are the foreground color (ACI 7); other colors are true colors (420) with the nearest ACI |
+| Line types | Predefined line types keep their SXF names (dashed, chain …, with the Japanese name as description); user-defined ones become an LTYPE of their name. Pitches are sheet millimeters (`$PSLTSCALE` 1, so they print at the same length whatever the viewport scale) |
+| Line widths | The DXF lineweight (370): the predefined widths 0.13–2.0 mm as they are, other widths the nearest lineweight |
+| Text fonts | A text style named after the font (TrueType; ＭＳ ゴシック and ＭＳ 明朝 with their file names). Texts without a font use Standard (ＭＳ ゴシック) |
+| Texts | TEXT. The height of the text box is the em of the glyphs, its width the width factor, and the left end of the baseline the insertion point (the same text box, base point and slant included). Vertical texts use the vertical font (@ＭＳ 明朝 …) rotated 270°. %% and ^ are written so that they do not become TEXT control codes |
+| Lines, polylines, circles, arcs, ellipses, elliptical arcs | LINE, LWPOLYLINE, CIRCLE, ARC (clockwise arcs swap start and end angles), ELLIPSE (the longer axis is the major axis) |
+| Splines | Cubic NURBS (Bézier curves with triple knots at the segment ends). The points beyond 3n+1 become an LWPOLYLINE |
+| Clothoids | An LWPOLYLINE through the points the display draws (AutoCAD has no clothoid) |
+| Point markers | dot is a POINT; other shapes are LINEs and LWPOLYLINEs through the points the display draws (2.5 mm × the scale on the sheet) |
+| Dimensions (linear, radius, diameter, angular, arc length) | DIMENSION (rotated, radius, diameter, three-point angular; arc length is ARC_DIMENSION) with the dimension line, extension lines, arrows and value in its display block (*D). The definition points are the ends of the dimension line and the bases of the extension lines; the value is the SXF string |
+| Arrows | The shapes the display draws: filled arrows and boxes as SOLID, blanked ones as a WIPEOUT filled with the background and an LWPOLYLINE outline, filled dots as a solid HATCH, line arrows as LINE and LWPOLYLINE |
+| Leaders and balloons | Split into a line (LWPOLYLINE), arrow, circle and text. AutoCAD's LEADER and MULTILEADER place arrows and texts differently from SXF |
+| Hatching (fill) | A solid HATCH. The boundary is the composite curve (lines and arcs as bulges; elliptical arcs, splines and clothoids as the points the display draws) |
+| Hatching (user-defined) | A user-defined HATCH for each set of lines (dashed sets as a custom pattern). Spacing and angle depend on the placement (実装規約 1-7) |
+| Outlines of composite curves | A closed LWPOLYLINE for those marked visible |
 
-写せない・形を変えた内容は notices（種類・件数）で返す。
+What cannot be mapped as it is, or is mapped in another shape, is returned as notices (kind and count).
 
-| code | 内容 |
+| code | Content |
 | --- | --- |
-| `view-moved` | 縮尺の違う部分図がモデル空間で重なるので、少ない方をずらした（その部分図の座標は元と変わる） |
-| `sfig-insert` | 縦横の縮尺が違う・裏返し（負の縮尺）の部分図を、ビューポートでなく紙空間のブロック参照にした |
-| `block-scale` | 縮尺・向きの違う配置から使われる複合図形の、矢印・点マーカの大きさと線種のピッチを最初の配置に合わせた |
-| `text-spacing` | 文字間隔を書けないので、文字の幅を広げて同じ文字範囲にした |
-| `clothoid` | クロソイドを折線にした |
-| `symbol` | 既定義シンボルを、形の代わりに名前の文字にした（表示と同じ） |
-| `leader` | 引出し線・バルーンを、線・矢印・円・文字に分けた |
-| `hatch-pattern`・`hatch-external`・`area-control` | パターンハッチング・外部定義ハッチング・Area_control は、外形の線だけを書いた |
-| `lineweight` | DXF にない線幅を、いちばん近い線の太さにした |
-| `title`・`background`・`raster` | 図面表題欄・背景色・ラスタ画像は書いていない |
-| `name` | DXF の名前に使えない文字（< > / \ " : ; ? * \| = `）を _ にした、または重なる名前に番号を付けた |
-| `missing-sfig`・`sfig-cycle`・`sfig-scale`・`unknown-*`・`layer-range`・`hatch-boundary`・`hatch-dense`・`degenerate` | 表示と同じく省いた・代わりにした内容 |
+| `view-moved` | Sub-figures of different scales overlapped in model space, so the smaller one was moved (its coordinates differ from the original) |
+| `sfig-insert` | A sub-figure with different horizontal and vertical scales, or mirrored (negative scale), became a block reference in paper space instead of a viewport |
+| `block-scale` | A composite figure used by placements of different scales or orientations takes the arrow and marker sizes and line type pitches of its first placement |
+| `text-spacing` | Character spacing cannot be written, so the width of the characters was widened to keep the text box |
+| `clothoid` | A clothoid became a polyline |
+| `symbol` | A predefined symbol became the text of its name, as in the display |
+| `leader` | A leader or balloon was split into lines, arrows, circles and texts |
+| `hatch-pattern`, `hatch-external`, `area-control` | Pattern hatching, externally defined hatching and Area_control were written as their outline only |
+| `lineweight` | A width that DXF lacks became the nearest lineweight |
+| `title`, `background`, `raster` | The title block, the background color and raster images were not written |
+| `name` | Characters not allowed in DXF names (< > / \ " : ; ? * \| = `) became _, or a number was added to a repeated name |
+| `missing-sfig`, `sfig-cycle`, `sfig-scale`, `unknown-*`, `layer-range`, `hatch-boundary`, `hatch-dense`, `degenerate` | Left out or replaced as in the display |
 
-## SXF への書き出し（dxf_to_sxf・write_sfc）
+<a id="sxf-への書き出しdxf_to_sxfwrite_sfc"></a>
 
-`zumen::convert(bytes, "sfc", …)` は、どの形式の図面も AutoCAD の図面のモデル（`DxfDocument`）を経て、SXF の図面
-（`SxfDrawing`）に写し（`zumen_convert::dxf_to_sxf`）、SFC に書く（`zumen_sxf::write_sfc`）
-（[決定 0010](../decisions/0010-write-sxf-from-the-autocad-model.md)）。写し方は DXF の表示（`dxf_to_scene`）と同じ順・同じ
-規則で、書いた SFC を zumen の SXF の読み取りで読むと、元の図面の表示と同じ所に同じ形を描く。
+## Converting to SXF (dxf_to_sxf)
 
-| AutoCAD の図面のモデル | SXF |
+`zumen::convert(bytes, "sfc", …)` takes a drawing of any format through the AutoCAD drawing model (`DxfDocument`), maps
+it into an SXF drawing (`SxfDrawing`, `zumen_convert::dxf_to_sxf`) and writes it as SFC (`zumen_sxf::write_sfc`)
+([decision 0010](../decisions/0010-write-sxf-from-the-autocad-model.md)). The mapping follows the order and the rules of
+the DXF display (`dxf_to_scene`), and zumen's SXF reader draws the written SFC with the same shapes at the same places as
+the original drawing.
+
+| AutoCAD drawing model | SXF |
 | --- | --- |
-| 開く空間（`dxf_to_scene` の既定の表示）のレイアウト | 用紙。大きさが A0〜A4 の縦・横（±0.5 mm）ならその用紙サイズ種別、ほかは自由。紙空間の図形は用紙の要素（用紙の mm） |
-| ビューポート | 映るモデル空間の図形（外接矩形がビューポートの枠に掛かるもの、ビューポートで凍結したレイヤを除く）を実寸の mm で持つ部分図（数学座標系）と、その配置（位置・縮尺・ねじれの角度）。同じ図形を映すビューポートは、1 つの部分図を 2 か所に配置する。配置のレイヤは 0（どのレイヤにも属さない） |
-| 1:1 で原点を動かさないビューポート | 図形を用紙にじかに置く（部分図のない SXF の図面を DXF にしたもの） |
-| ビューポートの枠 | 折線（印刷しない・表示しないレイヤの枠は書かない） |
-| モデル空間を開く図面 | モデル空間を 1:1 の部分図にし、図形の範囲の左下を原点とする、範囲の大きさの自由の用紙に置く |
-| ブロック参照（INSERT）・表（ACAD_TABLE） | 作図部品（複合図形定義、基点が原点）とその配置（挿入点・回転・X と Y の尺度。裏返しは負の尺度）。配列（MINSERT）は配置を並べる |
-| BYBLOCK の色・線種・線の太さ、ブロックの中のレイヤ 0 | 配置から継いだ値で書く。継ぐ値の違う配置ごとに作図部品を作る（名前に (2) などを付ける）。破線のあるブロックは、用紙での縮尺ごとにも作る（線種のピッチは用紙の mm） |
-| レイヤ | 同じ名前のレイヤ。非表示・凍結・印刷しないレイヤと DEFPOINTS は非表示 |
-| 色 | ACI 7（前景色）と表示の白は黒、既定義色と同じ色は既定義色、ほかはユーザ定義色 |
-| 線種 | 表示と同じ線分・空白の長さ（用紙の mm）。既定義線種と同じ名前・長さなら既定義線種、ほかは DXF の名前のユーザ定義線種。長さ 0 の点は 0.25 mm |
-| 線の太さ | 既定義線幅（0.13〜2.0 mm）と同じ値はそのコード、ほかはユーザ定義線幅。既定（BYLAYER の既定を含む）は 0.25 mm |
-| 線分・円・円弧・楕円・楕円弧 | そのまま（OCS は WCS に写し、裏返しの円弧・楕円弧は時計回り） |
-| ポリライン | 折線。弧の膨らみの区間は円弧。幅のあるもの・メッシュ・曲線当てはめは、表示と同じ塗り・線 |
-| スプライン | 端を通る有理でない 1〜3 次は、節点を挿入（Boehm の方法）して 3 次ベジェ曲線（spline_feature）に分ける。ほかは表示と同じ折線 |
-| 点 | 点マーカ（dot） |
-| 寸法 | 表示のブロックの線・塗り・文字（SXF の寸法の要素にはしない） |
-| 文字・属性・複数行文字・引出線・マルチ引出線・マルチライン・塗り（SOLID・TRACE）・ワイプアウト・画像の枠 | 表示が描く線（折線）・塗り（見えない複合曲線の領域の fill_area_style_colour）・文字（左下を配置基点、文字範囲の幅・高さ・回転・スラントが同じ text_string。縦書きのフォントは縦書き） |
-| ハッチング | 塗りは fill_area_style_colour、模様は線の組ごとの fill_area_style_hatching（間隔・角度・基点は入れ物の座標、破線は用紙の mm）。境界は表示と同じ輪郭の複合曲線で、偶奇規則の入れ子を外形と中抜きにする |
-| 構築線・放射線 | 表示と同じく用紙（ビューポートの中はその枠）で切った線分 |
+| The layout of the space that opens (the default view of `dxf_to_scene`) | The sheet. An A0–A4 size in portrait or landscape (±0.5 mm) gets that sheet size type, anything else is free. Paper space entities are elements of the sheet (sheet millimeters) |
+| Viewports | A sub-figure (mathematical coordinates) with the model space entities the viewport shows (those whose extents meet the viewport frame, without layers frozen in the viewport) at real size in millimeters, and its placement (position, scale and twist). Viewports that show the same entities place one sub-figure twice. Placements are on layer 0 (no layer) |
+| A 1:1 viewport that does not move the origin | The entities go on the sheet itself (an SXF drawing without sub-figures converted to DXF) |
+| Viewport frames | Polylines (frames on layers that are off or not plotted are not written) |
+| A drawing that opens in model space | Model space becomes a 1:1 sub-figure on a free sheet the size of the extents, with the lower left corner of the extents at the origin |
+| Block references (INSERT), tables (ACAD_TABLE) | Drawing parts (composite figure definitions with the base point at the origin) and their placements (insertion point, rotation, X and Y scale; mirroring as a negative scale). MINSERT places the part several times |
+| BYBLOCK colors, line types and lineweights, and layer 0 in blocks | Written with the values inherited from the placement. Each set of inherited values gets its own drawing part (with (2) … added to the name). Blocks with dashed lines also get one for each scale on the sheet (line type pitches are sheet millimeters) |
+| Layers | Layers of the same name. Layers that are off, frozen or not plotted, and DEFPOINTS, are hidden |
+| Colors | ACI 7 (the foreground) and the display's white are black, colors equal to a predefined color use it, and the rest are user-defined colors |
+| Line types | The dash and gap lengths the display draws (sheet millimeters). The same name and lengths as a predefined line type use it, others become a user-defined line type with the DXF name. Dots of length 0 are 0.25 mm |
+| Lineweights | Values equal to a predefined width (0.13–2.0 mm) use its code, others become user-defined widths. The default (including the default of BYLAYER) is 0.25 mm |
+| Lines, circles, arcs, ellipses, elliptical arcs | As they are (OCS mapped to WCS; mirrored arcs and elliptical arcs run clockwise) |
+| Polylines | Polylines, with bulged segments as arcs. Wide polylines, meshes and curve-fit polylines become the fills and lines the display draws |
+| Splines | Non-rational splines of degree 1–3 that pass through their ends are split into cubic Bézier curves (spline_feature) by knot insertion (Boehm's method); others become the polyline the display draws |
+| Points | Point markers (dot) |
+| Dimensions | The lines, fills and texts of their display block (not SXF dimension features) |
+| Texts, attributes, MTEXT, leaders, multileaders, MLINE, fills (SOLID, TRACE), wipeouts, image frames | The lines (polylines), fills (fill_area_style_colour over invisible composite curves) and texts the display draws (text_string with the lower left corner as base point and the same width, height, rotation and slant of the text box; vertical fonts are vertical) |
+| Hatches | Solid fills are fill_area_style_colour, patterns are fill_area_style_hatching for each set of lines (spacing, angle and base in the coordinates of the container, dashes in sheet millimeters). The boundary is a composite curve with the outline the display draws, with even-odd nesting as outer and inner boundaries |
+| Construction lines and rays | Line segments cut by the sheet (or the viewport frame), as in the display |
 
-SFC の書き方（附属書 SFC 編 1-1・1-2）:
+What cannot be written as it is, or is written in another shape, is returned as notices (kind and count).
 
-- ヘッダは `FILE_DESCRIPTION(('SCADEC level2 feature_mode'),'2;1')` と、出力ライブラリ名 `zumen$$3.1`（末尾が SXF の版）。
-- フィーチャは `/*SXF` … `SXF*/` で 1 つずつ囲み、Ver.3.0 で加わった図面表題欄とクロソイドは `/*SXF3` … `SXF3*/`。
-  インスタンス番号は書く順に 10 から 10 ずつ。長い行は引数の区切りで 80 桁ほどで折り返す。公開されている SFC と同じ書き方。
-- 書く順は、使う既定義の色・線種の宣言、ユーザ定義の色・線種・線幅、文字フォント、レイヤ、複合曲線（構成要素の後に
-  定義）、複合図形（構成要素の後に定義。配置される複合図形が先）、用紙の要素、図面表題欄、用紙。複合曲線定義・複合図形定義・
-  用紙は直前の定義以降の要素を構成要素にする（1-3）ので、この順なら構成要素が混ざらない。
-- 文字列は CP932。CP932 にない文字は ? にし、改行と制御文字は書かない。`\` は `\\` にする。数値は読み直すと同じ値になる最短の桁。
-
-写せない・形を変えた内容は notices（種類・件数）で返す。
-
-| code | 内容 |
+| code | Content |
 | --- | --- |
-| `layouts` | SXF の用紙は 1 枚なので、開くレイアウトのほかのレイアウトは書いていない |
-| `outside-viewports` | どのビューポートにも映らないモデル空間の図形は書いていない |
-| `viewport-clip` | ビューポートの枠からはみ出す図形は、部分図で切り取れないので、はみ出したまま書いた |
-| `viewport-view` | 上から見た向きでない（3D の）ビューポートは書いていない |
-| `model-sheet` | モデル空間を開く図面を、1:1 の部分図と範囲の大きさの用紙にした |
-| `dimension`・`drawn-shapes`・`polyline-width`・`spline`・`wipeout` | SXF にない図形・書き方を、表示と同じ線・塗り・文字にした |
-| `text-mirror` | 裏返しの文字を、同じ文字範囲に裏返さずに書いた |
-| `linetype-dot`・`complex-linetype`・`transparency`・`gradient` | 線種の点を 0.25 mm の線分に、文字・形の線種を線と空白に、透過度を不透明に、グラデーションを塗りにした |
-| `hatch-dense` | 模様のない・線の多すぎる（5,000 本を超える）ハッチングは、表示と同じく外形の線だけにした |
-| `image`・`xline`・`minsert` | 画像は枠だけ、構築線・放射線は切った線分、配列のブロック参照は配置を並べた |
-| `encoding` | CP932 にない文字を ? にした（`write_sfc`） |
-| `missing-block`・`block-depth`・`dimension-block`・`skewed`・`text-skew` | 定義のないブロック、循環する・深すぎるブロック、表示のブロックがない寸法、ゆがんだ配置・文字を省いた |
+| `layouts` | SXF has one sheet, so layouts other than the one that opens were not written |
+| `outside-viewports` | Model space entities that no viewport shows were not written |
+| `viewport-clip` | Entities that cross a viewport frame cannot be clipped by a sub-figure and were written whole |
+| `viewport-view` | Viewports not seen from above (3D) were not written |
+| `model-sheet` | A drawing that opens in model space became a 1:1 sub-figure on a sheet the size of the extents |
+| `dimension`, `drawn-shapes`, `polyline-width`, `spline`, `wipeout` | Entities and styles that SXF lacks became the lines, fills and texts the display draws |
+| `text-mirror` | A mirrored text was written unmirrored in the same text box |
+| `linetype-dot`, `complex-linetype`, `transparency`, `gradient` | Dots of line types became 0.25 mm dashes, line types with texts or shapes became dashes and gaps, transparency became opaque, gradients became solid fills |
+| `hatch-dense` | Hatches without a pattern or with too many lines (more than 5,000) became their outline, as in the display |
+| `image`, `xline`, `minsert` | Images became their frame, construction lines and rays became cut segments, MINSERT became several placements |
+| `encoding` | Characters outside CP932 became ? (`write_sfc`) |
+| `missing-block`, `block-depth`, `dimension-block`, `skewed`, `text-skew` | Undefined blocks, blocks in a cycle or nested too deep, dimensions without a display block, and skewed placements and texts were left out |
 
-## 参照
+## Writing SXF files (write_sfc, write_p21, write_sxf)
 
-- [国交省 SXF Ver.3.1 仕様書・SXF 表示機能及び確認機能要件書（案）](https://www.cals-ed.go.jp/sxf_ver3-1_specification_draft/)
-- [国総研資料「CAD データの作成」](https://www.nilim.go.jp/lab/bcg/siryou/tnn/tnn0403pdf/ks0403012.pdf)
+`zumen_sxf::write_sfc`, `write_p21` and `write_sxf(drawing, format)` (`sfc`, `p21`, `sfz`, `p2z`) write an `SxfDrawing`.
+A drawing read from a file keeps that file (`SxfDrawing::source`, the extracted file and, for P2Z and SFZ, the archive).
+Written in the format it was read from, the file is **edited in place**: only what differs from the file is rewritten,
+and everything else keeps its bytes. A drawing without a source (made by `dxf_to_sxf`, or with `source` set to `None`),
+or written in the other format, is **written anew**. Both give an `SxfWritten` with the bytes, notices, and the pairs
+(feature id in the drawing, instance number written) of the features written.
 
-仕様書はこのリポジトリでは配布しない。上の国交省のページから入手する。
+### Editing SFC in place
+
+The reader's rules (附属書 SFC 編 1-3) decide which definition each record of the file belongs to: a composite curve
+definition, a composite figure definition and the sheet take the records written after the previous definition. The
+drawing and the file are matched for each definition (the tables, each composite curve, each composite figure, the
+sheet) by instance number, from the front.
+
+- A feature whose values did not change keeps its record (`/*SXF … SXF*/`) byte for byte. A changed feature is rewritten
+  in its place with the same number (and the same `/*SXF3.1`-style marker, or a newer one when the feature needs it).
+- A feature missing from the drawing is removed with the white space after it. Removing a composite curve or a composite
+  figure removes its members.
+- A new feature goes among the members of its definition: before the next member that stays, else after the previous
+  one (which can be after the sheet), else before the definition. Its number is its own when the file does not use it,
+  else the next multiple of 10 above the largest number in the file. Numbers of removed records are not reused.
+- A new composite curve or composite figure is inserted with its members right after an existing definition, where the
+  reader starts collecting members again. Composite curves keep their numbers (order of appearance): a new one goes
+  after the composite curve before it in the drawing.
+- New layers, colors, line types, widths and fonts go after the last record of their kind (codes are in order of
+  appearance).
+- Records the reader cannot use stay as they are: unreadable and unknown features, declarations of predefined colors,
+  line types and widths, a second sheet, definitions replaced by a later one of the same name, and members that a
+  composite curve cannot hold.
+- New records take the line ends of the file and the white space found between its first two records. Numbers are
+  written with the fewest digits that read back as the same value.
+
+### Editing P21 in place
+
+The reader remembers where each feature came from: the item of the sheet or sub-figure (the `items` of
+DRAWING_SHEET_REVISION and DRAUGHTING_SUBFIGURE_REPRESENTATION) that made it, and the segments of each composite curve.
+Features are matched by instance number within each list.
+
+- A changed feature keeps the number of its item (the occurrence, or the callout of a dimension or leader) and gets new
+  geometry and style instances. Relations that referred to the old item (DIMENSION_CALLOUT_RELATIONSHIP) are rebuilt. An
+  item that wraps another one (a STYLED_ITEM around a callout) is removed and made anew.
+- A feature missing from the drawing leaves its list; a new feature is made with new numbers and joins its list at its
+  place, and its layer.
+- Then every instance that nothing reaches any more is removed: references are followed from the instances that nothing
+  referred to in the file (relations, layer usage, the title …) and from the new instances. Layer assignments
+  (PRESENTATION_LAYER_ASSIGNMENT) and INVISIBILITY are weak references: they keep nothing alive, and removed instances
+  are taken out of them. A layer assignment left without items is removed with its PRESENTATION_LAYER_USAGE
+  (assigned_items must hold one item or more), and references to instances that never existed in the file are kept.
+- A changed layer name or visibility, sheet size or name (DRAWING_SHEET_REVISION, PLANAR_BOX and DRAUGHTING_TITLE), and
+  changed values of colors, line types, widths and fonts rewrite only those instances. New layers, colors and so on are
+  new instances with numbers above the old ones, because the reader assigns codes in order of instance number.
+  A changed composite curve is rebuilt, keeping the numbers of its COMPOSITE_CURVE and of its occurrence.
+- New instances are appended at the end of the DATA section, numbered from the next multiple of 10 above the largest
+  number in the section, with the line ends of the file. Rewritten instances are written on one line.
+- The P21 reader does not read the title block, so a title set on a drawing read from P21 is not written (`title`).
+- A P21 with repeated instance numbers or without a sheet cannot be matched reliably and is written anew (`rewrite`), as
+  is a file that the read limits stopped from being read again.
+
+### Writing P21 anew
+
+The instances of each feature follow the templates of the STEP/AP202 subset volume (chapter 2) and its P21 examples
+(chapter 3). Where the specification leaves a choice, the writer does what the SXF output library does in paired SFC
+and P21 files of the same drawing:
+
+- Names are `' '`. The header is `FILE_DESCRIPTION(('SCADEC level2 AP202_mode'),'2;1')` with the output library
+  `zumen$$3.1` (the SXF version is the suffix) and FILE_SCHEMA `ASSOCIATIVE_DRAUGHTING`. Instances are numbered from 10
+  in steps of 10, in this order: units, colors, line types and fonts, composite curves, composite figures (placed ones
+  first), the elements of the sheet, the title and the sheet, layers, INVISIBILITY.
+- Reals are written with the fewest digits that read back as the same value, always with a decimal point (`1.0`,
+  `1.5E-7`). Non-ASCII strings use `\X2\…\X0\` (or `\X4\…\X0\` outside the basic plane); control characters are left out.
+- Each feature has its own points, directions and placements. Only colors, line types, widths, fonts and the styles made
+  of them (CURVE_STYLE in a PRESENTATION_STYLE_ASSIGNMENT, symbol styles, NULL_STYLE) are shared, so that editing can
+  tell which instances belong to one feature.
+- The predefined colors with AP202 names (black, red, green, blue, yellow, magenta, cyan, white) are
+  DRAUGHTING_PRE_DEFINED_COLOUR; the other SXF predefined colors are COLOUR_RGB named `$$SXF_<name>` with quarter
+  fractions (192 as 0.75). User-defined colors, line types and fonts are written in table order, used or not, so that
+  their codes stay. Widths are LENGTH_MEASURE_WITH_UNIT, one per value (the reader numbers user widths in order of use).
+- Lines are a TRIMMED_CURVE of a LINE whose DIRECTION is the vector from start to end, trimmed by their end points.
+  Arcs and elliptical arcs are trimmed by parameters in radians, with sense .T. for counterclockwise. Splines are one
+  BEZIER_CURVE of degree 3 with all control points (3n+1 points are n cubic segments). Clothoids are a CLOTHOID named
+  `0` (counterclockwise) or `1` (clockwise), trimmed by curve length.
+- Texts are TEXT_LITERAL_WITH_EXTENT named `$$SXF_<row> <column>` with alignment `baseline <column>`, the base point
+  shifted by 1/2, −1/2 or −1 of the height for the bottom, middle and top rows (the reader's rule), a PLANAR_EXTENT of the
+  text box, and TEXT_STYLE_WITH_BOX_CHARACTERISTICS with BOX_WIDTH 0.8 times the height and the rotation also in
+  BOX_ROTATE_ANGLE. Texts without a font refer to no font (`$`).
+- Dimensions are a DRAUGHTING_CALLOUT of the dimension curve, the extension lines (`$$SXF_prj_1`, `$$SXF_prj_2`, a LINE
+  through their base point trimmed by their ends), the value (`dimension value`) and the terminators (`$$SXF_arw_1`,
+  `$$SXF_arw_2`, ORIGIN and TARGET), with a STRUCTURED_DIMENSION_CALLOUT and DIMENSION_CALLOUT_RELATIONSHIP when there is a
+  value. A terminator's X axis points outward from the nearer end of the dimension line for arrow direction 1, inward
+  for 2. Leaders are a LEADER_DIRECTED_CALLOUT of the line, the balloon circle, the text and a LEADER_TERMINATOR at the
+  first point, pointing from the second point. Only the dimension or leader curve and its text are assigned to layers.
+- Fills are an ANNOTATION_FILL_AREA of the outer and inner COMPOSITE_CURVEs with FILL_AREA_STYLE_COLOUR,
+  EXTERNALLY_DEFINED_HATCH_STYLE, one FILL_AREA_STYLE_HATCHING for each pattern (its CURVE_STYLE, a repeat VECTOR at the
+  angle + 90° as long as the spacing, and its start point), or FILL_AREA_STYLE_TILES. Composite curves have an
+  occurrence with their style that is in no list, and in INVISIBILITY when hidden; full circles and ellipses in them are
+  trimmed from 0 to 2π (segments must be bounded curves).
+- Composite figures are a DRAUGHTING_SUBFIGURE_REPRESENTATION named with `$$SXF_FM_`, `$$SXF_FG_`, `$$SXF_G_` or
+  `$$SXF_P_`, with their own units and context and the origin placement as the last item, and a
+  SYMBOL_REPRESENTATION_MAP. Placements are a MAPPED_ITEM in an ANNOTATION_SUBFIGURE_OCCURRENCE; those without a layer are
+  assigned to `$$SXF_dummy_layer_for_subfigure`.
+- The sheet is a DRAWING_SHEET_REVISION named `A<n>_horizontal`, `A<n>_vertical` or `FREE`, with the PLANAR_BOX as its
+  last item, a PRESENTATION_SIZE, and a DRAUGHTING_TITLE that holds the drawing name of the title block or else the
+  sheet name (the reader takes the sheet name from it). A title block adds the contract, approval date and
+  organizations of the SFC title block. A drawing without a sheet is put on a free sheet of size 0 (`no-sheet`).
+- Every layer with items gets a PRESENTATION_LAYER_ASSIGNMENT and PRESENTATION_LAYER_USAGE; layers without items cannot
+  be written (`empty-layer`), and undefined codes are left unassigned.
+
+### Writing SFC anew
+
+- The header is `FILE_DESCRIPTION(('SCADEC level2 feature_mode'),'2;1')` with the output library `zumen$$3.1`.
+- Each feature is enclosed in `/*SXF` … `SXF*/`; the title block and clothoids, added in Ver.3.0, in `/*SXF3` … `SXF3*/`.
+  Instance numbers run from 10 in steps of 10 in writing order, and long lines break between arguments at about 80
+  columns, as public SFC files do.
+- The order is: declarations of the predefined colors and line types used, user-defined colors, line types and widths,
+  text fonts, layers, composite curves (members before the definition), composite figures (members before the
+  definition, placed figures first), the elements of the sheet, the title block, the sheet. Composite curve and composite
+  figure definitions and the sheet take the elements after the previous definition (1-3), so in this order members do
+  not mix.
+- Strings are CP932; characters outside it become ? (`encoding`), and line breaks and control characters are left out.
+  `\` is written as `\\`. Numbers are written with the fewest digits that read back as the same value.
+
+### Compressed SXF
+
+`write_sxf(drawing, "sfz")` and `"p2z"` write the SFC or P21 and put it in a ZIP archive. A drawing read from a
+compressed file and written in the same format goes back into the same archive: only the SXF file is replaced (deflated,
+with its name and date), the other files of the archive (attribute files, images) are copied byte for byte, and an
+unchanged drawing gives the original archive. Other drawings get a new archive with one deflated file named after the
+drawing (`.sfc` or `.p21`, upper case when the name was), dated 1980-01-01 so that the same drawing gives the same bytes.
+Names outside ASCII are Shift_JIS, or UTF-8 with the UTF-8 flag when Shift_JIS lacks a character.
+
+### Notices of the writers
+
+| code | Content |
+| --- | --- |
+| `unknown-code` | Undefined color, line type, width, font, layer, marker or arrow codes were written with the value the display uses (white, continuous, 0.13 mm, no font, no layer, a dot, no arrow) |
+| `not-written`, `not-drawable` | Elements that refer to an undefined composite figure or composite curve, and definitions found among the elements, were not written |
+| `spline-points` | A spline whose control points are not 3n+1 was written as one BEZIER_CURVE with those points |
+| `empty-layer` | A layer without items was not written to P21, or its assignment was removed by an edit |
+| `no-sheet` | A drawing without a sheet was put on a free sheet of size 0 in P21 |
+| `title` | A title block set on a drawing read from P21 was not written |
+| `rewrite` | The original file could not be edited in place and was written anew (the reason is in the message) |
+| `archive` | The original archive could not be read again, so a new archive holds only the SXF file |
+| `encoding`, `invalid-number` | Characters outside CP932 became ? (SFC), and values that are not numbers became 0 |
+
+### Verification
+
+- `crates/zumen-sxf/tests`: every SFC and P21 fixture written anew as P21 and as SFC reads back as the same scene
+  (primitives and boxes within 1e-9, ids through the written numbers); written unchanged, SFC, P21, SFZ and P2Z give the
+  same bytes; edits (moving, deleting and adding features, sub-figures, composite curves and layers, renaming layers,
+  resizing the sheet, changing colors) change exactly those records and instances, remove the instances only removed
+  features used, and read back as the edited drawing; a P2Z keeps its other files.
+- The local samples (`ZUMEN_SAMPLES=… cargo test -p zumen-sxf --release -- --ignored`), a 1,201-entity drawing as SFC
+  and as P21: written anew as P21 they read back the same; written unchanged they give the same bytes; moving a line,
+  deleting a dimension and adding a line in place reads back as the edited drawing (35 ms for the 1.4 MB P21).
+- Checking the written files with the SXF browser's checking function (SXF確認機能) is to come on a Windows host.
+
+## References
+
+- [MLIT SXF Ver.3.1 specification and the requirements for SXF display and checking functions](https://www.cals-ed.go.jp/sxf_ver3-1_specification_draft/)
+- [NILIM, CAD データの作成](https://www.nilim.go.jp/lab/bcg/siryou/tnn/tnn0403pdf/ks0403012.pdf)
+- [ezsxf](https://github.com/monozukuri-ai/ezsxf) (MIT): a Python and Rust library that reads SXF and writes SFC and P21

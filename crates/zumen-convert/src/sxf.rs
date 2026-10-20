@@ -1,4 +1,4 @@
-//! SXF の図面（`SxfDrawing`）を AutoCAD の図面のモデルに写す（docs/formats/sxf.md「DXF への変換」）。
+//! SXF の図面（`SxfDrawing`）を AutoCAD の図面のモデルに写す（docs/formats/sxf.md「Converting to DXF」）。
 //!
 //! - 用紙に配置した部分図（数学・測地座標系、縦横の縮尺が同じもの）は、モデル空間に実寸で置き、用紙のレイアウトに
 //!   その配置の位置・縮尺・回転のビューポートを置く（決定 0008）。測地座標系（X が北、Y が東）の部分図は、表示と同じく

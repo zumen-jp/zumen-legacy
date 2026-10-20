@@ -1,4 +1,5 @@
-//! SFC の書き出し: tests/fixtures の SFC・P21 を読んで SFC に書き、読み直すと同じ図面になる
+//! SFC の書き出し: tests/fixtures の SFC・P21 を読んで SFC に新しく書き（元のファイルを持たせずに書く）、読み直すと
+//! 同じ図面になる。元の SFC を書き換える書き方は edit_sfc.rs
 
 use std::path::{Path, PathBuf};
 use zumen_sxf::{SxfDrawing, parse_sxf, sxf_to_scene, write_sfc, written_ids};
@@ -29,7 +30,8 @@ fn written_sfc_reads_back_as_the_same_drawing() {
     for (folder, format) in [("sfc", "sfc"), ("p21", "p21")] {
         for name in ["features", "nosheet", "sample"] {
             let bytes = std::fs::read(fixtures().join(folder).join(format!("{name}.{format}"))).unwrap();
-            let drawing = parse_sxf(&bytes, format).unwrap();
+            let mut drawing = parse_sxf(&bytes, format).unwrap();
+            drawing.source = None;
             if sxf_to_scene(&drawing).entities.is_empty() {
                 // フィーチャのない図面（nosheet.p21 は円が用紙に置かれていない）は、読み直せる SFC にならない
                 continue;
@@ -53,9 +55,13 @@ fn written_sfc_reads_back_as_the_same_drawing() {
             }
             assert_eq!(before.layers, after.layers, "{name}.{format}");
             assert_eq!(before.sheet, after.sheet, "{name}.{format}");
-            // 書いた SFC を書き直しても変わらない（循環する配置の複合図形は、1 度目に並べ替わることがある）
+            // 書いた SFC を読んで新しく書き直しても変わらない（循環する配置の複合図形は、1 度目に並べ替わることがある）
+            let mut again = again;
+            again.source = None;
             let twice = write_sfc(&again).bytes;
-            assert_eq!(write_sfc(&zumen_sxf::parse_sfc(&twice).unwrap()).bytes, twice, "{name}.{format}");
+            let mut third = zumen_sxf::parse_sfc(&twice).unwrap();
+            third.source = None;
+            assert_eq!(write_sfc(&third).bytes, twice, "{name}.{format}");
         }
     }
 }
