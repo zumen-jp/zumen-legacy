@@ -1626,26 +1626,20 @@ impl<'a> Writer<'a> {
             }
             DxfEntityData::Text(text) => self.text(base, text, owner, paper),
             DxfEntityData::Attrib { text, mtext, .. } if !self.in_insert => {
-                // ブロックの配置に属さない属性は DXF に書けないので、文字として書く（複数行の属性は MTEXT）
+                // ブロックの配置に属さない属性は DXF に書けないので、文字として書く（複数行の属性は MTEXT）。
+                // 知らせは種類ごとに最初の文言を残すので、どちらにも合う 1 つの文言にする
+                self.notices.add(
+                    NoticeLevel::Info,
+                    "attrib-alone",
+                    "ブロック参照に属さない属性（ATTRIB）は、文字（TEXT・MTEXT）として書きました",
+                );
                 match mtext {
                     Some(embedded) => {
-                        self.notices.add(
-                            NoticeLevel::Info,
-                            "attrib-alone",
-                            "ブロック参照に属さない属性（ATTRIB）は、文字（MTEXT）として書きました",
-                        );
                         self.common("MTEXT", base, owner, paper);
                         self.out.tag(100, "AcDbMText");
                         self.mtext_body(&embedded.content, embedded.extrusion);
                     }
-                    None => {
-                        self.notices.add(
-                            NoticeLevel::Info,
-                            "attrib-alone",
-                            "ブロック参照に属さない属性（ATTRIB）は、文字（TEXT）として書きました",
-                        );
-                        self.text(base, text, owner, paper);
-                    }
+                    None => self.text(base, text, owner, paper),
                 }
             }
             DxfEntityData::Attrib { text, tag, attribute_flags, mtext } => {
@@ -2739,5 +2733,9 @@ mod tests {
         let kinds: Vec<&str> = again.entities.iter().map(|entity| entity.base.kind.as_str()).collect();
         assert_eq!(kinds, ["TEXT"]);
         assert_eq!(codes(&written), ["attrib-alone", "dimension-block", "image"]);
+        assert_eq!(
+            written.notices[0].message,
+            "ブロック参照に属さない属性（ATTRIB）は、文字（TEXT・MTEXT）として書きました"
+        );
     }
 }
