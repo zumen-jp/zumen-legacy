@@ -3,8 +3,8 @@ node_modules/
 dist/
 playground-dist/
 *.tsbuildinfo
-# Vitest browser mode output
-.vitest-attachments/
+# Vitest browser mode output (screenshots of failed tests)
+.vitest/
 __screenshots__/
 # OS files
 .DS_Store

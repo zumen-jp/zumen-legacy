@@ -118,13 +118,16 @@ Compared with the DXF that AutoCAD wrote for the same drawing (see [verification
 - SPLINE flags (70): the planar bit and others that DWG does not store are missing.
 - True colors: DXF also writes the nearest index of a true color (62 for layers, 63 for an MTEXT background), which
   DWG does not store; a layer with a true color gets index 7. The true color is drawn in both.
-- Dimension styles: DXF leaves out values at their defaults (DIMASZ and DIMTXT 0.18 in an imperial drawing), which the
-  DXF reader takes as 0, so the drawing uses the header's `$DIMASZ`; DWG stores every value.
 - MULTILEADER background colors in R2000 are indexes only.
 - AutoCAD writes some layers, anonymous blocks and their entities with new handles in DXF, so entity ids differ.
-- Two differences come from the DXF reader: in R2018 files it reads the attribute type of multi-line ATTRIB and ATTDEF as
-  their generation flags (71), and in binary DXF of R2004 and later it keeps the line feeds of MTEXT instead of breaking
-  paragraphs.
+- Multi-line ATTRIB and ATTDEF of R2018: their attribute flags (70) differ from DXF (28 and 235 against 0 in the
+  ACadSharp sample), probably because the values after the embedded MTEXT are read out of step. Their tags and
+  generation flags are the same as in DXF.
+
+The DXF reader used to differ in three more places, now read as DWG has them (see [How DXF is handled](dxf.md#reading)):
+the dimension style values that DXF leaves out at their defaults, the attribute type of R2018 multi-line attributes
+(71 in `AcDbAttribute`), and the line feeds of MTEXT in binary DXF of R2004 and later.
 
 Not supported yet: R13 and R14, the fit points of splines without end tangents, HELIX, MPOLYGON, the content of
-ACAD_TABLE beyond its block, proxy graphics, and DWG files over the section limit.
+ACAD_TABLE beyond its block, the text of R2018 multi-line attributes (their embedded MTEXT, not read from DXF either),
+proxy graphics, and DWG files over the section limit.

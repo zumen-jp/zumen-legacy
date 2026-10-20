@@ -3,7 +3,7 @@
 - The entry point for verification is `pnpm run check` (Biome, the WebAssembly reader (`pnpm run wasm`, which needs
   wasm-bindgen-cli of the `Cargo.lock` version), the type checker, unit tests, `pnpm audit`,
   the builds of every package and the playground, then `check:rust` and `check:python`). Check visible changes in the `pnpm dev` playground
-  with real drawings.
+  with real drawings. Tests named `*.browser.test.*` run in Chromium (`pnpm exec playwright install --only-shell chromium`).
 - Follow the public specification of each format and cite the section in a comment.
   Write down inferred behavior in `docs/formats/`.
 - Report anything not drawn, or drawn differently, through `notices` with its kind and count. Never drop it silently.
@@ -11,15 +11,23 @@
   Tests build the smallest drawing that pins a rule, in the format package's `tests/`.
 - Before adding a runtime dependency, check its license (no GPL or AGPL) and that it works in browsers,
   and record the reason in `docs/architecture.md`.
-- Dependency directions: `@zumenjs/react` → `@zumenjs/core`, and each format package → `@zumenjs/core` only.
-  Keep format knowledge out of `@zumenjs/core`, and keep format packages from importing each other.
+- Dependency directions: `@zumenjs/react` → `@zumenjs/viewer` → `@zumenjs/core`, and each format package →
+  `@zumenjs/core` only. Keep format knowledge and the DOM out of `@zumenjs/core` (its build has no DOM types), and keep
+  format packages from importing each other. What `zumen-core` also has goes to `@zumenjs/core`, and what only browsers
+  need (drawing, input, hit testing) to `@zumenjs/viewer`.
   DWG has no TypeScript reader: `zumen-dwg` reads it in Rust into the AutoCAD drawing model of `zumen-dxf` and draws it
   with `dxf_to_scene`, the one crate that depends on another format crate. `@zumenjs/dwg` wraps its WebAssembly build
   (`packages/dwg/wasm`, built by `scripts/wasm.mjs`, not in Git) and depends only on `@zumenjs/core`.
 - Parsing (`parse*`, `read*` and everything below them) must not depend on the DOM, React or the renderer, and uses
   only the types and `NoticeList` from `@zumenjs/core`. The `*ToScene` conversions use the geometry and text helpers.
-- Interaction (zoom, selection, measurement) belongs in `DrawingViewer`. `@zumenjs/react` only shows the state and
-  calls the viewer's methods.
+- Interaction (the view, selection, measurement, input handlers and tools) belongs in the engines, for 2D and 3D alike:
+  `DrawingViewer` of `@zumenjs/viewer`, and `@zumenjs/stb/three` for structural models. React packages have hooks
+  only, which create an engine, read its state and events, and read files (`@zumenjs/react`).
+- The packages ship no CSS and no text for people: labels, buttons, panels and their wording come from the
+  application, and colors from CSS custom properties (`--zumen-*`). Complete interfaces are samples in the playground,
+  written only against the public API; when a sample needs something the API lacks, add it to the API.
+  `StbViewer` of `@zumenjs/stb/react` still keeps its state, CSS and text until the 3D step of
+  [decision 0005](docs/decisions/0005-browser-packages-for-embedding.md) moves it to the playground.
 - `@zumenjs/stb` (ST-Bridge structural models) is a separate 3D line that imports no other package. Its parsing
   (`src/`, `src/xml/`, `src/stb/`) must not depend on the DOM, three.js or React; three.js belongs in `src/three/` and
   React in `src/react/`. Read ST-Bridge 2.0 and 2.1 into the same `StructureModel`, never one of them only, and never

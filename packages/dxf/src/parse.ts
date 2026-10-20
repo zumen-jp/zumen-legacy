@@ -472,7 +472,9 @@ class Parser {
   }
 
   private dimstyle(start: number, end: number): DxfDimStyle {
-    const style: DxfDimStyle = { handle: "", name: "", dimscale: 1, dimasz: 0, dimtxt: 0 };
+    // AutoCAD の DXF（R2000 以降）は既定値と同じ値を書かない。既定値は $MEASUREMENT によらず AutoCAD の寸法スタイルの
+    // 初期値（DIMSCALE 1、DIMASZ・DIMTXT 0.18）で、同じ図面の DWG はその値を持つ（ACadSharp・netDxf の読み取りも同じ）
+    const style: DxfDimStyle = { handle: "", name: "", dimscale: 1, dimasz: 0.18, dimtxt: 0.18 };
     for (let k = start; k < end; k++) {
       switch (this.code(k)) {
         case 105:
@@ -894,6 +896,10 @@ class Parser {
     const body = this.body(start + 1, end);
     // ATTRIB・ATTDEF の縦の揃えは AcDbAttribute の 74（73 は文字数の上限）
     const base = { ...this.base(type, body, owner), ...this.textBase(body, 74) };
+    // 生成フラグは AcDbText の 71。DXF Reference の ATTRIB の表は AcDbAttribute にも 71 を載せるが、AutoCAD 2018 の DXF は
+    // そこに属性の種類（1 は 1 行、2 は複数行の属性、4 は複数行の属性定義）を書く（ezdxf の attribute_type、ACadSharp の
+    // AttributeType と同じ読み方）
+    base.text_generation_flag = this.number(this.subclassBody(body, "AcDbText"), 71, 0);
     const tag = this.text(body, 2);
     const flags = this.number(body, 70, 0);
     const entity =
