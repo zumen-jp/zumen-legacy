@@ -11,5 +11,8 @@ encoding_rs.workspace = true
 miniz_oxide.workspace = true
 zumen-core.workspace = true
 
+[dev-dependencies]
+serde_json.workspace = true
+
 [lints]
 workspace = true

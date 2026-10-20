@@ -17,7 +17,7 @@ use zumen_core::{Notice, NoticeLevel, NoticeList};
 
 /// 書いた SFC と、書き方を変えた内容。ids は（図面のインスタンス番号, 書いたインスタンス番号）を書いた順に並べたもの
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct SfcWritten {
+pub struct SxfWritten {
     pub bytes: Vec<u8>,
     pub notices: Vec<Notice>,
     pub ids: Vec<(f64, f64)>,
@@ -451,7 +451,7 @@ fn codes(feature: &SxfFeature, colors: &mut HashSet<u64>, line_types: &mut HashS
 }
 
 /// 複合図形を、配置される複合図形が先になる順に並べる（循環する配置は、最初に見つけた所で切る）
-fn sub_figure_order(doc: &SxfDocument) -> Vec<String> {
+pub(crate) fn sub_figure_order(doc: &SxfDocument) -> Vec<String> {
     fn visit(
         doc: &SxfDocument,
         name: &str,
@@ -487,7 +487,7 @@ fn sub_figure_order(doc: &SxfDocument) -> Vec<String> {
 }
 
 /// SXF の図面を SFC ファイル（SXF Ver.3.1）に書く
-pub fn write_sfc(drawing: &SxfDrawing) -> SfcWritten {
+pub fn write_sfc(drawing: &SxfDrawing) -> SxfWritten {
     let doc = &drawing.document;
     let mut writer = Writer { out: Vec::new(), notices: NoticeList::new(), next: 10.0, ids: Vec::new() };
     let header = &drawing.header;
@@ -633,11 +633,11 @@ pub fn write_sfc(drawing: &SxfDrawing) -> SfcWritten {
         );
     }
     writer.out.extend_from_slice(b"ENDSEC;\nEND-ISO-10303-21;\n");
-    SfcWritten { bytes: writer.out, notices: writer.notices.into_vec(), ids: writer.ids }
+    SxfWritten { bytes: writer.out, notices: writer.notices.into_vec(), ids: writer.ids }
 }
 
 /// 書いたインスタンス番号の対応（図面のインスタンス番号 → 書いた番号）。同じ番号の要素が複数あれば最初のもの
-pub fn written_ids(written: &SfcWritten) -> HashMap<u64, f64> {
+pub fn written_ids(written: &SxfWritten) -> HashMap<u64, f64> {
     let mut out = HashMap::new();
     for (id, new) in &written.ids {
         out.entry(id.to_bits()).or_insert(*new);

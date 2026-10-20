@@ -8,9 +8,11 @@ mod features;
 mod header;
 mod p21;
 mod p21_reader;
+mod p21_writer;
 mod scene;
 mod sfc;
 mod sfc_reader;
+mod step;
 mod style;
 mod symbols;
 pub mod tables;
@@ -29,7 +31,12 @@ pub use scene::{SxfSceneOptions, sxf_to_scene, sxf_to_scene_with};
 pub use sfc::parse_sfc;
 pub use style::DEFAULT_WIDTH;
 pub use symbols::{arrow_primitives, marker_primitives};
-pub use write::{SfcWritten, write_sfc, written_ids};
+pub use write::{SxfWritten, write_sfc, written_ids};
+
+/// SXF の図面を P21 ファイル（SXF Ver.3.1、STEP AP202 のサブセット）に書く
+pub fn write_p21(drawing: &SxfDrawing) -> SxfWritten {
+    p21_writer::write_p21_new(drawing)
+}
 
 use zumen_core::{DrawingReader, Property, ReadError, ReadOptions, Scene};
 

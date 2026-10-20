@@ -24,8 +24,8 @@ use zumen_dxf::{
 };
 use zumen_sxf::tables::{PREDEFINED_COLORS, PREDEFINED_LINE_TYPES, PREDEFINED_WIDTHS};
 use zumen_sxf::{
-    Annotation, CompositeCurve, CompositeCurveOrg, DrawingSheet, HatchPattern, LayerDefinition, Region, SfcWritten,
-    SfigOrg, Styled, SubFigure, SubFigures, SxfDocument, SxfDrawing, SxfFeature, SxfHeader, TextFont, UserColour,
+    Annotation, CompositeCurve, CompositeCurveOrg, DrawingSheet, HatchPattern, LayerDefinition, Region, SfigOrg,
+    Styled, SubFigure, SubFigures, SxfDocument, SxfDrawing, SxfFeature, SxfHeader, SxfWritten, TextFont, UserColour,
     UserLineType, WidthDefinition, write_sfc, written_ids,
 };
 
@@ -49,7 +49,7 @@ pub struct MappedSxf {
 
 impl MappedSxf {
     /// SFC に書く。書いたインスタンス番号での sources も返す
-    pub fn write(&self) -> (SfcWritten, HashMap<String, String>) {
+    pub fn write(&self) -> (SxfWritten, HashMap<String, String>) {
         let written = write_sfc(&self.drawing);
         let ids = written_ids(&written);
         let sources = self
