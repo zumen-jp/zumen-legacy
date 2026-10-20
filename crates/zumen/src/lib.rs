@@ -64,8 +64,8 @@ pub fn convert(bytes: &[u8], to: &str, options: &ReadDrawingOptions) -> Result<C
 /// 書き出しの指定
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct WriteOptions {
-    /// 書く版。DXF は 2000・2004・2007・2010・2013・2018（`dxf::DxfVersion::parse` が読む名前。R12 はまだ書けない）。
-    /// 省略すると形式の既定（DXF は 2013）
+    /// 書く版。DXF は R12・2000・2004・2007・2010・2013・2018（`dxf::DxfVersion::parse` が読む名前）。省略すると
+    /// 形式の既定（DXF は 2013）
     pub version: Option<String>,
 }
 
@@ -82,7 +82,9 @@ pub fn convert_with(
     let dxf_version = match (to, write.version.as_deref()) {
         (_, None) => dxf::DxfVersion::R2013,
         ("dxf", Some(name)) => dxf::DxfVersion::parse(name).ok_or_else(|| {
-            ReadError::new(format!("DXF の版 {name} は書けません（書けるのは 2000・2004・2007・2010・2013・2018）"))
+            ReadError::new(format!(
+                "DXF の版 {name} は書けません（書けるのは R12・2000・2004・2007・2010・2013・2018）"
+            ))
         })?,
         (other, Some(_)) => {
             return Err(ReadError::new(format!("{} の版はまだ選べません", other.to_uppercase())));
@@ -130,7 +132,7 @@ pub fn convert_with(
         let written = sxf::write_sfc(&mapped.drawing);
         (written.bytes, written.notices)
     } else {
-        let written = dxf::write_dxf_as(&doc, dxf_version).map_err(ReadError::new)?;
+        let written = dxf::write_dxf_as(&doc, dxf_version);
         (written.bytes, written.notices)
     };
     for notice in &written {

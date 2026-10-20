@@ -233,6 +233,8 @@ pub(crate) struct DataSection {
     pub encrypted: u32,
     /// AcDb:Preview の画像の位置の基準（Preview::base と同じ）。ほかの節は None
     pub preview_base: Option<u64>,
+    /// 0 だけのページも書く（AutoCAD は省く。読み取りは省いた節を空と読むので、値を残したい節に使う）
+    pub keep_zero_pages: bool,
 }
 
 /// 書く R2004 以降の図面
@@ -278,7 +280,7 @@ pub(crate) fn write_r2004(file: &R2004) -> Vec<u8> {
             _ => &section.data,
         };
         for (number, chunk) in data.chunks(page_size).enumerate() {
-            if chunk.iter().all(|byte| *byte == 0) {
+            if !section.keep_zero_pages && chunk.iter().all(|byte| *byte == 0) {
                 continue;
             }
             let start = (number * page_size) as u64;
@@ -457,7 +459,15 @@ mod tests {
     use zumen_core::NoticeList;
 
     fn section(name: &str, data: Vec<u8>, page_size: usize, compressed: bool) -> DataSection {
-        DataSection { name: name.into(), data, page_size, compressed, encrypted: 0, preview_base: None }
+        DataSection {
+            name: name.into(),
+            data,
+            page_size,
+            compressed,
+            encrypted: 0,
+            preview_base: None,
+            keep_zero_pages: false,
+        }
     }
 
     #[test]
