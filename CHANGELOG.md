@@ -4,6 +4,12 @@ All packages share one version during 0.x.
 
 ## Unreleased (0.1.0)
 
+- Python: wheels and an sdist of `zumen` from `.github/workflows/python-wheels.yml`, so that an application installs it
+  without a Rust toolchain. One abi3 wheel serves every Python from 3.10, for manylinux_2_28 (x86_64 and aarch64) and
+  macOS (arm64). Pull requests and `main` upload them as workflow artifacts after the tests of `bindings/python` ran
+  against each installed wheel on Python 3.10 and 3.14, and a pushed tag `v*` attaches them to a GitHub Release
+  ([docs/releasing.md](docs/releasing.md)). Nothing goes to PyPI until the license is decided. The wheels now hold the
+  license text of the bundled BIZ UDGothic (SIL OFL 1.1) in `dist-info/licenses`, which they lacked.
 - Stable keys in the scene model, the same in TypeScript, Rust and every format: `SceneEntity.kind` (`line`, `arc`,
   `text`, `dimension`, … listed in `ENTITY_KINDS`) next to the Japanese `type`, and `Property.key` (`layer`, `color`,
   `start`, `radius`, `dimensionType`, …) next to the Japanese `label`, with the unformatted value in `Property.raw`
