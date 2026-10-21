@@ -4,6 +4,8 @@ All packages share one version during 0.x.
 
 ## Unreleased
 
+## 0.1.1 — 2026-10-21
+
 - Rust: `zumen_dwg::write_dwg_as` writes AutoCAD R13, R14, 2000, 2004, 2007, 2010, 2013 or 2018 DWG, with
   notices for values an older version cannot hold. `write_dwg` and facade conversion still default to 2013.
   R13 and R14 drawings can also be rewritten and edited in their own version, including through Rust and Python

@@ -1,6 +1,6 @@
 {
   "name": "@zumenjs/react",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "React hooks for embedding the zumen drawing engine in your own UI: create the viewer, read its state and events, and read files",
   "keywords": [
     "react",
