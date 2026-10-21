@@ -23,6 +23,11 @@ All packages share one version during 0.x.
   P21, SFZ and P2Z, with `version="2.0"`, `"3.0"` or `"3.1"`) besides DXF, and `zumen::edit` and `zumen::create`
   handle DWG, JWW and SXF besides DXF. JWC and JWS drawings are read and converted like JWW. New JWW and SXF drawings
   are in millimeters, so `create` takes only `units="mm"` for them.
+- Viewer: rotate the drawing on screen. `rotateBy(degrees)` turns it clockwise around the center of the view and refits
+  a fitted box, `jumpTo({ rotation })` sets the angle and `getView().rotation` reads it. `toPaper`, `toScreen`, hit
+  testing, snapping, measurement, dragging and pinching follow the rotation, `View` (of overlay painters) gains
+  `rotation`, and `bounds` is the paper box around the visible area. The playground sample has buttons to turn the
+  drawing by 90 degrees.
 
 ## 0.1.0 — 2026-10-20
 

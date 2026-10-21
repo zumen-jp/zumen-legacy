@@ -8,11 +8,34 @@ import {
   type StrokePrimitive,
 } from "@zumenjs/core";
 
-/** 用紙の mm から CSS の px への変換。x_px = offsetX + x × scale、y_px = offsetY − y × scale */
+/**
+ * 用紙の mm から CSS の px への変換。rotation が 0 なら x_px = offsetX + x × scale、y_px = offsetY − y × scale。
+ * rotation は画面の上で図面を時計回りに回す角度（度）で、用紙の点を原点の周りに回してから同じ式で写す
+ */
 export interface View {
   scale: number;
   offsetX: number;
   offsetY: number;
+  /** 画面の上で時計回りに回す角度（度）。省略は 0 */
+  rotation?: number;
+}
+
+/** 用紙の点を回す向きの cos・sin（用紙の座標で反時計回りの角度 = −rotation） */
+function axes(rotation: number | undefined): [number, number] {
+  if (!rotation) return [1, 0];
+  // 90 度の倍数は誤差のない値にする（回した図面の直線が斜めにならないように）
+  const turns = (((rotation % 360) + 360) % 360) / 90;
+  if (Number.isInteger(turns))
+    return (
+      [
+        [1, 0],
+        [0, -1],
+        [-1, 0],
+        [0, 1],
+      ] as const
+    )[turns] as [number, number];
+  const radians = (-rotation * Math.PI) / 180;
+  return [Math.cos(radians), Math.sin(radians)];
 }
 
 export interface RenderOptions {
@@ -45,30 +68,65 @@ const REFERENCE_FONT_SIZE = 64;
 /** これより小さい文字は字形を描かず、文字の範囲を線で示す（CSS px） */
 const MIN_GLYPH_PX = 2.5;
 
-export function fitView(bounds: Box, width: number, height: number, margin = 24): View {
-  const w = Math.max(bounds.maxX - bounds.minX, 1e-6);
-  const h = Math.max(bounds.maxY - bounds.minY, 1e-6);
+/** 範囲を、rotation の向きで、余白を残して width × height（CSS px）に収める */
+export function fitView(bounds: Box, width: number, height: number, margin = 24, rotation = 0): View {
+  const [cos, sin] = axes(rotation);
+  const bw = Math.max(bounds.maxX - bounds.minX, 1e-6);
+  const bh = Math.max(bounds.maxY - bounds.minY, 1e-6);
+  // 回した範囲が画面で占める幅と高さ
+  const w = Math.abs(bw * cos) + Math.abs(bh * sin);
+  const h = Math.abs(bw * sin) + Math.abs(bh * cos);
   const scale = Math.max(Math.min((width - margin * 2) / w, (height - margin * 2) / h), 1e-9);
-  return {
+  return centeredView((bounds.minX + bounds.maxX) / 2, (bounds.minY + bounds.maxY) / 2, scale, width, height, rotation);
+}
+
+/** 用紙の点 (cx, cy) を表示領域の中央に置く変換 */
+export function centeredView(cx: number, cy: number, scale: number, width: number, height: number, rotation = 0): View {
+  const [cos, sin] = axes(rotation);
+  const view: View = {
     scale,
-    offsetX: width / 2 - ((bounds.minX + bounds.maxX) / 2) * scale,
-    offsetY: height / 2 + ((bounds.minY + bounds.maxY) / 2) * scale,
+    offsetX: width / 2 - (cx * cos - cy * sin) * scale,
+    offsetY: height / 2 + (cx * sin + cy * cos) * scale,
   };
+  if (rotation) view.rotation = rotation;
+  return view;
 }
 
 export function toPaper(view: View, px: number, py: number): [number, number] {
-  return [(px - view.offsetX) / view.scale, (view.offsetY - py) / view.scale];
+  const u = (px - view.offsetX) / view.scale;
+  const v = (view.offsetY - py) / view.scale;
+  if (!view.rotation) return [u, v];
+  const [cos, sin] = axes(view.rotation);
+  return [u * cos + v * sin, v * cos - u * sin];
 }
 
 export function toScreen(view: View, x: number, y: number): [number, number] {
-  return [view.offsetX + x * view.scale, view.offsetY - y * view.scale];
+  if (!view.rotation) return [view.offsetX + x * view.scale, view.offsetY - y * view.scale];
+  const [cos, sin] = axes(view.rotation);
+  return [view.offsetX + (x * cos - y * sin) * view.scale, view.offsetY - (x * sin + y * cos) * view.scale];
+}
+
+/** 表示領域（CSS px）に見えている用紙の範囲。回しているときは、見えている四角形を囲む範囲 */
+export function visibleBounds(view: View, width: number, height: number): Box {
+  const corners = [
+    toPaper(view, 0, 0),
+    toPaper(view, width, 0),
+    toPaper(view, 0, height),
+    toPaper(view, width, height),
+  ];
+  return {
+    minX: Math.min(...corners.map((point) => point[0])),
+    minY: Math.min(...corners.map((point) => point[1])),
+    maxX: Math.max(...corners.map((point) => point[0])),
+    maxY: Math.max(...corners.map((point) => point[1])),
+  };
 }
 
 /** 画面上の点 (px, py) を中心に factor 倍する */
 export function zoomAt(view: View, px: number, py: number, factor: number): View {
   const scale = Math.min(Math.max(view.scale * factor, 1e-6), 1e6);
   const applied = scale / view.scale;
-  return { scale, offsetX: px - (px - view.offsetX) * applied, offsetY: py - (py - view.offsetY) * applied };
+  return { ...view, scale, offsetX: px - (px - view.offsetX) * applied, offsetY: py - (py - view.offsetY) * applied };
 }
 
 /** #rrggbb・#rrggbbaa の輝度（0〜1）。読めない色は null */
@@ -101,12 +159,12 @@ class Painter {
     height: number,
   ) {
     const dpr = options.devicePixelRatio;
-    this.base = [view.scale * dpr, 0, 0, -view.scale * dpr, view.offsetX * dpr, view.offsetY * dpr];
+    const [cos, sin] = axes(view.rotation);
+    const s = view.scale * dpr;
+    this.base = [s * cos, -s * sin, -s * sin, -s * cos, view.offsetX * dpr, view.offsetY * dpr];
     // 1 デバイス px が用紙の何 mm か
     this.pixel = 1 / (view.scale * dpr);
-    const [minX, maxY] = toPaper(view, 0, 0);
-    const [maxX, minY] = toPaper(view, width, height);
-    this.visible = { minX, minY, maxX, maxY };
+    this.visible = visibleBounds(view, width, height);
   }
 
   /**

@@ -283,6 +283,89 @@ describe("表示範囲", () => {
   });
 });
 
+describe("回転", () => {
+  it.each([90, 180])("倍率が変わらない %s 度の回転でも再描画し、変更を通知する", async (degrees) => {
+    const { viewer, base } = await mount(
+      drawing({
+        bounds: { minX: 0, minY: 0, maxX: 100, maxY: 100 },
+        entities: [line("top", [20, 80, 80, 80])],
+      }),
+    );
+    const zoom = viewer.getView().zoom;
+    const events = record(viewer);
+    viewer.rotateBy(degrees);
+    expect(viewer.getView().zoom).toBe(zoom);
+    expect(events.map((entry) => entry.type)).toEqual(["move", "moveend"]);
+    expect(events[0]?.event.view.rotation).toBe(degrees);
+    await frames();
+    expect(pixel(base, ...viewer.toScreen(70, 80))).toEqual([255, 255, 255, 255]);
+  });
+
+  it("収めている図面に有限でない回転角を渡しても、表示状態を壊さない", async () => {
+    const { viewer } = await mount();
+    viewer.rotateBy(90);
+    const before = viewer.getView();
+    const events = record(viewer);
+    for (const degrees of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      viewer.rotateBy(degrees);
+      expect(viewer.getView()).toEqual(before);
+    }
+    expect(events).toHaveLength(0);
+    viewer.rotateBy(90);
+    expect(viewer.getView().rotation).toBe(180);
+  });
+
+  // 回した表示でも、画面の点と用紙の点の変換・収め方・ドラッグ・選択・描画がそろっていないと、狙った図形を扱えない
+  it("rotateBy は収めた範囲を回した向きで収め直し、ドラッグ・選択・描画は回した画面の座標で動く", async () => {
+    const { viewer, base } = await mount(drawing(), { background: "dark" });
+    const events = record(viewer);
+    viewer.rotateBy(90);
+    const view = viewer.getView();
+    expect(view.rotation).toBe(90);
+    expect(events.map((entry) => entry.type)).toEqual(["move", "moveend"]);
+    // 時計回りに 90 度: 用紙の右（+x）が画面の下、用紙の上（+y）が画面の右
+    const [ox, oy] = viewer.toScreen(0, 0);
+    const [rx, ry] = viewer.toScreen(100, 0);
+    const [ux, uy] = viewer.toScreen(0, 50);
+    expect(rx).toBeCloseTo(ox, 9);
+    expect(ry).toBeGreaterThan(oy);
+    expect(ux).toBeGreaterThan(ox);
+    expect(uy).toBeCloseTo(oy, 9);
+    const [x, y] = viewer.toPaper(123, 45);
+    expect(viewer.toScreen(x, y)[0]).toBeCloseTo(123, 9);
+    expect(viewer.toScreen(x, y)[1]).toBeCloseTo(45, 9);
+    // 100 × 50 の範囲は、回すと縦長になり、高さで収まる
+    expect(ry - oy).toBeGreaterThan(ux - ox);
+    expect(Math.min(oy, 300 - ry)).toBeGreaterThan(0);
+    // 見えている範囲は、回した表示領域を囲む
+    expect(view.bounds.maxX - view.bounds.minX).toBeCloseTo((300 / view.zoom) * (25.4 / 96), 6);
+
+    await frames();
+    const [tx, ty] = viewer.toScreen(75, 50);
+    // y = 50 の線は回すと縦になり、その上の点は線の色、線のない用紙の点は背景の色
+    expect(pixel(base, tx, ty)).toEqual([255, 255, 255, 255]);
+    expect(pixel(base, ...viewer.toScreen(25, 25))).toEqual([0, 0, 0, 255]);
+    click(viewer, tx, ty);
+    expect(viewer.getState().selection.map((entity) => entity.id)).toEqual(["top"]);
+
+    const [px, py] = viewer.toPaper(150, 150);
+    drag(viewer, [150, 150], [200, 120]);
+    expect(viewer.toScreen(px, py)[0]).toBeCloseTo(200, 9);
+    expect(viewer.toScreen(px, py)[1]).toBeCloseTo(120, 9);
+
+    // 動かした後は、中央を保って回す。角度は 0 以上 360 未満にそろえる
+    const center = viewer.getView().center;
+    viewer.rotateBy(-450);
+    expect(viewer.getView().rotation).toBe(0);
+    expect(viewer.getView().center[0]).toBeCloseTo(center[0], 9);
+    expect(viewer.getView().center[1]).toBeCloseTo(center[1], 9);
+    viewer.jumpTo({ rotation: 45 });
+    expect(viewer.getView().rotation).toBe(45);
+    viewer.jumpTo({ center: [10, 20] });
+    expect(viewer.getView()).toMatchObject({ center: [10, 20], rotation: 45 });
+  });
+});
+
 describe("操作のハンドラ", () => {
   it("ホイールは wheel の設定に従い、拡大しないときはページのスクロールを止めない。止まると moveend を送る", async () => {
     const { viewer } = await mount();

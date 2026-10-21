@@ -30,7 +30,7 @@ and gives you a framework-agnostic drawing engine to embed in your own interface
 - Drawings you receive: limits on bytes, entities and time, and reading in a Web Worker that can be stopped.
 - DXF and DWG model space and layouts: viewports draw model space at their scale, and measurements inside them return
   real-world units.
-- Fit, zoom (wheel, pinch, buttons, keyboard) and pan (drag, arrow keys).
+- Fit, zoom (wheel, pinch, buttons, keyboard), pan (drag, arrow keys) and rotate (`rotateBy`, by any angle).
 - An engine to embed: set and read the view (and follow it with events, to keep HTML on the drawing in place), select
   several entities, highlight named sets such as search results, add your own tools, turn each input handler off
   (the wheel can zoom only with Ctrl or ⌘), and take colors from CSS custom properties. The engine has no text and the
