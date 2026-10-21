@@ -1,6 +1,6 @@
 {
   "name": "@zumenjs/jww",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Read Jw_cad JWW drawings in the browser and Node.js, without WebAssembly",
   "keywords": [
     "jww",

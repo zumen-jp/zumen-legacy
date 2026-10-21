@@ -8,7 +8,7 @@ Read 2D drawings of Japanese construction and render them, with the Rust impleme
 > Jw_cad JWW, DXF and DWG (AutoCAD 1.0 to 2018) are supported.
 
 Download a wheel for your platform from the [GitHub release](https://github.com/zumenjs/zumen/releases/latest)
-and install it with `pip install path/to/zumen-0.1.0-….whl`. The release includes wheels for Linux x86_64 and
+and install it with `pip install path/to/zumen-0.1.1-….whl`. The release includes wheels for Linux x86_64 and
 aarch64 (glibc 2.28 or newer), macOS arm64, and a source distribution for other platforms.
 
 ```python

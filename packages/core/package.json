@@ -1,6 +1,6 @@
 {
   "name": "@zumenjs/core",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Format-neutral 2D drawing scene model for zumen: the DrawingReader interface, geometry, text layout and measurement, without the DOM",
   "keywords": [
     "cad",

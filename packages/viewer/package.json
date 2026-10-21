@@ -1,6 +1,6 @@
 {
   "name": "@zumenjs/viewer",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "The 2D drawing engine of zumen to embed in your own UI: Canvas rendering, view control, selection, measurement and tools, with no UI text or CSS",
   "keywords": [
     "cad",

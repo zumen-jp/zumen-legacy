@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/zumen-core", "crates/zumen-jww", "crates/zumen-sxf", "crates/zumen-dxf", "crates/zumen-dwg", "crates/zumen-convert", "crates/zumen", "crates/zumen-render", "crates/zumen-cli", "bindings/python", "bindings/wasm"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/zumenjs/zumen"
