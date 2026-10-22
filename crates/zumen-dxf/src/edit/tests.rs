@@ -289,7 +289,7 @@ fn explains_what_cannot_be_edited() {
     let child = doc.entities.iter().find(|entity| entity.base.kind == "LINE").unwrap().base.handle.clone();
     let cases = [
         (format!(r#"[{{"op": "update", "id": "{insert}>{child}", "set": {{"layer": "WALL"}}}}]"#), "inside-block"),
-        (r#"[{"op": "add", "kind": "hatch"}]"#.to_string(), "unsupported-kind"),
+        (r#"[{"op": "add", "kind": "spline"}]"#.to_string(), "unsupported-kind"),
         (format!(r#"[{{"op": "update", "id": "{child}", "set": {{"radius": 1}}}}]"#), "unknown-key"),
         (
             r#"[{"op": "add", "kind": "line", "start": [0, 0], "end": [1, 0], "lineType": "NONE"}]"#.to_string(),
@@ -655,6 +655,62 @@ fn adds_text_and_dimension_styles_and_line_types_that_later_operations_use() {
     ] {
         assert_eq!(edit(&bytes, operations).unwrap_err().code, code, "{operations}");
     }
+}
+
+#[test]
+fn adds_solid_and_patterned_hatches() {
+    let bytes = drawing("");
+    let edited = edit(
+        &bytes,
+        r#"[
+            {"op": "add", "kind": "hatch", "layer": "WALL", "boundaries": [[[0, 0], [100, 0], [100, 20], [0, 20]]]},
+            {"op": "add", "kind": "hatch", "pattern": "ansi31", "patternScale": 10, "patternAngle": 15,
+             "boundaries": [[[0, 0], [1000, 0], [1000, 800], [0, 800]], [[100, 100], [300, 100], [300, 300], [100, 300]]]},
+            {"op": "add", "kind": "hatch", "pattern": "TILE", "patternLines": [[0, 0, 0, 0, 100], [90, 0, 0, 0, 100]],
+             "boundaries": [[0, 0], [500, 0], [500, 500]]}
+        ]"#,
+    )
+    .unwrap();
+    let doc = parse_dxf(&edited.bytes);
+    let hatches: Vec<_> = edited
+        .created
+        .iter()
+        .map(|handle| match &doc.entities.iter().find(|entity| &entity.base.handle == handle).unwrap().data {
+            DxfEntityData::Hatch(hatch) => hatch.clone(),
+            other => panic!("{other:?}"),
+        })
+        .collect();
+    assert!(hatches[0].solid_fill && hatches[0].pattern_name == "SOLID");
+    assert_eq!(
+        (hatches[1].pattern_name.as_str(), hatches[1].paths.len(), hatches[1].pattern_scale),
+        ("ANSI31", 2, 10.0)
+    );
+    assert_eq!(hatches[1].pattern_lines[0].angle, 60.0);
+    assert_eq!(
+        (hatches[2].pattern_name.as_str(), hatches[2].pattern_lines.len(), hatches[2].pattern_type),
+        ("TILE", 2, 2.0)
+    );
+    let scene = crate::dxf_to_scene(&doc, None);
+    for handle in &edited.created {
+        let entity = scene.entities.iter().find(|entity| &entity.id == handle).unwrap();
+        assert_eq!(entity.kind.name(), "hatch");
+        assert!(!entity.primitives.is_empty());
+    }
+    assert!(!scene.notices.iter().any(|notice| notice.code.starts_with("hatch")), "{:?}", scene.notices);
+    let errors = [
+        (
+            r#"[{"op": "add", "kind": "hatch", "pattern": "AR-CONC", "boundaries": [[0, 0], [1, 0], [1, 1]]}]"#,
+            "missing-definition",
+        ),
+        (r#"[{"op": "add", "kind": "hatch", "boundaries": [[0, 0], [1, 0]]}]"#, "invalid-value"),
+        (r#"[{"op": "add", "kind": "hatch"}]"#, "invalid-value"),
+    ];
+    for (operations, code) in errors {
+        assert_eq!(edit(&bytes, operations).unwrap_err().code, code, "{operations}");
+    }
+    let r12 = "0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n";
+    let error = edit(r12.as_bytes(), r#"[{"op": "add", "kind": "hatch", "boundaries": [[0, 0], [1, 0], [1, 1]]}]"#);
+    assert_eq!(error.unwrap_err().code, "unsupported-kind");
 }
 
 #[test]

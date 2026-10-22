@@ -40,8 +40,19 @@ use zumen_core::{NoticeLevel, NoticeList};
 use zumen_dxf::dimension::{self, DimStyleValues, DimensionKind, Part, Role};
 
 /// 足せる図形の種類（DXF の編集と同じ）
-const ADDABLE: [&str; 10] =
-    ["line", "polyline", "arc", "circle", "ellipse", "ellipse-arc", "point", "text", BLOCK_REFERENCE, "dimension"];
+const ADDABLE: [&str; 11] = [
+    "line",
+    "polyline",
+    "arc",
+    "circle",
+    "ellipse",
+    "ellipse-arc",
+    "point",
+    "text",
+    BLOCK_REFERENCE,
+    "dimension",
+    "hatch",
+];
 
 /// 図形・レイヤに共通する値のキー
 const COMMON: [&str; 4] = ["layer", "color", "lineType", "lineWidth"];
@@ -90,6 +101,7 @@ mod kind {
     pub const LTYPE: u16 = 57;
     pub const DIMSTYLE_CONTROL: u16 = 68;
     pub const DIMSTYLE: u16 = 69;
+    pub const HATCH: u16 = 78;
 }
 
 /// DWG を編集する。すべての操作を確かめてから書き、1 つでも通らなければエラーを返して何も書かない
@@ -1002,6 +1014,23 @@ impl Editor {
                     "寸法",
                 )?;
                 self.dimension(index, &reader)?
+            }
+            "hatch" => {
+                reader.allow(&keys(&zumen_dxf::hatch::KEYS), "ハッチング")?;
+                let input = zumen_dxf::hatch::read(&reader, index)?;
+                // HATCH は R14 から（R14 はクラスの型、R2000 から決まった型 78。モデルの書き出しと同じ）
+                let type_number = match self.version {
+                    Version::R13 => {
+                        return Err(EditError::at(
+                            index,
+                            "unsupported-kind",
+                            "AutoCAD R13 の DWG にはハッチング（HATCH）がありません",
+                        ));
+                    }
+                    Version::R14 => self.class_number(index, "HATCH")?,
+                    _ => kind::HATCH,
+                };
+                (type_number, build::hatch(&input, self.raw_text(&input.pattern)))
             }
             _ => {
                 reader.allow(&keys(&["block", "position", "rotation", "scale"]), "ブロック参照")?;

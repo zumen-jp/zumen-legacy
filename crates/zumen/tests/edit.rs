@@ -370,3 +370,25 @@ fn adds_block_definitions_to_every_dxf_and_dwg() {
         assert_eq!((error.code, error.operation), ("unsupported-kind", Some(0)), "{format}");
     }
 }
+
+/// 新しい DXF・DWG に、スタイル・寸法・ハッチングを足して描ける（docs/decisions/0017）
+#[test]
+fn creates_drawings_with_styles_dimensions_and_hatches() {
+    let operations = parse_operations(
+        r#"[
+            {"op": "add-text-style", "name": "JP", "font": "MS Gothic"},
+            {"op": "add-dimension-style", "name": "DIM-100", "scale": 100, "textHeight": 2.5, "arrowSize": 2.5, "decimals": 0, "textStyle": "JP"},
+            {"op": "add", "kind": "polyline", "vertices": [[0, 0], [5000, 0], [5000, 3600], [0, 3600]], "closed": true},
+            {"op": "add", "kind": "hatch", "pattern": "ANSI31", "patternScale": 30, "boundaries": [[[0, 0], [5000, 0], [5000, 150], [0, 150]]]},
+            {"op": "add", "kind": "dimension", "dimensionStyle": "DIM-100", "start": [0, 0], "end": [5000, 0], "position": [0, -800]}
+        ]"#,
+    )
+    .unwrap();
+    for format in ["dxf", "dwg"] {
+        let created = zumen::create(format, "mm", &operations).unwrap_or_else(|error| panic!("{format}: {error}"));
+        let scene = read(&created.bytes);
+        let kinds: Vec<&str> = scene.entities.iter().map(|entity| entity.kind.name()).collect();
+        assert_eq!(kinds, ["polyline", "hatch", "dimension"], "{format}");
+        assert!(scene.entities.iter().all(|entity| !entity.primitives.is_empty()), "{format}");
+    }
+}

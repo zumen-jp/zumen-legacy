@@ -12,6 +12,9 @@ All packages share one version during 0.x.
   a DIMENSION with its `*D` block computed from the dimension style, so that zumen and other readers draw it.
 - Rust, Python and the command line: `add-text-style`, `add-line-type` and `add-dimension-style` for DXF and DWG, so
   that a new drawing gets a Japanese text style and dimensions sized for its units and scale.
+- Rust, Python and the command line: `add` takes `kind: "hatch"` for DXF (R13 to 2018) and DWG (R14
+  to 2018): closed polyline boundaries with holes, `SOLID`, built-in patterns (`ANSI31`, `ANSI32`, `ANSI37`, `LINE`,
+  `NET`, `DOTS`) or the lines of a PAT pattern.
 
 ## 0.1.1 — 2026-10-21
 

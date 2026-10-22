@@ -32,6 +32,8 @@ pub enum EditValue {
     Numbers(Vec<f64>),
     /// 点の並び（[[x, y], ...]）
     Points(Vec<Vec<f64>>),
+    /// 点の並びの並び（ハッチングの境界 [[[x, y], ...], ...]。docs/decisions/0017）
+    Paths(Vec<Vec<Vec<f64>>>),
 }
 
 /// キーごとの値
@@ -284,6 +286,27 @@ fn edit_value(index: usize, key: &str, value: &Json) -> Result<EditValue, EditEr
         Json::Bool(value) => EditValue::Bool(*value),
         Json::Number(_) => EditValue::Number(number(value)?),
         Json::String(text) => EditValue::Text(text.clone()),
+        Json::Array(items)
+            if !items.is_empty()
+                && items.iter().all(|item| {
+                    item.as_array().is_some_and(|inner| !inner.is_empty() && inner.iter().all(Json::is_array))
+                }) =>
+        {
+            EditValue::Paths(
+                items
+                    .iter()
+                    .map(|item| {
+                        item.as_array()
+                            .ok_or_else(invalid)?
+                            .iter()
+                            .map(|point| {
+                                point.as_array().ok_or_else(invalid)?.iter().map(number).collect::<Result<Vec<_>, _>>()
+                            })
+                            .collect::<Result<Vec<_>, _>>()
+                    })
+                    .collect::<Result<_, _>>()?,
+            )
+        }
         Json::Array(items) if items.iter().all(Json::is_array) && !items.is_empty() => EditValue::Points(
             items
                 .iter()
@@ -322,6 +345,7 @@ impl<'a> ValueReader<'a> {
                 EditValue::Number(number) => valid(number),
                 EditValue::Numbers(numbers) => numbers.iter().all(valid),
                 EditValue::Points(points) => points.iter().flatten().all(valid),
+                EditValue::Paths(paths) => paths.iter().flatten().flatten().all(valid),
                 _ => true,
             };
             if !valid {
@@ -533,6 +557,13 @@ mod tests {
         assert_eq!(error.code, "unknown-key");
         let error = parse_operations(r#"[{"op": "add", "kind": "line", "start": [1e300, 0]}]"#).unwrap_err();
         assert_eq!(error.code, "invalid-value");
+        let operations =
+            parse_operations(r#"[{"op": "add", "kind": "hatch", "boundaries": [[[0, 0], [1, 0], [1, 1]], [[0.2, 0.2], [0.5, 0.2], [0.5, 0.5]]]}]"#)
+                .unwrap();
+        let EditOperation::Add { values, .. } = &operations[0] else { panic!() };
+        assert!(
+            matches!(&values["boundaries"], EditValue::Paths(paths) if paths.len() == 2 && paths[1][2] == [0.5, 0.5])
+        );
         let error = parse_operations(r#"{"op": "delete"}"#).unwrap_err();
         assert_eq!((error.code, error.operation), ("invalid-operations", None));
     }

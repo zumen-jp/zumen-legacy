@@ -407,7 +407,7 @@ fn reports_why_an_operation_fails() {
     let bytes = fixture("r2018.dwg");
     let code = |json: &str| edit(&bytes, json).unwrap_err();
     let cases = [
-        (r#"[{"op": "add", "kind": "hatch"}]"#, "unsupported-kind"),
+        (r#"[{"op": "add", "kind": "spline"}]"#, "unsupported-kind"),
         (r#"[{"op": "delete", "id": "FFFF"}]"#, "not-found"),
         (r#"[{"op": "delete", "id": "zz"}]"#, "not-found"),
         (r#"[{"op": "delete", "id": "10"}]"#, "not-found"),
@@ -733,6 +733,42 @@ fn adds_styles_in_every_version() {
             })
             .unwrap_or_else(|| panic!("{name}"));
         assert_eq!((label.raw_text.as_str(), label.char_height, label.style.as_str()), ("5000", 250.0, "JP"), "{name}");
+    }
+}
+
+/// ハッチングを足す（docs/decisions/0017）。R14 から（R14 はクラスの型）、R13 は受け付けない
+#[test]
+fn adds_hatches_from_r14_on() {
+    let operations = r#"[
+        {"op": "add", "kind": "hatch", "boundaries": [[[0, 0], [100, 0], [100, 20], [0, 20]]]},
+        {"op": "add", "kind": "hatch", "pattern": "ANSI37", "patternScale": 2, "patternAngle": 30,
+         "boundaries": [[[0, 0], [50, 0], [50, 40], [0, 40]], [[10, 10], [20, 10], [20, 20], [10, 20]]]}
+    ]"#;
+    let mut versions: Vec<(String, Vec<u8>)> =
+        crate::DwgVersion::ALL.iter().map(|version| (version.name().to_string(), written_as(*version))).collect();
+    versions.push(("new".into(), new_dwg("mm").unwrap()));
+    for (name, bytes) in versions {
+        let edited = edit(&bytes, operations);
+        if name == "R13" {
+            assert_eq!(edited.unwrap_err().code, "unsupported-kind");
+            continue;
+        }
+        let edited = edited.unwrap_or_else(|error| panic!("{name}: {error}"));
+        check_structure(&name, &edited.bytes);
+        let doc = crate::read_dwg(&edited.bytes).unwrap_or_else(|error| panic!("{name}: {error}"));
+        let get = |handle: &str| match &entity(&doc, handle).unwrap_or_else(|| panic!("{name}: {handle}")).data {
+            DxfEntityData::Hatch(hatch) => hatch.clone(),
+            other => panic!("{name}: {other:?}"),
+        };
+        let (solid, patterned) = (get(&edited.created[0]), get(&edited.created[1]));
+        assert!(solid.solid_fill, "{name}");
+        assert_eq!((patterned.pattern_name.as_str(), patterned.paths.len()), ("ANSI37", 2), "{name}");
+        assert!((patterned.pattern_lines[1].angle - 165.0).abs() < 1e-9, "{name}");
+        let scene = zumen_dxf::dxf_to_scene(&doc, None);
+        for handle in &edited.created {
+            let drawn = scene.entities.iter().find(|entity| &entity.id == handle).unwrap_or_else(|| panic!("{name}"));
+            assert!(!drawn.primitives.is_empty(), "{name}: {handle} draws nothing");
+        }
     }
 }
 
