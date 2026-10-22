@@ -4,7 +4,7 @@
 //! 変数の意味は DXF Reference「DIMSTYLE」と AutoCAD の System Variables（DIMSCALE、DIMASZ、DIMEXO、DIMEXE、DIMTXT、
 //! DIMGAP、DIMTAD、DIMDEC、DIMZIN、DIMLFAC、DIMTSZ、DIMCLRD、DIMCLRE、DIMCLRT）。矢印は塗りつぶしの閉じた矢印
 //! （長さ DIMASZ、幅はその 1/3）、DIMTSZ が 0 より大きければ斜線（ezdxf の ARCHITECTURAL_TICK と同じ形）。
-//! 文字は寸法線の中央に置き、DIMTAD が 0 なら寸法線を文字の幅と DIMGAP だけ切り、0 でなければ DIMGAP だけ上に置く。
+//! 文字は寸法線の中央に置き、DIMTAD の配置と DIMGAP に従う。0 なら寸法線を文字の幅と DIMGAP だけ切る。
 
 use zumen_core::edit::{EditError, ValueReader};
 
@@ -296,7 +296,14 @@ pub fn layout(
     let content = if text.is_empty() { "<>".to_string() } else { text.to_string() };
     let shown = content.replace("<>", &format_measurement(measurement, style));
     let middle = scaled(add(first, second), 0.5);
-    let text_midpoint = if style.text_above != 0 { add(middle, scaled(up, gap + height / 2.0)) } else { middle };
+    // AutoCAD System Variables「DIMTAD」: 2 は定義点から遠い側、4 は下。3 の JIS 配置は上で近似し、呼び出し元が知らせる。
+    let side = match style.text_above {
+        0 => 0.0,
+        2 if dot(sub(middle, start), up) < 0.0 => -1.0,
+        4 => -1.0,
+        _ => 1.0,
+    };
+    let text_midpoint = add(middle, scaled(up, side * (gap + height / 2.0)));
     // 寸法線（DIMTAD が 0 なら文字のところで切る）
     let half = measurement / 2.0;
     let cut = if style.text_above == 0 && !shown.trim().is_empty() {
@@ -378,6 +385,22 @@ mod tests {
         );
         let solids = layout.parts.iter().filter(|(part, _)| matches!(part, Part::Solid(_))).count();
         assert_eq!(solids, 2);
+    }
+
+    /// AutoCAD System Variables「DIMTAD」の 2（定義点から遠い側）・4（下）は、寸法線が上下のどちらでも配置を守る。
+    #[test]
+    fn positions_dimension_text_outside_or_below_the_line() {
+        let mut style = metric();
+        let offset = (style.gap + style.text_height / 2.0) * style.scale;
+        for y in [-800.0_f64, 800.0] {
+            for (placement, side) in [(2, y.signum()), (4, -1.0)] {
+                style.text_above = placement;
+                for (start, end) in [([0.0; 3], [5000.0, 0.0, 0.0]), ([5000.0, 0.0, 0.0], [0.0; 3])] {
+                    let layout = layout(DimensionKind::Aligned, start, end, [0.0, y, 0.0], "<>", &style).unwrap();
+                    assert_eq!(layout.text_midpoint, [2500.0, y + side * offset, 0.0], "DIMTAD={placement}, y={y}");
+                }
+            }
+        }
     }
 
     #[test]
