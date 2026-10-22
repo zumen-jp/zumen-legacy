@@ -913,3 +913,131 @@ fn adds_leaders_with_their_notes() {
     let error = edit(r12.as_bytes(), r#"[{"op": "add", "kind": "leader", "vertices": [[0, 0], [1, 1]]}]"#);
     assert_eq!(error.unwrap_err().code, "unsupported-kind");
 }
+
+/// 画像と、その定義・辞書・クラスを足す（docs/decisions/0017）
+#[test]
+fn adds_images_with_their_definitions() {
+    let operations = r#"[
+        {"op": "add", "kind": "image", "path": "maps/site.png", "pixels": [200, 100], "position": [10, 20],
+         "width": 50, "rotation": 90}
+    ]"#;
+    let source = parse_dxf(&drawing(""));
+    let mut versions: Vec<(String, Vec<u8>)> = crate::write::DxfVersion::ALL
+        .iter()
+        .map(|version| (format!("{version:?}"), crate::write_dxf_as(&source, *version).bytes))
+        .collect();
+    // R14（AC1014）は R2000 の書き出しの版を変えて作る
+    let r2000 = text(&versions.iter().find(|(name, _)| name == "R2000").unwrap().1);
+    versions.push(("R14".into(), r2000.replacen("AC1015", "AC1014", 1).into_bytes()));
+    for (name, bytes) in versions {
+        let result = edit(&bytes, operations);
+        if name == "R12" {
+            assert_eq!(result.unwrap_err().code, "unsupported-kind");
+            continue;
+        }
+        let edited = result.unwrap_or_else(|error| panic!("{name}: {error}"));
+        // 同じ図面にもう 1 つ足すと、辞書とクラスを使い回し、項目の名前を変える
+        let edited = edit(&edited.bytes, operations).unwrap_or_else(|error| panic!("{name}: {error}"));
+        let doc = parse_dxf(&edited.bytes);
+        let image = doc.entities.iter().find(|entity| entity.base.handle == edited.created[0]).unwrap();
+        let DxfEntityData::Image(image) = &image.data else { panic!("{name}: {image:?}") };
+        assert_eq!(image.path.as_deref(), Some("maps/site.png"), "{name}");
+        assert_eq!(image.image_size, [200.0, 100.0], "{name}");
+        assert!((image.u_pixel[1] - 0.25).abs() < 1e-12 && image.u_pixel[0].abs() < 1e-12, "{name}: {image:?}");
+        assert!((image.v_pixel[0] + 0.25).abs() < 1e-12, "{name}: {image:?}");
+        let all = tags(&edited.bytes);
+        let count = |code: i32, value: &str| all.iter().filter(|tag| tag.0 == code && tag.1 == value).count();
+        assert_eq!(count(1, "IMAGEDEF_REACTOR"), 1, "{name}: one class");
+        assert_eq!(count(0, "IMAGEDEF_REACTOR"), 2, "{name}");
+        assert_eq!(count(3, "ACAD_IMAGE_DICT"), 1, "{name}: one dictionary");
+        assert_eq!((count(3, "site"), count(3, "site-2")), (1, 1), "{name}");
+        let scene = crate::dxf_to_scene(&doc, None);
+        let drawn = scene.entities.iter().find(|entity| entity.id == edited.created[0]).unwrap();
+        assert_eq!(drawn.kind.name(), "image", "{name}");
+    }
+    let error = edit(
+        &drawing(""),
+        r#"[{"op": "add", "kind": "image", "path": "a.png", "pixels": [0, 1], "position": [0, 0]}]"#,
+    );
+    assert_eq!(error.unwrap_err().code, "invalid-value");
+}
+
+/// 新しい用紙の座標は、雛形のインチ・回転・印刷倍率・余白に依存しない。
+#[test]
+fn new_layout_uses_millimeters_at_full_size() {
+    let mut source = crate::parse_dxf(&crate::new_dxf("mm").unwrap());
+    for layout in source.layouts.iter_mut().filter(|layout| !layout.model) {
+        layout.paper_units = 0.0;
+        layout.plot_rotation = 1.0;
+        layout.plot_scale = [1.0, 4.0];
+        layout.plot_origin = [123.0, 456.0];
+        layout.margins = [7.0, 8.0, 9.0, 10.0];
+    }
+    let operations = r#"[
+        {"op":"add-layout","name":"NEW","paperSize":[420,297]},
+        {"op":"add","kind":"line","container":"layout:NEW","start":[0,0],"end":[420,297]}
+    ]"#;
+    let edited = edit(&crate::write_dxf(&source).bytes, operations).unwrap();
+    let doc = crate::parse_dxf(&edited.bytes);
+    let layout = doc.layouts.iter().find(|layout| layout.name == "NEW").unwrap();
+    assert_eq!((layout.paper_units, layout.plot_rotation, layout.plot_scale), (1.0, 0.0, [1.0, 1.0]));
+    assert_eq!((layout.margins, layout.plot_origin), ([0.0; 4], [0.0; 2]));
+    let scene = crate::dxf_to_scene(&doc, Some("NEW"));
+    let sheet = scene.sheet.unwrap();
+    assert_eq!((sheet.width, sheet.height), (420.0, 297.0));
+    let line = scene.entities.iter().find(|entity| entity.id == edited.created[1]).unwrap();
+    assert_eq!((line.bbox.min_x, line.bbox.min_y, line.bbox.max_x, line.bbox.max_y), (0.0, 0.0, 420.0, 297.0));
+}
+
+/// ATTRIB は INSERT から独立した文字なので、定義の見た目を保ち、尺度を文字の両軸に掛ける。
+#[test]
+fn preserves_attribute_appearance_and_nonuniform_scaling() {
+    let definitions = edit(&drawing(""), r#"[
+        {"op":"add-block","name":"REVIEW"},
+        {"op":"add","kind":"attribute-definition","container":"block:REVIEW","tag":"A","text":"hello","position":[1,2],"height":1,"layer":"WALL","color":2,"lineType":"DASHED","lineWidth":0.35},
+        {"op":"add","kind":"attribute-definition","container":"block:REVIEW","tag":"B","text":"rotated","position":[0,0],"height":1,"rotation":90,"color":3}
+    ]"#).unwrap();
+    let edited = edit(&definitions.bytes, r#"[
+        {"op":"add","kind":"block-reference","block":"REVIEW","position":[10,20],"scale":[2,1],"attributes":{},"color":4},
+        {"op":"add","kind":"block-reference","block":"REVIEW","position":[0,0],"scale":[-2,1],"attributes":{}}
+    ]"#).unwrap();
+    let doc = parse_dxf(&edited.bytes);
+    let get = |handle: &str| {
+        let DxfEntityData::Insert(insert) =
+            &doc.entities.iter().find(|entity| entity.base.handle == handle).unwrap().data
+        else {
+            panic!()
+        };
+        insert
+    };
+    let insert = get(&edited.created[0]);
+    let base = &insert.attribs[0].base;
+    assert_eq!(
+        (base.layer.as_str(), base.color_index, base.linetype.as_str(), base.lineweight),
+        ("WALL", 2.0, "DASHED", 35.0)
+    );
+    let DxfEntityData::Attrib { text, .. } = &insert.attribs[0].data else { panic!() };
+    assert_eq!((text.insert, text.height, text.width), ([12.0, 22.0, 0.0], 1.0, 2.0));
+    let DxfEntityData::Attrib { text, .. } = &insert.attribs[1].data else { panic!() };
+    assert!((text.height - 2.0).abs() < 1e-9 && (text.width - 0.5).abs() < 1e-9 && (text.rotation - 90.0).abs() < 1e-9);
+    assert_eq!(insert.attribs[1].base.color_index, 3.0);
+    let DxfEntityData::Attrib { text, .. } = &get(&edited.created[1]).attribs[0].data else { panic!() };
+    assert_eq!(text.text_generation_flag, 4.0);
+    assert!((text.rotation.abs() - 180.0).abs() < 1e-9);
+}
+
+#[test]
+fn reports_approximated_jis_dimension_text_position() {
+    let bytes = b"0\nSECTION\n2\nHEADER\n9\n$DIMTAD\n70\n3\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n";
+    let edited =
+        edit(bytes, r#"[{"op":"add","kind":"dimension","start":[0,0],"end":[1000,0],"position":[0,-100]}]"#).unwrap();
+    assert!(edited.notices.iter().any(|notice| notice.code == "edit-dimension-text-position" && notice.count == 1));
+}
+
+#[test]
+fn exhausted_dimension_block_names_fail_without_overflowing() {
+    let bytes = b"0\nSECTION\n2\nBLOCKS\n0\nBLOCK\n2\n*D18446744073709551615\n70\n1\n10\n0\n20\n0\n0\nENDBLK\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n";
+    let error =
+        edit(bytes, r#"[{"op":"add","kind":"dimension","start":[0,0],"end":[10,0],"position":[0,5]}]"#).unwrap_err();
+    assert_eq!((error.code, error.operation), ("name-exhausted", Some(0)));
+}

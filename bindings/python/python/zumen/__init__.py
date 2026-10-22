@@ -155,7 +155,8 @@ def edit(
     ``multiline`` and ``widthFactor``; ``"kind": "attribute-definition"`` goes in a block and ``block-reference`` takes ``attributes``
     (``{"TAG": "value"}``); ``add-layout`` (``paperSize`` and ``margins`` in mm) and ``"kind": "viewport"`` in ``"container":
     "layout:<name>"`` (``center``, ``width``, ``height``, ``viewCenter``, ``scale``) make sheets; ``"kind": "leader"`` (``vertices``, ``text``, ``height``,
-    ``dimensionStyle``) adds a leader with its note. Kinds and keys are the ones that ``Scene``
+    ``dimensionStyle``) adds a leader with its note; ``"kind": "image"`` (``path``, ``pixels``,
+    ``position``, ``width``, ``rotation``) adds a raster image that refers to ``path``. Kinds and keys are the ones that ``Scene``
     reports (``kind`` and the property keys), and coordinates are the drawing's own (the ``raw`` of properties), not
     paper millimeters. The format, its version, its text encoding and everything that no operation names stay as they
     were, including what zumen cannot read. DXF, DWG, JWW and SXF can be edited.

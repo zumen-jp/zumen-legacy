@@ -165,6 +165,14 @@ def test_edited_dxf_passes_the_audit_of_ezdxf(tmp_path):
                 "justification": "middle-center",
             },
             {"op": "add", "kind": "leader", "vertices": [[0, 0], [5, 5], [9, 5]], "text": "注記"},
+            {
+                "op": "add",
+                "kind": "image",
+                "path": "maps/site.png",
+                "pixels": [400, 300],
+                "position": [0, 0],
+                "width": 40,
+            },
             {"op": "add-layout", "name": "CHECK-SHEET", "paperSize": [420, 297]},
             {
                 "op": "add",
@@ -184,7 +192,7 @@ def test_edited_dxf_passes_the_audit_of_ezdxf(tmp_path):
         auditor = doc.audit()
         found = [(entry.code, entry.message) for entry in [*auditor.errors, *auditor.fixes]]
         assert found == [], (name, found)
-        added = [doc.entitydb[handle] for handle in edited.created[1:-13]]
+        added = [doc.entitydb[handle] for handle in edited.created[1:-14]]
         assert [entity.dxftype() for entity in added[:9]] == [
             "LINE",
             "CIRCLE",
@@ -201,16 +209,19 @@ def test_edited_dxf_passes_the_audit_of_ezdxf(tmp_path):
         assert doc.layers.get("CHECK").dxf.lineweight == 35
         block = doc.blocks.get("CHECK-BLOCK")
         assert [entity.dxftype() for entity in block] == ["CIRCLE", "ATTDEF"], name
-        reference = doc.entitydb[edited.created[-10]]
+        reference = doc.entitydb[edited.created[-11]]
         assert reference.dxf.name == "CHECK-BLOCK" and reference.get_attrib_text("NAME") == "確認", name
         assert doc.styles.get("CHECK-JP").get_extended_font_data()[0] == "MS Gothic", name
         assert doc.linetypes.get("CHECK-DASH").simplified_line_pattern() == (2, 1), name
         assert doc.dimstyles.get("CHECK-DIM").dxf.dimscale == 2, name
-        dimension = doc.entitydb[edited.created[-6]]
-        hatch = doc.entitydb[edited.created[-5]]
-        centered = doc.entitydb[edited.created[-4]]
-        leader = doc.entitydb[edited.created[-3]]
+        dimension = doc.entitydb[edited.created[-7]]
+        hatch = doc.entitydb[edited.created[-6]]
+        centered = doc.entitydb[edited.created[-5]]
+        leader = doc.entitydb[edited.created[-4]]
         assert leader.dxftype() == "LEADER" and leader.dxf.annotation_handle in doc.entitydb, name
+        image = doc.entitydb[edited.created[-3]]
+        assert image.dxftype() == "IMAGE" and image.image_def.dxf.filename == "maps/site.png", name
+        assert image.dxf.u_pixel.isclose((0.1, 0, 0)) and "site" in doc.rootdict["ACAD_IMAGE_DICT"], name
         sheet = doc.layouts.get("CHECK-SHEET")
         assert [entity.dxftype() for entity in sheet] == ["VIEWPORT", "VIEWPORT"], name
         assert sheet.viewports()[1].dxf.view_height > 0, name
@@ -218,3 +229,38 @@ def test_edited_dxf_passes_the_audit_of_ezdxf(tmp_path):
         assert hatch.dxf.pattern_name == "ANSI31" and len(hatch.paths) == 1, name
         assert dimension.dxftype() == "DIMENSION" and dimension.get_measurement() == 40, name
         assert len(doc.blocks.get(dimension.dxf.geometry)) >= 7, name
+
+
+def test_images_are_written_with_their_definitions(tmp_path):
+    """Images added by an edit keep their file through conversion to DXF, and ezdxf audits them without findings."""
+    ezdxf = pytest.importorskip("ezdxf")
+    operations = [
+        {
+            "op": "add",
+            "kind": "image",
+            "path": "maps/site.png",
+            "pixels": [200, 100],
+            "position": [10, 20],
+            "width": 50,
+        },
+        {
+            "op": "add",
+            "kind": "image",
+            "path": "地図/案内図.jpg",
+            "pixels": [20, 10],
+            "position": [0, 0],
+            "rotation": 30,
+        },
+    ]
+    for source in ["dxf", "dwg"]:
+        edited = zumen.edit(zumen.create(source).data, operations)
+        for version in ["R2000", "R2018"]:
+            converted = zumen.convert(edited.data, "dxf", version=version)
+            assert converted.notices == [], (source, version)
+            path = tmp_path / f"{source}-{version}.dxf"
+            converted.save(path)
+            doc = ezdxf.readfile(path)
+            auditor = doc.audit()
+            assert [*auditor.errors, *auditor.fixes] == [], (source, version)
+            files = sorted(image.image_def.dxf.filename for image in doc.modelspace().query("IMAGE"))
+            assert files == ["maps/site.png", "地図/案内図.jpg"], (source, version)

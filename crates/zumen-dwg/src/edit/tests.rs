@@ -908,3 +908,245 @@ fn adds_leaders_in_every_version() {
         );
     }
 }
+
+/// 画像と、その定義・辞書・クラスを足す（docs/decisions/0017）
+#[test]
+fn adds_images_from_r14_on() {
+    let operations = r#"[
+        {"op": "add", "kind": "image", "path": "maps/site.png", "pixels": [200, 100], "position": [10, 20], "width": 50},
+        {"op": "add", "kind": "image", "path": "maps/site.png", "pixels": [20, 10], "position": [0, 0], "rotation": 30}
+    ]"#;
+    let mut versions: Vec<(String, Vec<u8>)> =
+        crate::DwgVersion::ALL.iter().map(|version| (version.name().to_string(), written_as(*version))).collect();
+    versions.push(("new".into(), new_dwg("mm").unwrap()));
+    for (name, bytes) in versions {
+        let result = edit(&bytes, operations);
+        if name == "R13" {
+            assert_eq!(result.unwrap_err().code, "unsupported-kind", "{name}");
+            continue;
+        }
+        let edited = result.unwrap_or_else(|error| panic!("{name}: {error}"));
+        check_structure(&name, &edited.bytes);
+        // 辞書とクラスがある図面にもう 1 つ足す
+        let edited = edit(&edited.bytes, operations).unwrap_or_else(|error| panic!("{name}: {error}"));
+        check_structure(&name, &edited.bytes);
+        let doc = crate::read_dwg(&edited.bytes).unwrap_or_else(|error| panic!("{name}: {error}"));
+        let images: Vec<_> = doc
+            .entities
+            .iter()
+            .filter_map(|entity| match &entity.data {
+                DxfEntityData::Image(image) if entity.base.kind == "IMAGE" => Some(image.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(images.len(), 4, "{name}");
+        assert!(images.iter().all(|image| image.path.as_deref() == Some("maps/site.png")), "{name}: {images:?}");
+        let DxfEntityData::Image(first) = &entity(&doc, &edited.created[0]).unwrap().data else { panic!("{name}") };
+        assert_eq!(
+            (first.image_size, first.u_pixel, first.insert),
+            ([200.0, 100.0], [0.25, 0.0, 0.0], [10.0, 20.0, 0.0])
+        );
+        let scene = zumen_dxf::dxf_to_scene(&doc, None);
+        assert!(
+            scene.entities.iter().any(|entity| entity.id == edited.created[1] && entity.kind.name() == "image"),
+            "{name}"
+        );
+    }
+}
+
+/// IMAGE を消したとき、その画像が所有する IMAGEDEF_REACTOR と、定義からの逆参照も片付ける。
+#[test]
+fn deleting_an_image_removes_its_owned_reactor() {
+    for version in crate::DwgVersion::ALL.into_iter().filter(|version| *version != crate::DwgVersion::R13) {
+        let empty = zumen_dxf::parse_dxf(&zumen_dxf::new_dxf("mm").unwrap());
+        let source = crate::write_dwg_as(&empty, version).bytes;
+        let added =
+            edit(&source, r#"[{"op":"add","kind":"image","path":"map.png","pixels":[2,2],"position":[0,0]}]"#).unwrap();
+        let source = Source::open(&added.bytes, &mut NoticeList::new()).unwrap();
+        let editor = Editor::new(source, NoticeList::new()).unwrap();
+        let handle = u64::from_str_radix(&added.created[0], 16).unwrap();
+        let (image, _) = editor.read_entity(handle).unwrap();
+        let Body::Image(image) = image.value.body else { panic!() };
+        let reactor = image.reactor.resolve(handle);
+        let definition = image.imagedef.resolve(handle);
+        assert!(editor.bytes(reactor).is_some());
+        let removed = edit(&added.bytes, &format!(r#"[{{"op":"delete","id":"{:X}"}}]"#, handle)).unwrap();
+        let source = Source::open(&removed.bytes, &mut NoticeList::new()).unwrap();
+        let editor = Editor::new(source, NoticeList::new()).unwrap();
+        assert!(
+            editor.bytes(reactor).is_none(),
+            "{}: orphan reactor {reactor:X} points to removed image {handle:X}",
+            version.name()
+        );
+        let definition = editor.read(definition, |s, _| ImageDef::read(s)).unwrap().value;
+        assert!(
+            !definition.common.reactors.iter().any(|entry| entry.resolve(image.imagedef.resolve(handle)) == reactor)
+        );
+        check_structure(version.name(), &removed.bytes);
+    }
+}
+
+/// 新しい用紙の座標は、雛形のインチ・回転・印刷倍率・余白に依存しない。
+#[test]
+fn new_layout_uses_millimeters_at_full_size() {
+    let mut source = zumen_dxf::parse_dxf(&zumen_dxf::new_dxf("mm").unwrap());
+    for layout in source.layouts.iter_mut().filter(|layout| !layout.model) {
+        layout.paper_units = 0.0;
+        layout.plot_rotation = 1.0;
+        layout.plot_scale = [1.0, 4.0];
+        layout.plot_origin = [123.0, 456.0];
+        layout.margins = [7.0, 8.0, 9.0, 10.0];
+    }
+    let operations = r#"[
+        {"op":"add-layout","name":"NEW","paperSize":[420,297]},
+        {"op":"add","kind":"line","container":"layout:NEW","start":[0,0],"end":[420,297]}
+    ]"#;
+    let edited = edit(&crate::write_dwg(&source).bytes, operations).unwrap();
+    check_structure("new layout", &edited.bytes);
+    let doc = crate::read_dwg(&edited.bytes).unwrap();
+    let layout = doc.layouts.iter().find(|layout| layout.name == "NEW").unwrap();
+    assert_eq!((layout.paper_units, layout.plot_rotation, layout.plot_scale), (1.0, 0.0, [1.0, 1.0]));
+    assert_eq!((layout.margins, layout.plot_origin), ([0.0; 4], [0.0; 2]));
+    let scene = zumen_dxf::dxf_to_scene(&doc, Some("NEW"));
+    let sheet = scene.sheet.unwrap();
+    assert_eq!((sheet.width, sheet.height), (420.0, 297.0));
+    let line = scene.entities.iter().find(|entity| entity.id == edited.created[1]).unwrap();
+    assert_eq!((line.bbox.min_x, line.bbox.min_y, line.bbox.max_x, line.bbox.max_y), (0.0, 0.0, 420.0, 297.0));
+}
+
+/// 注釈が左にある場合もフックは最後の線分へ戻す。線分に収まらない補助線は種類と数で知らせる。
+#[test]
+fn leader_hooks_follow_the_annotation_and_report_changed_paths() {
+    let operations = r#"[
+        {"op":"add","kind":"leader","vertices":[[0,0],[-10,10],[-30,10]],"text":"left"},
+        {"op":"add","kind":"leader","vertices":[[0,0],[10,10],[30,10]],"text":"right"},
+        {"op":"add","kind":"leader","vertices":[[0,0],[-10,5]],"text":"diagonal"},
+        {"op":"add","kind":"leader","vertices":[[0,0],[1,0]],"text":"short"},
+        {"op":"add","kind":"leader","vertices":[[0,0],[-10,5]]}
+    ]"#;
+    for version in crate::DwgVersion::ALL {
+        let empty = zumen_dxf::parse_dxf(&zumen_dxf::new_dxf("mm").unwrap());
+        let source = crate::write_dwg_as(&empty, version).bytes;
+        let edited = edit(&source, operations).unwrap();
+        check_structure(version.name(), &edited.bytes);
+        let notices: Vec<_> = edited.notices.iter().filter(|notice| notice.code == "edit-leader-hook").collect();
+        assert_eq!(notices.len(), 1, "{}", version.name());
+        assert_eq!(notices[0].count, 2, "{}", version.name());
+        let doc = crate::read_dwg(&edited.bytes).unwrap();
+        let points = |number: usize| match &entity(&doc, &edited.created[number]).unwrap().data {
+            DxfEntityData::Leader(leader) => leader.points.clone(),
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(points(0), [[0.0, 0.0, 0.0], [-10.0, 10.0, 0.0], [-27.5, 10.0, 0.0], [-30.0, 10.0, 0.0]]);
+        assert_eq!(points(1), [[0.0, 0.0, 0.0], [10.0, 10.0, 0.0], [27.5, 10.0, 0.0], [30.0, 10.0, 0.0]]);
+        assert_eq!(points(4), [[0.0, 0.0, 0.0], [-10.0, 5.0, 0.0]]);
+    }
+}
+
+/// DXF と同じく、別の編集で読んだ ATTDEF の見た目と非等方尺度を保つ。
+#[test]
+fn preserves_attribute_appearance_and_nonuniform_scaling_in_every_version() {
+    for version in crate::DwgVersion::ALL {
+        let name = version.name();
+        let definitions = edit(&written_as(version), r#"[
+            {"op":"add-layer","name":"ATTRIBUTES"},
+            {"op":"add-block","name":"REVIEW"},
+            {"op":"add","kind":"attribute-definition","container":"block:REVIEW","tag":"A","text":"hello","position":[1,2],"height":1,"layer":"ATTRIBUTES","color":2,"lineType":"byblock","lineWidth":0.35},
+            {"op":"add","kind":"attribute-definition","container":"block:REVIEW","tag":"B","text":"rotated","position":[0,0],"height":1,"rotation":90,"color":3}
+        ]"#).unwrap();
+        let edited = edit(&definitions.bytes, r#"[
+            {"op":"add","kind":"block-reference","block":"REVIEW","position":[10,20],"scale":[2,1],"attributes":{},"color":4},
+            {"op":"add","kind":"block-reference","block":"REVIEW","position":[0,0],"scale":[-2,1],"attributes":{}}
+        ]"#).unwrap();
+        check_structure(name, &edited.bytes);
+        let doc = crate::read_dwg(&edited.bytes).unwrap();
+        let get = |handle: &str| {
+            let DxfEntityData::Insert(insert) = &entity(&doc, handle).unwrap().data else { panic!("{name}") };
+            insert
+        };
+        let insert = get(&edited.created[0]);
+        let base = &insert.attribs[0].base;
+        assert_eq!(
+            (base.layer.as_str(), base.color_index, base.linetype.as_str()),
+            ("ATTRIBUTES", 2.0, "ByBlock"),
+            "{name}"
+        );
+        if !matches!(version, crate::DwgVersion::R13 | crate::DwgVersion::R14) {
+            assert_eq!(base.lineweight, 35.0, "{name}");
+        }
+        let DxfEntityData::Attrib { text, .. } = &insert.attribs[0].data else { panic!() };
+        assert_eq!((text.insert, text.height, text.width), ([12.0, 22.0, 0.0], 1.0, 2.0), "{name}");
+        let DxfEntityData::Attrib { text, .. } = &insert.attribs[1].data else { panic!() };
+        assert!(
+            (text.height - 2.0).abs() < 1e-9 && (text.width - 0.5).abs() < 1e-9 && (text.rotation - 90.0).abs() < 1e-9,
+            "{name}"
+        );
+        assert_eq!(insert.attribs[1].base.color_index, 3.0, "{name}");
+        let DxfEntityData::Attrib { text, .. } = &get(&edited.created[1]).attribs[0].data else { panic!() };
+        assert_eq!(text.text_generation_flag, 4.0, "{name}");
+        assert!((text.rotation.abs() - 180.0).abs() < 1e-9, "{name}");
+    }
+}
+
+/// DWG 2.13: DIMSTYLE の参照が相対ハンドルでも、写したスタイルは元と同じ文字スタイルを指す。
+#[test]
+fn cloned_dimension_style_keeps_relative_references() {
+    for version in crate::DwgVersion::ALL {
+        let name = version.name();
+        let bytes = written_as(version);
+        let mut notices = NoticeList::new();
+        let source = Source::open(&bytes, &mut notices).unwrap();
+        let mut editor = Editor::new(source, notices).unwrap();
+        let template = editor.dimstyles["STANDARD"];
+        let mut style = editor.read(template, |s, _| DimStyle::read(s)).unwrap();
+        let expected: Vec<_> = style.value.handles.iter().map(|handle| handle.resolve(template)).collect();
+        let text_style = expected[0];
+        style.value.handles[0] = if text_style < template {
+            HandleRef { code: 0xC, value: template - text_style }
+        } else {
+            HandleRef { code: 0xA, value: text_style - template }
+        };
+        let kind = style.kind;
+        editor.store(template, kind, &style.eed, |out| style.value.write(out));
+        let relative = editor.finish().bytes;
+        let edited = edit(&relative, r#"[{"op":"add-dimension-style","name":"CLONE"}]"#).unwrap();
+        let mut notices = NoticeList::new();
+        let source = Source::open(&edited.bytes, &mut notices).unwrap();
+        let editor = Editor::new(source, notices).unwrap();
+        let cloned = editor.dimstyles["CLONE"];
+        let style = editor.read(cloned, |s, _| DimStyle::read(s)).unwrap();
+        let actual: Vec<_> = style.value.handles.iter().map(|handle| handle.resolve(cloned)).collect();
+        assert_eq!(actual, expected, "{name}: cloned DIMSTYLE references");
+    }
+}
+
+#[test]
+fn reports_approximated_jis_dimension_text_position() {
+    let bytes = new_dwg("mm").unwrap();
+    let mut notices = NoticeList::new();
+    let source = Source::open(&bytes, &mut notices).unwrap();
+    let mut editor = Editor::new(source, notices).unwrap();
+    let handle = editor.dimstyles["STANDARD"];
+    let mut style = editor.read(handle, |s, _| DimStyle::read(s)).unwrap();
+    let value = style.value.values.iter_mut().find(|(key, _)| *key == "DIMTAD").unwrap();
+    value.1 = DimValue::Short(3);
+    let kind = style.kind;
+    editor.store(handle, kind, &style.eed, |out| style.value.write(out));
+    let bytes = editor.finish().bytes;
+    let edited =
+        edit(&bytes, r#"[{"op":"add","kind":"dimension","start":[0,0],"end":[1000,0],"position":[0,-100]}]"#).unwrap();
+    assert!(edited.notices.iter().any(|notice| notice.code == "edit-dimension-text-position" && notice.count == 1));
+}
+
+#[test]
+fn exhausted_dimension_block_names_fail_without_overflowing() {
+    let bytes = new_dwg("mm").unwrap();
+    let mut notices = NoticeList::new();
+    let source = Source::open(&bytes, &mut notices).unwrap();
+    let mut editor = Editor::new(source, notices).unwrap();
+    editor.create_block(0, "*D18446744073709551615", [0.0; 3], true).unwrap();
+    let bytes = editor.finish().bytes;
+    let error =
+        edit(&bytes, r#"[{"op":"add","kind":"dimension","start":[0,0],"end":[10,0],"position":[0,5]}]"#).unwrap_err();
+    assert_eq!((error.code, error.operation), ("name-exhausted", Some(0)));
+}

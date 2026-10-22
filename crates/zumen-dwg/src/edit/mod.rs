@@ -15,11 +15,12 @@
 mod build;
 
 use crate::bits::{HandleRef, Read};
+use crate::codec::entities::Image;
 use crate::codec::entities::{Attribute, Dimension, DimensionKind as DwgDimensionKind, Leader, LeaderR14, Text};
 use crate::codec::entities::{Body, Entity, fixed_name};
 use crate::codec::header::{HeaderVars, Value, read_header_vars, write_header_vars};
 use crate::codec::object::{EntityColor, EntityCommon, ObjectCommon, open_raw, writer};
-use crate::codec::objects::{Dictionary, Group, Layout, SortEntsTable};
+use crate::codec::objects::{Dictionary, Group, ImageDef, ImageDefReactor, Layout, SortEntsTable};
 use crate::codec::tables::{
     Appid, BlockHeader, Control, Dash, DimStyle, DimValue, EntryName, Layer, Linetype, TextStyle,
 };
@@ -41,7 +42,7 @@ use zumen_dxf::attributes::{self, Definition, Placed};
 use zumen_dxf::dimension::{self, DimStyleValues, DimensionKind, Part, Role};
 
 /// 足せる図形の種類（DXF の編集と同じ）
-const ADDABLE: [&str; 14] = [
+const ADDABLE: [&str; 15] = [
     "line",
     "polyline",
     "arc",
@@ -56,6 +57,7 @@ const ADDABLE: [&str; 14] = [
     "attribute-definition",
     "viewport",
     "leader",
+    "image",
 ];
 
 /// 図形・レイヤに共通する値のキー
@@ -941,7 +943,9 @@ impl Editor {
         let keys = |own: &[&'static str]| -> Vec<&'static str> { COMMON.iter().chain(own).copied().collect() };
         let place = self.place(index, container)?;
         // ブロック参照に書く属性と、その属性の定義の値
-        let mut pending: Vec<(Placed, Attribute)> = Vec::new();
+        let mut pending: Vec<(Placed, EntityCommon, Attribute)> = Vec::new();
+        // 足す画像と、その定義・リアクタのハンドル
+        let mut image_objects: Option<(zumen_dxf::image::ImageInput, u64, u64)> = None;
         let (type_number, body) = match kind {
             "line" => {
                 reader.allow(&keys(&["start", "end"]), "線分")?;
@@ -1109,6 +1113,23 @@ impl Editor {
                     self.store_entity(annotation_handle, &entity);
                 }
                 let factor = if style.scale > 0.0 { style.scale } else { 1.0 };
+                // LEADER（20.4.47）の Hooklineonxdir。左の注釈は +X に戻ってから最後の頂点へ進む。
+                let hook_on_x = annotation.attachment == 6;
+                // 注釈つきの DWG は読み取りで水平のフックを補う（entities.rs の推定）。最後の線分に収まらないと
+                // 指定した折線と形が変わるので、黙って書かず、変わる引出線の数を知らせる。
+                let last = vertices[vertices.len() - 1];
+                let before = vertices[vertices.len() - 2];
+                let hook_length = style.arrow_size * if style.scale == 0.0 { 1.0 } else { style.scale };
+                if !text.is_empty()
+                    && hook_length > 0.0
+                    && (last[1] != before[1] || last[2] != before[2] || (last[0] - before[0]).abs() < hook_length)
+                {
+                    self.notices.add(
+                        NoticeLevel::Info,
+                        "edit-leader-hook",
+                        "DWG の注釈つき引出線は、終端に水平なフック線を補って描きます",
+                    );
+                }
                 let body = Leader {
                     unknown_bit: false,
                     annotation_type: if text.is_empty() { 3 } else { 0 },
@@ -1120,7 +1141,7 @@ impl Editor {
                     block_offset: [0.0; 3],
                     end_projection: [0.0; 3],
                     box_size: None,
-                    hook_on_x: false,
+                    hook_on_x,
                     arrowhead: true,
                     unknown_short: 0,
                     unknown_bits: [false, false],
@@ -1137,6 +1158,41 @@ impl Editor {
                     dimstyle: href(5, style_handle),
                 };
                 (kind::LEADER, Body::Leader(body))
+            }
+            "image" => {
+                if self.version < Version::R14 {
+                    return Err(EditError::at(
+                        index,
+                        "unsupported-kind",
+                        "AutoCAD R14 より前の DWG には画像（IMAGE）を足せません",
+                    ));
+                }
+                reader.allow(&keys(&zumen_dxf::image::KEYS), "画像")?;
+                let input = zumen_dxf::image::read(&reader, index)?;
+                let type_number = self.class_number(index, "IMAGE")?;
+                let definition = self.next_handle(index)?;
+                let reactor = self.next_handle(index)?;
+                let [width, height] = input.pixels;
+                // IMAGE（20.4.80）。値は DXF の編集と同じ
+                let body = Image {
+                    class_version: 0,
+                    insert: input.position,
+                    u_vector: input.u_pixel,
+                    v_vector: input.v_pixel,
+                    size: input.pixels,
+                    display: 7,
+                    clipping: false,
+                    brightness: 50,
+                    contrast: 50,
+                    fade: 0,
+                    clip_mode: false,
+                    clip_type: 1,
+                    boundary: vec![[-0.5, -0.5], [width - 0.5, height - 0.5]],
+                    imagedef: href(5, definition),
+                    reactor: href(3, reactor),
+                };
+                image_objects = Some((input, definition, reactor));
+                (type_number, Body::Image(Box::new(body)))
             }
             "viewport" => {
                 reader.allow(&keys(&["center", "width", "height", "viewCenter", "scale"]), "ビューポート")?;
@@ -1209,11 +1265,8 @@ impl Editor {
                     let (definitions, bodies, base) = self.attribute_definitions(block);
                     let placed = attributes::place(&definitions, values, base, position, scale, rotation, index)?;
                     for attribute in placed {
-                        let Some(body) = bodies.iter().find(|body| self.text_of(&body.tag) == attribute.definition.tag)
-                        else {
-                            continue;
-                        };
-                        pending.push((attribute, body.clone()));
+                        let (common, body) = &bodies[attribute.source];
+                        pending.push((attribute, common.clone(), body.clone()));
                     }
                 }
                 (kind::INSERT, build::insert(position, scale, rotation, block))
@@ -1235,7 +1288,80 @@ impl Editor {
         if is_viewport {
             self.add_layout_viewport(place.block, handle);
         }
+        if let Some((input, definition, reactor)) = image_objects {
+            self.add_image_objects(index, handle, &input, definition, reactor)?;
+        }
         self.created.push(format!("{handle:X}"));
+        Ok(())
+    }
+
+    /// 画像の定義（IMAGEDEF）とリアクタ（IMAGEDEF_REACTOR）を書き、定義を ACAD_IMAGE_DICT に載せる。ACAD_IMAGE_DICT が
+    /// なければ作り、名前つきオブジェクトの辞書に載せる。クラスがなければ足す
+    fn add_image_objects(
+        &mut self,
+        index: usize,
+        image: u64,
+        input: &zumen_dxf::image::ImageInput,
+        definition: u64,
+        reactor: u64,
+    ) -> Result<(), EditError> {
+        let unreadable = || EditError::at(index, "unreadable", "DWG の名前つきオブジェクトの辞書が読めません");
+        let definition_kind = self.class_number(index, "IMAGEDEF")?;
+        let reactor_kind = self.class_number(index, "IMAGEDEF_REACTOR")?;
+        let named = self.tables.named_objects;
+        let mut root = self.read(named, |s, _| Dictionary::read(s, false)).ok_or_else(unreadable)?;
+        let r2004 = self.version >= Version::R2004;
+        let common = |owner: u64, reactors: Vec<HandleRef>| ObjectCommon {
+            owner: href(4, owner),
+            reactors,
+            xdictionary: if r2004 { None } else { Some(href(3, 0)) },
+            ds_binary: false,
+        };
+        let existing = root
+            .value
+            .entries
+            .iter()
+            .find(|(name, _)| upper(&self.text_of(name)) == zumen_dxf::image::DICTIONARY)
+            .map(|(_, entry)| entry.resolve(named));
+        let mut dictionary =
+            match existing.and_then(|handle| Some((handle, self.read(handle, |s, _| Dictionary::read(s, false))?))) {
+                Some(found) => found,
+                None => {
+                    let handle = self.next_handle(index)?;
+                    root.value.entries.push((self.raw_text(zumen_dxf::image::DICTIONARY), href(2, handle)));
+                    let (kind, eed) = (root.kind, root.eed.clone());
+                    self.store(named, kind, &eed, |out| root.value.write(out));
+                    let value = Dictionary {
+                        common: common(named, vec![href(4, named)]),
+                        cloning: 1,
+                        hard_owner: 1,
+                        r14_unknown: 0,
+                        entries: Vec::new(),
+                        default: None,
+                    };
+                    (handle, Decoded { kind: kind::DICTIONARY, eed: Vec::new(), value })
+                }
+            };
+        let names: Vec<String> = dictionary.1.value.entries.iter().map(|(name, _)| self.text_of(name)).collect();
+        let name =
+            zumen_dxf::image::entry_name(&input.path, |name| names.iter().any(|used| used.eq_ignore_ascii_case(name)));
+        dictionary.1.value.entries.push((self.raw_text(&name), href(2, definition)));
+        let (handle, dictionary) = dictionary;
+        self.store(handle, dictionary.kind, &dictionary.eed, |out| dictionary.value.write(out));
+        // IMAGEDEF（20.4.82）。画素の大きさは単位なしの 1（DXF の編集と同じ）
+        let value = ImageDef {
+            common: common(handle, vec![href(4, handle), href(4, reactor)]),
+            class_version: 0,
+            size: input.pixels,
+            path: self.raw_text(&input.path),
+            loaded: true,
+            resolution_units: 0,
+            pixel_size: [1.0, 1.0],
+        };
+        self.store(definition, definition_kind, &[], |out| value.write(out));
+        // IMAGEDEF_REACTOR（20.4.83）
+        let value = ImageDefReactor { common: common(image, Vec::new()), class_version: 2 };
+        self.store(reactor, reactor_kind, &[], |out| value.write(out));
         Ok(())
     }
 
@@ -1370,7 +1496,21 @@ impl Editor {
         };
         layout.name = self.raw_text(name);
         layout.tab_order = tab;
+        // PLOTSETTINGS（20.4.84）: 用紙の座標は mm・等倍・回転なしで、左下を原点にする。
+        // 雛形の印刷設定を継ぐと、指定した大きさやビューポートの縮尺が変わる。
         layout.plot_flags = 0;
+        layout.margins = [0.0; 4];
+        layout.plot_origin = [0.0; 2];
+        layout.paper_units = 1;
+        layout.plot_rotation = 0;
+        layout.plot_type = 5;
+        layout.window_min = [0.0; 2];
+        layout.window_max = [0.0; 2];
+        layout.real_units = 1.0;
+        layout.drawing_units = 1.0;
+        layout.scale_type = 16;
+        layout.scale_factor = 1.0;
+        layout.paper_image_origin = [0.0; 2];
         layout.paper = [paper[0], paper[1]];
         if let Some(margins) = &margins {
             layout.margins = [margins[0], margins[1], margins[2], margins[3]];
@@ -1402,15 +1542,18 @@ impl Editor {
         insert_handle: u64,
         insert_common: &EntityCommon,
         insert: &mut crate::codec::entities::Insert,
-        pending: Vec<(Placed, Attribute)>,
+        pending: Vec<(Placed, EntityCommon, Attribute)>,
     ) -> Result<(), EditError> {
         let mut handles = Vec::with_capacity(pending.len());
         for _ in &pending {
             handles.push(self.next_handle(index)?);
         }
         let seqend = self.next_handle(index)?;
-        let follower = |links: Option<(HandleRef, HandleRef)>| {
-            let mut common = insert_common.clone();
+        let follower = |source: &EntityCommon, links: Option<(HandleRef, HandleRef)>| {
+            // ATTRIB の見た目は ATTDEF から写す（DXF Reference「ATTRIB」「Common Group Codes」）。
+            let mut common = source.clone();
+            common.graphic = None;
+            common.xdictionary = None;
             common.mode = 0;
             common.owner = Some(href(4, insert_handle));
             common.reactors = Vec::new();
@@ -1418,7 +1561,7 @@ impl Editor {
             common
         };
         let r2004 = self.version >= Version::R2004;
-        for (at, (placed, mut body)) in pending.into_iter().enumerate() {
+        for (at, (placed, appearance, mut body)) in pending.into_iter().enumerate() {
             // R2000 までは属性どうしをつなぐ（前の属性と次の属性、端は 0）
             let links = (!r2004).then(|| {
                 let previous = at.checked_sub(1).map_or(0, |before| handles[before]);
@@ -1429,6 +1572,9 @@ impl Editor {
             body.text.elevation = (placed.position[2] != 0.0).then_some(placed.position[2]);
             body.text.align = placed.align.map(|align| [align[0], align[1]]);
             body.text.height = placed.height;
+            body.text.width = (placed.width != 1.0).then_some(placed.width);
+            body.text.oblique = (placed.oblique != 0.0).then(|| placed.oblique.to_radians());
+            body.text.generation = (placed.generation != 0).then_some(placed.generation as i16);
             body.text.rotation = (placed.rotation != 0.0).then(|| placed.rotation.to_radians());
             body.text.value = self.raw_text(&placed.value);
             body.prompt = None;
@@ -1436,14 +1582,14 @@ impl Editor {
             let entity = Decoded {
                 kind: kind::ATTRIB,
                 eed: Vec::new(),
-                value: Entity { common: follower(links), body: Body::Attrib(body) },
+                value: Entity { common: follower(&appearance, links), body: Body::Attrib(body) },
             };
             self.store_entity(handles[at], &entity);
         }
         let end = Decoded {
             kind: kind::SEQEND,
             eed: Vec::new(),
-            value: Entity { common: follower(None), body: Body::Empty },
+            value: Entity { common: follower(insert_common, None), body: Body::Empty },
         };
         self.store_entity(seqend, &end);
         insert.has_attributes = true;
@@ -1457,7 +1603,7 @@ impl Editor {
     }
 
     /// ブロックの属性の定義（ATTDEF）の値と、その図形の値、ブロックの基点
-    fn attribute_definitions(&self, block: u64) -> (Vec<Definition>, Vec<Attribute>, [f64; 3]) {
+    fn attribute_definitions(&self, block: u64) -> (Vec<Definition>, Vec<(EntityCommon, Attribute)>, [f64; 3]) {
         let Some(header) = self.read(block, |s, _| BlockHeader::read(s)) else {
             return (Vec::new(), Vec::new(), [0.0; 3]);
         };
@@ -1474,7 +1620,19 @@ impl Editor {
         let mut bodies = Vec::new();
         for member in members {
             let Some((entity, _)) = self.read_entity(member) else { continue };
-            let Body::Attdef(body) = entity.value.body else { continue };
+            let Body::Attdef(mut body) = entity.value.body else { continue };
+            // 相対参照は元の ATTDEF を基準に解決してから写す（DWG 仕様 2.13 Handle references）。
+            let absolute = |handle: HandleRef| {
+                if handle.code >= 6 { href(5, handle.resolve(member)) } else { handle }
+            };
+            body.text.style = absolute(body.text.style);
+            let mut common = entity.value.common;
+            common.layer = absolute(common.layer);
+            common.ltype = common.ltype.map(absolute);
+            common.book_color = common.book_color.map(absolute);
+            common.plotstyle = common.plotstyle.map(absolute);
+            common.material = common.material.map(absolute);
+            common.visual_styles = common.visual_styles.map(|style| style.map(absolute));
             let text: &Text = &body.text;
             let z = text.elevation.unwrap_or(0.0);
             let (horizontal, vertical) = (i64::from(text.halign.unwrap_or(0)), i64::from(text.valign.unwrap_or(0)));
@@ -1487,12 +1645,14 @@ impl Editor {
                 height: text.height,
                 rotation: text.rotation.unwrap_or(0.0).to_degrees(),
                 width: text.width.unwrap_or(1.0),
+                oblique: text.oblique.unwrap_or(0.0).to_degrees(),
+                generation: i64::from(text.generation.unwrap_or(0)),
                 horizontal,
                 vertical,
                 flags: i64::from(body.flags),
                 style: None,
             });
-            bodies.push(body);
+            bodies.push((common, body));
         }
         (definitions, bodies, header.value.base)
     }
@@ -1798,6 +1958,32 @@ impl Editor {
         }
         let mut gone: Vec<u64> = vec![handle];
         gone.extend(self.followers(handle, &entity.value));
+        // IMAGEDEF_REACTOR（20.4.83）は IMAGE が所有し、IMAGEDEF（20.4.82）がリアクタとして指す。
+        // 定義はほかの画像も共有できるので残し、この画像のリアクタだけを両側から除く。
+        if let Body::Image(image) = &entity.value.body {
+            let reactor = image.reactor.resolve(handle);
+            let owned = self.read(reactor, |s, kind| {
+                if self.kind_of(kind).is_some_and(|(name, _)| name.eq_ignore_ascii_case("IMAGEDEF_REACTOR")) {
+                    ImageDefReactor::read(s)
+                } else {
+                    Err(crate::bits::Eof)
+                }
+            });
+            if owned.is_some_and(|decoded| decoded.value.common.owner.resolve(reactor) == handle) {
+                gone.push(reactor);
+                let definition = image.imagedef.resolve(handle);
+                if let Some(mut decoded) = self.read(definition, |s, kind| {
+                    if self.kind_of(kind).is_some_and(|(name, _)| name.eq_ignore_ascii_case("IMAGEDEF")) {
+                        ImageDef::read(s)
+                    } else {
+                        Err(crate::bits::Eof)
+                    }
+                }) {
+                    decoded.value.common.reactors.retain(|entry| entry.resolve(definition) != reactor);
+                    self.store(definition, decoded.kind, &decoded.eed, |out| decoded.value.write(out));
+                }
+            }
+        }
         // 図形とそれに従う図形が持つ拡張辞書と、その中のオブジェクト
         let mut queue: Vec<u64> = Vec::new();
         for member in gone.clone() {
@@ -2185,6 +2371,13 @@ impl Editor {
         let position = reader.required("position", reader.point("position")?)?;
         let text = reader.text("text")?.unwrap_or("<>");
         let (style_handle, style, text_style) = self.dimension_style(index, reader.name("dimensionStyle")?)?;
+        if style.text_above == 3 {
+            self.notices.add(
+                NoticeLevel::Info,
+                "edit-dimension-text-position",
+                "寸法文字の JIS 配置（DIMTAD=3）は寸法線の上に置いて近似しました",
+            );
+        }
         let layout = dimension::layout(kind, start, end, position, text, &style).ok_or_else(|| {
             EditError::at(index, "invalid-value", "start と end は寸法の向きで離れた点にしてください")
         })?;
@@ -2194,7 +2387,10 @@ impl Editor {
             .filter_map(|name| name.strip_prefix("*D").and_then(|number| number.parse::<u64>().ok()))
             .max()
             .unwrap_or(0)
-            + 1;
+            .checked_add(1)
+            .ok_or_else(|| {
+                EditError::at(index, "name-exhausted", "新しい寸法の表示のブロック名を割り当てられません")
+            })?;
         let block_name = format!("*D{next}");
         let block = self.create_block(index, &block_name, [0.0; 3], true)?;
         let place = Place { block, mode: 0 };
@@ -2441,6 +2637,11 @@ impl Editor {
                     .ok_or_else(|| EditError::at(index, "unreadable", "寸法スタイル（DIMSTYLE）が読めません"))?
                     .value;
                 let control = self.tables.dimstyle_control;
+                // DWG 2.13: 相対ハンドルの基準はそのオブジェクト。別のハンドルに写す前に、元のスタイルを基準に解く。
+                style.xref_block = href(5, style.xref_block.resolve(template));
+                for handle in &mut style.handles {
+                    *handle = href(5, handle.resolve(template));
+                }
                 style.common = common(control);
                 style.name = EntryName::new(self.raw_text(name));
                 for (variable, number) in variables {

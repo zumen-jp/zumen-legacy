@@ -7,8 +7,8 @@ use super::{Writer, href, owned, rad, upper};
 use crate::codec::RawText;
 use crate::codec::object::ObjectCommon;
 use crate::codec::objects::{
-    Dictionary, DictionaryVar, Layout, MLeaderStyle, MLineElement, MLineStyle, Material, MaterialColor, MaterialMap,
-    Placeholder, Scale, SortEntsTable,
+    Dictionary, DictionaryVar, ImageDef, ImageDefReactor, Layout, MLeaderStyle, MLineElement, MLineStyle, Material,
+    MaterialColor, MaterialMap, Placeholder, Scale, SortEntsTable,
 };
 use crate::file::Version;
 use crate::write::classes::ClassDef;
@@ -27,6 +27,10 @@ pub(crate) fn class_def(name: &str, number: u16, instances: i32) -> Option<Class
         "MLEADERSTYLE" => (4095, "ACDB_MLEADERSTYLE_CLASS", "AcDbMLeaderStyle", false, 33, 329),
         "MULTILEADER" => (1025, "ACDB_MLEADER_CLASS", "AcDbMLeader", true, 33, 329),
         "WIPEOUT" => (2175, "WipeOut", "AcDbWipeout", true, 33, 329),
+        // 画像（ezdxf の classes.py と同じ印）
+        "IMAGE" => (2175, "ISM", "AcDbRasterImage", true, 0, 0),
+        "IMAGEDEF" => (0, "ISM", "AcDbRasterImageDef", false, 0, 0),
+        "IMAGEDEF_REACTOR" => (1, "ISM", "AcDbRasterImageDefReactor", false, 0, 0),
         // R14 では LWPOLYLINE・HATCH はクラスの型（R2000 から決まった型 77・78）
         "LWPOLYLINE" => (0, ODBX, "AcDbPolyline", true, 0, 0),
         "HATCH" => (0, ODBX, "AcDbHatch", true, 0, 0),
@@ -111,7 +115,8 @@ impl Writer<'_> {
     pub(super) fn write_objects(&mut self) {
         let fixed = std::mem::take(&mut self.fixed);
         let root = fixed.root;
-        let entries: Vec<(String, u64)> = [
+        let images = (!self.image_defs.is_empty()).then(|| self.handles.fresh());
+        let mut entries: Vec<(String, u64)> = [
             ("ACAD_COLOR", fixed.color_dict),
             ("ACAD_GROUP", fixed.group_dict),
             ("ACAD_LAYOUT", fixed.layout_dict),
@@ -128,7 +133,13 @@ impl Writer<'_> {
         .into_iter()
         .map(|(name, handle)| (name.to_string(), handle))
         .collect();
+        if let Some(images) = images {
+            entries.insert(2, (zumen_dxf::image::DICTIONARY.into(), images));
+        }
         self.dictionary(root, 0, &entries);
+        if let Some(images) = images {
+            self.write_images(images, root);
+        }
         for handle in
             [fixed.color_dict, fixed.group_dict, fixed.plot_dict, fixed.tablestyle_dict, fixed.visualstyle_dict]
         {
@@ -215,6 +226,44 @@ impl Writer<'_> {
         }
         self.write_sort_tables();
         self.fixed = fixed;
+    }
+
+    /// 画像の辞書（ACAD_IMAGE_DICT）と、画像の定義（IMAGEDEF、20.4.82）・リアクタ（IMAGEDEF_REACTOR、20.4.83）。
+    /// 値は DXF の書き出しと同じ
+    fn write_images(&mut self, dictionary: u64, root: u64) {
+        let definitions = std::mem::take(&mut self.image_defs);
+        let mut entries: Vec<(String, u64)> = Vec::new();
+        for definition in &definitions {
+            let name = zumen_dxf::image::entry_name(&definition.path, |name| {
+                entries.iter().any(|(used, _)| used.eq_ignore_ascii_case(name))
+            });
+            entries.push((name, definition.handle));
+        }
+        self.dictionary(dictionary, root, &entries);
+        for definition in &definitions {
+            let number = self.class_number("IMAGEDEF");
+            let mut common = owned(dictionary, true);
+            common.reactors.extend(definition.reactors.iter().map(|(reactor, _)| href(4, *reactor)));
+            let value = ImageDef {
+                common,
+                class_version: 0,
+                size: definition.size,
+                path: self.text(&definition.path),
+                loaded: true,
+                resolution_units: 0,
+                pixel_size: [1.0, 1.0],
+            };
+            let mut out = self.object(number, definition.handle);
+            value.write(&mut out);
+            self.push(&out);
+            for (reactor, image) in &definition.reactors {
+                let number = self.class_number("IMAGEDEF_REACTOR");
+                let mut out = self.object(number, *reactor);
+                ImageDefReactor { common: owned(*image, false), class_version: 2 }.write(&mut out);
+                self.push(&out);
+            }
+        }
+        self.image_defs = definitions;
     }
 
     /// LAYOUT（20.4.84）と、その前の PLOTSETTINGS の値。値は DXF の書き出しと同じ（モデルのレイアウトがあればその値）

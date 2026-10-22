@@ -17,7 +17,7 @@ mod write;
 pub use colors::{ACI, aci_color, is_transparent, true_color};
 pub use curves::{minor_axis, ocs_matrix};
 pub use edit::{
-    attributes, dimension, edit_dxf, font_file, hatch, leader, new_dxf, paper_name, placement, view_height,
+    attributes, dimension, edit_dxf, font_file, hatch, image, leader, new_dxf, paper_name, placement, view_height,
 };
 pub use model::*;
 pub use mtext::{

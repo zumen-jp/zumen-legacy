@@ -551,6 +551,8 @@ fn codec(kind: u16, class: &str) -> Option<Codec> {
         (_, "SORTENTSTABLE") => with!(SortEntsTable::read),
         (_, "MLEADERSTYLE") => with!(MLeaderStyle::read),
         (_, "MATERIAL") => with!(Material::read),
+        (_, "IMAGEDEF") => with!(ImageDef::read),
+        (_, "IMAGEDEF_REACTOR") => with!(ImageDefReactor::read),
         _ if crate::codec::entities::Entity::knows(entity_name(kind, class)) => |s, _, name, o| {
             crate::codec::entities::Entity::read(s, name)?.ok_or(crate::bits::Eof)?.write(o);
             Ok(())
@@ -756,6 +758,8 @@ fn dump_objects() {
                 (_, "SORTENTSTABLE") => format!("{:?}", SortEntsTable::read(s)),
                 (_, "MLEADERSTYLE") => format!("{:?}", MLeaderStyle::read(s)),
                 (_, "MATERIAL") => format!("{:?}", Material::read(s)),
+                (_, "IMAGEDEF") => format!("{:?}", ImageDef::read(s)),
+                (_, "IMAGEDEF_REACTOR") => format!("{:?}", ImageDefReactor::read(s)),
                 _ => format!("{:?}", Entity::read(s, &kname)),
             };
             println!("{name} {handle:X} {kname} eed {:?}\n  {value}", raw.eed);

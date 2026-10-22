@@ -1,7 +1,7 @@
 //! モデルからの DWG の書き出し: tests/fixtures の DXF・DWG を AutoCAD 2013 の DWG に書いて読み直すと、すべての表示で
 //! 元と同じに描ける（crates/zumen/tests/convert.rs の DXF の書き出しと同じ確かめ方）。
 //! 比べるのは図形ごとの種類・レイヤの名前・外接矩形・描く要素（数は 1e-9 の相対誤差まで同じとみなす）。
-//! 書けない図形（IMAGE）は省き、形を変えて書く図形（HELIX・MPOLYGON・ブロック参照に属さない ATTRIB）は種類を
+//! 書けない図形（画像の定義が分からない IMAGE）は省き、形を変えて書く図形（HELIX・MPOLYGON・ブロック参照に属さない ATTRIB）は種類を
 //! 比べない（どちらも notices で知らせる）。
 //!
 //! 元の表示は、DWG を読むと変わる値を DWG の読み取りと同じ形にしたモデルから作る:
@@ -613,5 +613,61 @@ fn reports_what_older_versions_cannot_hold() {
             _ => false,
         });
         assert_eq!(multiline, version >= DwgVersion::R2018, "{}", version.name());
+    }
+}
+
+/// 画像の定義のファイルが分かる画像は、定義・リアクタ・辞書・クラスとともに書く。DXF・DWG のどちらから読んだ画像も
+/// 書け、同じ定義を指していた画像は 1 つの定義を共有する。R13 は省いて知らせる
+#[test]
+fn writes_images_with_their_definitions() {
+    let operations = zumen_core::edit::parse_operations(
+        r#"[
+            {"op": "add", "kind": "image", "path": "maps/site.png", "pixels": [200, 100], "position": [10, 20], "width": 50},
+            {"op": "add", "kind": "image", "path": "地図/案内図.jpg", "pixels": [20, 10], "position": [0, 0], "rotation": 30}
+        ]"#,
+    )
+    .unwrap();
+    let images = |doc: &DxfDocument| -> Vec<(Option<String>, [f64; 2], [f64; 3])> {
+        doc.entities
+            .iter()
+            .filter_map(|entity| match &entity.data {
+                DxfEntityData::Image(image) if entity.base.kind == "IMAGE" => {
+                    Some((image.path.clone(), image.image_size, image.u_pixel))
+                }
+                _ => None,
+            })
+            .collect()
+    };
+    let from_dwg =
+        zumen_dwg::read_dwg(&zumen_dwg::edit_dwg(&zumen_dwg::new_dwg("mm").unwrap(), &operations).unwrap().bytes)
+            .unwrap();
+    let from_dxf = parse_dxf(&zumen_dxf::edit_dxf(&zumen_dxf::new_dxf("mm").unwrap(), &operations).unwrap().bytes);
+    for (source, mut doc) in [("dwg", from_dwg), ("dxf", from_dxf)] {
+        // 1 つ目の画像を、同じ定義を指す画像として複製する
+        let mut shared = doc.entities.iter().find(|entity| entity.base.kind == "IMAGE").unwrap().clone();
+        shared.base.handle = "FFFF".into();
+        doc.entities.push(shared);
+        assert_eq!(images(&doc).len(), 3, "{source}");
+        for version in DwgVersion::ALL {
+            let written = zumen_dwg::write_dwg_as(&doc, version);
+            let codes: Vec<&str> = written.notices.iter().map(|notice| notice.code.as_str()).collect();
+            assert!(!codes.contains(&"image"), "{source} {version:?}: {codes:?}");
+            let again =
+                zumen_dwg::read_dwg(&written.bytes).unwrap_or_else(|error| panic!("{source} {version:?}: {error}"));
+            if version == DwgVersion::R13 {
+                assert!(codes.contains(&"version-image") && images(&again).is_empty(), "{source}: {codes:?}");
+                continue;
+            }
+            assert_eq!(images(&again), images(&doc), "{source} {version:?}");
+            let definitions: HashSet<&str> = again
+                .entities
+                .iter()
+                .filter_map(|entity| match &entity.data {
+                    DxfEntityData::Image(image) => image.definition_handle.as_deref(),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(definitions.len(), 2, "{source} {version:?}: the copy shares its definition");
+        }
     }
 }

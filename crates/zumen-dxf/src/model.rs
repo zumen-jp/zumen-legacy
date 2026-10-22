@@ -543,6 +543,10 @@ pub struct DxfImage {
     /// 70。1 表示、2 回転しないとき表示、4 切り抜き
     pub flags: f64,
     pub clipping: bool,
+    /// 画像の定義（IMAGEDEF）のハンドル（340）。WIPEOUT は持たない
+    pub definition_handle: Option<String>,
+    /// 画像の定義が指す画像のファイルの名前（IMAGEDEF の 1）。書き出しにも使う
+    pub path: Option<String>,
 }
 
 /// 表（ACAD_TABLE）。表示の図形は INSERT と同じくブロック（*T…）で持つ
