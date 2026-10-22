@@ -4,6 +4,11 @@ All packages share one version during 0.x.
 
 ## Unreleased
 
+- Rust, Python and the command line: `edit` and `create` take `{"op": "add-block", "name": ..., "basePoint": [x, y]}`
+  for DXF (R12 to 2018) and DWG (R13 to 2018), which creates an empty block definition; later operations of the same
+  edit fill it with `"container": "block:<name>"` and place it with `block-reference`. SXF and JWW refuse it
+  (`unsupported-kind`). First step of [decision 0017](docs/decisions/0017-add-annotations-and-definitions.md).
+
 ## 0.1.1 — 2026-10-21
 
 - Rust: `zumen_dwg::write_dwg_as` writes AutoCAD R13, R14, 2000, 2004, 2007, 2010, 2013 or 2018 DWG, with

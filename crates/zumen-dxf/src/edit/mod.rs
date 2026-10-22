@@ -40,7 +40,9 @@ pub fn edit_dxf(bytes: &[u8], operations: &[EditOperation]) -> Result<Edited, Ed
     for (index, operation) in operations.iter().enumerate() {
         // DXF Reference「Binary DXF Files」: 文字列は NUL 終端。値の途中の NUL は後続のタグを壊す。
         let values = match operation {
-            EditOperation::Add { values, .. } | EditOperation::AddLayer { values, .. } => Some(values),
+            EditOperation::Add { values, .. }
+            | EditOperation::AddLayer { values, .. }
+            | EditOperation::AddBlock { values, .. } => Some(values),
             EditOperation::Update { set, .. } | EditOperation::UpdateLayer { set, .. } => Some(set),
             EditOperation::Delete { .. } => None,
         };
@@ -57,6 +59,7 @@ pub fn edit_dxf(bytes: &[u8], operations: &[EditOperation]) -> Result<Edited, Ed
             EditOperation::Delete { id } => editor.delete(index, id)?,
             EditOperation::AddLayer { name, values } => editor.add_layer(index, name, values, false)?,
             EditOperation::UpdateLayer { name, set } => editor.update_layer(index, name, set)?,
+            EditOperation::AddBlock { name, values } => editor.add_block(index, name, values)?,
         }
     }
     editor.finish_handles();
@@ -81,6 +84,17 @@ struct BlockInfo {
     name: String,
     /// ENDBLK のレコード
     end: Option<usize>,
+    /// この編集で足したブロック（new_blocks の番号）
+    new: Option<usize>,
+}
+
+/// この編集で足したブロック定義（docs/decisions/0017）。BLOCK・中の図形・ENDBLK を at のレコードの前に書く
+#[derive(Debug, Clone)]
+struct NewBlock {
+    at: usize,
+    begin: Vec<Tag>,
+    entities: Vec<Vec<Tag>>,
+    end: Vec<Tag>,
 }
 
 /// 足す先
@@ -89,6 +103,8 @@ struct Place {
     before: usize,
     owner: Option<String>,
     paper: bool,
+    /// この編集で足したブロックに足す（new_blocks の番号）
+    block: Option<usize>,
 }
 
 struct Editor<'a> {
@@ -116,6 +132,10 @@ struct Editor<'a> {
     created_table: Option<(usize, usize, Option<String>)>,
     /// 足したレコードの後に閉じるレコード（作った表の ENDTAB・ENDSEC）
     closers: HashMap<usize, Vec<Vec<Tag>>>,
+    /// 足したブロック定義
+    new_blocks: Vec<NewBlock>,
+    /// BLOCKS の節がない図面に作る節の位置（このレコードの前）
+    blocks_section: Option<usize>,
     /// レイヤの名前（大文字）→ レコード（足したレイヤは足すレコードの番号）
     layers: HashMap<String, LayerRef>,
     linetypes: HashMap<String, String>,
@@ -327,6 +347,8 @@ impl<'a> Editor<'a> {
             sections: HashMap::new(),
             created_table: None,
             closers: HashMap::new(),
+            new_blocks: Vec::new(),
+            blocks_section: None,
             layers: HashMap::new(),
             linetypes: HashMap::new(),
             styles: HashMap::new(),
@@ -426,7 +448,7 @@ impl<'a> Editor<'a> {
                 _ if section == "BLOCKS" => match kind.as_str() {
                     "BLOCK" => {
                         let name = value(tags, 2).unwrap_or("").to_string();
-                        self.blocks.insert(upper(&name), BlockInfo { name: name.clone(), end: None });
+                        self.blocks.insert(upper(&name), BlockInfo { name: name.clone(), end: None, new: None });
                         block = Some(name);
                     }
                     "ENDBLK" => {
@@ -590,6 +612,36 @@ impl<'a> Editor<'a> {
                 count += usize::from(tags.first().is_some_and(|tag| tag.code == 0));
                 for tag in tags {
                     self.source.write_tag(tag, &mut out);
+                }
+            }
+            if self.new_blocks.iter().any(|block| block.at == index) {
+                let section = self.blocks_section == Some(index);
+                let mut records: Vec<&Vec<Tag>> = Vec::new();
+                let start = Record::new("SECTION").tag(2, "BLOCKS").tags.clone();
+                let end = Record::new("ENDSEC").tags;
+                let mut places: Vec<Option<(usize, usize)>> = Vec::new();
+                for (number, block) in self.new_blocks.iter().enumerate().filter(|(_, block)| block.at == index) {
+                    records.push(&block.begin);
+                    places.push(None);
+                    records.extend(&block.entities);
+                    places.extend((0..block.entities.len()).map(|position| Some((usize::MAX - number, position))));
+                    records.push(&block.end);
+                    places.push(None);
+                }
+                if section {
+                    records.insert(0, &start);
+                    places.insert(0, None);
+                    records.push(&end);
+                    places.push(None);
+                }
+                for (tags, place) in records.into_iter().zip(places) {
+                    count += usize::from(tags.first().is_some_and(|tag| tag.code == 0));
+                    if let Some(place) = place {
+                        positions.insert(place, count);
+                    }
+                    for tag in tags {
+                        self.source.write_tag(tag, &mut out);
+                    }
                 }
             }
             if self.deleted.contains(&index) {
@@ -800,7 +852,7 @@ impl<'a> Editor<'a> {
             let before = self
                 .entities_end
                 .ok_or_else(|| EditError::at(index, "unreadable", "図面に ENTITIES の節がありません"))?;
-            Ok(Place { before, owner, paper })
+            Ok(Place { before, owner, paper, block: None })
         };
         let model_owner = || self.block_records.get("*MODEL_SPACE").cloned();
         let container = container.map(str::trim).unwrap_or("model");
@@ -819,10 +871,13 @@ impl<'a> Editor<'a> {
             let info = self.blocks.get(&key).ok_or_else(|| {
                 EditError::at(index, "missing-definition", format!("ブロック {name} は図面にありません"))
             })?;
+            if let Some(block) = info.new {
+                return Ok(Place { before: 0, owner, paper: false, block: Some(block) });
+            }
             let before = info
                 .end
                 .ok_or_else(|| EditError::at(index, "unreadable", format!("ブロック {name} に ENDBLK がありません")))?;
-            Ok(Place { before, owner, paper: key.starts_with("*PAPER_SPACE") })
+            Ok(Place { before, owner, paper: key.starts_with("*PAPER_SPACE"), block: None })
         };
         if let Some(name) = container.strip_prefix("layout:") {
             if name.eq_ignore_ascii_case("model") {
@@ -1029,6 +1084,13 @@ impl<'a> Editor<'a> {
         let handle = value(&tags[0], 5).map(str::to_string).unwrap_or_default();
         let mut first = None;
         for record in tags {
+            if let Some(block) = place.block {
+                // 足したブロックの中の図形の場所は、new_blocks の番号を usize::MAX から数えて表す
+                let entities = &mut self.new_blocks[block].entities;
+                entities.push(record);
+                first.get_or_insert((usize::MAX - block, entities.len() - 1));
+                continue;
+            }
             let position = self.insert(place.before, record);
             first.get_or_insert((place.before, position));
         }
@@ -1631,6 +1693,83 @@ impl<'a> Editor<'a> {
                 }
             }
         }
+        Ok(())
+    }
+
+    /// 空のブロック定義を足す（docs/decisions/0017）。R13 以降は BLOCK_RECORD・BLOCK・ENDBLK、R12 は BLOCK・ENDBLK
+    /// （DXF Reference「BLOCK_RECORD」「BLOCK」「ENDBLK」）。BLOCKS の節がなければ ENTITIES の前に作る
+    fn add_block(&mut self, index: usize, name: &str, values: &EditValues) -> Result<(), EditError> {
+        if !valid_name(name) || name.trim().starts_with('*') {
+            return Err(EditError::at(
+                index,
+                "invalid-value",
+                format!("ブロックの名前 {name} は使えません（* で始まる名前は名前のないブロックのためのものです）"),
+            ));
+        }
+        let key = upper(name);
+        if self.blocks.contains_key(&key) || self.block_records.contains_key(&key) {
+            return Err(EditError::at(index, "already-exists", format!("ブロック {name} はすでにあります")));
+        }
+        let reader = ValueReader::new(values, index);
+        reader.allow(&["basePoint"], "ブロックの定義")?;
+        let base = reader.point("basePoint")?.unwrap_or([0.0; 3]);
+        let at = match self.sections.get("BLOCKS") {
+            Some(&(_, Some(end))) => end,
+            Some(_) => return Err(EditError::at(index, "unreadable", "BLOCKS の節に ENDSEC がありません")),
+            None => {
+                let at = ["ENTITIES", "OBJECTS"]
+                    .iter()
+                    .filter_map(|name| self.sections.get(*name).map(|entry| entry.0))
+                    .min()
+                    .ok_or_else(|| EditError::at(index, "unreadable", "図面に ENTITIES の節がありません"))?;
+                self.blocks_section = Some(at);
+                at
+            }
+        };
+        // R13 以降はブロックの表の項目（所有者は BLOCK_RECORD の表）
+        let mut owner = None;
+        if self.r13
+            && let Some(&(table, Some(end))) = self.tables.get("BLOCK_RECORD")
+        {
+            let handle = self.next_handle(index)?;
+            let mut record = Record::new("BLOCK_RECORD");
+            if let Some(handle) = &handle {
+                record.tag(5, handle.clone());
+            }
+            if let Some(table) = self.record_handles.get(&table) {
+                record.tag(330, table.clone());
+            }
+            record.tag(100, "AcDbSymbolTableRecord").tag(100, "AcDbBlockTableRecord").tag(2, name).tag(340, "0");
+            if self.source.version.as_str() >= "AC1018" {
+                // 挿入の単位（0 は単位なし）、分解できる、尺度を揃えない（AutoCAD 2004 以降の既定）
+                record.int(70, 0).int(280, 1).int(281, 0);
+            }
+            self.insert(end, record.tags);
+            let count = self.block_records.len() + 1;
+            let table_tags = self.tags_mut(table);
+            if number(table_tags, 70).is_none_or(|current| current < count as f64) {
+                set(table_tags, 70, count.to_string(), &[100, 2]);
+            }
+            if let Some(handle) = handle {
+                self.block_records.insert(key.clone(), handle.clone());
+                self.block_record_names.insert(handle.clone(), name.to_string());
+                owner = Some(handle);
+            }
+        }
+        let common = Common { layer: "0".into(), color: None, line_type: None, line_width: None };
+        let place = Place { before: at, owner, paper: false, block: None };
+        let (mut begin, _) = self.entity_record(index, "BLOCK", &place, &common)?;
+        self.subclass(&mut begin, "AcDbBlockBegin");
+        begin.tag(2, name).int(70, 0).point(10, base, true).tag(3, name);
+        if self.r13 {
+            begin.tag(1, "");
+        }
+        let (mut end, _) = self.entity_record(index, "ENDBLK", &place, &common)?;
+        self.subclass(&mut end, "AcDbBlockEnd");
+        self.new_blocks.push(NewBlock { at, begin: begin.tags, entities: Vec::new(), end: end.tags });
+        self.blocks.insert(key, BlockInfo { name: name.to_string(), end: None, new: Some(self.new_blocks.len() - 1) });
+        self.created.push(name.to_string());
+        self.created_places.push(None);
         Ok(())
     }
 

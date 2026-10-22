@@ -299,3 +299,57 @@ fn refuses_formats_it_cannot_edit_yet() {
     let error = zumen::create("jwc", "mm", &[]).unwrap_err();
     assert_eq!(error.code, "unsupported-format");
 }
+
+/// ブロックの定義を足し、中に図形を足して配置する（docs/decisions/0017）。DXF・DWG のすべての fixtures で、配置を
+/// 通して足した図形が描け、ほかの図形の数は変わらない。SXF・JWW はまだ受け付けない
+#[test]
+fn adds_block_definitions_to_every_dxf_and_dwg() {
+    let operations = parse_operations(
+        r#"[
+            {"op": "add-block", "name": "ZUMEN-EDIT-BLOCK", "basePoint": [0, 0]},
+            {"op": "add", "kind": "line", "container": "block:ZUMEN-EDIT-BLOCK", "start": [0, 0], "end": [100, 0]},
+            {"op": "add", "kind": "circle", "container": "block:ZUMEN-EDIT-BLOCK", "center": [50, 0], "radius": 10},
+            {"op": "add", "kind": "block-reference", "block": "ZUMEN-EDIT-BLOCK", "position": [10, 20], "rotation": 30}
+        ]"#,
+    )
+    .unwrap();
+    let options = ReadDrawingOptions::default();
+    let mut problems = Vec::new();
+    for (folder, extension) in [("dxf", "dxf"), ("dwg", "dwg")] {
+        for file in drawings(&fixtures().join(folder), &[extension]) {
+            let name = file.file_name().unwrap().to_string_lossy().to_string();
+            let bytes = fs::read(&file).unwrap();
+            let edited = match zumen::edit(&bytes, &operations, &options) {
+                Ok(edited) => edited,
+                // R12 以前の DWG はまだ編集できない
+                Err(error) if error.code == "unreadable" && folder == "dwg" => continue,
+                Err(error) => {
+                    problems.push(format!("{name}: {error}"));
+                    continue;
+                }
+            };
+            let (before, after) = (read(&bytes), read(&edited.bytes));
+            // ブロックの中の図形の上限を超える図面（limits.dxf）は、足した配置の中も描かない
+            if before.notices.iter().any(|notice| notice.code == "block-limit") {
+                continue;
+            }
+            let reference = &edited.created[3];
+            let inside = after.entities.iter().filter(|entity| entity.id.starts_with(&format!("{reference}>"))).count();
+            if inside != 2 {
+                problems.push(format!("{name}: {inside} entities drawn through the new reference"));
+            }
+            if after.entities.len() != before.entities.len() + 2 {
+                problems.push(format!(
+                    "{name}: {} entities before, {} after",
+                    before.entities.len(),
+                    after.entities.len()
+                ));
+            }
+        }
+    }
+    assert!(problems.is_empty(), "{problems:#?}");
+    for format in ["jww", "sfc"] {
+        let error = zumen::create(format, "mm", &operations).unwrap_err();
+        assert_eq!((error.code, error.operation), ("unsupported-kind", Some(0)), "{format}");
+    }
+}

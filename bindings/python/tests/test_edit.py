@@ -126,6 +126,11 @@ def test_edited_dxf_passes_the_audit_of_ezdxf(tmp_path):
         layouts = {view_id for view_id, _ in scene.views or []}
         if "Layout1" not in layouts:
             operations = [operation for operation in operations if operation.get("container") != "layout:Layout1"]
+        operations += [
+            {"op": "add-block", "name": "CHECK-BLOCK", "basePoint": [1, 1]},
+            {"op": "add", "kind": "circle", "container": "block:CHECK-BLOCK", "center": [1, 1], "radius": 1},
+            {"op": "add", "kind": "block-reference", "block": "CHECK-BLOCK", "position": [20, 20]},
+        ]
         edited = zumen.edit(data, operations)
         path = tmp_path / f"{name}.edited.dxf"
         edited.save(path)
@@ -133,7 +138,7 @@ def test_edited_dxf_passes_the_audit_of_ezdxf(tmp_path):
         auditor = doc.audit()
         found = [(entry.code, entry.message) for entry in [*auditor.errors, *auditor.fixes]]
         assert found == [], (name, found)
-        added = [doc.entitydb[handle] for handle in edited.created[1:]]
+        added = [doc.entitydb[handle] for handle in edited.created[1:-3]]
         assert [entity.dxftype() for entity in added[:9]] == [
             "LINE",
             "CIRCLE",
@@ -148,3 +153,6 @@ def test_edited_dxf_passes_the_audit_of_ezdxf(tmp_path):
         assert added[6].dxf.text == "確認済み"
         assert added[7].plain_text() == "一行目\n二行目"
         assert doc.layers.get("CHECK").dxf.lineweight == 35
+        block = doc.blocks.get("CHECK-BLOCK")
+        assert [entity.dxftype() for entity in block] == ["CIRCLE"], name
+        assert doc.entitydb[edited.created[-1]].dxf.name == "CHECK-BLOCK", name

@@ -50,6 +50,8 @@ pub enum EditOperation {
     AddLayer { name: String, values: EditValues },
     /// レイヤの値を変える
     UpdateLayer { name: String, set: EditValues },
+    /// 空のブロック定義を足す（docs/decisions/0017）。中の図形は後の add が container の block:<名前> で足す
+    AddBlock { name: String, values: EditValues },
 }
 
 impl EditOperation {
@@ -61,6 +63,7 @@ impl EditOperation {
             EditOperation::Delete { .. } => "delete",
             EditOperation::AddLayer { .. } => "add-layer",
             EditOperation::UpdateLayer { .. } => "update-layer",
+            EditOperation::AddBlock { .. } => "add-block",
         }
     }
 }
@@ -187,7 +190,7 @@ fn operation(index: usize, item: &Json) -> Result<EditOperation, EditError> {
             return Err(EditError::at(
                 index,
                 "invalid-operations",
-                "op（add・update・delete・add-layer・update-layer）がありません",
+                "op（add・update・delete・add-layer・update-layer・add-block）がありません",
             ));
         }
     };
@@ -219,11 +222,12 @@ fn operation(index: usize, item: &Json) -> Result<EditOperation, EditError> {
             only(&["op", "name", "set"])?;
             EditOperation::UpdateLayer { name: string("name")?, set: set()? }
         }
+        "add-block" => EditOperation::AddBlock { name: string("name")?, values: values(&["op", "name"])? },
         other => {
             return Err(EditError::at(
                 index,
                 "invalid-operations",
-                format!("op の {other} はありません（add・update・delete・add-layer・update-layer）"),
+                format!("op の {other} はありません（add・update・delete・add-layer・update-layer・add-block）"),
             ));
         }
     })
@@ -453,11 +457,12 @@ mod tests {
                 {"op": "update", "id": "3F", "set": {"color": "#FF0000", "vertices": [[0, 0], [1, 1]], "closed": true}},
                 {"op": "delete", "id": "40"},
                 {"op": "add-layer", "name": "CHECK", "color": 1},
-                {"op": "update-layer", "name": "CHECK", "set": {"visible": false, "lineType": null}}
+                {"op": "update-layer", "name": "CHECK", "set": {"visible": false, "lineType": null}},
+                {"op": "add-block", "name": "DOOR", "basePoint": [10, 0]}
             ]"##,
         )
         .unwrap();
-        assert_eq!(operations.len(), 6);
+        assert_eq!(operations.len(), 7);
         let EditOperation::Add { kind, values, container } = &operations[0] else { panic!() };
         assert_eq!((kind.as_str(), container), ("line", &None));
         let reader = ValueReader::new(values, 0);
@@ -474,6 +479,9 @@ mod tests {
         let EditOperation::UpdateLayer { set, .. } = &operations[5] else { panic!() };
         // null は指定がないのと同じ
         assert_eq!(ValueReader::new(set, 5).name("lineType").unwrap(), None);
+        let EditOperation::AddBlock { name, values } = &operations[6] else { panic!() };
+        assert_eq!(name, "DOOR");
+        assert_eq!(ValueReader::new(values, 6).point("basePoint").unwrap(), Some([10.0, 0.0, 0.0]));
     }
 
     #[test]

@@ -413,6 +413,14 @@ stay, and an edit without operations gives the same bytes.
 - **Layers**: `add-layer` copies layer `0` without its handle, extension dictionary and extended data, so the plot
   style and material references stay valid; `update-layer` sets the color (a negative 62 turns a layer off), frozen
   (70 bit 1), locked (70 bit 4), plot (290), line type (6) and line weight (370). The count of the table (70) follows.
+- **Block definitions**: `add-block` ([decision 0017](../decisions/0017-add-annotations-and-definitions.md)) takes
+  `name` and `basePoint` and writes an empty definition before the ENDSEC of BLOCKS: from R13 on a BLOCK_RECORD (with
+  layout 340 = 0, and 70, 280 and 281 from AutoCAD 2004 on) at the end of the BLOCK_RECORD table, whose count (70)
+  follows, and BLOCK and ENDBLK owned by it; in R12, BLOCK and ENDBLK only. A drawing without a BLOCKS section gets
+  one before ENTITIES, which moves the ids of handle-less entities (`#12`) after it. Later operations of the same
+  edit add entities with `"container": "block:<name>"` and place the block with `block-reference`. Names that exist
+  are `already-exists`; names starting with `*` (anonymous blocks) are `invalid-value`. `created` gives the name, and
+  the entities added to the new block their handles (or, without handles, their places in the file).
 - **Values the version cannot hold** are written as the nearest one and reported: `edit-nearest-color` (no true color
   before AutoCAD 2004), `edit-rounded-lineweight` (the line weights of the DXF Reference), `edit-no-lineweight` (no
   line weights before AutoCAD 2000).

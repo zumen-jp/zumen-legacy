@@ -581,3 +581,48 @@ fn changing_bulges_or_closed_keeps_vertex_widths_and_ids() {
         assert_eq!(polyline.flags & (32 | 1024), 32 | 1024);
     }
 }
+
+/// ブロックの定義を足し、中に図形を足して配置する（docs/decisions/0017）。どの版の図面でも、読み直したブロックに
+/// 図形があり、配置を通して描ける
+#[test]
+fn adds_block_definitions_in_every_version() {
+    for version in crate::DwgVersion::ALL {
+        let name = version.name();
+        let bytes = written_as(version);
+        let edited = edit(
+            &bytes,
+            r#"[
+                {"op": "add-block", "name": "窓-1", "basePoint": [5, 0]},
+                {"op": "add", "kind": "line", "container": "block:窓-1", "start": [0, 0], "end": [10, 0]},
+                {"op": "add", "kind": "circle", "container": "block:窓-1", "center": [5, 0], "radius": 1},
+                {"op": "add", "kind": "block-reference", "block": "窓-1", "position": [100, 100]},
+                {"op": "add", "kind": "block-reference", "block": "窓-1", "position": [200, 100], "container": "layout:Layout1"}
+            ]"#,
+        )
+        .unwrap_or_else(|error| panic!("{name}: {error}"));
+        assert_eq!(edited.created[0], "窓-1", "{name}");
+        check_structure(name, &edited.bytes);
+        let doc = crate::read_dwg(&edited.bytes).unwrap_or_else(|error| panic!("{name}: {error}"));
+        let block = doc.blocks.iter().find(|block| block.name == "窓-1").unwrap_or_else(|| panic!("{name}"));
+        assert_eq!(block.base_point, [5.0, 0.0, 0.0], "{name}");
+        for created in &edited.created[1..3] {
+            assert_eq!(entity(&doc, created).unwrap().base.block.as_deref(), Some("窓-1"), "{name}");
+        }
+        let scene = zumen_dxf::dxf_to_scene(&doc, None);
+        let reference = &edited.created[3];
+        let drawn = scene.entities.iter().filter(|entity| entity.id.starts_with(&format!("{reference}>"))).count();
+        assert_eq!(drawn, 2, "{name}");
+        // 同じ名前は足せない
+        let again = edit(&edited.bytes, r#"[{"op": "add-block", "name": "窓-1"}]"#).unwrap_err();
+        assert_eq!(again.code, "already-exists", "{name}");
+    }
+    let empty = new_dwg("mm").unwrap();
+    let edited = edit(
+        &empty,
+        r#"[{"op": "add-block", "name": "N"}, {"op": "add", "kind": "point", "container": "block:N", "position": [0, 0]}]"#,
+    )
+    .unwrap();
+    check_structure("new", &edited.bytes);
+    assert!(crate::read_dwg(&edited.bytes).unwrap().blocks.iter().any(|block| block.name == "N"));
+    assert_eq!(edit(&empty, r#"[{"op": "add-block", "name": "*D1"}]"#).unwrap_err().code, "invalid-value");
+}
