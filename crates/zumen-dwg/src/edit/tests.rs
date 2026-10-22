@@ -949,3 +949,35 @@ fn adds_images_from_r14_on() {
         );
     }
 }
+
+/// IMAGE を消したとき、その画像が所有する IMAGEDEF_REACTOR と、定義からの逆参照も片付ける。
+#[test]
+fn deleting_an_image_removes_its_owned_reactor() {
+    for version in crate::DwgVersion::ALL.into_iter().filter(|version| *version != crate::DwgVersion::R13) {
+        let empty = zumen_dxf::parse_dxf(&zumen_dxf::new_dxf("mm").unwrap());
+        let source = crate::write_dwg_as(&empty, version).bytes;
+        let added =
+            edit(&source, r#"[{"op":"add","kind":"image","path":"map.png","pixels":[2,2],"position":[0,0]}]"#).unwrap();
+        let source = Source::open(&added.bytes, &mut NoticeList::new()).unwrap();
+        let editor = Editor::new(source, NoticeList::new()).unwrap();
+        let handle = u64::from_str_radix(&added.created[0], 16).unwrap();
+        let (image, _) = editor.read_entity(handle).unwrap();
+        let Body::Image(image) = image.value.body else { panic!() };
+        let reactor = image.reactor.resolve(handle);
+        let definition = image.imagedef.resolve(handle);
+        assert!(editor.bytes(reactor).is_some());
+        let removed = edit(&added.bytes, &format!(r#"[{{"op":"delete","id":"{:X}"}}]"#, handle)).unwrap();
+        let source = Source::open(&removed.bytes, &mut NoticeList::new()).unwrap();
+        let editor = Editor::new(source, NoticeList::new()).unwrap();
+        assert!(
+            editor.bytes(reactor).is_none(),
+            "{}: orphan reactor {reactor:X} points to removed image {handle:X}",
+            version.name()
+        );
+        let definition = editor.read(definition, |s, _| ImageDef::read(s)).unwrap().value;
+        assert!(
+            !definition.common.reactors.iter().any(|entry| entry.resolve(image.imagedef.resolve(handle)) == reactor)
+        );
+        check_structure(version.name(), &removed.bytes);
+    }
+}

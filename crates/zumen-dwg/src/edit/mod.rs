@@ -1893,6 +1893,32 @@ impl Editor {
         }
         let mut gone: Vec<u64> = vec![handle];
         gone.extend(self.followers(handle, &entity.value));
+        // IMAGEDEF_REACTOR（20.4.83）は IMAGE が所有し、IMAGEDEF（20.4.82）がリアクタとして指す。
+        // 定義はほかの画像も共有できるので残し、この画像のリアクタだけを両側から除く。
+        if let Body::Image(image) = &entity.value.body {
+            let reactor = image.reactor.resolve(handle);
+            let owned = self.read(reactor, |s, kind| {
+                if self.kind_of(kind).is_some_and(|(name, _)| name.eq_ignore_ascii_case("IMAGEDEF_REACTOR")) {
+                    ImageDefReactor::read(s)
+                } else {
+                    Err(crate::bits::Eof)
+                }
+            });
+            if owned.is_some_and(|decoded| decoded.value.common.owner.resolve(reactor) == handle) {
+                gone.push(reactor);
+                let definition = image.imagedef.resolve(handle);
+                if let Some(mut decoded) = self.read(definition, |s, kind| {
+                    if self.kind_of(kind).is_some_and(|(name, _)| name.eq_ignore_ascii_case("IMAGEDEF")) {
+                        ImageDef::read(s)
+                    } else {
+                        Err(crate::bits::Eof)
+                    }
+                }) {
+                    decoded.value.common.reactors.retain(|entry| entry.resolve(definition) != reactor);
+                    self.store(definition, decoded.kind, &decoded.eed, |out| decoded.value.write(out));
+                }
+            }
+        }
         // 図形とそれに従う図形が持つ拡張辞書と、その中のオブジェクト
         let mut queue: Vec<u64> = Vec::new();
         for member in gone.clone() {

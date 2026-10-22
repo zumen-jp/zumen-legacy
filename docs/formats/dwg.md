@@ -723,6 +723,8 @@ drawing with `write_dwg` (`$INSUNITS` and `$MEASUREMENT` from the units), which 
   IMAGEDEF_REACTOR (20.4.83) owned by the IMAGE. `ACAD_IMAGE_DICT` is created in the named objects dictionary when
   the drawing has none, and the IMAGE, IMAGEDEF and IMAGEDEF_REACTOR classes are added with the editor's class
   numbers. Reading keeps the IMAGEDEF's file name (`DxfImage::path`).
+  Deleting an image removes its owned IMAGEDEF_REACTOR and the reference to that reactor from IMAGEDEF, while
+  retaining the image definition in the dictionary for other images that may share it.
 - **Values the version cannot hold** are written as the nearest one and reported: `edit-nearest-color` (no true color
   before AutoCAD 2004) and `edit-rounded-lineweight` (the line weights of DWG). R13 and R14 have no line weights and
   plot every layer, so a line weight other than BYLAYER (entities) or the default (layers) and `plot: false` are not
