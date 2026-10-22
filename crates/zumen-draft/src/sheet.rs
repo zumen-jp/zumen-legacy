@@ -132,7 +132,13 @@ pub(crate) fn draw(drafter: &mut Drafter, spec: &Spec) -> Result<(), DraftError>
             return Err(DraftError::new("invalid-spec", &path, format!("用紙の名前 {} が 2 度あります", sheet.name)));
         }
         names.push(sheet.name.clone());
-        let (paper_name, width, height) = paper(sheet, &path)?;
+        let (paper_name, width, height) = match drafter.existing_layouts.get(&sheet.name.to_uppercase()) {
+            // 描き込む先に同じ名前のレイアウトがあれば、その用紙の大きさ
+            Some(&(width, height)) if sheet.paper.is_none() && width > 0.0 && height > 0.0 => {
+                (String::new(), width, height)
+            }
+            _ => paper(sheet, &path)?,
+        };
         let (space, block) = if index == 0 {
             (Space::Paper, "*Paper_Space".to_string())
         } else {
@@ -141,11 +147,49 @@ pub(crate) fn draw(drafter: &mut Drafter, spec: &Spec) -> Result<(), DraftError>
         };
         layouts.push(layout(drafter, &sheet.name, &block, false, index + 1, (&paper_name, width, height)));
         draw_sheet(drafter, sheet, &space, (width, height), &path)?;
+        let filled = fill_fields(drafter, &block, &sheet.fields);
+        if !drafter.into {
+            let unused: Vec<&str> =
+                sheet.fields.keys().filter(|tag| !filled.contains(&tag.to_uppercase())).map(String::as_str).collect();
+            if !unused.is_empty() {
+                drafter.notice(
+                    "unused-field",
+                    format!("{path}.fields の {} の属性を持つブロック参照が用紙にありません", unused.join("・")),
+                );
+            }
+        }
+        drafter.filled.push(filled);
     }
     drafter.builder.doc.layouts = layouts;
     // レイアウトを開いた状態にする（決定 0008）
     drafter.builder.doc.header.tilemode = 0.0;
     Ok(())
+}
+
+/// 用紙（紙空間のブロック block）のブロック参照の属性に、fields の値を書く。埋めたタグ（大文字）を返す
+fn fill_fields(
+    drafter: &mut Drafter,
+    block: &str,
+    fields: &std::collections::BTreeMap<String, String>,
+) -> std::collections::BTreeSet<String> {
+    let mut filled = std::collections::BTreeSet::new();
+    if fields.is_empty() {
+        return filled;
+    }
+    for entity in drafter.builder.doc.entities.iter_mut() {
+        if entity.base.block.as_deref() != Some(block) {
+            continue;
+        }
+        let DxfEntityData::Insert(insert) = &mut entity.data else { continue };
+        for attrib in &mut insert.attribs {
+            let DxfEntityData::Attrib { text, tag, .. } = &mut attrib.data else { continue };
+            if let Some((key, value)) = fields.iter().find(|(key, _)| key.eq_ignore_ascii_case(tag)) {
+                text.text = value.clone();
+                filled.insert(key.to_uppercase());
+            }
+        }
+    }
+    filled
 }
 
 /// ビューポートの id（ID 1 は用紙ごとの全体のビューポート）

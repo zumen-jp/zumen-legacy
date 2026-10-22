@@ -51,7 +51,7 @@ pub(crate) struct DimStyle {
 }
 
 /// 寸法の値と寸法線の隙間（用紙の mm）
-const TEXT_GAP: f64 = 0.8;
+pub(crate) const TEXT_GAP: f64 = 0.8;
 /// 寸法線の位置を省略したときの、測る点からの距離（用紙の mm）
 pub(crate) const DEFAULT_OFFSET: f64 = 10.0;
 /// 全体の寸法を、並びの寸法からさらに離す距離（用紙の mm）
@@ -117,13 +117,17 @@ fn unit(degrees: f64) -> Point {
     [cos, sin]
 }
 
-/// 寸法スタイルの名前。縮尺ごとに作り、DIMSCALE を縮尺、矢印と文字の大きさを用紙の mm にする
+/// 寸法スタイルの名前。縮尺と見た目ごとに作り、DIMSCALE を縮尺、矢印と文字の大きさを用紙の mm にする
 fn dimension_style(drafter: &mut Drafter, scale: f64, style: &DimStyle) -> String {
-    let key = scale.to_bits();
+    let key = style_key(scale, style);
     if let Some(name) = drafter.dimension_styles.get(&key) {
         return name.clone();
     }
-    let name = format!("ZUMEN-1-{}", crate::dimension::format_number(scale, 0, false));
+    // 同じ縮尺で見た目の違う寸法スタイルには、番号を付ける
+    let base = format!("ZUMEN-1-{}", crate::dimension::format_number(scale, 0, false));
+    let same_scale = drafter.dimension_looks.values().filter(|(other, _)| *other == scale).count();
+    let name = if same_scale == 0 { base } else { format!("{base}-{}", same_scale + 1) };
+    drafter.dimension_looks.insert(name.clone(), (scale, style.clone()));
     let handle = drafter.builder.handle();
     drafter.builder.doc.dimstyles.push(DxfDimStyle {
         handle,
@@ -134,6 +138,21 @@ fn dimension_style(drafter: &mut Drafter, scale: f64, style: &DimStyle) -> Strin
     });
     drafter.dimension_styles.insert(key, name.clone());
     name
+}
+
+/// 縮尺と寸法の見た目を区別する鍵
+fn style_key(scale: f64, style: &DimStyle) -> String {
+    format!(
+        "{}:{:?}:{}:{}:{}:{}:{}:{}",
+        scale.to_bits(),
+        style.arrow,
+        style.arrow_size.to_bits(),
+        style.text_height.to_bits(),
+        style.precision,
+        style.thousands,
+        style.gap.to_bits(),
+        style.beyond.to_bits()
+    )
 }
 
 /// 端の記号を描く。tip は寸法線の端、inward は寸法線の内側への向き（単位ベクトル）

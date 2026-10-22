@@ -160,3 +160,111 @@ fn reports_views_whose_model_regions_overlap() {
     let drafted = zumen::draft(spec, "dxf", &DraftOptions::default()).unwrap();
     assert!(drafted.notices.iter().any(|notice| notice.code == "view-overlap"), "{:?}", drafted.notices);
 }
+
+// ---- draft_into: 受け取った図面にその場で描く ----
+
+use zumen::dxf::DxfDocument;
+
+/// テンプレート: モデルの線と、属性のある表題欄のブロックを置いたレイアウト A3
+fn template(to: &str) -> Vec<u8> {
+    let operations = zumen::edit::parse_operations(
+        r#"[
+            {"op": "add", "kind": "line", "start": [0, -50000], "end": [1000, -50000]},
+            {"op": "add-block", "name": "TITLE"},
+            {"op": "add", "kind": "line", "container": "block:TITLE", "start": [0, 0], "end": [100, 0]},
+            {"op": "add", "kind": "attribute-definition", "container": "block:TITLE", "tag": "DWGNAME", "text": "未定", "position": [5, 5], "height": 3},
+            {"op": "add", "kind": "attribute-definition", "container": "block:TITLE", "tag": "DWGNO", "text": "-", "position": [5, 15], "height": 3},
+            {"op": "add-layout", "name": "A3", "paperSize": [420, 297]},
+            {"op": "add", "kind": "block-reference", "container": "layout:A3", "block": "TITLE", "position": [300, 10], "attributes": {"DWGNO": "-"}}
+        ]"#,
+    )
+    .unwrap();
+    zumen::create(to, "mm", &operations).unwrap_or_else(|error| panic!("{to}: {error}")).bytes
+}
+
+fn document(to: &str, bytes: &[u8]) -> DxfDocument {
+    match to {
+        "dxf" => zumen::dxf::parse_dxf(bytes),
+        _ => zumen::dwg::read_dwg(bytes).unwrap(),
+    }
+}
+
+fn draft_into(bytes: &[u8], spec: &str) -> zumen::Converted {
+    zumen::draft_into(bytes, spec, &zumen::DraftIntoOptions::default()).unwrap_or_else(|error| panic!("{error}"))
+}
+
+/// テンプレートの図形はハンドルごと残り、版も同じで、描いたものと表題欄の属性を zumen で読み直せる
+#[test]
+fn drafts_into_a_template_layout_and_fills_its_title_block() {
+    let spec = r#"{
+        "layers": [{"name": "A-WALL", "color": 7, "lineWidth": 0.5}],
+        "sheets": [{
+            "name": "A3",
+            "fields": {"DWGNAME": "1階平面図", "DWGNO": "A-101"},
+            "views": [{"viewport": [20, 20, 280, 280], "scale": 100, "items": [
+                {"type": "rectangle", "from": [0, 0], "to": [10000, 8000], "layer": "A-WALL"},
+                {"type": "dimension", "from": [0, 0], "to": [10000, 0], "offset": -10},
+                {"type": "hatch", "boundaries": [[[0, 0], [2000, 0], [2000, 2000], [0, 2000]]], "pattern": "ANSI31"},
+                {"type": "text", "at": [5000, 4000], "text": "事務室", "align": "middle-center", "fit": 10, "height": 5}
+            ]}],
+            "items": [{"type": "text", "at": [30, 285], "text": "平面図", "height": 5}]
+        }]
+    }"#;
+    for to in ["dxf", "dwg"] {
+        let before = template(to);
+        let drafted = draft_into(&before, spec);
+        let (old, new) = (document(to, &before), document(to, &drafted.bytes));
+        assert_eq!(old.version, new.version, "{to}");
+        for entity in &old.entities {
+            assert!(
+                new.entities
+                    .iter()
+                    .any(|other| other.base.handle == entity.base.handle && other.base.kind == entity.base.kind),
+                "{to}: {} {} が残っていません",
+                entity.base.kind,
+                entity.base.handle
+            );
+        }
+        assert!(new.entities.len() > old.entities.len(), "{to}");
+        // レイアウトは増えず、A3 に描いた
+        let scene = read(&drafted.bytes, None);
+        let views: Vec<&str> = scene.views.iter().flatten().map(|view| view.id.as_str()).collect();
+        assert_eq!(views, ["Model", "Layout1", "A3"], "{to}");
+        let sheet = read(&drafted.bytes, Some("A3"));
+        let texts = texts(&sheet);
+        find(&texts, "平面図");
+        find(&texts, "1階平面図");
+        find(&texts, "A-101");
+        assert!(texts.iter().all(|(text, ..)| text != "未定"), "{to}: {texts:?}");
+        let dimension = find(&texts, "10,000");
+        assert!(is_paper_2_5(dimension.3), "{to}: 寸法の値は用紙の 2.5 mm {dimension:?}");
+        assert!(dimension.1 > 20.0 && dimension.1 < 280.0, "{to}: 寸法はビューポートの中 {dimension:?}");
+        let room = find(&texts, "事務室");
+        assert!(room.1 > 20.0 && room.1 < 280.0, "{to}: {room:?}");
+        let kinds: Vec<&str> = sheet.entities.iter().map(|entity| entity.kind.name()).collect();
+        assert!(kinds.contains(&"dimension") && kinds.contains(&"hatch"), "{to}: {kinds:?}");
+    }
+}
+
+/// 見本の仕様をテンプレートに描くと、用紙ごとにレイアウトが足され、draft と同じ文字が同じ場所にある
+#[test]
+fn drafts_the_sample_into_a_template_with_new_layouts() {
+    for to in ["dxf", "dwg"] {
+        let drafted = draft_into(&template(to), SPEC);
+        let scene = read(&drafted.bytes, None);
+        let views: Vec<&str> = scene.views.iter().flatten().map(|view| view.id.as_str()).collect();
+        assert_eq!(views, ["Model", "Layout1", "A3", "A01-1", "A05-1", "A10-1", "A20-1"], "{to}");
+        let scenes: Vec<(&str, Scene)> =
+            SHEETS.iter().map(|sheet| (*sheet, read(&drafted.bytes, Some(sheet)))).collect();
+        check_sheets(&scenes, &format!("draft_into {to}"));
+        let plan = &scenes[2].1;
+        assert_eq!(plan.entities.iter().filter(|entity| entity.kind.name() == "dimension").count(), 7, "{to}");
+    }
+}
+
+#[test]
+fn refuses_formats_without_layouts_and_names_the_spec_place_of_edit_errors() {
+    let jww = zumen::create("jww", "mm", &[]).unwrap().bytes;
+    let error = zumen::draft_into(&jww, SPEC, &zumen::DraftIntoOptions::default()).unwrap_err();
+    assert_eq!(error.code, "unsupported-format");
+}

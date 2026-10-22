@@ -220,6 +220,64 @@ pub fn draft(spec: &str, to: &str, options: &DraftOptions) -> Result<Converted, 
     Ok(Converted { bytes, notices: notices.into_vec() })
 }
 
+/// 受け取った図面に描く指定
+#[derive(Debug, Clone, Default)]
+pub struct DraftIntoOptions {
+    /// 描く用紙の名前。省略するとすべての用紙
+    pub sheet: Option<String>,
+    /// 描き込む図面の形式（dxf・dwg）と、読み取りの上限
+    pub read: ReadDrawingOptions,
+}
+
+/// 図面の仕様（決定 0018）を、受け取った DXF・DWG の図面（テンプレート）にその場で描く。描いたものは決定 0017 の
+/// 編集の操作（`draft::plan`）にして `edit` で当てるので、元の図形・ハンドル・拡張データ・zumen が読まない内容は
+/// 残る。用紙の名前と同じレイアウトがあればそこに描き（用紙の大きさもそのレイアウトのもの）、なければレイアウトを
+/// 足す。用紙の `fields` は、その用紙のブロック参照（表題欄）の属性を埋める。図面の版と形式は元のまま
+pub fn draft_into(bytes: &[u8], spec: &str, options: &DraftIntoOptions) -> Result<Converted, draft::DraftError> {
+    let error = |code: &'static str, message: String| draft::DraftError::new(code, "", message);
+    let limits = &options.read.limits;
+    if limits.max_bytes.is_some_and(|max| bytes.len() as u64 > max) {
+        return Err(error("too-large", limit_error(Limit::Bytes, limits).to_string()));
+    }
+    let format = match options.read.format.as_deref() {
+        Some(format) => format,
+        None => detect(bytes).ok_or_else(|| error("unreadable", "対応していない形式のファイルです".into()))?,
+    };
+    if format != "dxf" && format != "dwg" {
+        return Err(error(
+            "unsupported-format",
+            format!("{} の図面には描き込めません（描き込めるのは DXF・DWG）", format.to_uppercase()),
+        ));
+    }
+    let mut value: serde_json::Value = serde_json::from_str(spec)
+        .map_err(|e| draft::DraftError::new("invalid-spec", "", format!("仕様の JSON を読めません: {e}")))?;
+    if let Some(sheet) = &options.sheet {
+        draft::select_sheet(&mut value, sheet)?;
+    }
+    let (template, exceeded) = zumen_core::limits::with_limits(limits, || match format {
+        "dxf" => Ok(dxf::parse_dxf(bytes)),
+        _ => dwg::read_dwg(bytes),
+    });
+    if let Some(limit) = exceeded {
+        return Err(error("too-large", limit_error(limit, limits).to_string()));
+    }
+    let template = template.map_err(|message| error("unreadable", message.to_string()))?;
+    let planned = draft::plan(&value, &template)?;
+    let operations = edit::operations_from_json(&planned.operations)
+        .map_err(|e| error("unwritable", format!("描き込む操作を作れませんでした: {e}")))?;
+    let edit_options = ReadDrawingOptions { format: Some(format.to_string()), ..options.read.clone() };
+    let edited = edit(bytes, &operations, &edit_options).map_err(|e| {
+        // 編集の誤りは、その操作の元の仕様の図形の場所で返す
+        let path = e.operation.and_then(|index| planned.sources.get(index)).cloned().unwrap_or_default();
+        draft::DraftError::new(e.code, &path, e.message)
+    })?;
+    let mut notices = NoticeList::from_notices(&planned.notices);
+    for notice in &edited.notices {
+        notices.add_count(notice.level, &notice.code, notice.message.clone(), notice.count);
+    }
+    Ok(Converted { bytes: edited.bytes, notices: notices.into_vec() })
+}
+
 /// その場で編集できる形式
 pub const EDITABLE_FORMATS: [&str; 7] = ["dxf", "dwg", "jww", "sfc", "p21", "sfz", "p2z"];
 

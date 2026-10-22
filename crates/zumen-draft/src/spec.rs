@@ -128,6 +128,10 @@ pub struct AttributeSpec {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SheetSpec {
     pub name: String,
+    /// 属性の値（タグ → 値）。この用紙のブロック参照（表題欄）の属性を埋める。draft_into ではテンプレートの
+    /// ブロック参照も埋める
+    #[serde(default)]
+    pub fields: std::collections::BTreeMap<String, String>,
     /// A0〜A4・B1〜B5 か、[幅, 高さ]（mm）
     #[serde(default)]
     pub paper: Option<Value>,
