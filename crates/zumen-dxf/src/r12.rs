@@ -232,6 +232,11 @@ impl<'a> Converter<'a> {
                 "version-xline",
                 "構築線（XLINE・RAY）は、AutoCAD R12 にないため、省きました",
             ),
+            DxfEntityData::Image(_) if kind == "IMAGE" => self.notices.add(
+                NoticeLevel::Info,
+                "version-image",
+                "画像（IMAGE）は、AutoCAD R12 にないため、省きました",
+            ),
             DxfEntityData::Image(_) if kind == "WIPEOUT" => self.notices.add(
                 NoticeLevel::Info,
                 "version-wipeout",
