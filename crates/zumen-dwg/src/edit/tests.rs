@@ -885,3 +885,66 @@ fn preserves_attribute_appearance_and_nonuniform_scaling_in_every_version() {
         assert!((text.rotation.abs() - 180.0).abs() < 1e-9, "{name}");
     }
 }
+
+/// DWG 2.13: DIMSTYLE の参照が相対ハンドルでも、写したスタイルは元と同じ文字スタイルを指す。
+#[test]
+fn cloned_dimension_style_keeps_relative_references() {
+    for version in crate::DwgVersion::ALL {
+        let name = version.name();
+        let bytes = written_as(version);
+        let mut notices = NoticeList::new();
+        let source = Source::open(&bytes, &mut notices).unwrap();
+        let mut editor = Editor::new(source, notices).unwrap();
+        let template = editor.dimstyles["STANDARD"];
+        let mut style = editor.read(template, |s, _| DimStyle::read(s)).unwrap();
+        let expected: Vec<_> = style.value.handles.iter().map(|handle| handle.resolve(template)).collect();
+        let text_style = expected[0];
+        style.value.handles[0] = if text_style < template {
+            HandleRef { code: 0xC, value: template - text_style }
+        } else {
+            HandleRef { code: 0xA, value: text_style - template }
+        };
+        let kind = style.kind;
+        editor.store(template, kind, &style.eed, |out| style.value.write(out));
+        let relative = editor.finish().bytes;
+        let edited = edit(&relative, r#"[{"op":"add-dimension-style","name":"CLONE"}]"#).unwrap();
+        let mut notices = NoticeList::new();
+        let source = Source::open(&edited.bytes, &mut notices).unwrap();
+        let editor = Editor::new(source, notices).unwrap();
+        let cloned = editor.dimstyles["CLONE"];
+        let style = editor.read(cloned, |s, _| DimStyle::read(s)).unwrap();
+        let actual: Vec<_> = style.value.handles.iter().map(|handle| handle.resolve(cloned)).collect();
+        assert_eq!(actual, expected, "{name}: cloned DIMSTYLE references");
+    }
+}
+
+#[test]
+fn reports_approximated_jis_dimension_text_position() {
+    let bytes = new_dwg("mm").unwrap();
+    let mut notices = NoticeList::new();
+    let source = Source::open(&bytes, &mut notices).unwrap();
+    let mut editor = Editor::new(source, notices).unwrap();
+    let handle = editor.dimstyles["STANDARD"];
+    let mut style = editor.read(handle, |s, _| DimStyle::read(s)).unwrap();
+    let value = style.value.values.iter_mut().find(|(key, _)| *key == "DIMTAD").unwrap();
+    value.1 = DimValue::Short(3);
+    let kind = style.kind;
+    editor.store(handle, kind, &style.eed, |out| style.value.write(out));
+    let bytes = editor.finish().bytes;
+    let edited =
+        edit(&bytes, r#"[{"op":"add","kind":"dimension","start":[0,0],"end":[1000,0],"position":[0,-100]}]"#).unwrap();
+    assert!(edited.notices.iter().any(|notice| notice.code == "edit-dimension-text-position" && notice.count == 1));
+}
+
+#[test]
+fn exhausted_dimension_block_names_fail_without_overflowing() {
+    let bytes = new_dwg("mm").unwrap();
+    let mut notices = NoticeList::new();
+    let source = Source::open(&bytes, &mut notices).unwrap();
+    let mut editor = Editor::new(source, notices).unwrap();
+    editor.create_block(0, "*D18446744073709551615", [0.0; 3], true).unwrap();
+    let bytes = editor.finish().bytes;
+    let error =
+        edit(&bytes, r#"[{"op":"add","kind":"dimension","start":[0,0],"end":[10,0],"position":[0,5]}]"#).unwrap_err();
+    assert_eq!((error.code, error.operation), ("name-exhausted", Some(0)));
+}

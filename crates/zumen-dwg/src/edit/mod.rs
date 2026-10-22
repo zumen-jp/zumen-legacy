@@ -1953,6 +1953,13 @@ impl Editor {
         let position = reader.required("position", reader.point("position")?)?;
         let text = reader.text("text")?.unwrap_or("<>");
         let (style_handle, style, text_style) = self.dimension_style(index, reader.name("dimensionStyle")?)?;
+        if style.text_above == 3 {
+            self.notices.add(
+                NoticeLevel::Info,
+                "edit-dimension-text-position",
+                "寸法文字の JIS 配置（DIMTAD=3）は寸法線の上に置いて近似しました",
+            );
+        }
         let layout = dimension::layout(kind, start, end, position, text, &style).ok_or_else(|| {
             EditError::at(index, "invalid-value", "start と end は寸法の向きで離れた点にしてください")
         })?;
@@ -1962,7 +1969,10 @@ impl Editor {
             .filter_map(|name| name.strip_prefix("*D").and_then(|number| number.parse::<u64>().ok()))
             .max()
             .unwrap_or(0)
-            + 1;
+            .checked_add(1)
+            .ok_or_else(|| {
+                EditError::at(index, "name-exhausted", "新しい寸法の表示のブロック名を割り当てられません")
+            })?;
         let block_name = format!("*D{next}");
         let block = self.create_block(index, &block_name, [0.0; 3], true)?;
         let place = Place { block, mode: 0 };
@@ -2209,6 +2219,11 @@ impl Editor {
                     .ok_or_else(|| EditError::at(index, "unreadable", "寸法スタイル（DIMSTYLE）が読めません"))?
                     .value;
                 let control = self.tables.dimstyle_control;
+                // DWG 2.13: 相対ハンドルの基準はそのオブジェクト。別のハンドルに写す前に、元のスタイルを基準に解く。
+                style.xref_block = href(5, style.xref_block.resolve(template));
+                for handle in &mut style.handles {
+                    *handle = href(5, handle.resolve(template));
+                }
                 style.common = common(control);
                 style.name = EntryName::new(self.raw_text(name));
                 for (variable, number) in variables {
