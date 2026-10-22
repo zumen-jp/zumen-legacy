@@ -1,4 +1,4 @@
-# 0017: Let edits add block definitions, dimensions, hatches and formatted text, in that order, to DXF and DWG
+# 0017: Let edits add block definitions, dimensions, styles, hatches, text options, attributes, sheets and leaders to DXF and DWG
 
 | Item | Value |
 | --- | --- |
@@ -34,7 +34,8 @@
 
 1. **What the drawings need most first**: dimensions, then hatches. But a dimension needs an anonymous block, and
    the editors cannot create blocks yet.
-2. **Block definitions first, then dimensions, hatches, text options and styles.** Creating a block is small on its
+2. **Block definitions first, then dimensions and their styles, hatches, text options, attributes, sheets and
+   leaders.** Creating a block is small on its
    own, is needed by dimensions, and is useful by itself.
 
 **How a dimension is drawn**
@@ -87,7 +88,23 @@ conformance test (`crates/zumen/tests/edit.rs`): the edited drawing is read agai
    filled arrowheads and the text, sized from the style's DIMSCALE, DIMTXT, DIMASZ, DIMEXO, DIMEXE, DIMGAP, DIMTAD,
    DIMDEC and DIMZIN; other variables (other arrowheads, tolerances, alternate units) are not drawn and are reported
    as a notice. Angular, radial and diameter dimensions follow in the same way.
-3. **Hatches**: `kind: "hatch"`.
+3. **Styles**, as ops, because a dimension on a new drawing needs a style sized for its units and scale:
+
+   ```json
+   [{"op": "add-text-style", "name": "JP", "font": "MS Gothic", "bigFont": null, "height": 0, "widthFactor": 1},
+    {"op": "add-dimension-style", "name": "DIM-100", "from": "Standard", "scale": 100, "textHeight": 2.5,
+     "arrowSize": 2.5, "extensionOffset": 0.625, "extensionExtension": 1.25, "textGap": 0.625, "textAbove": true,
+     "decimals": 0, "suppressTrailingZeros": true, "tickSize": 0, "linearFactor": 1, "textStyle": "JP"},
+    {"op": "add-line-type", "name": "DASHED2", "description": "__ __", "pattern": [6, -3]}]
+   ```
+
+   `add-dimension-style` copies `from` (by default `Standard`) and sets the variables of step 2 by readable names
+   (`scale` DIMSCALE, `textHeight` DIMTXT, `arrowSize` DIMASZ, `extensionOffset` DIMEXO, `extensionExtension`
+   DIMEXE, `textGap` DIMGAP, `textAbove` DIMTAD, `decimals` DIMDEC, `suppressTrailingZeros` DIMZIN 8, `tickSize`
+   DIMTSZ, `linearFactor` DIMLFAC, `textStyle` DIMTXSTY), so that AutoCAD draws the dimension the same way when it
+   recomputes it. `font` is a TrueType family name or an SHX file; `pattern` is dashes (positive), gaps (negative)
+   and dots (0) in drawing units.
+4. **Hatches**: `kind: "hatch"`.
 
    ```json
    {"op": "add", "kind": "hatch", "boundaries": [[[0, 0], [5000, 0], [5000, 3000], [0, 3000]]],
@@ -99,33 +116,53 @@ conformance test (`crates/zumen/tests/edit.rs`): the edited drawing is read agai
    `ANSI37`, `LINE`, `NET`, `DOTS` and a few more that the documentation lists, with definitions written in zumen),
    or any name together with `patternLines` (`[[angle, x, y, dx, dy, dash…], …]`, the lines of a PAT file).
    Hatches are not associative. R12 has no HATCH and refuses it (`unsupported-kind`).
-4. **Text options**: `kind: "text"` takes `justification` (`top-left` … `bottom-right`, also `left`, `center`,
+5. **Text options**: `kind: "text"` takes `justification` (`top-left` … `bottom-right`, also `left`, `center`,
    `right` on the baseline for single-line text), `lineSpacing` (a factor, MTEXT) and `multiline: true` to write
    MTEXT without a line break. MTEXT stays refused in R12.
-5. **Styles and sheets**, as ops: `add-text-style` (`name`, `font`, `bigFont`, `height`, `widthFactor`),
-   `add-line-type` (`name`, `description`, `pattern` in drawing units), `add-dimension-style` (`name`, `from`, and the
-   variables of step 2 by readable names), and later `add-layout` (`name`, paper size and a viewport onto model
-   space at a scale).
+6. **Block attributes**, for title blocks: `kind: "attribute-definition"` in a block (`container: "block:<name>"`)
+   with `tag`, `prompt`, `text` (the default value) and the keys of `text`; `block-reference` takes `attributes`, an
+   object from tag to value, and writes an ATTRIB for each attribute definition of the block (the default value when
+   the object does not name it). The edit values gain objects of strings for it.
+7. **Sheets**: `add-layout` and viewports in it.
+
+   ```json
+   [{"op": "add-layout", "name": "A3-平面図", "paperSize": [420, 297]},
+    {"op": "add", "kind": "viewport", "container": "layout:A3-平面図", "center": [210, 148.5],
+     "width": 380, "height": 257, "viewCenter": [12000, 8000], "scale": 100}]
+   ```
+
+   `add-layout` creates a LAYOUT with its paper space block (`*Paper_Space<n>`), the paper size in millimeters and
+   the paper's own viewport; `viewport` adds a VIEWPORT whose `center`, `width` and `height` are in paper
+   millimeters, `viewCenter` in model coordinates, and `scale` the denominator (1:100 is `100`, so the view height
+   is `height × scale`). R12 has one paper space and refuses `add-layout`; R13 and R14 DWG keep layouts in the named
+   objects dictionary, as reading finds them.
+8. **Leaders**: `kind: "leader"` with `vertices` (the first is the arrowhead's tip), `text`, `height` and
+   `dimensionStyle`, written as LEADER with an MTEXT annotation (the arrowhead from the style, as in step 2). R12 has
+   no LEADER and refuses it.
+9. **Raster images**, if time allows: `kind: "image"` with `path` (kept as the IMAGEDEF's file name, which the
+   reader keeps for writing too), `pixels` (`[width, height]`), `position` (lower left), `width` in drawing units
+   and `rotation`. IMAGE exists from R14 on.
 
 The same operations go to SXF and JWW editors when they gain these entities; until then those formats refuse the
 new kinds and ops with `unsupported-kind`.
 
 ## Consequences
 
-- An application can draw the general drawings of a building, with dimensions, fills and schedules, from an empty
-  `create` or into a drawing it received, in DXF R12 to 2018 and DWG R13 to 2018.
+- An application can draw the general drawings of a building, with dimensions, fills, schedules, sheets and title
+  blocks, from an empty `create` or into a drawing it received, in DXF R12 to 2018 and DWG R13 to 2018.
 - Dimensions added by zumen look as AutoCAD would draw them only as far as the variables listed in step 2 go. A
   style that uses other arrowheads or tolerances is drawn with closed filled arrowheads and no tolerance, and the
   notice says so; AutoCAD redraws the dimension when someone edits it.
 - Built-in hatch patterns are definitions written for zumen, not copies of a CAD program's pattern file. Their names
   match the common ones so that CAD programs show the expected name.
+- The edit values gain arrays of point arrays (hatch boundaries) and objects of strings (attribute values).
 - `EditOperation` gains variants for the new ops, so every format's editor names them; formats without them refuse
   them, as the edit contract already requires.
 
 ## References
 
 - [Autodesk DXF Reference](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-235B22E0-A567-4CF6-92D3-38A2306D73F3.htm)
-  (AutoCAD 2026): BLOCK_RECORD, BLOCK, ENDBLK, DIMENSION (Common Dimension Group Codes, Aligned and Linear Dimension
+  (AutoCAD 2026): BLOCK_RECORD, BLOCK, ENDBLK, ATTDEF, ATTRIB, LAYOUT, VIEWPORT, LEADER, IMAGE, IMAGEDEF, DIMENSION (Common Dimension Group Codes, Aligned and Linear Dimension
   Group Codes), DIMSTYLE, HATCH (Boundary Path Data, Pattern Data), MTEXT
 - Open Design Alliance, *Open Design Specification for .dwg files* 5.4.1: 20.4.22–20.4.30 (dimensions), 20.4.52
   (BLOCK_HEADER), 20.4.68 (DIMSTYLE), 20.4.75 (HATCH)
