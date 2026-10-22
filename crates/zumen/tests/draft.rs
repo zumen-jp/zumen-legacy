@@ -275,3 +275,75 @@ fn refuses_formats_without_layouts_and_names_the_spec_place_of_edit_errors() {
     let error = zumen::draft_into(&template("dxf"), spec, &zumen::DraftIntoOptions::default()).unwrap_err();
     assert_eq!((error.code, error.path.as_str()), ("invalid-value", "sheets[0].items[0]"), "{error}");
 }
+
+/// 同じ TTC に含まれる別の書体や、幅・高さ・傾きの異なるスタイルを再利用すると、仕様と違う文字になる。
+#[test]
+fn drafts_into_with_the_requested_font_family_and_plain_style() {
+    for to in ["dxf", "dwg"] {
+        for (font, width, height, oblique, bigfont, reuse) in [
+            ("MS Gothic", 1.0, 0.0, 0.0, "", true),
+            ("MS PGothic", 1.0, 0.0, 0.0, "", false),
+            ("MS Gothic", 0.5, 0.0, 0.0, "", false),
+            ("MS Gothic", 1.0, 8.0, 0.0, "", false),
+            ("MS Gothic", 1.0, 0.0, 15.0, "", false),
+            ("MS Gothic", 1.0, 0.0, 0.0, "extfont.shx", false),
+        ] {
+            let operations = serde_json::json!([{
+                "op": "add-text-style", "name": "TEMPLATE-FONT", "font": font,
+                "widthFactor": width, "height": height, "oblique": oblique, "bigFont": bigfont,
+            }]);
+            let operations = zumen::edit::operations_from_json(&operations).unwrap();
+            let template = zumen::create(to, "mm", &operations).unwrap().bytes;
+            let spec = r#"{"font":"MS Gothic","sheets":[{"name":"S","items":[{"type":"text","at":[10,10],"text":"FONT-CHECK"}]}]}"#;
+            let drafted = draft_into(&template, spec);
+            let doc = document(to, &drafted.bytes);
+            let name = doc
+                .entities
+                .iter()
+                .find_map(|entity| match &entity.data {
+                    zumen::dxf::DxfEntityData::Text(text) if text.text == "FONT-CHECK" => Some(&text.style),
+                    _ => None,
+                })
+                .expect("drafted text");
+            let style = doc.styles.iter().find(|style| &style.name == name).expect("text style");
+            assert_eq!(style.font_family.as_deref(), Some("MS Gothic"), "{to}: {font}/{width}");
+            assert_eq!(
+                (style.width, style.height, style.oblique, style.bigfont.as_str()),
+                (1.0, 0.0, 0.0, ""),
+                "{to}: {font}/{width}"
+            );
+            assert_eq!(style.name == "TEMPLATE-FONT", reuse, "{to}: {font}/{width}");
+        }
+    }
+}
+
+#[test]
+fn drafts_into_with_case_variant_font_names_without_duplicate_styles() {
+    let spec = r#"{"font":"MS Gothic","sheets":[{"name":"S","items":[
+        {"type":"text","at":[10,10],"text":"A"},
+        {"type":"text","at":[20,10],"text":"B","font":"ms gothic"}
+    ]}]}"#;
+    for to in ["dxf", "dwg"] {
+        let bytes = zumen::create(to, "mm", &[]).unwrap().bytes;
+        let drafted = draft_into(&bytes, spec);
+        let doc = document(to, &drafted.bytes);
+        let families: Vec<_> = doc
+            .entities
+            .iter()
+            .filter_map(|entity| match &entity.data {
+                zumen::dxf::DxfEntityData::Text(text) if matches!(text.text.as_str(), "A" | "B") => Some(
+                    doc.styles
+                        .iter()
+                        .find(|style| style.name == text.style)
+                        .unwrap()
+                        .font_family
+                        .as_deref()
+                        .unwrap()
+                        .to_ascii_uppercase(),
+                ),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(families, ["MS GOTHIC", "MS GOTHIC"], "{to}");
+    }
+}

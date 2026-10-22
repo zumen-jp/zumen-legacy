@@ -146,8 +146,9 @@ The MCP tool `draft_drawing` takes `into` for the same.
   reference on the sheet, the template's and the spec's. A tag that no block reference has is reported
   (`unused-field`). `draft` fills the spec's block references the same way.
 - **Names**: layers, line types, blocks and dimension styles that the template has are used as the template defines
-  them (a block of the same name is reported, `draft-into-block-exists`); a text style with the same font is reused,
-  else one named after the font is added. The others are added.
+  them (a block of the same name is reported, `draft-into-block-exists`); a text style is reused when its font file,
+  TrueType family, bigfont, width, fixed height, oblique angle and flags match. Otherwise a style named after the
+  font is added, preserving its TrueType family. The others are added.
 - **Dimensions** become DIMENSION operations, and the editor draws their blocks from a dimension style added for each
   scale and look. Dot and empty end marks have no dimension style variable and become arrowheads
   (`draft-into-end-mark`); values with thousands separators are given as the dimension's text.

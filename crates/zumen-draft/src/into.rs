@@ -249,19 +249,41 @@ impl Planner {
         // 文字スタイル: 同じ名前で同じフォントか、同じフォントのスタイルがあれば使う。なければフォントの名前で足す
         for style in &doc.styles {
             let key = style.name.to_uppercase();
-            let same_font = |candidate: &zumen_dxf::DxfTextStyle| candidate.font.eq_ignore_ascii_case(&style.font);
+            // DXF Reference「STYLE」: 同じ TTC の別の書体や、幅・高さ・傾きの違うスタイルでは文字の見た目が変わる。
+            let same_style = |candidate: &zumen_dxf::DxfTextStyle| {
+                candidate.font.eq_ignore_ascii_case(&style.font)
+                    && match (&candidate.font_family, &style.font_family) {
+                        (Some(a), Some(b)) => a.eq_ignore_ascii_case(b),
+                        (None, None) => true,
+                        _ => false,
+                    }
+                    && candidate.bigfont.eq_ignore_ascii_case(&style.bigfont)
+                    && candidate.height == style.height
+                    && candidate.width == style.width
+                    && candidate.oblique == style.oblique
+                    && candidate.flags == style.flags
+                    && candidate.generation_flags == style.generation_flags
+            };
             let existing = template
                 .styles
                 .iter()
-                .find(|candidate| candidate.name.eq_ignore_ascii_case(&style.name) && same_font(candidate))
-                .or_else(|| template.styles.iter().find(|candidate| same_font(candidate)));
+                .find(|candidate| candidate.name.eq_ignore_ascii_case(&style.name) && same_style(candidate))
+                .or_else(|| template.styles.iter().find(|candidate| same_style(candidate)));
             if let Some(existing) = existing {
                 self.styles.insert(key, existing.name.clone());
                 continue;
             }
             let wanted = style.font_family.clone().unwrap_or_else(|| style.name.clone());
-            let name = unique(&wanted, template.styles.iter().map(|style| &style.name));
-            self.push(json!({"op": "add-text-style", "name": name, "font": style.font}), "");
+            let name = unique(&wanted, template.styles.iter().map(|style| &style.name).chain(self.styles.values()));
+            self.push(
+                json!({
+                    "op": "add-text-style", "name": name,
+                    "font": style.font_family.as_deref().unwrap_or(&style.font),
+                    "bigFont": style.bigfont, "height": style.height,
+                    "widthFactor": style.width, "oblique": style.oblique,
+                }),
+                "",
+            );
             self.styles.insert(key, name);
         }
         // 寸法スタイル（縮尺と見た目ごと）
