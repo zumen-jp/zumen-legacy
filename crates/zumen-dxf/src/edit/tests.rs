@@ -712,3 +712,19 @@ fn adds_solid_and_patterned_hatches() {
     let error = edit(r12.as_bytes(), r#"[{"op": "add", "kind": "hatch", "boundaries": [[0, 0], [1, 0], [1, 1]]}]"#);
     assert_eq!(error.unwrap_err().code, "unsupported-kind");
 }
+
+#[test]
+fn reports_approximated_jis_dimension_text_position() {
+    let bytes = b"0\nSECTION\n2\nHEADER\n9\n$DIMTAD\n70\n3\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n";
+    let edited =
+        edit(bytes, r#"[{"op":"add","kind":"dimension","start":[0,0],"end":[1000,0],"position":[0,-100]}]"#).unwrap();
+    assert!(edited.notices.iter().any(|notice| notice.code == "edit-dimension-text-position" && notice.count == 1));
+}
+
+#[test]
+fn exhausted_dimension_block_names_fail_without_overflowing() {
+    let bytes = b"0\nSECTION\n2\nBLOCKS\n0\nBLOCK\n2\n*D18446744073709551615\n70\n1\n10\n0\n20\n0\n0\nENDBLK\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n";
+    let error =
+        edit(bytes, r#"[{"op":"add","kind":"dimension","start":[0,0],"end":[10,0],"position":[0,5]}]"#).unwrap_err();
+    assert_eq!((error.code, error.operation), ("name-exhausted", Some(0)));
+}

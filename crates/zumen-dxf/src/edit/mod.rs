@@ -1301,6 +1301,13 @@ impl<'a> Editor<'a> {
         let position = reader.required("position", reader.point("position")?)?;
         let text = reader.text("text")?.unwrap_or("<>");
         let (style_name, style, text_style) = self.dimension_style(index, reader.name("dimensionStyle")?)?;
+        if style.text_above == 3 {
+            self.notices.add(
+                NoticeLevel::Info,
+                "edit-dimension-text-position",
+                "寸法文字の JIS 配置（DIMTAD=3）は寸法線の上に置いて近似しました",
+            );
+        }
         let layout = dimension::layout(kind, start, end, position, text, &style).ok_or_else(|| {
             EditError::at(index, "invalid-value", "start と end は寸法の向きで離れた点にしてください")
         })?;
@@ -1312,7 +1319,10 @@ impl<'a> Editor<'a> {
             .filter_map(|name| name.strip_prefix("*D").and_then(|number| number.parse::<u64>().ok()))
             .max()
             .unwrap_or(0)
-            + 1;
+            .checked_add(1)
+            .ok_or_else(|| {
+                EditError::at(index, "name-exhausted", "新しい寸法の表示のブロック名を割り当てられません")
+            })?;
         let block_name = format!("*D{next}");
         let block = self.create_block(index, &block_name, [0.0; 3], 1)?;
         let owner = self.block_records.get(&upper(&block_name)).cloned();
