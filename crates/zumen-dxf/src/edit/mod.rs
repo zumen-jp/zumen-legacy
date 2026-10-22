@@ -27,7 +27,7 @@ const LINEWEIGHTS: [i64; 24] =
     [0, 5, 9, 13, 15, 18, 20, 25, 30, 35, 40, 50, 53, 60, 70, 80, 90, 100, 106, 120, 140, 158, 200, 211];
 
 /// 足せる図形の種類（DXF）
-const ADDABLE: [&str; 12] = [
+const ADDABLE: [&str; 13] = [
     "line",
     "polyline",
     "arc",
@@ -40,6 +40,7 @@ const ADDABLE: [&str; 12] = [
     "dimension",
     "hatch",
     "attribute-definition",
+    "viewport",
 ];
 
 /// 図形・レイヤに共通する値のキー
@@ -61,7 +62,8 @@ pub fn edit_dxf(bytes: &[u8], operations: &[EditOperation]) -> Result<Edited, Ed
             EditOperation::Add { values, .. }
             | EditOperation::AddLayer { values, .. }
             | EditOperation::AddBlock { values, .. }
-            | EditOperation::AddStyle { values, .. } => Some(values),
+            | EditOperation::AddStyle { values, .. }
+            | EditOperation::AddLayout { values, .. } => Some(values),
             EditOperation::Update { set, .. } | EditOperation::UpdateLayer { set, .. } => Some(set),
             EditOperation::Delete { .. } => None,
         };
@@ -80,6 +82,7 @@ pub fn edit_dxf(bytes: &[u8], operations: &[EditOperation]) -> Result<Edited, Ed
             EditOperation::UpdateLayer { name, set } => editor.update_layer(index, name, set)?,
             EditOperation::AddBlock { name, values } => editor.add_block(index, name, values)?,
             EditOperation::AddStyle { kind, name, values } => editor.add_style(index, *kind, name, values)?,
+            EditOperation::AddLayout { name, values } => editor.add_layout(index, name, values)?,
         }
     }
     editor.finish_handles();
@@ -145,6 +148,11 @@ struct Editor<'a> {
     block_record_names: HashMap<String, String>,
     /// レイアウトの名前（大文字）→ 紙空間の BLOCK_RECORD のハンドル
     layouts: HashMap<String, String>,
+    /// LAYOUT のレコードと、この編集で足したレイアウトの数
+    layout_records: Vec<usize>,
+    layouts_added: usize,
+    /// ビューポートの番号（69）の最大（紙空間の BLOCK_RECORD のハンドル → 番号）
+    viewport_ids: HashMap<String, i64>,
     /// 表（LAYER など）の TABLE と ENDTAB のレコード
     tables: HashMap<String, (usize, Option<usize>)>,
     /// 節（HEADER など）の SECTION と ENDSEC のレコード
@@ -346,6 +354,44 @@ fn nearest_aci(rgb: u32) -> i64 {
     best.0
 }
 
+/// VIEWPORT の値（DXF Reference「VIEWPORT」。AutoCAD・ezdxf が書く並びと既定の値）。center・width・height は用紙の
+/// 座標、view_center・view_height はモデルの座標。status は 68（1 は用紙の全体、2 から重なりの順）、id は 69
+#[allow(clippy::too_many_arguments)]
+fn viewport_tags(
+    record: &mut Record,
+    center: [f64; 3],
+    width: f64,
+    height: f64,
+    view_center: [f64; 3],
+    view_height: f64,
+    id: i64,
+    status: i64,
+) {
+    record.tag(100, "AcDbViewport").point(10, center, true).real(40, width).real(41, height);
+    record.int(68, status).int(69, id).point(12, view_center, false).point(13, [0.0; 3], false);
+    record.point(14, [10.0, 10.0, 0.0], false).point(15, [10.0, 10.0, 0.0], false);
+    record.point(16, [0.0, 0.0, 1.0], true).point(17, [0.0; 3], true);
+    record.real(42, 50.0).real(43, 0.0).real(44, 0.0).real(45, view_height).real(50, 0.0).real(51, 0.0);
+    // 32864 = 0x8060（UCS アイコン・大きいズーム・グリッドの既定。ezdxf の既定）
+    record.int(72, 1000).int(90, 32864).tag(1, "").int(281, 0).int(71, 1).int(74, 0);
+    record.point(110, [0.0; 3], true).point(111, [1.0, 0.0, 0.0], true).point(112, [0.0, 1.0, 0.0], true);
+    record.int(79, 0).real(146, 0.0).int(170, 0).int(61, 5);
+}
+
+/// 用紙の大きさの名前（ISO の A 判の横と縦。ほかは空）
+fn paper_name(width: f64, height: f64) -> String {
+    let sizes = [("A0", 1189.0, 841.0), ("A1", 841.0, 594.0), ("A2", 594.0, 420.0), ("A3", 420.0, 297.0), ("A4", 297.0, 210.0)];
+    for (name, long, short) in sizes {
+        if (width - long).abs() < 0.5 && (height - short).abs() < 0.5 {
+            return format!("ISO_{name}_({long:.2}_x_{short:.2}_MM)");
+        }
+        if (width - short).abs() < 0.5 && (height - long).abs() < 0.5 {
+            return format!("ISO_{name}_({short:.2}_x_{long:.2}_MM)");
+        }
+    }
+    String::new()
+}
+
 /// HATCH の値（DXF Reference「HATCH」。zumen の DXF の書き出しと同じ並び）。境界は閉じた折線（92 の 2）で、
 /// 最初の境界は外側（1）。島の見つけ方は標準（75 = 0）、関連づけない（71 = 0）
 fn hatch_tags(record: &mut Record, input: &hatch::HatchInput) {
@@ -425,6 +471,9 @@ impl<'a> Editor<'a> {
             block_records: HashMap::new(),
             block_record_names: HashMap::new(),
             layouts: HashMap::new(),
+            layout_records: Vec::new(),
+            layouts_added: 0,
+            viewport_ids: HashMap::new(),
             tables: HashMap::new(),
             sections: HashMap::new(),
             created_table: None,
@@ -612,6 +661,12 @@ impl<'a> Editor<'a> {
     }
 
     fn index_entity(&mut self, record: usize, kind: &str) -> usize {
+        if kind == "VIEWPORT"
+            && let (Some(owner), Some(id)) = (value(&self.records[record], 330), number(&self.records[record], 69))
+        {
+            let entry = self.viewport_ids.entry(upper(owner)).or_insert(0);
+            *entry = (*entry).max(id as i64);
+        }
         let key = self.entity_key(record);
         let mut end = record + 1;
         let attributes = kind == "INSERT" && number(&self.records[record], 66) == Some(1.0);
@@ -651,6 +706,7 @@ impl<'a> Editor<'a> {
             if let (Some(name), Some(block_record)) = (name, block_record) {
                 self.layouts.insert(upper(&name), block_record);
             }
+            self.layout_records.push(record);
         }
     }
 
@@ -983,7 +1039,7 @@ impl<'a> Editor<'a> {
                 EditError::at(index, "missing-definition", format!("ブロック {name} は図面にありません"))
             })?;
             if let Some(block) = info.new {
-                return Ok(Place { before: 0, owner, paper: false, block: Some(block) });
+                return Ok(Place { before: 0, owner, paper: key.starts_with("*PAPER_SPACE"), block: Some(block) });
             }
             let before = info
                 .end
@@ -1228,6 +1284,28 @@ impl<'a> Editor<'a> {
                 self.attribute_definition_tags(&mut record, &definition);
                 let block = container.and_then(|name| name.trim().strip_prefix("block:")).unwrap_or_default();
                 self.mark_attributes(block);
+                vec![record.tags]
+            }
+            "viewport" => {
+                reader.allow(&keys(&["center", "width", "height", "viewCenter", "scale"]), "ビューポート")?;
+                if version.as_str() < "AC1015" || !place.paper || place.owner.is_none() {
+                    return Err(EditError::at(
+                        index,
+                        if version.as_str() < "AC1015" { "unsupported-kind" } else { "invalid-value" },
+                        "ビューポートは AutoCAD 2000 以降の DXF の、container の layout:<名前> に足してください",
+                    ));
+                }
+                let center = reader.required("center", reader.point("center")?)?;
+                let width = reader.required("width", reader.positive("width")?)?;
+                let height = reader.required("height", reader.positive("height")?)?;
+                let view_center = reader.required("viewCenter", reader.point("viewCenter")?)?;
+                let scale = reader.positive("scale")?.unwrap_or(1.0);
+                let common = self.common(index, &reader, true)?;
+                let owner = place.owner.clone().unwrap_or_default();
+                let id = self.viewport_ids.get(&upper(&owner)).copied().unwrap_or(1).max(1) + 1;
+                self.viewport_ids.insert(upper(&owner), id);
+                let (mut record, _) = self.entity_record(index, "VIEWPORT", &place, &common)?;
+                viewport_tags(&mut record, center, width, height, view_center, height * scale, id, 2);
                 vec![record.tags]
             }
             "hatch" => {
@@ -2294,6 +2372,124 @@ impl<'a> Editor<'a> {
         }
         record.tag(2, name);
         Ok(record)
+    }
+
+    /// レイアウトを足す（docs/decisions/0017。DXF Reference「LAYOUT」「PLOTSETTINGS」）。図面のレイアウトの LAYOUT を
+    /// 写して名前・用紙・紙空間のブロックを変え、ACAD_LAYOUT の辞書に足す。紙空間のブロック（*Paper_Space<n>）と、
+    /// 用紙の全体を表すビューポート（69 = 1）も作る。AutoCAD 2000 から
+    fn add_layout(&mut self, index: usize, name: &str, values: &EditValues) -> Result<(), EditError> {
+        if self.source.version.as_str() < "AC1015" {
+            return Err(EditError::at(
+                index,
+                "unsupported-kind",
+                "AutoCAD 2000 より前の DXF にはレイアウト（LAYOUT）がありません",
+            ));
+        }
+        if !valid_name(name) || name.eq_ignore_ascii_case("model") {
+            return Err(EditError::at(index, "invalid-value", format!("レイアウトの名前 {name} は使えません")));
+        }
+        if self.layouts.contains_key(&upper(name)) {
+            return Err(EditError::at(index, "already-exists", format!("レイアウト {name} はすでにあります")));
+        }
+        let reader = ValueReader::new(values, index);
+        reader.allow(&["paperSize"], "レイアウト")?;
+        let paper = reader.required("paperSize", reader.numbers("paperSize", 2)?)?;
+        if paper[0] <= 0.0 || paper[1] <= 0.0 {
+            return Err(EditError::at(index, "invalid-value", "paperSize は 0 より大きい [幅, 高さ]（mm）にしてください"));
+        }
+        let unreadable = || EditError::at(index, "unreadable", "図面のレイアウト（LAYOUT）と OBJECTS の節が読めません");
+        // 写すレイアウト（モデルでないもの、なければモデル）
+        let template = self
+            .layout_records
+            .iter()
+            .copied()
+            .filter(|record| !self.deleted.contains(record))
+            .max_by_key(|record| {
+                let tags = self.tags(*record);
+                let start = tags.iter().position(|tag| tag.code == 100 && tag.text() == "AcDbLayout").unwrap_or(0);
+                find_from(tags, 1, start).is_some_and(|at| !tags[at].text().eq_ignore_ascii_case("model"))
+            })
+            .ok_or_else(unreadable)?;
+        let objects_end = self.sections.get("OBJECTS").and_then(|(_, end)| *end).ok_or_else(unreadable)?;
+        let template = self.tags(template).to_vec();
+        let dictionary = value(&template, 330).map(upper).ok_or_else(unreadable)?;
+        let dictionary_record = self
+            .record_handles
+            .iter()
+            .find(|(record, handle)| **handle == dictionary && self.kind(**record) == "DICTIONARY")
+            .map(|(record, _)| *record)
+            .ok_or_else(unreadable)?;
+        let tab = self
+            .layout_records
+            .iter()
+            .filter_map(|record| {
+                let tags = self.tags(*record);
+                let start = tags.iter().position(|tag| tag.code == 100 && tag.text() == "AcDbLayout")?;
+                find_from(tags, 71, start).map(|at| tags[at].number())
+            })
+            .fold(0.0, f64::max)
+            + 1.0
+            + self.layouts_added as f64;
+        self.layouts_added += 1;
+        // 紙空間のブロック
+        let suffix = self
+            .blocks
+            .keys()
+            .chain(self.block_records.keys())
+            .filter_map(|block| block.strip_prefix("*PAPER_SPACE").and_then(|number| number.parse::<u64>().ok()))
+            .max()
+            .map_or(0, |number| number + 1);
+        let block_name = format!("*Paper_Space{suffix}");
+        let layout_handle = self.next_handle(index)?.ok_or_else(unreadable)?;
+        let block = self.create_block(index, &block_name, [0.0; 3], 0)?;
+        let record_handle = self.block_records.get(&upper(&block_name)).cloned().ok_or_else(unreadable)?;
+        // BLOCK_RECORD の 340 をこのレイアウトにする
+        for list in self.inserted.values_mut() {
+            for tags in list.iter_mut() {
+                if tags.first().is_some_and(|tag| tag.text() == "BLOCK_RECORD")
+                    && value(tags, 5).is_some_and(|handle| upper(handle) == record_handle)
+                {
+                    set(tags, 340, layout_handle.clone(), &[2]);
+                }
+            }
+        }
+        let start = template.iter().position(|tag| tag.code == 100 && tag.text() == "AcDbLayout").unwrap_or(0);
+        let mut tags: Vec<Tag> = Vec::with_capacity(template.len());
+        for (at, tag) in template.iter().enumerate().take(data_end(&template)) {
+            let tag = match tag.code {
+                5 => Tag::new(5, layout_handle.clone()),
+                // 用紙の名前と大きさ（PLOTSETTINGS の 4・44・45、mm）
+                4 if at < start => Tag::new(4, paper_name(paper[0], paper[1])),
+                44 if at < start => Tag::new(44, real(paper[0])),
+                45 if at < start => Tag::new(45, real(paper[1])),
+                1 if at > start => Tag::new(1, name),
+                71 if at > start => Tag::new(71, (tab as i64).to_string()),
+                11 if at > start => Tag::new(11, real(paper[0])),
+                21 if at > start => Tag::new(21, real(paper[1])),
+                330 if at > start => Tag::new(330, record_handle.clone()),
+                331 => continue,
+                _ => tag.clone(),
+            };
+            tags.push(tag);
+        }
+        self.insert(objects_end, tags);
+        // ACAD_LAYOUT の辞書の項目
+        let dictionary_tags = self.tags_mut(dictionary_record);
+        let at = data_end(dictionary_tags);
+        dictionary_tags.insert(at, Tag::new(3, name));
+        dictionary_tags.insert(at + 1, Tag::new(350, layout_handle));
+        self.layouts.insert(upper(name), record_handle.clone());
+        // 用紙の全体を表すビューポート（ID 1）
+        let place = Place { before: 0, owner: Some(record_handle.clone()), paper: true, block: Some(block) };
+        let common = Common { layer: "0".into(), color: None, line_type: None, line_width: None };
+        let (mut record, _) = self.entity_record(index, "VIEWPORT", &place, &common)?;
+        let middle = [paper[0] / 2.0, paper[1] / 2.0, 0.0];
+        viewport_tags(&mut record, middle, paper[0], paper[1], middle, paper[1], 1, 1);
+        self.new_blocks[block].entities.push(record.tags);
+        self.viewport_ids.insert(record_handle, 1);
+        self.created.push(name.to_string());
+        self.created_places.push(None);
+        Ok(())
     }
 
     /// 文字スタイル・寸法スタイル・線種を足す（docs/decisions/0017）

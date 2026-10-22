@@ -58,6 +58,8 @@ pub enum EditOperation {
     AddBlock { name: String, values: EditValues },
     /// 文字スタイル・寸法スタイル・線種を足す（docs/decisions/0017）
     AddStyle { kind: StyleKind, name: String, values: EditValues },
+    /// レイアウト（用紙）を足す（docs/decisions/0017）。ビューポートは後の add が container の layout:<名前> で足す
+    AddLayout { name: String, values: EditValues },
 }
 
 /// 足すスタイルの種類
@@ -90,6 +92,7 @@ impl EditOperation {
             EditOperation::UpdateLayer { .. } => "update-layer",
             EditOperation::AddBlock { .. } => "add-block",
             EditOperation::AddStyle { kind, .. } => kind.op(),
+            EditOperation::AddLayout { .. } => "add-layout",
         }
     }
 }
@@ -216,7 +219,7 @@ fn operation(index: usize, item: &Json) -> Result<EditOperation, EditError> {
             return Err(EditError::at(
                 index,
                 "invalid-operations",
-                "op（add・update・delete・add-layer・update-layer・add-block・add-text-style・add-dimension-style・add-line-type）がありません",
+                "op（add・update・delete・add-layer・update-layer・add-block・add-text-style・add-dimension-style・add-line-type・add-layout）がありません",
             ));
         }
     };
@@ -249,6 +252,7 @@ fn operation(index: usize, item: &Json) -> Result<EditOperation, EditError> {
             EditOperation::UpdateLayer { name: string("name")?, set: set()? }
         }
         "add-block" => EditOperation::AddBlock { name: string("name")?, values: values(&["op", "name"])? },
+        "add-layout" => EditOperation::AddLayout { name: string("name")?, values: values(&["op", "name"])? },
         "add-text-style" | "add-dimension-style" | "add-line-type" => EditOperation::AddStyle {
             kind: match op {
                 "add-text-style" => StyleKind::Text,
@@ -263,7 +267,7 @@ fn operation(index: usize, item: &Json) -> Result<EditOperation, EditError> {
                 index,
                 "invalid-operations",
                 format!(
-                    "op の {other} はありません（add・update・delete・add-layer・update-layer・add-block・add-text-style・add-dimension-style・add-line-type）"
+                    "op の {other} はありません（add・update・delete・add-layer・update-layer・add-block・add-text-style・add-dimension-style・add-line-type・add-layout）"
                 ),
             ));
         }

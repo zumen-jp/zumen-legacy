@@ -822,3 +822,38 @@ fn adds_attribute_definitions_and_fills_them_in_references() {
         assert_eq!(edit(&bytes, operations).unwrap_err().code, code, "{operations}");
     }
 }
+
+#[test]
+fn adds_layouts_with_viewports_at_a_scale() {
+    let bytes = drawing("0\nLINE\n8\n0\n10\n0\n20\n0\n11\n10000\n21\n8000\n");
+    let edited = edit(
+        &bytes,
+        r#"[
+            {"op": "add-layout", "name": "A3-平面図", "paperSize": [420, 297]},
+            {"op": "add", "kind": "viewport", "container": "layout:A3-平面図", "center": [210, 148.5], "width": 380, "height": 257, "viewCenter": [5000, 4000], "scale": 100},
+            {"op": "add", "kind": "text", "container": "layout:A3-平面図", "position": [20, 10], "text": "1階平面図 S=1:100", "height": 5},
+            {"op": "add-layout", "name": "A1", "paperSize": [841, 594]}
+        ]"#,
+    )
+    .unwrap();
+    let doc = parse_dxf(&edited.bytes);
+    let layout = doc.layouts.iter().find(|layout| layout.name == "A3-平面図").unwrap();
+    assert_eq!((layout.paper_width, layout.paper_height, layout.paper_size.as_str()), (420.0, 297.0, "ISO_A3_(420.00_x_297.00_MM)"));
+    let second = doc.layouts.iter().find(|layout| layout.name == "A1").unwrap();
+    assert!(second.tab_order > layout.tab_order);
+    let scene = crate::dxf_to_scene(&doc, Some("A3-平面図"));
+    // ビューポートを通したモデルの線と、紙空間の文字
+    let kinds: Vec<&str> = scene.entities.iter().map(|entity| entity.kind.name()).collect();
+    assert!(kinds.contains(&"line") && kinds.contains(&"text"), "{kinds:?}");
+    let scales = scene.metadata.iter().find(|property| property.key == "viewportScales").map(|property| property.value.clone());
+    assert_eq!(scales.as_deref(), Some("1:100"));
+    let sheet = scene.metadata.iter().find(|property| property.key == "sheet").unwrap();
+    assert!(sheet.value.contains("420×297"), "{}", sheet.value);
+    for (operations, code) in [
+        (r#"[{"op": "add-layout", "name": "Layout1", "paperSize": [420, 297]}]"#, "already-exists"),
+        (r#"[{"op": "add-layout", "name": "X"}]"#, "invalid-value"),
+        (r#"[{"op": "add", "kind": "viewport", "center": [0, 0], "width": 1, "height": 1, "viewCenter": [0, 0]}]"#, "invalid-value"),
+    ] {
+        assert_eq!(edit(&bytes, operations).unwrap_err().code, code, "{operations}");
+    }
+}
