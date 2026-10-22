@@ -12,6 +12,7 @@ format-neutral ``Scene`` in paper millimeters (Y up), the same model as the
 >>> changes = zumen.compare(zumen.read("plan-rev1.jww"), scene)  # removed, added and changed entities
 >>> zumen.convert("plan.jww", "dxf").save("plan.dxf")  # every format can be written as DXF
 >>> zumen.edit("plan.dxf", [{"op": "add", "kind": "line", "start": [0, 0], "end": [1000, 0]}]).save("plan.dxf")
+>>> zumen.draft("sheets.json", "dwg").save("sheets.dwg")  # draw sheets from a drawing spec (docs/drafting.md)
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ import os
 from ._zumen import (
     Comparison,
     Converted,
+    DraftError,
     Edited,
     EditError,
     LimitError,
@@ -34,12 +36,14 @@ from ._zumen import (
     detect,
 )
 from ._zumen import convert as _convert
+from ._zumen import draft as _draft
 from ._zumen import edit as _edit
 from ._zumen import read as _read
 
 __all__ = [
     "Comparison",
     "Converted",
+    "DraftError",
     "EditError",
     "Edited",
     "LimitError",
@@ -52,6 +56,7 @@ __all__ = [
     "convert",
     "create",
     "detect",
+    "draft",
     "edit",
     "read",
 ]
@@ -147,3 +152,23 @@ def edit(
     (``"not-found"``, ``"unknown-key"`` and so on) and ``operation``, the number of the operation (from 0).
     """
     return _edit(_load(source), operations, format=format, max_bytes=max_bytes)
+
+
+def draft(
+    spec: object,
+    to: str = "dxf",
+    *,
+    version: str | None = None,
+    sheet: str | None = None,
+) -> Converted:
+    """Draw a drawing from a drawing spec and write it as ``to`` (dxf, dwg, jww, sfc, p21, sfz or p2z).
+
+    ``spec`` is a dict (the JSON document of docs/drafting.md), a JSON string, or the path of a JSON file.
+    ``version`` is the version to write (DXF R12 to 2018, SXF 2.0 to 3.1). JWW and SXF hold one sheet, so
+    ``sheet`` names the sheet to write (the first one by default). A mistake in the spec raises
+    ``DraftError`` with ``code`` and ``path`` (such as ``sheets[0].views[1].items[4]``).
+    """
+    if isinstance(spec, os.PathLike) or (isinstance(spec, str) and not spec.lstrip().startswith("{")):
+        with open(spec, encoding="utf-8") as file:
+            spec = file.read()
+    return _draft(spec, to, version=version, sheet=sheet)

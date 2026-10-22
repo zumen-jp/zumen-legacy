@@ -191,6 +191,12 @@ class EditError(ValueError):
     code: str
     operation: int | None
 
+class DraftError(ValueError):
+    """A drawing spec that could not be drawn; nothing was written."""
+
+    code: str
+    path: str
+
 class Scene:
     """A drawing in paper millimeters (Y up), the same model as ``@zumenjs/core``."""
 
@@ -378,3 +384,4 @@ class Edited:
 
 def edit(data: bytes, operations: object, *, format: str | None = None, max_bytes: int | None = None) -> Edited: ...
 def create(to: str, operations: object = None, *, units: str = "mm") -> Edited: ...
+def draft(spec: object, to: str = "dxf", *, version: str | None = None, sheet: str | None = None) -> Converted: ...

@@ -1,5 +1,6 @@
 //! zumen の Python の結合部。図面を読み（`read`）、表示用モデル（`Scene`）を JSON・PNG・SVG・PDF にし、文字と図形を取り出す。
 //! 図面を DXF に書き直す（`convert`）。図面をその場で編集し（`edit`）、新しい図面を作る（`create`）。
+//! 図面の仕様から、用紙・ビュー・寸法・表のそろった図面を描く（`draft`）。
 //! 読み取りと描画の間は GIL を外す（FastAPI のスレッドなどで並行に動く）。
 
 use pyo3::exceptions::{PyImportError, PyOSError, PyUserWarning, PyValueError};
@@ -30,6 +31,13 @@ pyo3::create_exception!(
     EditError,
     PyValueError,
     "図面を編集できなかった。code に理由の種類（not-found・unknown-key など）、operation に理由になった操作の番号（0 から。図面全体の理由なら None）がある"
+);
+
+pyo3::create_exception!(
+    zumen,
+    DraftError,
+    PyValueError,
+    "図面の仕様から描けなかった。code に理由の種類（unknown-type・unknown-key・invalid-value・missing-definition など）、path に仕様の中の場所（sheets[0].views[1].items[4]。全体なら空）がある"
 );
 
 /// 編集の失敗を EditError にする
@@ -1225,6 +1233,35 @@ fn convert(
     Ok(Converted { inner: converted, format: to })
 }
 
+/// 図面の仕様（docs/decisions/0018、docs/drafting.md）から、用紙・縮尺のあるビュー・寸法・ハッチング・表・表題欄の
+/// そろった図面を描き、to の形式（dxf・dwg・jww・sfc・p21・sfz・p2z）で書く。spec は dict（JSON にできる値）か JSON の
+/// 文字列。version は書く版、sheet は描く用紙の名前（JWW と SXF は用紙を 1 枚しか持たない）
+#[pyfunction]
+#[pyo3(signature = (spec, to = "dxf".to_string(), *, version = None, sheet = None))]
+fn draft(
+    py: Python<'_>,
+    spec: &Bound<'_, PyAny>,
+    to: String,
+    version: Option<String>,
+    sheet: Option<String>,
+) -> PyResult<Converted> {
+    let text: String = match spec.extract::<String>() {
+        Ok(text) => text,
+        Err(_) => py.import("json")?.call_method1("dumps", (spec,))?.extract()?,
+    };
+    let options = zumen::DraftOptions { write: zumen::WriteOptions { version }, sheet };
+    let drafted = py.detach(|| zumen::draft(&text, &to, &options)).map_err(|error| {
+        let err = DraftError::new_err(error.to_string());
+        let value = err.value(py);
+        if let Err(failure) = value.setattr("code", error.code).and_then(|()| value.setattr("path", error.path.clone()))
+        {
+            return failure;
+        }
+        err
+    })?;
+    Ok(Converted { inner: drafted, format: to })
+}
+
 #[pymodule]
 fn _zumen(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
@@ -1232,6 +1269,7 @@ fn _zumen(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("LimitError", m.py().get_type::<LimitError>())?;
     m.add("RenderError", m.py().get_type::<RenderError>())?;
     m.add("EditError", m.py().get_type::<EditError>())?;
+    m.add("DraftError", m.py().get_type::<DraftError>())?;
     m.add_class::<Scene>()?;
     m.add_class::<Rendering>()?;
     m.add_class::<Comparison>()?;
@@ -1243,5 +1281,6 @@ fn _zumen(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Edited>()?;
     m.add_function(wrap_pyfunction!(edit, m)?)?;
     m.add_function(wrap_pyfunction!(create, m)?)?;
+    m.add_function(wrap_pyfunction!(draft, m)?)?;
     Ok(())
 }
