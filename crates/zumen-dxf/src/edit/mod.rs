@@ -7,6 +7,7 @@
 
 pub mod dimension;
 pub mod hatch;
+pub mod placement;
 mod raw;
 
 use crate::colors::ACI;
@@ -1105,7 +1106,10 @@ impl<'a> Editor<'a> {
                 self.polyline_records(index, &place, &common, &vertices, &bulges, closed, width, &version)?
             }
             "text" => {
-                reader.allow(&keys(&["position", "text", "height", "rotation", "textStyle", "wrapWidth"]), "文字")?;
+                let mut own = vec!["position", "text", "height", "rotation", "textStyle", "wrapWidth"];
+                own.extend(placement::KEYS);
+                reader.allow(&keys(&own), "文字")?;
+                let placement = placement::read(&reader, index)?;
                 let position = reader.required("position", reader.point("position")?)?;
                 let text = reader.required("text", reader.text("text")?)?;
                 let height = reader.required("height", reader.positive("height")?)?;
@@ -1113,7 +1117,7 @@ impl<'a> Editor<'a> {
                 let style = self.text_style(index, reader.name("textStyle")?)?;
                 let wrap = reader.number("wrapWidth")?;
                 let common = self.common(index, &reader, true)?;
-                let multiline = text.contains('\n') || wrap.is_some();
+                let multiline = text.contains('\n') || wrap.is_some() || placement.multiline;
                 if multiline && !r13 {
                     return Err(EditError::at(
                         index,
@@ -1128,7 +1132,7 @@ impl<'a> Editor<'a> {
                         .point(10, position, true)
                         .real(40, height)
                         .real(41, wrap.unwrap_or(0.0))
-                        .int(71, 7)
+                        .int(71, placement.attachment)
                         .int(72, 1);
                     let content = mtext_content(text);
                     let chunks = chunks(&content, 250);
@@ -1140,6 +1144,18 @@ impl<'a> Editor<'a> {
                         record.tag(7, style);
                     }
                     record.real(50, rotation);
+                    if let Some(factor) = placement.line_spacing {
+                        // 行間は少なくともこの倍率（73 = 1）。MTEXT の行間は AutoCAD 2000 から
+                        if version.as_str() >= "AC1015" {
+                            record.int(73, 1).real(44, factor);
+                        } else {
+                            self.notices.add(
+                                NoticeLevel::Info,
+                                "edit-no-line-spacing",
+                                "AutoCAD 2000 より前の MTEXT には行間がないため、書きませんでした",
+                            );
+                        }
+                    }
                     vec![record.tags]
                 } else {
                     let (mut record, _) = self.entity_record(index, "TEXT", &place, &common)?;
@@ -1151,7 +1167,14 @@ impl<'a> Editor<'a> {
                     if let Some(style) = style {
                         record.tag(7, style);
                     }
+                    // 位置合わせ（DXF Reference「TEXT」: 72・73 が 0 でなければ 11 が位置を決める）
+                    if placement.aligned() {
+                        record.int(72, placement.horizontal).point(11, position, true);
+                    }
                     self.subclass(&mut record, "AcDbText");
+                    if placement.vertical != 0 {
+                        record.int(73, placement.vertical);
+                    }
                     vec![record.tags]
                 }
             }

@@ -992,20 +992,43 @@ impl Editor {
                 (self.lwpolyline_kind(index)?, build::lwpolyline(&vertices, &bulges, closed, width))
             }
             "text" => {
-                reader.allow(&keys(&["position", "text", "height", "rotation", "textStyle", "wrapWidth"]), "文字")?;
+                let mut own = vec!["position", "text", "height", "rotation", "textStyle", "wrapWidth"];
+                own.extend(zumen_dxf::placement::KEYS);
+                reader.allow(&keys(&own), "文字")?;
+                let placement = zumen_dxf::placement::read(&reader, index)?;
                 let position = reader.required("position", reader.point("position")?)?;
                 let text = reader.required("text", reader.text("text")?)?;
                 let height = reader.required("height", reader.positive("height")?)?;
                 let rotation = reader.number("rotation")?.unwrap_or(0.0);
                 let style = self.text_style(index, reader.name("textStyle")?)?.unwrap_or_else(|| self.default_style());
                 let wrap = reader.number("wrapWidth")?;
-                if text.contains('\n') || wrap.is_some() {
+                if text.contains('\n') || wrap.is_some() || placement.multiline {
                     let content = self.raw_text(&mtext_content(text));
-                    let body = build::mtext(self.version, position, content, height, rotation, wrap, style, 7);
+                    let attachment = placement.attachment as i16;
+                    let mut body = build::mtext(self.version, position, content, height, rotation, wrap, style, attachment);
+                    if let (Body::MText(mtext), Some(factor)) = (&mut body, placement.line_spacing) {
+                        mtext.line_spacing_factor = factor;
+                        // MTEXT の行間は R2000 から（20.4.46）
+                        if self.version < Version::R2000 {
+                            self.notices.add(
+                                NoticeLevel::Info,
+                                "edit-no-line-spacing",
+                                "R13・R14 の MTEXT には行間がないため、書きませんでした",
+                            );
+                        }
+                    }
                     (kind::MTEXT, body)
                 } else {
                     let value = self.raw_text(text);
-                    (kind::TEXT, build::text(position, value, height, rotation, style))
+                    let mut body = build::text(position, value, height, rotation, style);
+                    if let Body::Text(text) = &mut body
+                        && placement.aligned()
+                    {
+                        text.halign = Some(placement.horizontal as i16);
+                        text.valign = Some(placement.vertical as i16);
+                        text.align = Some([position[0], position[1]]);
+                    }
+                    (kind::TEXT, body)
                 }
             }
             "dimension" => {

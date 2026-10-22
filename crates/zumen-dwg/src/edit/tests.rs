@@ -771,3 +771,28 @@ fn adds_hatches_from_r14_on() {
         }
     }
 }
+
+/// 文字の位置合わせと行間（docs/decisions/0017）
+#[test]
+fn places_text_by_justification_in_every_version() {
+    let operations = r#"[
+        {"op": "add", "kind": "text", "position": [100, 50], "text": "中央", "height": 5, "justification": "middle-center"},
+        {"op": "add", "kind": "text", "position": [10, 90], "text": "一行", "height": 3, "multiline": true, "justification": "top-right", "lineSpacing": 1.5}
+    ]"#;
+    let mut versions: Vec<(String, Vec<u8>)> =
+        crate::DwgVersion::ALL.iter().map(|version| (version.name().to_string(), written_as(*version))).collect();
+    versions.push(("new".into(), new_dwg("mm").unwrap()));
+    for (name, bytes) in versions {
+        let edited = edit(&bytes, operations).unwrap_or_else(|error| panic!("{name}: {error}"));
+        check_structure(&name, &edited.bytes);
+        let doc = crate::read_dwg(&edited.bytes).unwrap_or_else(|error| panic!("{name}: {error}"));
+        let DxfEntityData::Text(middle) = &entity(&doc, &edited.created[0]).unwrap().data else { panic!("{name}") };
+        assert_eq!((middle.halign, middle.valign), (1.0, 2.0), "{name}");
+        assert_eq!(middle.align_point.map(|point| [point[0], point[1]]), Some([100.0, 50.0]), "{name}");
+        let DxfEntityData::MText(top) = &entity(&doc, &edited.created[1]).unwrap().data else { panic!("{name}") };
+        // MTEXT の行間は R2000 から
+        let old = matches!(name.as_str(), "R13" | "R14");
+        assert_eq!((top.attachment_point, top.line_spacing_factor), (3.0, if old { 1.0 } else { 1.5 }), "{name}");
+        assert_eq!(edited.notices.iter().any(|notice| notice.code == "edit-no-line-spacing"), old, "{name}");
+    }
+}

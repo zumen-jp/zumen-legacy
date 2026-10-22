@@ -15,6 +15,8 @@ All packages share one version during 0.x.
 - Rust, Python and the command line: `add` takes `kind: "hatch"` for DXF (R13 to 2018) and DWG (R14
   to 2018): closed polyline boundaries with holes, `SOLID`, built-in patterns (`ANSI31`, `ANSI32`, `ANSI37`, `LINE`,
   `NET`, `DOTS`) or the lines of a PAT pattern.
+- Rust, Python and the command line: `text` takes `justification` (`top-left` … `bottom-right`, and `left`,
+  `center`, `right` on the baseline), `lineSpacing` and `multiline` in DXF and DWG, for text placed in table cells.
 
 ## 0.1.1 — 2026-10-21
 

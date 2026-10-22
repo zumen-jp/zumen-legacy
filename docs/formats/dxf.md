@@ -451,6 +451,11 @@ stay, and an edit without operations gives the same bytes.
   2 for holes), the normal island style (75 = 0), no association (71 = 0), and pattern lines already scaled and
   rotated, as AutoCAD stores them (the offset of a PAT line is turned by its angle). R12 has no HATCH
   (`unsupported-kind`). Unknown names without `patternLines` are `missing-definition`.
+- **Text placement**: `text` also takes `justification` (`left`, `center`, `right` on the baseline, and
+  `top-`, `middle-` and `bottom-` with `left`, `center` and `right`), `lineSpacing` (a factor from 0.25 to 4) and
+  `multiline` (`true` writes MTEXT for one line). TEXT gets 72 and 73 with the alignment point 11 at `position`;
+  MTEXT gets the attachment 71 (baseline justifications become the bottom row) and, from AutoCAD 2000 on, 73 = 1 and
+  44 (`edit-no-line-spacing` before). `lineSpacing` makes MTEXT.
 - **Values the version cannot hold** are written as the nearest one and reported: `edit-nearest-color` (no true color
   before AutoCAD 2004), `edit-rounded-lineweight` (the line weights of the DXF Reference), `edit-no-lineweight` (no
   line weights before AutoCAD 2000).
