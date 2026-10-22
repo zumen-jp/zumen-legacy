@@ -126,9 +126,12 @@ pub fn read(reader: &ValueReader<'_>, index: usize) -> Result<HatchInput, EditEr
             lines
                 .iter()
                 .map(|line| match line.as_slice() {
-                    [angle, x, y, dx, dy, dashes @ ..] => {
-                        Ok(PatternDefinition { angle: *angle, base: [*x, *y], offset: [*dx, *dy], dashes: dashes.to_vec() })
-                    }
+                    [angle, x, y, dx, dy, dashes @ ..] => Ok(PatternDefinition {
+                        angle: *angle,
+                        base: [*x, *y],
+                        offset: [*dx, *dy],
+                        dashes: dashes.to_vec(),
+                    }),
                     _ => Err(invalid("patternLines の線は [角度, x, y, dx, dy, 線・空白の長さ…] にしてください")),
                 })
                 .collect::<Result<Vec<_>, _>>()?,

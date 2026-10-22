@@ -681,9 +681,15 @@ fn adds_solid_and_patterned_hatches() {
         })
         .collect();
     assert!(hatches[0].solid_fill && hatches[0].pattern_name == "SOLID");
-    assert_eq!((hatches[1].pattern_name.as_str(), hatches[1].paths.len(), hatches[1].pattern_scale), ("ANSI31", 2, 10.0));
+    assert_eq!(
+        (hatches[1].pattern_name.as_str(), hatches[1].paths.len(), hatches[1].pattern_scale),
+        ("ANSI31", 2, 10.0)
+    );
     assert_eq!(hatches[1].pattern_lines[0].angle, 60.0);
-    assert_eq!((hatches[2].pattern_name.as_str(), hatches[2].pattern_lines.len(), hatches[2].pattern_type), ("TILE", 2, 2.0));
+    assert_eq!(
+        (hatches[2].pattern_name.as_str(), hatches[2].pattern_lines.len(), hatches[2].pattern_type),
+        ("TILE", 2, 2.0)
+    );
     let scene = crate::dxf_to_scene(&doc, None);
     for handle in &edited.created {
         let entity = scene.entities.iter().find(|entity| &entity.id == handle).unwrap();
@@ -692,7 +698,10 @@ fn adds_solid_and_patterned_hatches() {
     }
     assert!(!scene.notices.iter().any(|notice| notice.code.starts_with("hatch")), "{:?}", scene.notices);
     let errors = [
-        (r#"[{"op": "add", "kind": "hatch", "pattern": "AR-CONC", "boundaries": [[0, 0], [1, 0], [1, 1]]}]"#, "missing-definition"),
+        (
+            r#"[{"op": "add", "kind": "hatch", "pattern": "AR-CONC", "boundaries": [[0, 0], [1, 0], [1, 1]]}]"#,
+            "missing-definition",
+        ),
         (r#"[{"op": "add", "kind": "hatch", "boundaries": [[0, 0], [1, 0]]}]"#, "invalid-value"),
         (r#"[{"op": "add", "kind": "hatch"}]"#, "invalid-value"),
     ];

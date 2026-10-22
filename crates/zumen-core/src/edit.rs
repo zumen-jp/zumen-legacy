@@ -561,7 +561,9 @@ mod tests {
             parse_operations(r#"[{"op": "add", "kind": "hatch", "boundaries": [[[0, 0], [1, 0], [1, 1]], [[0.2, 0.2], [0.5, 0.2], [0.5, 0.5]]]}]"#)
                 .unwrap();
         let EditOperation::Add { values, .. } = &operations[0] else { panic!() };
-        assert!(matches!(&values["boundaries"], EditValue::Paths(paths) if paths.len() == 2 && paths[1][2] == [0.5, 0.5]));
+        assert!(
+            matches!(&values["boundaries"], EditValue::Paths(paths) if paths.len() == 2 && paths[1][2] == [0.5, 0.5])
+        );
         let error = parse_operations(r#"{"op": "delete"}"#).unwrap_err();
         assert_eq!((error.code, error.operation), ("invalid-operations", None));
     }

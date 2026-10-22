@@ -1165,7 +1165,11 @@ impl<'a> Editor<'a> {
             }
             "hatch" => {
                 if !r13 {
-                    return Err(EditError::at(index, "unsupported-kind", "R12 の DXF にはハッチング（HATCH）がありません"));
+                    return Err(EditError::at(
+                        index,
+                        "unsupported-kind",
+                        "R12 の DXF にはハッチング（HATCH）がありません",
+                    ));
                 }
                 reader.allow(&keys(&hatch::KEYS), "ハッチング")?;
                 let input = hatch::read(&reader, index)?;
