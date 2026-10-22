@@ -686,6 +686,37 @@ drawing with `write_dwg` (`$INSUNITS` and `$MEASUREMENT` from the units), which 
   material stay), with color 7, `CONTINUOUS`, the default line weight and plotting on, and adds it to the layer table;
   `update-layer` sets the color, frozen (1), off (2), locked (8), plot (16) and line weight (0x3E0) of the flags, and the
   line type. An R2000 layer that is off also gets a negative color number, as DXF writes it.
+- **Block definitions**: `add-block` ([decision 0017](../decisions/0017-add-annotations-and-definitions.md)) creates
+  a BLOCK_HEADER (20.4.52) named `name`, with `basePoint`, no entities (R2004 and later) or null first and last
+  entities (R13 to R2000), and its BLOCK and ENDBLK entities on layer `0`, and adds it to BLOCK_CONTROL. Later
+  operations add entities to it with `"container": "block:<name>"` and place it with `block-reference`, as for the
+  blocks the drawing has. Existing names are `already-exists`, names starting with `*` `invalid-value`.
+- **Dimensions**: `kind: "dimension"` takes the keys of the DXF editor and writes DIMENSION_LINEAR (21) or
+  DIMENSION_ALIGNED (22) with the anonymous block `*D<n>` (BLOCK_HEADER named `*D`, anonymous), drawn with the same
+  code as DXF (`zumen_dxf::dimension`) from the values of the DIMSTYLE object; text is MTEXT with attachment 5. The
+  style is `dimensionStyle`, else `$DIMSTYLE`, else `Standard` (`missing-definition` if the drawing has none). R13 and
+  R14 hold no measurement value.
+- **Styles**: `add-text-style`, `add-line-type` and `add-dimension-style` take the values of the DXF editor and add a
+  STYLE (with the TrueType family as `ACAD` extended data), LTYPE or DIMSTYLE (a copy of `from` with the variables
+  set) to its control object.
+- **Hatches**: `kind: "hatch"` takes the keys of the DXF editor and writes a HATCH (20.4.75) with polyline paths and
+  the pattern lines of `zumen_dxf::hatch`; from R2000 on it is the fixed type 78, in R14 the class `HATCH` (added to
+  AcDb:Classes when the drawing lacks it), and R13, which has no HATCH, refuses it (`unsupported-kind`).
+- **Text placement**: `justification`, `lineSpacing` and `multiline` as in the DXF editor: TEXT gets its horizontal
+  and vertical alignment and alignment point, MTEXT its attachment and line spacing factor (R13 and R14 have none,
+  `edit-no-line-spacing`).
+- **Attributes**: `attribute-definition` and the `attributes` of `block-reference` as in the DXF editor. The ATTDEF
+  sets the block header's has-attributes flag; the ATTRIBs copy their definition's values, are owned by the INSERT
+  (entity mode 0), linked to each other in R13 to R2000 and listed by the INSERT from R2004 on, followed by a SEQEND.
+- **Layouts and viewports** (R2000 and later): `add-layout` copies a LAYOUT object (20.4.84) of the drawing with the
+  new name, tab order, paper and limits, a new BLOCK_HEADER (named `*Paper_Space`, as every paper space is, with the
+  layout's handle; its BLOCK is `*Paper_Space<n>`) and the viewport of the whole sheet, the first in the block, and
+  adds it to `ACAD_LAYOUT`. `viewport` writes a VIEWPORT (20.4.37) with the values of the DXF editor and joins the
+  layout's viewport list (R2004 and later). R2000 keeps a VIEWPORT ENTITY HEADER for the viewports of the active
+  paper space, so a viewport can be added there only from R2004 on; layouts added by the edit take them in R2000 too.
+- **Leaders**: `leader` writes the annotation MTEXT and a LEADER (20.4.47) that points to it, with the values of the
+  DXF editor; R13 and R14 also get DIMGAP × DIMSCALE and DIMASZ × DIMSCALE in the LEADER. Reading adds the hook vertex
+  that AutoCAD writes to DXF (`entities.rs`, an inferred rule).
 - **Values the version cannot hold** are written as the nearest one and reported: `edit-nearest-color` (no true color
   before AutoCAD 2004) and `edit-rounded-lineweight` (the line weights of DWG). R13 and R14 have no line weights and
   plot every layer, so a line weight other than BYLAYER (entities) or the default (layers) and `plot: false` are not

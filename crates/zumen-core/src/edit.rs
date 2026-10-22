@@ -32,6 +32,10 @@ pub enum EditValue {
     Numbers(Vec<f64>),
     /// 点の並び（[[x, y], ...]）
     Points(Vec<Vec<f64>>),
+    /// 点の並びの並び（ハッチングの境界 [[[x, y], ...], ...]。docs/decisions/0017）
+    Paths(Vec<Vec<Vec<f64>>>),
+    /// 名前から文字列（ブロック参照の属性 {"TAG": "値"}。docs/decisions/0017）
+    Map(BTreeMap<String, String>),
 }
 
 /// キーごとの値
@@ -50,6 +54,31 @@ pub enum EditOperation {
     AddLayer { name: String, values: EditValues },
     /// レイヤの値を変える
     UpdateLayer { name: String, set: EditValues },
+    /// 空のブロック定義を足す（docs/decisions/0017）。中の図形は後の add が container の block:<名前> で足す
+    AddBlock { name: String, values: EditValues },
+    /// 文字スタイル・寸法スタイル・線種を足す（docs/decisions/0017）
+    AddStyle { kind: StyleKind, name: String, values: EditValues },
+    /// レイアウト（用紙）を足す（docs/decisions/0017）。ビューポートは後の add が container の layout:<名前> で足す
+    AddLayout { name: String, values: EditValues },
+}
+
+/// 足すスタイルの種類
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StyleKind {
+    Text,
+    Dimension,
+    LineType,
+}
+
+impl StyleKind {
+    /// JSON の op の名前
+    pub fn op(self) -> &'static str {
+        match self {
+            StyleKind::Text => "add-text-style",
+            StyleKind::Dimension => "add-dimension-style",
+            StyleKind::LineType => "add-line-type",
+        }
+    }
 }
 
 impl EditOperation {
@@ -61,6 +90,9 @@ impl EditOperation {
             EditOperation::Delete { .. } => "delete",
             EditOperation::AddLayer { .. } => "add-layer",
             EditOperation::UpdateLayer { .. } => "update-layer",
+            EditOperation::AddBlock { .. } => "add-block",
+            EditOperation::AddStyle { kind, .. } => kind.op(),
+            EditOperation::AddLayout { .. } => "add-layout",
         }
     }
 }
@@ -187,7 +219,7 @@ fn operation(index: usize, item: &Json) -> Result<EditOperation, EditError> {
             return Err(EditError::at(
                 index,
                 "invalid-operations",
-                "op（add・update・delete・add-layer・update-layer）がありません",
+                "op（add・update・delete・add-layer・update-layer・add-block・add-text-style・add-dimension-style・add-line-type・add-layout）がありません",
             ));
         }
     };
@@ -219,11 +251,24 @@ fn operation(index: usize, item: &Json) -> Result<EditOperation, EditError> {
             only(&["op", "name", "set"])?;
             EditOperation::UpdateLayer { name: string("name")?, set: set()? }
         }
+        "add-block" => EditOperation::AddBlock { name: string("name")?, values: values(&["op", "name"])? },
+        "add-layout" => EditOperation::AddLayout { name: string("name")?, values: values(&["op", "name"])? },
+        "add-text-style" | "add-dimension-style" | "add-line-type" => EditOperation::AddStyle {
+            kind: match op {
+                "add-text-style" => StyleKind::Text,
+                "add-dimension-style" => StyleKind::Dimension,
+                _ => StyleKind::LineType,
+            },
+            name: string("name")?,
+            values: values(&["op", "name"])?,
+        },
         other => {
             return Err(EditError::at(
                 index,
                 "invalid-operations",
-                format!("op の {other} はありません（add・update・delete・add-layer・update-layer）"),
+                format!(
+                    "op の {other} はありません（add・update・delete・add-layer・update-layer・add-block・add-text-style・add-dimension-style・add-line-type・add-layout）"
+                ),
             ));
         }
     })
@@ -247,6 +292,27 @@ fn edit_value(index: usize, key: &str, value: &Json) -> Result<EditValue, EditEr
         Json::Bool(value) => EditValue::Bool(*value),
         Json::Number(_) => EditValue::Number(number(value)?),
         Json::String(text) => EditValue::Text(text.clone()),
+        Json::Array(items)
+            if !items.is_empty()
+                && items.iter().all(|item| {
+                    item.as_array().is_some_and(|inner| !inner.is_empty() && inner.iter().all(Json::is_array))
+                }) =>
+        {
+            EditValue::Paths(
+                items
+                    .iter()
+                    .map(|item| {
+                        item.as_array()
+                            .ok_or_else(invalid)?
+                            .iter()
+                            .map(|point| {
+                                point.as_array().ok_or_else(invalid)?.iter().map(number).collect::<Result<Vec<_>, _>>()
+                            })
+                            .collect::<Result<Vec<_>, _>>()
+                    })
+                    .collect::<Result<_, _>>()?,
+            )
+        }
         Json::Array(items) if items.iter().all(Json::is_array) && !items.is_empty() => EditValue::Points(
             items
                 .iter()
@@ -254,7 +320,14 @@ fn edit_value(index: usize, key: &str, value: &Json) -> Result<EditValue, EditEr
                 .collect::<Result<_, _>>()?,
         ),
         Json::Array(items) => EditValue::Numbers(items.iter().map(number).collect::<Result<_, _>>()?),
-        Json::Object(_) => return Err(invalid()),
+        Json::Object(map) => EditValue::Map(
+            map.iter()
+                .map(|(name, value)| match value {
+                    Json::String(text) => Ok((name.clone(), text.clone())),
+                    _ => Err(EditError::at(index, "invalid-value", format!("{key} の値は文字列で指定してください"))),
+                })
+                .collect::<Result<_, _>>()?,
+        ),
     })
 }
 
@@ -285,6 +358,7 @@ impl<'a> ValueReader<'a> {
                 EditValue::Number(number) => valid(number),
                 EditValue::Numbers(numbers) => numbers.iter().all(valid),
                 EditValue::Points(points) => points.iter().flatten().all(valid),
+                EditValue::Paths(paths) => paths.iter().flatten().flatten().all(valid),
                 _ => true,
             };
             if !valid {
@@ -390,6 +464,15 @@ impl<'a> ValueReader<'a> {
         }
     }
 
+    /// 名前から文字列（{"TAG": "値"}）
+    pub fn strings(&self, key: &str) -> Result<Option<&'a BTreeMap<String, String>>, EditError> {
+        match self.get(key) {
+            None => Ok(None),
+            Some(EditValue::Map(map)) => Ok(Some(map)),
+            Some(_) => Err(self.invalid(key, "名前から文字列へのオブジェクト")),
+        }
+    }
+
     /// 色。番号（形式の色の番号）、"#rrggbb"、"bylayer"、"byblock"
     pub fn color(&self, key: &str) -> Result<Option<EditColor>, EditError> {
         let expected = "色の番号、\"#rrggbb\"、\"bylayer\" か \"byblock\"";
@@ -453,11 +536,13 @@ mod tests {
                 {"op": "update", "id": "3F", "set": {"color": "#FF0000", "vertices": [[0, 0], [1, 1]], "closed": true}},
                 {"op": "delete", "id": "40"},
                 {"op": "add-layer", "name": "CHECK", "color": 1},
-                {"op": "update-layer", "name": "CHECK", "set": {"visible": false, "lineType": null}}
+                {"op": "update-layer", "name": "CHECK", "set": {"visible": false, "lineType": null}},
+                {"op": "add-block", "name": "DOOR", "basePoint": [10, 0]},
+                {"op": "add-dimension-style", "name": "DIM-100", "scale": 100, "textAbove": true}
             ]"##,
         )
         .unwrap();
-        assert_eq!(operations.len(), 6);
+        assert_eq!(operations.len(), 8);
         let EditOperation::Add { kind, values, container } = &operations[0] else { panic!() };
         assert_eq!((kind.as_str(), container), ("line", &None));
         let reader = ValueReader::new(values, 0);
@@ -474,6 +559,15 @@ mod tests {
         let EditOperation::UpdateLayer { set, .. } = &operations[5] else { panic!() };
         // null は指定がないのと同じ
         assert_eq!(ValueReader::new(set, 5).name("lineType").unwrap(), None);
+        let EditOperation::AddBlock { name, values } = &operations[6] else { panic!() };
+        assert_eq!(name, "DOOR");
+        assert_eq!(ValueReader::new(values, 6).point("basePoint").unwrap(), Some([10.0, 0.0, 0.0]));
+        let EditOperation::AddStyle { kind, name, values } = &operations[7] else { panic!() };
+        assert_eq!(
+            (*kind, name.as_str(), operations[7].name()),
+            (StyleKind::Dimension, "DIM-100", "add-dimension-style")
+        );
+        assert_eq!(ValueReader::new(values, 7).bool("textAbove").unwrap(), Some(true));
     }
 
     #[test]
@@ -484,6 +578,21 @@ mod tests {
         let error = parse_operations(r#"[{"op": "update", "id": "1", "set": {}, "extra": 1}]"#).unwrap_err();
         assert_eq!(error.code, "unknown-key");
         let error = parse_operations(r#"[{"op": "add", "kind": "line", "start": [1e300, 0]}]"#).unwrap_err();
+        assert_eq!(error.code, "invalid-value");
+        let operations =
+            parse_operations(r#"[{"op": "add", "kind": "hatch", "boundaries": [[[0, 0], [1, 0], [1, 1]], [[0.2, 0.2], [0.5, 0.2], [0.5, 0.5]]]}]"#)
+                .unwrap();
+        let EditOperation::Add { values, .. } = &operations[0] else { panic!() };
+        assert!(
+            matches!(&values["boundaries"], EditValue::Paths(paths) if paths.len() == 2 && paths[1][2] == [0.5, 0.5])
+        );
+        let operations =
+            parse_operations(r#"[{"op": "add", "kind": "block-reference", "attributes": {"TITLE": "平面図"}}]"#)
+                .unwrap();
+        let EditOperation::Add { values, .. } = &operations[0] else { panic!() };
+        assert_eq!(ValueReader::new(values, 0).strings("attributes").unwrap().unwrap()["TITLE"], "平面図");
+        let error =
+            parse_operations(r#"[{"op": "add", "kind": "block-reference", "attributes": {"N": 1}}]"#).unwrap_err();
         assert_eq!(error.code, "invalid-value");
         let error = parse_operations(r#"{"op": "delete"}"#).unwrap_err();
         assert_eq!((error.code, error.operation), ("invalid-operations", None));

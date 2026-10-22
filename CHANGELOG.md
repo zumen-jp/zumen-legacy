@@ -14,6 +14,25 @@ All packages share one version during 0.x.
   as DXF R12 to 2018, DWG, JWW or SXF; a mistake in the spec names its place and a stable code.
   `zumen::draft`, the new crate `zumen-draft` with its JSON Schema, `zumen.draft` and `zumen.draft_schema` in
   Python, `zumen draft`, and the `draft_drawing` MCP tool.
+- Rust, Python and the command line: `edit` and `create` take `{"op": "add-block", "name": ..., "basePoint": [x, y]}`
+  for DXF (R12 to 2018) and DWG (R13 to 2018), which creates an empty block definition; later operations of the same
+  edit fill it with `"container": "block:<name>"` and place it with `block-reference`. SXF and JWW refuse it
+  (`unsupported-kind`). First step of [decision 0017](docs/decisions/0017-add-annotations-and-definitions.md).
+- Rust, Python and the command line: `add` takes `kind: "dimension"` (linear and aligned) for DXF and DWG, written as
+  a DIMENSION with its `*D` block computed from the dimension style, so that zumen and other readers draw it.
+- Rust, Python and the command line: `add-text-style`, `add-line-type` and `add-dimension-style` for DXF and DWG, so
+  that a new drawing gets a Japanese text style and dimensions sized for its units and scale.
+- Rust, Python and the command line: `add` takes `kind: "hatch"` for DXF (R13 to 2018) and DWG (R14
+  to 2018): closed polyline boundaries with holes, `SOLID`, built-in patterns (`ANSI31`, `ANSI32`, `ANSI37`, `LINE`,
+  `NET`, `DOTS`) or the lines of a PAT pattern.
+- Rust, Python and the command line: `text` takes `justification` (`top-left` … `bottom-right`, and `left`,
+  `center`, `right` on the baseline), `lineSpacing` and `multiline` in DXF and DWG, for text placed in table cells.
+- Rust, Python and the command line: block attributes in DXF and DWG: `kind: "attribute-definition"` in a block and
+  `attributes: {"TAG": "value"}` on `block-reference`, which writes the ATTRIBs, for title blocks.
+- Rust, Python and the command line: sheets in DXF and DWG (AutoCAD 2000 and later): `add-layout` with a paper size
+  and `kind: "viewport"` in it, showing model space at a scale such as 1:100.
+- Rust, Python and the command line: `kind: "leader"` in DXF and DWG, a LEADER with an MTEXT note sized from the
+  dimension style.
 
 ## 0.1.1 — 2026-10-21
 

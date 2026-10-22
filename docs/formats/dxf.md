@@ -413,6 +413,71 @@ stay, and an edit without operations gives the same bytes.
 - **Layers**: `add-layer` copies layer `0` without its handle, extension dictionary and extended data, so the plot
   style and material references stay valid; `update-layer` sets the color (a negative 62 turns a layer off), frozen
   (70 bit 1), locked (70 bit 4), plot (290), line type (6) and line weight (370). The count of the table (70) follows.
+- **Block definitions**: `add-block` ([decision 0017](../decisions/0017-add-annotations-and-definitions.md)) takes
+  `name` and `basePoint` and writes an empty definition before the ENDSEC of BLOCKS: from R13 on a BLOCK_RECORD (with
+  layout 340 = 0, and 70, 280 and 281 from AutoCAD 2004 on) at the end of the BLOCK_RECORD table, whose count (70)
+  follows, and BLOCK and ENDBLK owned by it; in R12, BLOCK and ENDBLK only. A drawing without a BLOCKS section gets
+  one before ENTITIES, which moves the ids of handle-less entities (`#12`) after it. Later operations of the same
+  edit add entities with `"container": "block:<name>"` and place the block with `block-reference`. Names that exist
+  are `already-exists`; names starting with `*` (anonymous blocks) are `invalid-value`. `created` gives the name, and
+  the entities added to the new block their handles (or, without handles, their places in the file).
+- **Dimensions**: `kind: "dimension"` with `dimensionType` `linear` (the default; `rotation` is the angle of the
+  dimension line in degrees) or `aligned`, `start` and `end` (13 and 14, the origins of the extension lines),
+  `position` (a point on the dimension line), `text` (`<>` is the measured value, the default) and `dimensionStyle`
+  (by default `$DIMSTYLE`, else `Standard`; a drawing without DIMSTYLE records uses the header's `$DIM…` variables).
+  The editor writes a DIMENSION (70 = 32 or 33, 10 where the dimension line meets the second extension line, 11 the
+  middle of the text, 42 the measurement from R13 on) and an anonymous block `*D<n>` (70 = 1, a BLOCK_RECORD from R13
+  on) with the extension lines, the dimension line, closed filled arrowheads as SOLIDs (ticks when DIMTSZ > 0) and the
+  text as MTEXT (TEXT in R12), middle centered, from DIMSCALE, DIMASZ, DIMEXO, DIMEXE, DIMTXT, DIMGAP, DIMTAD, DIMDEC,
+  DIMZIN, DIMLFAC, DIMTSZ, DIMCLRD/E/T and the text style DIMTXSTY. Variables that a style records but the editor does
+  not draw (arrow blocks, tolerances, alternate units, suppressed extension lines) are reported (`edit-dimension-style`).
+  Variables missing from a DIMSTYLE record take AutoCAD's defaults, as AutoCAD reads them; the `Standard` that zumen
+  writes holds only DIMSCALE, DIMASZ and DIMTXT, so its values print with four decimals.
+- **Styles**: `add-text-style` (`font`, `bigFont`, `height`, `widthFactor`, `oblique` in degrees), `add-line-type`
+  (`description`, `pattern`: up to 12 dashes (positive), gaps (negative) and dots (0) in drawing units) and
+  `add-dimension-style` (`from`, by default `Standard`, whose record is copied; `scale` DIMSCALE, `textHeight` DIMTXT,
+  `arrowSize` DIMASZ, `extensionOffset` DIMEXO, `extensionExtension` DIMEXE, `textGap` DIMGAP, `textAbove` DIMTAD,
+  `decimals` DIMDEC (not in R12, `edit-no-dimdec`), `suppressTrailingZeros` DIMZIN 8, `tickSize` DIMTSZ,
+  `linearFactor` DIMLFAC, `textStyle` DIMTXSTY) add a record at the end of their table, whose count (70) follows.
+  Later operations of the same edit can name them. A `font` with an extension (`.shx`, `.ttf`, `.ttc`, …) is the font
+  file; a name without one is a TrueType family, written as extended data (`ACAD` 1000) with its Windows file
+  (`MS Gothic` → `msgothic.ttc`, `MS Mincho` → `msmincho.ttc`, Meiryo, Yu Gothic, Yu Mincho; others `<family>.ttf`).
+  R12, or a drawing without the `ACAD` APPID, gets the file only (`edit-font-family`).
+- **Hatches**: `kind: "hatch"` with `boundaries` (closed polylines `[[[x, y], …], …]`, the first the outer one, the
+  others holes; one boundary may be given as `[[x, y], …]`), `pattern` (`SOLID`, the default, or a built-in pattern:
+  `ANSI31`, `ANSI32`, `ANSI37`, `LINE`, `NET`, `DOTS`, defined in `zumen_dxf::hatch` in millimeters at scale 1, not
+  copied from a CAD pattern file), `patternScale`, `patternAngle` (degrees) and `patternLines` (the lines of a PAT
+  file, `[angle, x, y, dx, dy, dash…]`, for any other name). The HATCH has polyline paths (92 = 3 for the outer one,
+  2 for holes), the normal island style (75 = 0), no association (71 = 0), and pattern lines already scaled and
+  rotated, as AutoCAD stores them (the offset of a PAT line is turned by its angle). R12 has no HATCH
+  (`unsupported-kind`). Unknown names without `patternLines` are `missing-definition`.
+- **Text placement**: `text` also takes `justification` (`left`, `center`, `right` on the baseline, and
+  `top-`, `middle-` and `bottom-` with `left`, `center` and `right`), `lineSpacing` (a factor from 0.25 to 4) and
+  `multiline` (`true` writes MTEXT for one line). TEXT gets 72 and 73 with the alignment point 11 at `position`;
+  MTEXT gets the attachment 71 (baseline justifications become the bottom row) and, from AutoCAD 2000 on, 73 = 1 and
+  44 (`edit-no-line-spacing` before). `lineSpacing` makes MTEXT.
+- **Attributes**: `kind: "attribute-definition"` in a block (`container: "block:<name>"`, `invalid-value`
+  elsewhere) with `tag` (no spaces, written in capitals, as AutoCAD keeps it), `prompt`, `text` (the default
+  value), `position`, `height`, `rotation`, `textStyle` and `justification` writes an ATTDEF and sets bit 2 (has
+  attributes) of the BLOCK. `block-reference` takes `attributes`, an object from tag to value: the INSERT gets 66 = 1
+  and, for each non-constant attribute definition of the block (those the drawing has and those added earlier in the
+  edit), an ATTRIB owned by it, placed as AutoCAD places it (the definition's point less the base point, scaled,
+  rotated and moved to the reference; height times the Y scale), with the given value or the default, then a SEQEND.
+  A tag that the block does not define is `invalid-value`. Without `attributes`, no ATTRIB is written.
+- **Layouts and viewports** (AutoCAD 2000 and later; older drawings refuse them with `unsupported-kind`):
+  `add-layout` (`name`, `paperSize: [width, height]` in millimeters) copies a LAYOUT of the drawing (a paper one if
+  there is one) with the new name, the next tab order, the paper size and name (`ISO_A3_(420.00_x_297.00_MM)` for the
+  A sizes, else empty), limits and a new paper space block `*Paper_Space<n>` (its BLOCK_RECORD's 340 is the layout),
+  adds it to the `ACAD_LAYOUT` dictionary, and puts the viewport of the whole sheet (69 = 1) in the block.
+  `kind: "viewport"` in `container: "layout:<name>"` takes `center`, `width` and `height` on the sheet (mm),
+  `viewCenter` in model coordinates and `scale`, the denominator of the scale (1:100 is `100`): the view height is
+  `height × scale` converted from millimeters to the drawing's `$INSUNITS` (unitless counts as millimeters). Its id
+  (69) follows the largest of the layout.
+- **Leaders**: `kind: "leader"` with `vertices` (the first is the arrowhead's tip), `text`, `height` (by default
+  DIMTXT × DIMSCALE), `dimensionStyle` and `textStyle` writes a LEADER (arrowhead on, straight, 73 = 0 with text and
+  3 without) and, for the text, an MTEXT that the LEADER points to (340), DIMGAP × DIMSCALE beyond the last vertex,
+  middle left when the last segment goes right and middle right when it goes left. No hook line is added. R12 has no
+  LEADER (`unsupported-kind`). `created` gives the LEADER.
 - **Values the version cannot hold** are written as the nearest one and reported: `edit-nearest-color` (no true color
   before AutoCAD 2004), `edit-rounded-lineweight` (the line weights of the DXF Reference), `edit-no-lineweight` (no
   line weights before AutoCAD 2000).

@@ -126,6 +126,57 @@ def test_edited_dxf_passes_the_audit_of_ezdxf(tmp_path):
         layouts = {view_id for view_id, _ in scene.views or []}
         if "Layout1" not in layouts:
             operations = [operation for operation in operations if operation.get("container") != "layout:Layout1"]
+        operations += [
+            {"op": "add-block", "name": "CHECK-BLOCK", "basePoint": [1, 1]},
+            {"op": "add", "kind": "circle", "container": "block:CHECK-BLOCK", "center": [1, 1], "radius": 1},
+            {
+                "op": "add",
+                "kind": "attribute-definition",
+                "container": "block:CHECK-BLOCK",
+                "tag": "NAME",
+                "position": [1, 3],
+                "height": 1,
+            },
+            {
+                "op": "add",
+                "kind": "block-reference",
+                "block": "CHECK-BLOCK",
+                "position": [20, 20],
+                "attributes": {"NAME": "確認"},
+            },
+            {"op": "add-text-style", "name": "CHECK-JP", "font": "MS Gothic"},
+            {"op": "add-line-type", "name": "CHECK-DASH", "pattern": [2, -1]},
+            {"op": "add-dimension-style", "name": "CHECK-DIM", "scale": 2, "decimals": 0, "textStyle": "CHECK-JP"},
+            {
+                "op": "add",
+                "kind": "dimension",
+                "start": [0, 0],
+                "end": [40, 0],
+                "position": [0, -10],
+                "dimensionStyle": "CHECK-DIM",
+            },
+            {"op": "add", "kind": "hatch", "pattern": "ANSI31", "boundaries": [[[0, 0], [9, 0], [9, 9], [0, 9]]]},
+            {
+                "op": "add",
+                "kind": "text",
+                "position": [5, 5],
+                "text": "中",
+                "height": 2,
+                "justification": "middle-center",
+            },
+            {"op": "add", "kind": "leader", "vertices": [[0, 0], [5, 5], [9, 5]], "text": "注記"},
+            {"op": "add-layout", "name": "CHECK-SHEET", "paperSize": [420, 297]},
+            {
+                "op": "add",
+                "kind": "viewport",
+                "container": "layout:CHECK-SHEET",
+                "center": [210, 150],
+                "width": 300,
+                "height": 200,
+                "viewCenter": [0, 0],
+                "scale": 100,
+            },
+        ]
         edited = zumen.edit(data, operations)
         path = tmp_path / f"{name}.edited.dxf"
         edited.save(path)
@@ -133,7 +184,7 @@ def test_edited_dxf_passes_the_audit_of_ezdxf(tmp_path):
         auditor = doc.audit()
         found = [(entry.code, entry.message) for entry in [*auditor.errors, *auditor.fixes]]
         assert found == [], (name, found)
-        added = [doc.entitydb[handle] for handle in edited.created[1:]]
+        added = [doc.entitydb[handle] for handle in edited.created[1:-13]]
         assert [entity.dxftype() for entity in added[:9]] == [
             "LINE",
             "CIRCLE",
@@ -148,3 +199,22 @@ def test_edited_dxf_passes_the_audit_of_ezdxf(tmp_path):
         assert added[6].dxf.text == "確認済み"
         assert added[7].plain_text() == "一行目\n二行目"
         assert doc.layers.get("CHECK").dxf.lineweight == 35
+        block = doc.blocks.get("CHECK-BLOCK")
+        assert [entity.dxftype() for entity in block] == ["CIRCLE", "ATTDEF"], name
+        reference = doc.entitydb[edited.created[-10]]
+        assert reference.dxf.name == "CHECK-BLOCK" and reference.get_attrib_text("NAME") == "確認", name
+        assert doc.styles.get("CHECK-JP").get_extended_font_data()[0] == "MS Gothic", name
+        assert doc.linetypes.get("CHECK-DASH").simplified_line_pattern() == (2, 1), name
+        assert doc.dimstyles.get("CHECK-DIM").dxf.dimscale == 2, name
+        dimension = doc.entitydb[edited.created[-6]]
+        hatch = doc.entitydb[edited.created[-5]]
+        centered = doc.entitydb[edited.created[-4]]
+        leader = doc.entitydb[edited.created[-3]]
+        assert leader.dxftype() == "LEADER" and leader.dxf.annotation_handle in doc.entitydb, name
+        sheet = doc.layouts.get("CHECK-SHEET")
+        assert [entity.dxftype() for entity in sheet] == ["VIEWPORT", "VIEWPORT"], name
+        assert sheet.viewports()[1].dxf.view_height > 0, name
+        assert (centered.dxf.halign, centered.dxf.valign) == (1, 2), name
+        assert hatch.dxf.pattern_name == "ANSI31" and len(hatch.paths) == 1, name
+        assert dimension.dxftype() == "DIMENSION" and dimension.get_measurement() == 40, name
+        assert len(doc.blocks.get(dimension.dxf.geometry)) >= 7, name

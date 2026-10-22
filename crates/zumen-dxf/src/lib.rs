@@ -16,7 +16,9 @@ mod write;
 
 pub use colors::{ACI, aci_color, is_transparent, true_color};
 pub use curves::{minor_axis, ocs_matrix};
-pub use edit::{edit_dxf, new_dxf};
+pub use edit::{
+    attributes, dimension, edit_dxf, font_file, hatch, leader, new_dxf, paper_name, placement, view_height,
+};
 pub use model::*;
 pub use mtext::{
     ParagraphAlign, RunColor, RunFont, RunStack, TextParagraph, TextRun, mtext_plain_text, parse_mtext,
