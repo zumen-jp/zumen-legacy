@@ -862,3 +862,21 @@ macro_rules! dimension_look {
 }
 
 dimension_look!(DimensionSpec, DimensionChainSpec, GridSpec);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// JSON Schema は、図形の種類をすべて同じ名前で持つ
+    #[test]
+    fn schema_lists_every_item_type() {
+        let schema: Value = serde_json::from_str(crate::SCHEMA).unwrap();
+        let listed: Vec<&str> = schema["$defs"]["item"]["oneOf"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| entry["$ref"].as_str().unwrap().trim_start_matches("#/$defs/item."))
+            .collect();
+        assert_eq!(listed, TYPES);
+    }
+}

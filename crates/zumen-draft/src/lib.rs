@@ -27,6 +27,9 @@ use zumen_dxf::{DxfDocument, DxfEntityData};
 
 pub use spec::TYPES;
 
+/// 仕様の JSON Schema（draft 2020-12）。エージェントやエディタが仕様を組み立て、確かめるのに使う
+pub const SCHEMA: &str = include_str!("../schema/drawing-spec.schema.json");
+
 /// 描いた図面
 #[derive(Debug, Clone, PartialEq)]
 pub struct Drafted {

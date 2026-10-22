@@ -17,6 +17,7 @@ format-neutral ``Scene`` in paper millimeters (Y up), the same model as the
 
 from __future__ import annotations
 
+import json
 import os
 
 from ._zumen import (
@@ -37,6 +38,7 @@ from ._zumen import (
 )
 from ._zumen import convert as _convert
 from ._zumen import draft as _draft
+from ._zumen import draft_schema as _draft_schema
 from ._zumen import edit as _edit
 from ._zumen import read as _read
 
@@ -57,6 +59,7 @@ __all__ = [
     "create",
     "detect",
     "draft",
+    "draft_schema",
     "edit",
     "read",
 ]
@@ -172,3 +175,8 @@ def draft(
         with open(spec, encoding="utf-8") as file:
             spec = file.read()
     return _draft(spec, to, version=version, sheet=sheet)
+
+
+def draft_schema() -> dict[str, object]:
+    """The JSON Schema (draft 2020-12) of the drawing spec that ``draft`` takes."""
+    return json.loads(_draft_schema())

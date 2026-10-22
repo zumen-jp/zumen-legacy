@@ -1262,6 +1262,12 @@ fn draft(
     Ok(Converted { inner: drafted, format: to })
 }
 
+/// 図面の仕様の JSON Schema（JSON の文字列）
+#[pyfunction]
+fn draft_schema() -> &'static str {
+    zumen::draft::SCHEMA
+}
+
 #[pymodule]
 fn _zumen(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
@@ -1282,5 +1288,6 @@ fn _zumen(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(edit, m)?)?;
     m.add_function(wrap_pyfunction!(create, m)?)?;
     m.add_function(wrap_pyfunction!(draft, m)?)?;
+    m.add_function(wrap_pyfunction!(draft_schema, m)?)?;
     Ok(())
 }

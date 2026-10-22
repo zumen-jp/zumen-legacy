@@ -87,3 +87,13 @@ def test_drafts_and_renders_over_mcp(tmp_path):
             assert wrong.is_error and "unknown-type" in wrong.content[0].text
 
     anyio.run(session)
+
+
+def test_the_sample_follows_the_schema_and_mistakes_do_not():
+    jsonschema = pytest.importorskip("jsonschema")
+    schema = zumen.draft_schema()
+    jsonschema.Draft202012Validator.check_schema(schema)
+    validator = jsonschema.Draft202012Validator(schema)
+    assert list(validator.iter_errors(SPEC)) == []
+    item = {"type": "line", "from": [0, 0], "to": [1, 1], "weight": 2}
+    assert list(validator.iter_errors({"sheets": [{"name": "S", "items": [item]}]}))
