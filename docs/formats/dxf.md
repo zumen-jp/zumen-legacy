@@ -277,7 +277,10 @@ mapping writes what zumen's reader draws the same way as the source scene, and w
 - **Multileaders** are written in ezdxf's order with every override flag (90) set, so the entity's own values are used,
   and point at one `Standard` MLEADERSTYLE with ezdxf's defaults; their text style, line type, arrow blocks and attribute
   definitions point at the records written. **Wipeouts** are written without an image definition, as AutoCAD writes
-  them. **Gradients** keep their name, colors, angle, shift and tint (450 to 470, in AutoCAD's order).
+  them. **Images** whose IMAGEDEF file name the model keeps (`DxfImage::path`) are written with an IMAGEDEF in
+  `ACAD_IMAGE_DICT` (named as the editor names them), one IMAGEDEF_REACTOR each and the IMAGE classes; images that
+  pointed at the same IMAGEDEF share one. The IMAGEDEF's other values are written as the editor writes them (pixel
+  size 1, no resolution units). **Gradients** keep their name, colors, angle, shift and tint (450 to 470, in AutoCAD's order).
 - **Multi-line attributes** (ATTRIB and ATTDEF with `mtext`) are written as AutoCAD 2018 writes them: the attribute
   type (71: 2 for an attribute, 4 for a definition) at the end of `AcDbAttribute` or `AcDbAttributeDefinition`, then
   `101`/`Embedded Object` and the values of the MTEXT, with its own extrusion. The attribute's own text (1 in
@@ -292,7 +295,7 @@ What cannot be written as it was is reported in `notices`:
 
 | Code | What is written |
 | --- | --- |
-| `image` | IMAGE is left out: the writer does not write image definitions (IMAGEDEF) yet |
+| `image` | An IMAGE whose image definition (IMAGEDEF) the model does not know is left out |
 | `helix` | HELIX is written as SPLINE, its curve, without the helix parameters |
 | `mpolygon` | MPOLYGON is written as HATCH |
 | `table` | ACAD_TABLE is written as the INSERT of its block (`*T…`) |
@@ -358,7 +361,7 @@ as ezdxf's `r12export` does, and the rest is reported:
 | `version-hatch`, `version-leader`, `version-mline` | HATCH, LEADER, MULTILEADER and MLINE as an anonymous block of LINE, POLYLINE, SOLID and TEXT |
 | `version-multiline-attribute` | Multiline attributes as one line |
 | `version-mask` | Fills with the background color (background masks) are left out |
-| `version-xline`, `version-wipeout`, `version-invisible` | XLINE, RAY, WIPEOUT and invisible entities are left out |
+| `version-xline`, `version-wipeout`, `version-image`, `version-invisible` | XLINE, RAY, WIPEOUT, IMAGE and invisible entities are left out |
 | `version-layouts` | Entities of the layouts other than the current one are left out |
 | `version-units` | The length unit (`$INSUNITS`) is left out; zumen reads an R12 drawing as millimeters |
 | `version-lineweight`, `version-linetype-scale` | Line weights and the line type scale of entities are left out |

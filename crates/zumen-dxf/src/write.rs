@@ -6,8 +6,9 @@
 //! DXF・DWG から読んだ図面を DXF にする変換に使う（DXF Reference の各節・各図形のグループコードに従う）。
 //!
 //! 書くもの: 見出しの主な変数、クラス、表（VPORT・LTYPE・LAYER・STYLE・VIEW・UCS・APPID・DIMSTYLE・
-//! BLOCK_RECORD）、ブロック定義、図形、OBJECTS の辞書（ACAD_GROUP・ACAD_LAYOUT・ACAD_MLEADERSTYLE・
-//! ACAD_MLINESTYLE・ACAD_PLOTSETTINGS・ACAD_PLOTSTYLENAME）、レイアウト、MLINESTYLE、MLEADERSTYLE。
+//! BLOCK_RECORD）、ブロック定義、図形、OBJECTS の辞書（ACAD_GROUP・ACAD_IMAGE_DICT・ACAD_LAYOUT・ACAD_MLEADERSTYLE・
+//! ACAD_MLINESTYLE・ACAD_PLOTSETTINGS・ACAD_PLOTSTYLENAME）、レイアウト、MLINESTYLE、MLEADERSTYLE、画像の定義と
+//! そのリアクタ。
 //! ハンドルは元の図面のものを保ち、ないもの・重なるものには新しいハンドルを振る。
 //! 図形が参照するのに表にないレイヤ・線種・文字スタイル・寸法スタイル・ブロックは補う。
 //! 書けなかった・形を変えて書いた内容は、読み取りと同じ notices（種類ごとの件数）で返す。
