@@ -828,3 +828,34 @@ fn cloned_dimension_style_keeps_relative_references() {
         assert_eq!(actual, expected, "{name}: cloned DIMSTYLE references");
     }
 }
+
+#[test]
+fn reports_approximated_jis_dimension_text_position() {
+    let bytes = new_dwg("mm").unwrap();
+    let mut notices = NoticeList::new();
+    let source = Source::open(&bytes, &mut notices).unwrap();
+    let mut editor = Editor::new(source, notices).unwrap();
+    let handle = editor.dimstyles["STANDARD"];
+    let mut style = editor.read(handle, |s, _| DimStyle::read(s)).unwrap();
+    let value = style.value.values.iter_mut().find(|(key, _)| *key == "DIMTAD").unwrap();
+    value.1 = DimValue::Short(3);
+    let kind = style.kind;
+    editor.store(handle, kind, &style.eed, |out| style.value.write(out));
+    let bytes = editor.finish().bytes;
+    let edited =
+        edit(&bytes, r#"[{"op":"add","kind":"dimension","start":[0,0],"end":[1000,0],"position":[0,-100]}]"#).unwrap();
+    assert!(edited.notices.iter().any(|notice| notice.code == "edit-dimension-text-position" && notice.count == 1));
+}
+
+#[test]
+fn exhausted_dimension_block_names_fail_without_overflowing() {
+    let bytes = new_dwg("mm").unwrap();
+    let mut notices = NoticeList::new();
+    let source = Source::open(&bytes, &mut notices).unwrap();
+    let mut editor = Editor::new(source, notices).unwrap();
+    editor.create_block(0, "*D18446744073709551615", [0.0; 3], true).unwrap();
+    let bytes = editor.finish().bytes;
+    let error =
+        edit(&bytes, r#"[{"op":"add","kind":"dimension","start":[0,0],"end":[10,0],"position":[0,5]}]"#).unwrap_err();
+    assert_eq!((error.code, error.operation), ("name-exhausted", Some(0)));
+}
