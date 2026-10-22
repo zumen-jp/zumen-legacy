@@ -180,6 +180,8 @@ struct Editor<'a> {
     /// 見出しの $DIMSTYLE と、寸法の変数（$DIMSCALE など。$ なしの名前）
     header_dimstyle: Option<String>,
     header_dims: Vec<(String, f64)>,
+    /// 見出しの $INSUNITS
+    insunits: f64,
     /// オブジェクトの所有者のハンドル → 所有されるオブジェクトのレコード
     owned: HashMap<String, Vec<usize>>,
     /// レコードのハンドル
@@ -378,9 +380,16 @@ fn viewport_tags(
     record.int(79, 0).real(146, 0.0).int(170, 0).int(61, 5);
 }
 
-/// 用紙の大きさの名前（ISO の A 判の横と縦。ほかは空）
-fn paper_name(width: f64, height: f64) -> String {
-    let sizes = [("A0", 1189.0, 841.0), ("A1", 841.0, 594.0), ("A2", 594.0, 420.0), ("A3", 420.0, 297.0), ("A4", 297.0, 210.0)];
+/// ビューポートが見せるモデルの高さ（図面の単位）。height は用紙の mm、scale は縮尺の分母（1:100 は 100）、insunits は
+/// 図面の $INSUNITS（単位なしは mm とみなす）。DWG の編集も使う
+pub fn view_height(height: f64, scale: f64, insunits: f64) -> f64 {
+    height * scale / crate::scene::unit_to_mm(insunits).unwrap_or(1.0)
+}
+
+/// 用紙の大きさの名前（ISO の A 判の横と縦。ほかは空）。DWG の編集も使う
+pub fn paper_name(width: f64, height: f64) -> String {
+    let sizes =
+        [("A0", 1189.0, 841.0), ("A1", 841.0, 594.0), ("A2", 594.0, 420.0), ("A3", 420.0, 297.0), ("A4", 297.0, 210.0)];
     for (name, long, short) in sizes {
         if (width - long).abs() < 0.5 && (height - short).abs() < 0.5 {
             return format!("ISO_{name}_({long:.2}_x_{short:.2}_MM)");
@@ -489,6 +498,7 @@ impl<'a> Editor<'a> {
             table_counts: HashMap::new(),
             header_dimstyle: None,
             header_dims: Vec::new(),
+            insunits: 0.0,
             owned: HashMap::new(),
             record_handles: HashMap::new(),
             references: Vec::new(),
@@ -643,6 +653,7 @@ impl<'a> Editor<'a> {
                 }
                 "$HANDLING" if next.is_some_and(|tag| tag.number() == 1.0) => self.handles = true,
                 "$DIMSTYLE" => self.header_dimstyle = next.map(|tag| tag.text().to_string()),
+                "$INSUNITS" => self.insunits = next.map_or(0.0, Tag::number),
                 name if name.starts_with("$DIM") => {
                     if let Some(value) = next.map(Tag::number).filter(|value| value.is_finite()) {
                         self.header_dims.push((name[1..].to_string(), value));
@@ -1305,7 +1316,8 @@ impl<'a> Editor<'a> {
                 let id = self.viewport_ids.get(&upper(&owner)).copied().unwrap_or(1).max(1) + 1;
                 self.viewport_ids.insert(upper(&owner), id);
                 let (mut record, _) = self.entity_record(index, "VIEWPORT", &place, &common)?;
-                viewport_tags(&mut record, center, width, height, view_center, height * scale, id, 2);
+                let view = view_height(height, scale, self.insunits);
+                viewport_tags(&mut record, center, width, height, view_center, view, id, 2);
                 vec![record.tags]
             }
             "hatch" => {
@@ -2395,7 +2407,11 @@ impl<'a> Editor<'a> {
         reader.allow(&["paperSize"], "レイアウト")?;
         let paper = reader.required("paperSize", reader.numbers("paperSize", 2)?)?;
         if paper[0] <= 0.0 || paper[1] <= 0.0 {
-            return Err(EditError::at(index, "invalid-value", "paperSize は 0 より大きい [幅, 高さ]（mm）にしてください"));
+            return Err(EditError::at(
+                index,
+                "invalid-value",
+                "paperSize は 0 より大きい [幅, 高さ]（mm）にしてください",
+            ));
         }
         let unreadable = || EditError::at(index, "unreadable", "図面のレイアウト（LAYOUT）と OBJECTS の節が読めません");
         // 写すレイアウト（モデルでないもの、なければモデル）

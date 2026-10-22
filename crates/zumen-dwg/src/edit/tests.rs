@@ -840,3 +840,37 @@ fn adds_attributes_in_every_version() {
         assert_eq!(attributes.count(), 2, "{name}");
     }
 }
+
+/// レイアウトとビューポートを足す（docs/decisions/0017）。R2000 から
+#[test]
+fn adds_layouts_with_viewports_from_r2000_on() {
+    let operations = r#"[
+        {"op": "add", "kind": "line", "start": [0, 0], "end": [10000, 8000]},
+        {"op": "add-layout", "name": "A3-平面図", "paperSize": [420, 297]},
+        {"op": "add", "kind": "viewport", "container": "layout:A3-平面図", "center": [210, 148.5], "width": 380, "height": 257, "viewCenter": [5000, 4000], "scale": 100},
+        {"op": "add", "kind": "text", "container": "layout:A3-平面図", "position": [20, 10], "text": "1階平面図", "height": 5}
+    ]"#;
+    let mut versions: Vec<(String, Vec<u8>)> =
+        crate::DwgVersion::ALL.iter().map(|version| (version.name().to_string(), written_as(*version))).collect();
+    versions.push(("new".into(), new_dwg("mm").unwrap()));
+    for (name, bytes) in versions {
+        let edited = edit(&bytes, operations);
+        if matches!(name.as_str(), "R13" | "R14") {
+            assert_eq!(edited.unwrap_err().code, "unsupported-kind", "{name}");
+            continue;
+        }
+        let edited = edited.unwrap_or_else(|error| panic!("{name}: {error}"));
+        check_structure(&name, &edited.bytes);
+        let doc = crate::read_dwg(&edited.bytes).unwrap_or_else(|error| panic!("{name}: {error}"));
+        let layout = doc.layouts.iter().find(|layout| layout.name == "A3-平面図").unwrap_or_else(|| panic!("{name}"));
+        assert_eq!((layout.paper_width, layout.paper_height), (420.0, 297.0), "{name}");
+        let scene = zumen_dxf::dxf_to_scene(&doc, Some("A3-平面図"));
+        let kinds: Vec<&str> = scene.entities.iter().map(|entity| entity.kind.name()).collect();
+        assert!(kinds.contains(&"line") && kinds.contains(&"text"), "{name}: {kinds:?}");
+        let scales = scene.metadata.iter().find(|property| property.key == "viewportScales");
+        assert_eq!(scales.map(|property| property.value.as_str()), Some("1:100"), "{name}");
+        // 同じ編集で足したレイアウトにもう一度足すと already-exists
+        let again = edit(&edited.bytes, r#"[{"op": "add-layout", "name": "a3-平面図", "paperSize": [1, 1]}]"#);
+        assert_eq!(again.unwrap_err().code, "already-exists", "{name}");
+    }
+}

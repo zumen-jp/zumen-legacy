@@ -19,6 +19,8 @@ All packages share one version during 0.x.
   `center`, `right` on the baseline), `lineSpacing` and `multiline` in DXF and DWG, for text placed in table cells.
 - Rust, Python and the command line: block attributes in DXF and DWG: `kind: "attribute-definition"` in a block and
   `attributes: {"TAG": "value"}` on `block-reference`, which writes the ATTRIBs, for title blocks.
+- Rust, Python and the command line: sheets in DXF and DWG (AutoCAD 2000 and later): `add-layout` with a paper size
+  and `kind: "viewport"` in it, showing model space at a scale such as 1:100.
 
 ## 0.1.1 — 2026-10-21
 

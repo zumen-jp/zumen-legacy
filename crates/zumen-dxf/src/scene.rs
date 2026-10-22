@@ -27,7 +27,7 @@ use zumen_core::{
 };
 
 /// $INSUNITS の単位の mm（DXF Reference「HEADER Section Group Codes」の $INSUNITS）
-fn unit_to_mm(code: f64) -> Option<f64> {
+pub(crate) fn unit_to_mm(code: f64) -> Option<f64> {
     if !(1.0..=21.0).contains(&code) || code.fract() != 0.0 {
         return None;
     }

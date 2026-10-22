@@ -464,6 +464,15 @@ stay, and an edit without operations gives the same bytes.
   edit), an ATTRIB owned by it, placed as AutoCAD places it (the definition's point less the base point, scaled,
   rotated and moved to the reference; height times the Y scale), with the given value or the default, then a SEQEND.
   A tag that the block does not define is `invalid-value`. Without `attributes`, no ATTRIB is written.
+- **Layouts and viewports** (AutoCAD 2000 and later; older drawings refuse them with `unsupported-kind`):
+  `add-layout` (`name`, `paperSize: [width, height]` in millimeters) copies a LAYOUT of the drawing (a paper one if
+  there is one) with the new name, the next tab order, the paper size and name (`ISO_A3_(420.00_x_297.00_MM)` for the
+  A sizes, else empty), limits and a new paper space block `*Paper_Space<n>` (its BLOCK_RECORD's 340 is the layout),
+  adds it to the `ACAD_LAYOUT` dictionary, and puts the viewport of the whole sheet (69 = 1) in the block.
+  `kind: "viewport"` in `container: "layout:<name>"` takes `center`, `width` and `height` on the sheet (mm),
+  `viewCenter` in model coordinates and `scale`, the denominator of the scale (1:100 is `100`): the view height is
+  `height × scale` converted from millimeters to the drawing's `$INSUNITS` (unitless counts as millimeters). Its id
+  (69) follows the largest of the layout.
 - **Values the version cannot hold** are written as the nearest one and reported: `edit-nearest-color` (no true color
   before AutoCAD 2004), `edit-rounded-lineweight` (the line weights of the DXF Reference), `edit-no-lineweight` (no
   line weights before AutoCAD 2000).
