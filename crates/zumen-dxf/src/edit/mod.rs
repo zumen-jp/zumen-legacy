@@ -208,8 +208,8 @@ struct Editor<'a> {
     created: Vec<String>,
     /// created の図形の先頭のレコードの場所（足す位置、そこでの順）。ハンドルのない図形の id を書いた後で決める
     created_places: Vec<Option<(usize, usize)>>,
-    /// 画像を足す辞書とそのハンドル、画像のクラスを確かめたか
-    image_dictionary: Option<(ImageDictionary, String)>,
+    /// 画像を足す辞書とそのハンドル、OBJECTS の節の終わり。画像のクラスを確かめたか
+    image_dictionary: Option<(ImageDictionary, String, usize)>,
     image_classes: bool,
     notices: NoticeList,
 }
@@ -2603,10 +2603,8 @@ impl<'a> Editor<'a> {
         image: &str,
         input: &image::ImageInput,
     ) -> Result<(String, String), EditError> {
-        let unreadable =
-            || EditError::at(index, "unreadable", "図面の OBJECTS の節と名前つきオブジェクトの辞書が読めません");
-        let objects_end = self.sections.get("OBJECTS").and_then(|(_, end)| *end).ok_or_else(unreadable)?;
-        let (dictionary, dictionary_handle) = self.image_dictionary(index, objects_end)?;
+        let unreadable = || EditError::at(index, "unreadable", "図面にハンドルがありません");
+        let (dictionary, dictionary_handle, objects_end) = self.image_dictionary(index)?;
         let definition = self.next_handle(index)?.ok_or_else(unreadable)?;
         let reactor = self.next_handle(index)?.ok_or_else(unreadable)?;
         let dictionary_tags = match dictionary {
@@ -2636,49 +2634,75 @@ impl<'a> Editor<'a> {
         Ok((definition, reactor))
     }
 
-    /// ACAD_IMAGE_DICT。なければ作り、名前つきオブジェクトの辞書（OBJECTS の最初の DICTIONARY）に載せる
-    fn image_dictionary(&mut self, index: usize, objects_end: usize) -> Result<(ImageDictionary, String), EditError> {
+    /// ACAD_IMAGE_DICT と、OBJECTS の節の終わり（オブジェクトを足す位置）。ACAD_IMAGE_DICT がなければ作り、名前つき
+    /// オブジェクトの辞書（DXF Reference「OBJECTS Section」: OBJECTS の最初のオブジェクト）に載せる。名前つきオブジェクトの
+    /// 辞書・OBJECTS の節がない図面（手で書いた DXF など）には作る
+    fn image_dictionary(&mut self, index: usize) -> Result<(ImageDictionary, String, usize), EditError> {
         if let Some(found) = &self.image_dictionary {
             return Ok(found.clone());
         }
-        let unreadable = || EditError::at(index, "unreadable", "図面の名前つきオブジェクトの辞書が読めません");
-        let root = self.sections.get("OBJECTS").map(|(start, _)| start + 1).ok_or_else(unreadable)?;
-        if self.kind(root) != "DICTIONARY" {
-            return Err(unreadable());
-        }
-        let root_handle = self.record_handles.get(&root).cloned().ok_or_else(unreadable)?;
-        let tags = self.tags(root);
-        let existing = tags
-            .iter()
-            .position(|tag| tag.code == 3 && tag.text().eq_ignore_ascii_case(image::DICTIONARY))
-            .and_then(|at| tags.get(at + 1))
-            .filter(|tag| tag.code == 350 || tag.code == 360)
-            .map(|tag| upper(tag.text()))
-            .and_then(|handle| {
-                let record = self
-                    .record_handles
-                    .iter()
-                    .find(|(record, own)| **own == handle && self.kind(**record) == "DICTIONARY")
-                    .map(|(record, _)| *record)?;
-                Some((ImageDictionary::Record(record), handle))
-            });
-        let found = match existing {
+        let unreadable = || EditError::at(index, "unreadable", "図面の OBJECTS の節を足す位置が読めません");
+        let (first, objects_end) = match self.sections.get("OBJECTS").copied() {
+            Some((start, Some(end))) => (start + 1, end),
+            Some((_, None)) => return Err(unreadable()),
+            None => {
+                let eof =
+                    (1..self.records.len()).rev().find(|record| self.kind(*record) == "EOF").ok_or_else(unreadable)?;
+                self.insert(eof, Record::new("SECTION").tag(2, "OBJECTS").tags.clone());
+                self.closers.entry(eof).or_default().push(Record::new("ENDSEC").tags);
+                self.sections.insert("OBJECTS".into(), (eof, Some(eof)));
+                (eof, eof)
+            }
+        };
+        let root = (first < objects_end && self.kind(first) == "DICTIONARY")
+            .then(|| self.record_handles.get(&first).cloned().map(|handle| (first, handle)))
+            .flatten();
+        let existing = root.as_ref().and_then(|(root, _)| {
+            let tags = self.tags(*root);
+            let handle = tags
+                .iter()
+                .position(|tag| tag.code == 3 && tag.text().eq_ignore_ascii_case(image::DICTIONARY))
+                .and_then(|at| tags.get(at + 1))
+                .filter(|tag| tag.code == 350 || tag.code == 360)
+                .map(|tag| upper(tag.text()))?;
+            let record = self
+                .record_handles
+                .iter()
+                .find(|(record, own)| **own == handle && self.kind(**record) == "DICTIONARY")
+                .map(|(record, _)| *record)?;
+            Some((ImageDictionary::Record(record), handle))
+        });
+        let (dictionary, handle) = match existing {
             Some(found) => found,
             None => {
                 let handle = self.next_handle(index)?.ok_or_else(unreadable)?;
+                let root_handle = match &root {
+                    Some((root, root_handle)) => {
+                        let tags = self.tags_mut(*root);
+                        let at = data_end(tags);
+                        tags.insert(at, Tag::new(3, image::DICTIONARY));
+                        tags.insert(at + 1, Tag::new(350, handle.clone()));
+                        root_handle.clone()
+                    }
+                    None => {
+                        // 名前つきオブジェクトの辞書（所有者なし）を OBJECTS の最初に足す
+                        let root_handle = self.next_handle(index)?.ok_or_else(unreadable)?;
+                        let mut record = Record::new("DICTIONARY");
+                        record.tag(5, root_handle.clone()).tag(330, "0").tag(100, "AcDbDictionary").int(281, 1);
+                        record.tag(3, image::DICTIONARY).tag(350, handle.clone());
+                        self.insert(first, record.tags);
+                        root_handle
+                    }
+                };
                 let mut record = Record::new("DICTIONARY");
                 record.tag(5, handle.clone()).tag(102, "{ACAD_REACTORS").tag(330, root_handle.clone());
                 record.tag(102, "}").tag(330, root_handle).tag(100, "AcDbDictionary").int(281, 1);
                 let position = self.insert(objects_end, record.tags);
-                let tags = self.tags_mut(root);
-                let at = data_end(tags);
-                tags.insert(at, Tag::new(3, image::DICTIONARY));
-                tags.insert(at + 1, Tag::new(350, handle.clone()));
                 (ImageDictionary::Added(objects_end, position), handle)
             }
         };
-        self.image_dictionary = Some(found.clone());
-        Ok(found)
+        self.image_dictionary = Some((dictionary, handle, objects_end));
+        Ok(self.image_dictionary.clone().expect("the dictionary"))
     }
 
     /// 画像のクラス（DXF Reference「CLASSES Section」）のうち図面にないものを足す。CLASSES の節がなければ、

@@ -292,7 +292,7 @@ What cannot be written as it was is reported in `notices`:
 
 | Code | What is written |
 | --- | --- |
-| `image` | IMAGE is left out: the model does not keep the image file (IMAGEDEF) |
+| `image` | IMAGE is left out: the writer does not write image definitions (IMAGEDEF) yet |
 | `helix` | HELIX is written as SPLINE, its curve, without the helix parameters |
 | `mpolygon` | MPOLYGON is written as HATCH |
 | `table` | ACAD_TABLE is written as the INSERT of its block (`*T…`) |
@@ -478,6 +478,16 @@ stay, and an edit without operations gives the same bytes.
   3 without) and, for the text, an MTEXT that the LEADER points to (340), DIMGAP × DIMSCALE beyond the last vertex,
   middle left when the last segment goes right and middle right when it goes left. No hook line is added. R12 has no
   LEADER (`unsupported-kind`). `created` gives the LEADER.
+- **Images** (R14 and later; R12 and R13 refuse them with `unsupported-kind`): `kind: "image"` with `path`, `pixels:
+  [width, height]`, `position` (the lower left corner), `width` in drawing units (by default one unit per pixel) and
+  `rotation` in degrees writes an IMAGE with square pixels (70 = 7, brightness 50, contrast 50, the whole image as a
+  rectangular clipping boundary), an IMAGEDEF that keeps `path` as given (zumen does not open the file; pixel size 1,
+  no resolution units) and an IMAGEDEF_REACTOR owned by the IMAGE. The IMAGEDEF goes into `ACAD_IMAGE_DICT` under the
+  file name without its extension (`site`, then `site-2` …), and the dictionary is created in the named objects
+  dictionary (the first object of OBJECTS) when the drawing has none. A drawing without a named objects dictionary or
+  without an OBJECTS section (hand-written DXF) gets them, with only `ACAD_IMAGE_DICT` in the dictionary. The IMAGE, IMAGEDEF and IMAGEDEF_REACTOR classes are added to CLASSES when
+  missing (the section is created after HEADER if the drawing has none). Every image gets its own IMAGEDEF, also for
+  a path used before. Reading keeps the IMAGEDEF's file name (`DxfImage::path`). `created` gives the IMAGE.
 - **Values the version cannot hold** are written as the nearest one and reported: `edit-nearest-color` (no true color
   before AutoCAD 2004), `edit-rounded-lineweight` (the line weights of the DXF Reference), `edit-no-lineweight` (no
   line weights before AutoCAD 2000).

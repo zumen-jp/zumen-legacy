@@ -323,7 +323,7 @@ impl Writer<'_> {
             self.notices.add(
                 NoticeLevel::Warning,
                 "image",
-                "画像（IMAGE）は、画像のファイルへの参照を読んでいないため省きました",
+                "画像（IMAGE）は、画像の定義（IMAGEDEF）をまだ書かないため省きました",
             );
             return None;
         }

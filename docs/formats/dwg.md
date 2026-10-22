@@ -502,7 +502,7 @@ The codes of the DXF writer, with the same messages, and two more:
 | `mpolygon` | An MPOLYGON | A HATCH |
 | `table` | An ACAD_TABLE | An INSERT of its block |
 | `attrib-alone` | An ATTRIB that no INSERT owns | A TEXT or MTEXT |
-| `image` | An IMAGE (the model does not keep the image file) | Nothing |
+| `image` | An IMAGE (the writer does not write image definitions yet) | Nothing |
 | `dimension-block` | A dimension without its block | Nothing |
 | `mleader-block` | A MULTILEADER whose block content is not defined | No content |
 | `multiline-attrib` | A multi-line attribute, which DWG before AutoCAD 2018 cannot hold (the embedded MTEXT is R2018) | A single-line attribute with the text on one line |
@@ -717,6 +717,11 @@ drawing with `write_dwg` (`$INSUNITS` and `$MEASUREMENT` from the units), which 
 - **Leaders**: `leader` writes the annotation MTEXT and a LEADER (20.4.47) that points to it, with the values of the
   DXF editor; R13 and R14 also get DIMGAP × DIMSCALE and DIMASZ × DIMSCALE in the LEADER. Reading adds the hook vertex
   that AutoCAD writes to DXF (`entities.rs`, an inferred rule).
+- **Images** (R14 and later; R13 refuses them with `unsupported-kind`): `image` writes an IMAGE (20.4.80) with the
+  values of the DXF editor, an IMAGEDEF (20.4.82) with `path` and the pixel counts, owned by `ACAD_IMAGE_DICT`, and an
+  IMAGEDEF_REACTOR (20.4.83) owned by the IMAGE. `ACAD_IMAGE_DICT` is created in the named objects dictionary when
+  the drawing has none, and the IMAGE, IMAGEDEF and IMAGEDEF_REACTOR classes are added with the editor's class
+  numbers. Reading keeps the IMAGEDEF's file name (`DxfImage::path`).
 - **Values the version cannot hold** are written as the nearest one and reported: `edit-nearest-color` (no true color
   before AutoCAD 2004) and `edit-rounded-lineweight` (the line weights of DWG). R13 and R14 have no line weights and
   plot every layer, so a line weight other than BYLAYER (entities) or the default (layers) and `plot: false` are not

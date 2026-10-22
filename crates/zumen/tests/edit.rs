@@ -392,3 +392,47 @@ fn creates_drawings_with_styles_dimensions_and_hatches() {
         assert!(scene.entities.iter().all(|entity| !entity.primitives.is_empty()), "{format}");
     }
 }
+
+/// 画像を足す（docs/decisions/0017）。R14 以降の DXF・DWG のすべての fixtures で、足した画像が描け、ほかの図形の数は
+/// 変わらない。それより前の版と SXF・JWW は受け付けない
+#[test]
+fn adds_images_to_every_dxf_and_dwg_from_r14_on() {
+    let operations = parse_operations(
+        r#"[{"op": "add", "kind": "image", "path": "地図/案内図.png", "pixels": [640, 480], "position": [0, 0], "width": 6400}]"#,
+    )
+    .unwrap();
+    let options = ReadDrawingOptions::default();
+    let mut problems = Vec::new();
+    for (folder, extension) in [("dxf", "dxf"), ("dwg", "dwg")] {
+        for file in drawings(&fixtures().join(folder), &[extension]) {
+            let name = file.file_name().unwrap().to_string_lossy().to_string();
+            let bytes = fs::read(&file).unwrap();
+            let edited = match zumen::edit(&bytes, &operations, &options) {
+                Ok(edited) => edited,
+                Err(error) if error.code == "unsupported-kind" => continue,
+                // R12 以前の DWG はまだ編集できない
+                Err(error) if error.code == "unreadable" && folder == "dwg" => continue,
+                Err(error) => {
+                    problems.push(format!("{name}: {error}"));
+                    continue;
+                }
+            };
+            let (before, after) = (read(&bytes), read(&edited.bytes));
+            if !after.entities.iter().any(|entity| entity.id == edited.created[0] && entity.kind.name() == "image") {
+                problems.push(format!("{name}: the image is not drawn"));
+            }
+            if after.entities.len() != before.entities.len() + 1 {
+                problems.push(format!(
+                    "{name}: {} entities before, {} after",
+                    before.entities.len(),
+                    after.entities.len()
+                ));
+            }
+        }
+    }
+    assert!(problems.is_empty(), "{problems:#?}");
+    for format in ["jww", "sfc"] {
+        let error = zumen::create(format, "mm", &operations).unwrap_err();
+        assert_eq!((error.code, error.operation), ("unsupported-kind", Some(0)), "{format}");
+    }
+}
