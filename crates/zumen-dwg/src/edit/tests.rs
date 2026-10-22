@@ -904,3 +904,48 @@ fn adds_leaders_in_every_version() {
         );
     }
 }
+
+/// 画像と、その定義・辞書・クラスを足す（docs/decisions/0017）
+#[test]
+fn adds_images_from_r14_on() {
+    let operations = r#"[
+        {"op": "add", "kind": "image", "path": "maps/site.png", "pixels": [200, 100], "position": [10, 20], "width": 50},
+        {"op": "add", "kind": "image", "path": "maps/site.png", "pixels": [20, 10], "position": [0, 0], "rotation": 30}
+    ]"#;
+    let mut versions: Vec<(String, Vec<u8>)> =
+        crate::DwgVersion::ALL.iter().map(|version| (version.name().to_string(), written_as(*version))).collect();
+    versions.push(("new".into(), new_dwg("mm").unwrap()));
+    for (name, bytes) in versions {
+        let result = edit(&bytes, operations);
+        if name == "R13" {
+            assert_eq!(result.unwrap_err().code, "unsupported-kind", "{name}");
+            continue;
+        }
+        let edited = result.unwrap_or_else(|error| panic!("{name}: {error}"));
+        check_structure(&name, &edited.bytes);
+        // 辞書とクラスがある図面にもう 1 つ足す
+        let edited = edit(&edited.bytes, operations).unwrap_or_else(|error| panic!("{name}: {error}"));
+        check_structure(&name, &edited.bytes);
+        let doc = crate::read_dwg(&edited.bytes).unwrap_or_else(|error| panic!("{name}: {error}"));
+        let images: Vec<_> = doc
+            .entities
+            .iter()
+            .filter_map(|entity| match &entity.data {
+                DxfEntityData::Image(image) if entity.base.kind == "IMAGE" => Some(image.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(images.len(), 4, "{name}");
+        assert!(images.iter().all(|image| image.path.as_deref() == Some("maps/site.png")), "{name}: {images:?}");
+        let DxfEntityData::Image(first) = &entity(&doc, &edited.created[0]).unwrap().data else { panic!("{name}") };
+        assert_eq!(
+            (first.image_size, first.u_pixel, first.insert),
+            ([200.0, 100.0], [0.25, 0.0, 0.0], [10.0, 20.0, 0.0])
+        );
+        let scene = zumen_dxf::dxf_to_scene(&doc, None);
+        assert!(
+            scene.entities.iter().any(|entity| entity.id == edited.created[1] && entity.kind.name() == "image"),
+            "{name}"
+        );
+    }
+}

@@ -27,6 +27,10 @@ pub(crate) fn class_def(name: &str, number: u16, instances: i32) -> Option<Class
         "MLEADERSTYLE" => (4095, "ACDB_MLEADERSTYLE_CLASS", "AcDbMLeaderStyle", false, 33, 329),
         "MULTILEADER" => (1025, "ACDB_MLEADER_CLASS", "AcDbMLeader", true, 33, 329),
         "WIPEOUT" => (2175, "WipeOut", "AcDbWipeout", true, 33, 329),
+        // 画像（ezdxf の classes.py と同じ印）
+        "IMAGE" => (2175, "ISM", "AcDbRasterImage", true, 0, 0),
+        "IMAGEDEF" => (0, "ISM", "AcDbRasterImageDef", false, 0, 0),
+        "IMAGEDEF_REACTOR" => (1, "ISM", "AcDbRasterImageDefReactor", false, 0, 0),
         // R14 では LWPOLYLINE・HATCH はクラスの型（R2000 から決まった型 77・78）
         "LWPOLYLINE" => (0, ODBX, "AcDbPolyline", true, 0, 0),
         "HATCH" => (0, ODBX, "AcDbHatch", true, 0, 0),
