@@ -433,6 +433,8 @@ stay, and an edit without operations gives the same bytes.
   not draw (arrow blocks, tolerances, alternate units, suppressed extension lines) are reported (`edit-dimension-style`).
   Variables missing from a DIMSTYLE record take AutoCAD's defaults, as AutoCAD reads them; the `Standard` that zumen
   writes holds only DIMSCALE, DIMASZ and DIMTXT, so its values print with four decimals.
+  DIMTAD 2 places text away from the first definition point, and 4 below the dimension line; JIS placement (3) is
+  approximated above the line and reported (`edit-dimension-text-position`).
 - **Values the version cannot hold** are written as the nearest one and reported: `edit-nearest-color` (no true color
   before AutoCAD 2004), `edit-rounded-lineweight` (the line weights of the DXF Reference), `edit-no-lineweight` (no
   line weights before AutoCAD 2000).
