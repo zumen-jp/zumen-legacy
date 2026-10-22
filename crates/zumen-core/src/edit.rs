@@ -582,10 +582,13 @@ mod tests {
         assert!(
             matches!(&values["boundaries"], EditValue::Paths(paths) if paths.len() == 2 && paths[1][2] == [0.5, 0.5])
         );
-        let operations = parse_operations(r#"[{"op": "add", "kind": "block-reference", "attributes": {"TITLE": "平面図"}}]"#).unwrap();
+        let operations =
+            parse_operations(r#"[{"op": "add", "kind": "block-reference", "attributes": {"TITLE": "平面図"}}]"#)
+                .unwrap();
         let EditOperation::Add { values, .. } = &operations[0] else { panic!() };
         assert_eq!(ValueReader::new(values, 0).strings("attributes").unwrap().unwrap()["TITLE"], "平面図");
-        let error = parse_operations(r#"[{"op": "add", "kind": "block-reference", "attributes": {"N": 1}}]"#).unwrap_err();
+        let error =
+            parse_operations(r#"[{"op": "add", "kind": "block-reference", "attributes": {"N": 1}}]"#).unwrap_err();
         assert_eq!(error.code, "invalid-value");
         let error = parse_operations(r#"{"op": "delete"}"#).unwrap_err();
         assert_eq!((error.code, error.operation), ("invalid-operations", None));

@@ -779,26 +779,45 @@ fn adds_attribute_definitions_and_fills_them_in_references() {
         .attribs
         .iter()
         .map(|attrib| match &attrib.data {
-            DxfEntityData::Attrib { text, tag, .. } => (tag.clone(), text.text.clone(), text.align_point.unwrap_or(text.insert)),
+            DxfEntityData::Attrib { text, tag, .. } => {
+                (tag.clone(), text.text.clone(), text.align_point.unwrap_or(text.insert))
+            }
             other => panic!("{other:?}"),
         })
         .collect();
     assert_eq!(
         values,
-        [("DRAWING".to_string(), "1階平面図".to_string(), [420.0, 60.0, 0.0]), ("SCALE".into(), String::new(), [260.0, 20.0, 0.0])]
+        [
+            ("DRAWING".to_string(), "1階平面図".to_string(), [420.0, 60.0, 0.0]),
+            ("SCALE".into(), String::new(), [260.0, 20.0, 0.0])
+        ]
     );
     let door = insert(&edited.created[6]);
     assert_eq!(door.attribs.len(), 2, "the fixture's NO and the added WIDTH");
     // 参照を通して属性が描ける
     let scene = crate::dxf_to_scene(&doc, None);
-    let texts: Vec<&str> = scene.entities.iter().filter(|entity| entity.kind.name() == "attribute").filter_map(|entity| {
-        entity.properties.iter().find(|property| property.key == "text").map(|property| property.value.as_str())
-    }).collect();
+    let texts: Vec<&str> = scene
+        .entities
+        .iter()
+        .filter(|entity| entity.kind.name() == "attribute")
+        .filter_map(|entity| {
+            entity.properties.iter().find(|property| property.key == "text").map(|property| property.value.as_str())
+        })
+        .collect();
     assert!(texts.contains(&"1階平面図") && texts.contains(&"800"), "{texts:?}");
     for (operations, code) in [
-        (r#"[{"op": "add", "kind": "attribute-definition", "tag": "A", "position": [0, 0], "height": 1}]"#, "invalid-value"),
-        (r#"[{"op": "add", "kind": "attribute-definition", "container": "block:DOOR", "tag": "A B", "position": [0, 0], "height": 1}]"#, "invalid-value"),
-        (r#"[{"op": "add", "kind": "block-reference", "block": "DOOR", "position": [0, 0], "attributes": {"NONE": "x"}}]"#, "invalid-value"),
+        (
+            r#"[{"op": "add", "kind": "attribute-definition", "tag": "A", "position": [0, 0], "height": 1}]"#,
+            "invalid-value",
+        ),
+        (
+            r#"[{"op": "add", "kind": "attribute-definition", "container": "block:DOOR", "tag": "A B", "position": [0, 0], "height": 1}]"#,
+            "invalid-value",
+        ),
+        (
+            r#"[{"op": "add", "kind": "block-reference", "block": "DOOR", "position": [0, 0], "attributes": {"NONE": "x"}}]"#,
+            "invalid-value",
+        ),
     ] {
         assert_eq!(edit(&bytes, operations).unwrap_err().code, code, "{operations}");
     }

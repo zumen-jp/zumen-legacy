@@ -15,8 +15,8 @@
 mod build;
 
 use crate::bits::{HandleRef, Read};
-use crate::codec::entities::{Body, Entity, fixed_name};
 use crate::codec::entities::{Attribute, Dimension, DimensionKind as DwgDimensionKind, Text};
+use crate::codec::entities::{Body, Entity, fixed_name};
 use crate::codec::header::{HeaderVars, Value, read_header_vars, write_header_vars};
 use crate::codec::object::{EntityColor, EntityCommon, ObjectCommon, open_raw, writer};
 use crate::codec::objects::{Dictionary, Group, Layout, SortEntsTable};
@@ -1191,7 +1191,11 @@ impl Editor {
             };
             self.store_entity(handles[at], &entity);
         }
-        let end = Decoded { kind: kind::SEQEND, eed: Vec::new(), value: Entity { common: follower(None), body: Body::Empty } };
+        let end = Decoded {
+            kind: kind::SEQEND,
+            eed: Vec::new(),
+            value: Entity { common: follower(None), body: Body::Empty },
+        };
         self.store_entity(seqend, &end);
         insert.has_attributes = true;
         insert.seqend = Some(href(3, seqend));
@@ -1205,7 +1209,9 @@ impl Editor {
 
     /// ブロックの属性の定義（ATTDEF）の値と、その図形の値、ブロックの基点
     fn attribute_definitions(&self, block: u64) -> (Vec<Definition>, Vec<Attribute>, [f64; 3]) {
-        let Some(header) = self.read(block, |s, _| BlockHeader::read(s)) else { return (Vec::new(), Vec::new(), [0.0; 3]) };
+        let Some(header) = self.read(block, |s, _| BlockHeader::read(s)) else {
+            return (Vec::new(), Vec::new(), [0.0; 3]);
+        };
         let members: Vec<u64> = if self.version >= Version::R2004 {
             header.value.entities.iter().map(|entity| entity.resolve(block)).collect()
         } else {

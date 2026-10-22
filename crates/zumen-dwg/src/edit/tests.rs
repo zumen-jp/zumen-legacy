@@ -826,11 +826,17 @@ fn adds_attributes_in_every_version() {
             .collect();
         assert_eq!(values, [("DRAWING".into(), "1階平面図".into()), ("SCALE".into(), "1:100".into())], "{name}");
         let DxfEntityData::Attrib { text, .. } = &insert.attribs[0].data else { panic!() };
-        assert_eq!((text.align_point.map(|point| [point[0], point[1]]), text.height), (Some([420.0, 60.0]), 10.0), "{name}");
+        assert_eq!(
+            (text.align_point.map(|point| [point[0], point[1]]), text.height),
+            (Some([420.0, 60.0]), 10.0),
+            "{name}"
+        );
         let scene = zumen_dxf::dxf_to_scene(&doc, None);
         let reference = &edited.created[4];
-        let attributes =
-            scene.entities.iter().filter(|entity| entity.id.starts_with(&format!("{reference}>")) && entity.kind.name() == "attribute");
+        let attributes = scene
+            .entities
+            .iter()
+            .filter(|entity| entity.id.starts_with(&format!("{reference}>")) && entity.kind.name() == "attribute");
         assert_eq!(attributes.count(), 2, "{name}");
     }
 }

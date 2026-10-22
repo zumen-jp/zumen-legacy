@@ -1287,7 +1287,8 @@ impl<'a> Editor<'a> {
                 if !placed.is_empty() {
                     // ATTRIB と SEQEND の所有者は INSERT（DXF Reference「ATTRIB」）
                     let owned = Place { before: place.before, owner: handle, paper: place.paper, block: place.block };
-                    let follower = Common { layer: common.layer.clone(), color: None, line_type: None, line_width: None };
+                    let follower =
+                        Common { layer: common.layer.clone(), color: None, line_type: None, line_width: None };
                     for attribute in &placed {
                         let (mut record, _) = self.entity_record(index, "ATTRIB", &owned, &follower)?;
                         self.attribute_tags(&mut record, attribute);
