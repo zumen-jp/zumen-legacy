@@ -423,7 +423,11 @@ pub(crate) fn polygon_label(
     if let Some(format) = format {
         let value = format_number(area.abs() / 1_000_000.0, spec.area_precision.unwrap_or(2), true);
         let content = if format.contains("{}") { format.replace("{}", &value) } else { format!("{format}{value}") };
-        label(drafter, ctx, &text_look, centroid, &content, height, MIDDLE_CENTER, 0.0, path);
+        let at = match spec.area_at {
+            Some(at) => point(at, path)?,
+            None => centroid,
+        };
+        label(drafter, ctx, &text_look, at, &content, height, MIDDLE_CENTER, 0.0, path);
     }
     Ok(())
 }

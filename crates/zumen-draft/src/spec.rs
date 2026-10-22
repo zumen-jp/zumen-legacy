@@ -706,6 +706,9 @@ pub struct PolygonLabelSpec {
     pub area: Option<Value>,
     #[serde(default)]
     pub area_precision: Option<u32>,
+    /// 面積の文字の位置。省略すると多角形の重心
+    #[serde(default)]
+    pub area_at: Option<Point>,
     /// 境界の線も描く
     #[serde(default)]
     pub outline: bool,
