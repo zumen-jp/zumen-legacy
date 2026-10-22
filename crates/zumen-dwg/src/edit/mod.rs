@@ -15,7 +15,7 @@
 mod build;
 
 use crate::bits::{HandleRef, Read};
-use crate::codec::entities::{Attribute, Dimension, DimensionKind as DwgDimensionKind, Text};
+use crate::codec::entities::{Attribute, Dimension, DimensionKind as DwgDimensionKind, Leader, LeaderR14, Text};
 use crate::codec::entities::{Body, Entity, fixed_name};
 use crate::codec::header::{HeaderVars, Value, read_header_vars, write_header_vars};
 use crate::codec::object::{EntityColor, EntityCommon, ObjectCommon, open_raw, writer};
@@ -41,7 +41,7 @@ use zumen_dxf::attributes::{self, Definition, Placed};
 use zumen_dxf::dimension::{self, DimStyleValues, DimensionKind, Part, Role};
 
 /// 足せる図形の種類（DXF の編集と同じ）
-const ADDABLE: [&str; 13] = [
+const ADDABLE: [&str; 14] = [
     "line",
     "polyline",
     "arc",
@@ -55,6 +55,7 @@ const ADDABLE: [&str; 13] = [
     "hatch",
     "attribute-definition",
     "viewport",
+    "leader",
 ];
 
 /// 図形・レイヤに共通する値のキー
@@ -107,6 +108,7 @@ mod kind {
     pub const HATCH: u16 = 78;
     pub const SEQEND: u16 = 6;
     pub const VIEWPORT: u16 = 34;
+    pub const LEADER: u16 = 45;
 }
 
 /// DWG を編集する。すべての操作を確かめてから書き、1 つでも通らなければエラーを返して何も書かない
@@ -1070,6 +1072,66 @@ impl Editor {
                     _ => kind::HATCH,
                 };
                 (type_number, build::hatch(&input, self.raw_text(&input.pattern)))
+            }
+            "leader" => {
+                reader.allow(&keys(&zumen_dxf::leader::KEYS), "引出線")?;
+                let (vertices, height) = zumen_dxf::leader::read(&reader)?;
+                let text = reader.text("text")?.unwrap_or("");
+                let text_style = self.text_style(index, reader.name("textStyle")?)?;
+                let (style_handle, style, dimension_text_style) =
+                    self.dimension_style(index, reader.name("dimensionStyle")?)?;
+                let annotation = zumen_dxf::leader::annotation(&vertices, height, &style);
+                // 注釈の MTEXT を先に足し、LEADER（20.4.47）が指す
+                let mut annotation_handle = 0;
+                if !text.is_empty() {
+                    let content = self.raw_text(&mtext_content(text));
+                    let text_style = text_style.unwrap_or(dimension_text_style);
+                    let attachment = annotation.attachment as i16;
+                    let body = build::mtext(
+                        self.version,
+                        annotation.position,
+                        content,
+                        annotation.height,
+                        0.0,
+                        None,
+                        text_style,
+                        attachment,
+                    );
+                    let mut common = self.new_common(index, place, &reader)?;
+                    annotation_handle = self.next_handle(index)?;
+                    self.append(index, place, annotation_handle, &mut common)?;
+                    let entity = Decoded { kind: kind::MTEXT, eed: Vec::new(), value: Entity { common, body } };
+                    self.store_entity(annotation_handle, &entity);
+                }
+                let factor = if style.scale > 0.0 { style.scale } else { 1.0 };
+                let body = Leader {
+                    unknown_bit: false,
+                    annotation_type: if text.is_empty() { 3 } else { 0 },
+                    path_type: 0,
+                    points: vertices.clone(),
+                    origin: vertices[0],
+                    extrusion: [0.0, 0.0, 1.0],
+                    x_direction: [1.0, 0.0, 0.0],
+                    block_offset: [0.0; 3],
+                    end_projection: [0.0; 3],
+                    box_size: None,
+                    hook_on_x: false,
+                    arrowhead: true,
+                    unknown_short: 0,
+                    unknown_bits: [false, false],
+                    // R13・R14 は作ったときの DIMGAP・DIMASZ に DIMSCALE を掛けた値を持つ（モデルの書き出しと同じ）
+                    r14: (self.version < Version::R2000).then(|| LeaderR14 {
+                        dimgap: style.gap * factor,
+                        arrowhead_type: 0,
+                        dimasz: style.arrow_size * factor,
+                        unknown: (false, true, 256),
+                        byblock_color: 256,
+                        unknown_bits: [false, false],
+                    }),
+                    annotation: href(5, annotation_handle),
+                    dimstyle: href(5, style_handle),
+                };
+                (kind::LEADER, Body::Leader(body))
             }
             "viewport" => {
                 reader.allow(&keys(&["center", "width", "height", "viewCenter", "scale"]), "ビューポート")?;

@@ -8,6 +8,7 @@
 pub mod attributes;
 pub mod dimension;
 pub mod hatch;
+pub mod leader;
 pub mod placement;
 mod raw;
 
@@ -27,7 +28,7 @@ const LINEWEIGHTS: [i64; 24] =
     [0, 5, 9, 13, 15, 18, 20, 25, 30, 35, 40, 50, 53, 60, 70, 80, 90, 100, 106, 120, 140, 158, 200, 211];
 
 /// 足せる図形の種類（DXF）
-const ADDABLE: [&str; 13] = [
+const ADDABLE: [&str; 14] = [
     "line",
     "polyline",
     "arc",
@@ -41,6 +42,7 @@ const ADDABLE: [&str; 13] = [
     "hatch",
     "attribute-definition",
     "viewport",
+    "leader",
 ];
 
 /// 図形・レイヤに共通する値のキー
@@ -1296,6 +1298,44 @@ impl<'a> Editor<'a> {
                 let block = container.and_then(|name| name.trim().strip_prefix("block:")).unwrap_or_default();
                 self.mark_attributes(block);
                 vec![record.tags]
+            }
+            "leader" => {
+                if !r13 {
+                    return Err(EditError::at(index, "unsupported-kind", "R12 の DXF には引出線（LEADER）がありません"));
+                }
+                reader.allow(&keys(&leader::KEYS), "引出線")?;
+                let (vertices, height) = leader::read(&reader)?;
+                let text = reader.text("text")?.unwrap_or("");
+                let text_style = self.text_style(index, reader.name("textStyle")?)?;
+                let (style_name, style, dimension_text_style) =
+                    self.dimension_style(index, reader.name("dimensionStyle")?)?;
+                let common = self.common(index, &reader, true)?;
+                let annotation = leader::annotation(&vertices, height, &style);
+                // LEADER（DXF Reference「LEADER」）。注釈の MTEXT は LEADER の後に書き、340 で指す
+                let (mut record, _) = self.entity_record(index, "LEADER", &place, &common)?;
+                self.subclass(&mut record, "AcDbLeader");
+                record.tag(3, style_name).int(71, 1).int(72, 0).int(73, if text.is_empty() { 3 } else { 0 });
+                record.int(74, 0).int(75, 0).real(40, annotation.height).real(41, 0.0);
+                record.int(76, vertices.len() as i64);
+                for vertex in &vertices {
+                    record.point(10, *vertex, true);
+                }
+                let mut records = vec![record];
+                if !text.is_empty() {
+                    let (mut mtext, handle) = self.entity_record(index, "MTEXT", &place, &common)?;
+                    self.subclass(&mut mtext, "AcDbMText");
+                    mtext.point(10, annotation.position, true).real(40, annotation.height).real(41, 0.0);
+                    mtext.int(71, annotation.attachment).int(72, 1).tag(1, mtext_content(text));
+                    if let Some(style) = text_style.or(dimension_text_style) {
+                        mtext.tag(7, style);
+                    }
+                    if let Some(handle) = handle {
+                        records[0].tag(340, handle);
+                    }
+                    records.push(mtext);
+                }
+                records[0].point(210, [0.0, 0.0, 1.0], true).point(211, [1.0, 0.0, 0.0], true);
+                records.into_iter().map(|record| record.tags).collect()
             }
             "viewport" => {
                 reader.allow(&keys(&["center", "width", "height", "viewCenter", "scale"]), "ビューポート")?;

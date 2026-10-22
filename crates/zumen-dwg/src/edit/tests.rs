@@ -874,3 +874,30 @@ fn adds_layouts_with_viewports_from_r2000_on() {
         assert_eq!(again.unwrap_err().code, "already-exists", "{name}");
     }
 }
+
+/// 引出線と注釈の文字を足す（docs/decisions/0017）
+#[test]
+fn adds_leaders_in_every_version() {
+    let operations = r#"[
+        {"op": "add", "kind": "leader", "vertices": [[0, 0], [10, 10], [30, 10]], "text": "注記", "height": 2.5}
+    ]"#;
+    let mut versions: Vec<(String, Vec<u8>)> =
+        crate::DwgVersion::ALL.iter().map(|version| (version.name().to_string(), written_as(*version))).collect();
+    versions.push(("new".into(), new_dwg("mm").unwrap()));
+    for (name, bytes) in versions {
+        let edited = edit(&bytes, operations).unwrap_or_else(|error| panic!("{name}: {error}"));
+        check_structure(&name, &edited.bytes);
+        let doc = crate::read_dwg(&edited.bytes).unwrap_or_else(|error| panic!("{name}: {error}"));
+        let DxfEntityData::Leader(leader) = &entity(&doc, &edited.created[0]).unwrap().data else { panic!("{name}") };
+        // 注釈のある引出線のフックは、DWG の読み取りが頂点を足す（entities.rs）
+        assert!(leader.has_arrowhead && leader.points.len() >= 3, "{name}: {leader:?}");
+        let note = doc.entities.iter().find_map(|entity| match &entity.data {
+            DxfEntityData::MText(text) if text.raw_text == "注記" => Some(text.clone()),
+            _ => None,
+        });
+        let note = note.unwrap_or_else(|| panic!("{name}: no note"));
+        assert_eq!((note.attachment_point, note.char_height), (4.0, 2.5), "{name}");
+        let scene = zumen_dxf::dxf_to_scene(&doc, None);
+        assert!(scene.entities.iter().any(|entity| entity.id == edited.created[0] && entity.kind.name() == "leader"), "{name}");
+    }
+}

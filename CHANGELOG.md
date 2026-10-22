@@ -21,6 +21,8 @@ All packages share one version during 0.x.
   `attributes: {"TAG": "value"}` on `block-reference`, which writes the ATTRIBs, for title blocks.
 - Rust, Python and the command line: sheets in DXF and DWG (AutoCAD 2000 and later): `add-layout` with a paper size
   and `kind: "viewport"` in it, showing model space at a scale such as 1:100.
+- Rust, Python and the command line: `kind: "leader"` in DXF and DWG, a LEADER with an MTEXT note sized from the
+  dimension style.
 
 ## 0.1.1 — 2026-10-21
 
