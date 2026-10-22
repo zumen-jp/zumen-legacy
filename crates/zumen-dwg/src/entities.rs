@@ -1404,8 +1404,19 @@ fn image(s: &mut Streams<'_>) -> Read<DxfImage> {
         }
         _ => {}
     }
+    let definition = s.handle()?.value;
     let or_one = |value: f64| if value == 0.0 || value.is_nan() { 1.0 } else { value };
-    Ok(DxfImage { insert, u_pixel, v_pixel, image_size: [or_one(size[0]), or_one(size[1])], boundary, flags, clipping })
+    Ok(DxfImage {
+        insert,
+        u_pixel,
+        v_pixel,
+        image_size: [or_one(size[0]), or_one(size[1])],
+        boundary,
+        flags,
+        clipping,
+        definition_handle: (definition != 0).then(|| format!("{definition:X}")),
+        path: None,
+    })
 }
 
 /// MLINE（20.4.50）。頂点ごと・要素ごとの線と塗りのパラメータ（DXF の 41・42）も持つ

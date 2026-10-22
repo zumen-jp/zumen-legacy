@@ -904,3 +904,51 @@ fn adds_leaders_with_their_notes() {
     let error = edit(r12.as_bytes(), r#"[{"op": "add", "kind": "leader", "vertices": [[0, 0], [1, 1]]}]"#);
     assert_eq!(error.unwrap_err().code, "unsupported-kind");
 }
+
+/// 画像と、その定義・辞書・クラスを足す（docs/decisions/0017）
+#[test]
+fn adds_images_with_their_definitions() {
+    let operations = r#"[
+        {"op": "add", "kind": "image", "path": "maps/site.png", "pixels": [200, 100], "position": [10, 20],
+         "width": 50, "rotation": 90}
+    ]"#;
+    let source = parse_dxf(&drawing(""));
+    let mut versions: Vec<(String, Vec<u8>)> = crate::write::DxfVersion::ALL
+        .iter()
+        .map(|version| (format!("{version:?}"), crate::write_dxf_as(&source, *version).bytes))
+        .collect();
+    // R14（AC1014）は R2000 の書き出しの版を変えて作る
+    let r2000 = text(&versions.iter().find(|(name, _)| name == "R2000").unwrap().1);
+    versions.push(("R14".into(), r2000.replacen("AC1015", "AC1014", 1).into_bytes()));
+    for (name, bytes) in versions {
+        let result = edit(&bytes, operations);
+        if name == "R12" {
+            assert_eq!(result.unwrap_err().code, "unsupported-kind");
+            continue;
+        }
+        let edited = result.unwrap_or_else(|error| panic!("{name}: {error}"));
+        // 同じ図面にもう 1 つ足すと、辞書とクラスを使い回し、項目の名前を変える
+        let edited = edit(&edited.bytes, operations).unwrap_or_else(|error| panic!("{name}: {error}"));
+        let doc = parse_dxf(&edited.bytes);
+        let image = doc.entities.iter().find(|entity| entity.base.handle == edited.created[0]).unwrap();
+        let DxfEntityData::Image(image) = &image.data else { panic!("{name}: {image:?}") };
+        assert_eq!(image.path.as_deref(), Some("maps/site.png"), "{name}");
+        assert_eq!(image.image_size, [200.0, 100.0], "{name}");
+        assert!((image.u_pixel[1] - 0.25).abs() < 1e-12 && image.u_pixel[0].abs() < 1e-12, "{name}: {image:?}");
+        assert!((image.v_pixel[0] + 0.25).abs() < 1e-12, "{name}: {image:?}");
+        let all = tags(&edited.bytes);
+        let count = |code: i32, value: &str| all.iter().filter(|tag| tag.0 == code && tag.1 == value).count();
+        assert_eq!(count(1, "IMAGEDEF_REACTOR"), 1, "{name}: one class");
+        assert_eq!(count(0, "IMAGEDEF_REACTOR"), 2, "{name}");
+        assert_eq!(count(3, "ACAD_IMAGE_DICT"), 1, "{name}: one dictionary");
+        assert_eq!((count(3, "site"), count(3, "site-2")), (1, 1), "{name}");
+        let scene = crate::dxf_to_scene(&doc, None);
+        let drawn = scene.entities.iter().find(|entity| entity.id == edited.created[0]).unwrap();
+        assert_eq!(drawn.kind.name(), "image", "{name}");
+    }
+    let error = edit(
+        &drawing(""),
+        r#"[{"op": "add", "kind": "image", "path": "a.png", "pixels": [0, 1], "position": [0, 0]}]"#,
+    );
+    assert_eq!(error.unwrap_err().code, "invalid-value");
+}
