@@ -1005,7 +1005,8 @@ impl Editor {
                 if text.contains('\n') || wrap.is_some() || placement.multiline {
                     let content = self.raw_text(&mtext_content(text));
                     let attachment = placement.attachment as i16;
-                    let mut body = build::mtext(self.version, position, content, height, rotation, wrap, style, attachment);
+                    let mut body =
+                        build::mtext(self.version, position, content, height, rotation, wrap, style, attachment);
                     if let (Body::MText(mtext), Some(factor)) = (&mut body, placement.line_spacing) {
                         mtext.line_spacing_factor = factor;
                         // MTEXT の行間は R2000 から（20.4.46）

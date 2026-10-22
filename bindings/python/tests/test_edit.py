@@ -142,7 +142,14 @@ def test_edited_dxf_passes_the_audit_of_ezdxf(tmp_path):
                 "dimensionStyle": "CHECK-DIM",
             },
             {"op": "add", "kind": "hatch", "pattern": "ANSI31", "boundaries": [[[0, 0], [9, 0], [9, 9], [0, 9]]]},
-            {"op": "add", "kind": "text", "position": [5, 5], "text": "中", "height": 2, "justification": "middle-center"},
+            {
+                "op": "add",
+                "kind": "text",
+                "position": [5, 5],
+                "text": "中",
+                "height": 2,
+                "justification": "middle-center",
+            },
         ]
         edited = zumen.edit(data, operations)
         path = tmp_path / f"{name}.edited.dxf"

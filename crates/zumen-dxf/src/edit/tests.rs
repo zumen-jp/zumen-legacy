@@ -727,7 +727,8 @@ fn places_text_by_justification_and_line_spacing() {
     )
     .unwrap();
     let doc = parse_dxf(&edited.bytes);
-    let get = |index: usize| &doc.entities.iter().find(|entity| entity.base.handle == edited.created[index]).unwrap().data;
+    let get =
+        |index: usize| &doc.entities.iter().find(|entity| entity.base.handle == edited.created[index]).unwrap().data;
     let DxfEntityData::Text(middle) = get(0) else { panic!() };
     assert_eq!((middle.halign, middle.valign, middle.align_point), (1.0, 2.0, Some([100.0, 50.0, 0.0])));
     let DxfEntityData::Text(right) = get(1) else { panic!() };
@@ -743,6 +744,9 @@ fn places_text_by_justification_and_line_spacing() {
     // 右に合わせた文字は、同じ位置合わせの点で終わる
     let right = scene.entities.iter().find(|entity| entity.id == edited.created[1]).unwrap();
     assert!((right.bbox.max_x - center).abs() < 0.5, "{} {center}", right.bbox.max_x);
-    let error = edit(&bytes, r#"[{"op": "add", "kind": "text", "position": [0, 0], "text": "x", "height": 1, "justification": "upper"}]"#);
+    let error = edit(
+        &bytes,
+        r#"[{"op": "add", "kind": "text", "position": [0, 0], "text": "x", "height": 1, "justification": "upper"}]"#,
+    );
     assert_eq!(error.unwrap_err().code, "invalid-value");
 }
