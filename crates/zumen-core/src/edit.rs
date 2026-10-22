@@ -258,7 +258,9 @@ fn operation(index: usize, item: &Json) -> Result<EditOperation, EditError> {
             return Err(EditError::at(
                 index,
                 "invalid-operations",
-                format!("op の {other} はありません（add・update・delete・add-layer・update-layer・add-block・add-text-style・add-dimension-style・add-line-type）"),
+                format!(
+                    "op の {other} はありません（add・update・delete・add-layer・update-layer・add-block・add-text-style・add-dimension-style・add-line-type）"
+                ),
             ));
         }
     })
@@ -515,7 +517,10 @@ mod tests {
         assert_eq!(name, "DOOR");
         assert_eq!(ValueReader::new(values, 6).point("basePoint").unwrap(), Some([10.0, 0.0, 0.0]));
         let EditOperation::AddStyle { kind, name, values } = &operations[7] else { panic!() };
-        assert_eq!((*kind, name.as_str(), operations[7].name()), (StyleKind::Dimension, "DIM-100", "add-dimension-style"));
+        assert_eq!(
+            (*kind, name.as_str(), operations[7].name()),
+            (StyleKind::Dimension, "DIM-100", "add-dimension-style")
+        );
         assert_eq!(ValueReader::new(values, 7).bool("textAbove").unwrap(), Some(true));
     }
 

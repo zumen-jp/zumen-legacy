@@ -340,7 +340,9 @@ pub fn font_file(font: &str) -> (String, Option<String>) {
     }
     // Windows の日本語の書体のファイル
     let file = match lower.as_str() {
-        "ms gothic" | "ms pgothic" | "ms ui gothic" | "ｍｓ ゴシック" | "ｍｓ ｐゴシック" => "msgothic.ttc",
+        "ms gothic" | "ms pgothic" | "ms ui gothic" | "ｍｓ ゴシック" | "ｍｓ ｐゴシック" => {
+            "msgothic.ttc"
+        }
         "ms mincho" | "ms pmincho" | "ｍｓ 明朝" | "ｍｓ ｐ明朝" => "msmincho.ttc",
         "meiryo" | "meiryo ui" | "メイリオ" => "meiryo.ttc",
         "yu gothic" | "游ゴシック" => "YuGothM.ttc",
@@ -2115,7 +2117,9 @@ impl<'a> Editor<'a> {
             None => Vec::new(),
             Some(EditValue::Numbers(values)) if values.len() <= 12 => values.clone(),
             Some(EditValue::Number(value)) => vec![*value],
-            Some(_) => return Err(EditError::at(index, "invalid-value", "pattern は 12 個までの数の配列にしてください")),
+            Some(_) => {
+                return Err(EditError::at(index, "invalid-value", "pattern は 12 個までの数の配列にしてください"));
+            }
         };
         let mut record = self.table_record(index, "LTYPE", "AcDbLinetypeTableRecord", name)?;
         record.int(70, 0).tag(3, description).int(72, 65).int(73, pattern.len() as i64);
@@ -2149,7 +2153,11 @@ impl<'a> Editor<'a> {
                         .find(|(_, name)| upper(name) == upper(&wanted))
                         .map(|(handle, _)| handle.clone())
                         .ok_or_else(|| {
-                            EditError::at(index, "missing-definition", format!("文字スタイル {style} のハンドルがありません"))
+                            EditError::at(
+                                index,
+                                "missing-definition",
+                                format!("文字スタイル {style} のハンドルがありません"),
+                            )
                         })?,
                 )
             }

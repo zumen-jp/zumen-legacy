@@ -433,6 +433,16 @@ stay, and an edit without operations gives the same bytes.
   not draw (arrow blocks, tolerances, alternate units, suppressed extension lines) are reported (`edit-dimension-style`).
   Variables missing from a DIMSTYLE record take AutoCAD's defaults, as AutoCAD reads them; the `Standard` that zumen
   writes holds only DIMSCALE, DIMASZ and DIMTXT, so its values print with four decimals.
+- **Styles**: `add-text-style` (`font`, `bigFont`, `height`, `widthFactor`, `oblique` in degrees), `add-line-type`
+  (`description`, `pattern`: up to 12 dashes (positive), gaps (negative) and dots (0) in drawing units) and
+  `add-dimension-style` (`from`, by default `Standard`, whose record is copied; `scale` DIMSCALE, `textHeight` DIMTXT,
+  `arrowSize` DIMASZ, `extensionOffset` DIMEXO, `extensionExtension` DIMEXE, `textGap` DIMGAP, `textAbove` DIMTAD,
+  `decimals` DIMDEC (not in R12, `edit-no-dimdec`), `suppressTrailingZeros` DIMZIN 8, `tickSize` DIMTSZ,
+  `linearFactor` DIMLFAC, `textStyle` DIMTXSTY) add a record at the end of their table, whose count (70) follows.
+  Later operations of the same edit can name them. A `font` with an extension (`.shx`, `.ttf`, `.ttc`, …) is the font
+  file; a name without one is a TrueType family, written as extended data (`ACAD` 1000) with its Windows file
+  (`MS Gothic` → `msgothic.ttc`, `MS Mincho` → `msmincho.ttc`, Meiryo, Yu Gothic, Yu Mincho; others `<family>.ttf`).
+  R12, or a drawing without the `ACAD` APPID, gets the file only (`edit-font-family`).
 - **Values the version cannot hold** are written as the nearest one and reported: `edit-nearest-color` (no true color
   before AutoCAD 2004), `edit-rounded-lineweight` (the line weights of the DXF Reference), `edit-no-lineweight` (no
   line weights before AutoCAD 2000).

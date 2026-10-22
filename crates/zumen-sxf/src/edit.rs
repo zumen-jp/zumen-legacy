@@ -78,7 +78,11 @@ pub fn edit_sxf(bytes: &[u8], format: &str, operations: &[EditOperation]) -> Res
                 return Err(EditError::at(index, "unsupported-kind", "SXF の編集ではブロックの定義をまだ足せません"));
             }
             EditOperation::AddStyle { kind, .. } => {
-                return Err(EditError::at(index, "unsupported-kind", format!("SXF の編集では {} をまだ使えません", kind.op())));
+                return Err(EditError::at(
+                    index,
+                    "unsupported-kind",
+                    format!("SXF の編集では {} をまだ使えません", kind.op()),
+                ));
             }
         }
     }

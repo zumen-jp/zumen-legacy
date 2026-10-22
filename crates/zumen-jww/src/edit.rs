@@ -64,7 +64,11 @@ pub fn edit_jww(bytes: &[u8], operations: &[EditOperation]) -> Result<Edited, Ed
                 return Err(EditError::at(index, "unsupported-kind", "JWW の編集ではブロックの定義をまだ足せません"));
             }
             EditOperation::AddStyle { kind, .. } => {
-                return Err(EditError::at(index, "unsupported-kind", format!("JWW の編集では {} をまだ使えません", kind.op())));
+                return Err(EditError::at(
+                    index,
+                    "unsupported-kind",
+                    format!("JWW の編集では {} をまだ使えません", kind.op()),
+                ));
             }
         }
     }

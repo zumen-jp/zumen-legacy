@@ -10,6 +10,8 @@ All packages share one version during 0.x.
   (`unsupported-kind`). First step of [decision 0017](docs/decisions/0017-add-annotations-and-definitions.md).
 - Rust, Python and the command line: `add` takes `kind: "dimension"` (linear and aligned) for DXF and DWG, written as
   a DIMENSION with its `*D` block computed from the dimension style, so that zumen and other readers draw it.
+- Rust, Python and the command line: `add-text-style`, `add-line-type` and `add-dimension-style` for DXF and DWG, so
+  that a new drawing gets a Japanese text style and dimensions sized for its units and scale.
 
 ## 0.1.1 — 2026-10-21
 

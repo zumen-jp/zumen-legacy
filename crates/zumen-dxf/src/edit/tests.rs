@@ -616,9 +616,15 @@ fn adds_text_and_dimension_styles_and_line_types_that_later_operations_use() {
     assert_eq!(&edited.created[..4], ["JP", "ROMANS", "DASH2", "DIM-100"]);
     let doc = parse_dxf(&edited.bytes);
     let style = doc.styles.iter().find(|style| style.name == "JP").unwrap();
-    assert_eq!((style.font.as_str(), style.font_family.as_deref(), style.width), ("msgothic.ttc", Some("MS Gothic"), 0.8));
+    assert_eq!(
+        (style.font.as_str(), style.font_family.as_deref(), style.width),
+        ("msgothic.ttc", Some("MS Gothic"), 0.8)
+    );
     let romans = doc.styles.iter().find(|style| style.name == "ROMANS").unwrap();
-    assert_eq!((romans.font.as_str(), romans.bigfont.as_str(), romans.font_family.as_deref()), ("romans.shx", "extfont.shx", None));
+    assert_eq!(
+        (romans.font.as_str(), romans.bigfont.as_str(), romans.font_family.as_deref()),
+        ("romans.shx", "extfont.shx", None)
+    );
     let linetype = doc.linetypes.iter().find(|linetype| linetype.name == "DASH2").unwrap();
     assert_eq!((linetype.dashes.clone(), linetype.pattern_length), (vec![6.0, -3.0], 9.0));
     let dimstyle = doc.dimstyles.iter().find(|style| style.name == "DIM-100").unwrap();
@@ -635,7 +641,8 @@ fn adds_text_and_dimension_styles_and_line_types_that_later_operations_use() {
     assert_eq!((label.raw_text.as_str(), label.char_height, label.style.as_str()), ("5000", 250.0, "JP"));
     let table = tags(&edited.bytes);
     let count = |name: &str| {
-        let at = table.windows(2).position(|pair| pair[0] == (0, "TABLE".into()) && pair[1] == (2, name.into())).unwrap();
+        let at =
+            table.windows(2).position(|pair| pair[0] == (0, "TABLE".into()) && pair[1] == (2, name.into())).unwrap();
         table[at..].iter().find(|tag| tag.0 == 70).unwrap().1.clone()
     };
     // STYLE は Standard と 2 つ、LTYPE は ByBlock・ByLayer・Continuous・DASHED と 1 つ

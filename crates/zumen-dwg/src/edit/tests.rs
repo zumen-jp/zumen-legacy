@@ -714,7 +714,8 @@ fn adds_styles_in_every_version() {
             ("msgothic.ttc", Some("MS Gothic"), 0.8),
             "{name}"
         );
-        let linetype = doc.linetypes.iter().find(|linetype| linetype.name == "DASH2").unwrap_or_else(|| panic!("{name}"));
+        let linetype =
+            doc.linetypes.iter().find(|linetype| linetype.name == "DASH2").unwrap_or_else(|| panic!("{name}"));
         assert_eq!(linetype.dashes, [6.0, -3.0], "{name}");
         assert_eq!(entity(&doc, &edited.created[3]).unwrap().base.linetype, "DASH2", "{name}");
         let dimstyle = doc.dimstyles.iter().find(|style| style.name == "DIM-100").unwrap_or_else(|| panic!("{name}"));
@@ -723,7 +724,9 @@ fn adds_styles_in_every_version() {
             .entities
             .iter()
             .find_map(|entity| match &entity.data {
-                DxfEntityData::MText(text) if entity.base.block.as_deref().is_some_and(|block| block.starts_with("*D")) => {
+                DxfEntityData::MText(text)
+                    if entity.base.block.as_deref().is_some_and(|block| block.starts_with("*D")) =>
+                {
                     Some(text.clone())
                 }
                 _ => None,

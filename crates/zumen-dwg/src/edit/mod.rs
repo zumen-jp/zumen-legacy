@@ -1917,7 +1917,11 @@ impl Editor {
                     Some(EditValue::Numbers(values)) if values.len() <= 12 => values.clone(),
                     Some(EditValue::Number(value)) => vec![*value],
                     Some(_) => {
-                        return Err(EditError::at(index, "invalid-value", "pattern は 12 個までの数の配列にしてください"));
+                        return Err(EditError::at(
+                            index,
+                            "invalid-value",
+                            "pattern は 12 個までの数の配列にしてください",
+                        ));
                     }
                 };
                 let control = self.tables.linetype_control;
