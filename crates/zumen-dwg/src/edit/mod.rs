@@ -1373,7 +1373,21 @@ impl Editor {
         };
         layout.name = self.raw_text(name);
         layout.tab_order = tab;
+        // PLOTSETTINGS（20.4.84）: 用紙の座標は mm・等倍・回転なしで、左下を原点にする。
+        // 雛形の印刷設定を継ぐと、指定した大きさやビューポートの縮尺が変わる。
         layout.plot_flags = 0;
+        layout.margins = [0.0; 4];
+        layout.plot_origin = [0.0; 2];
+        layout.paper_units = 1;
+        layout.plot_rotation = 0;
+        layout.plot_type = 5;
+        layout.window_min = [0.0; 2];
+        layout.window_max = [0.0; 2];
+        layout.real_units = 1.0;
+        layout.drawing_units = 1.0;
+        layout.scale_type = 16;
+        layout.scale_factor = 1.0;
+        layout.paper_image_origin = [0.0; 2];
         layout.paper = [paper[0], paper[1]];
         layout.paper_size = self.raw_text(&zumen_dxf::paper_name(paper[0], paper[1]));
         layout.limmin = [0.0, 0.0];

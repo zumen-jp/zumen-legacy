@@ -714,6 +714,7 @@ drawing with `write_dwg` (`$INSUNITS` and `$MEASUREMENT` from the units), which 
   adds it to `ACAD_LAYOUT`. `viewport` writes a VIEWPORT (20.4.37) with the values of the DXF editor and joins the
   layout's viewport list (R2004 and later). R2000 keeps a VIEWPORT ENTITY HEADER for the viewports of the active
   paper space, so a viewport can be added there only from R2004 on; layouts added by the edit take them in R2000 too.
+  New layouts use millimeter paper coordinates at 1:1, with no rotation, plot offset or margins.
 - **Leaders**: `leader` writes the annotation MTEXT and a LEADER (20.4.47) that points to it, with the values of the
   DXF editor; R13 and R14 also get DIMGAP × DIMSCALE and DIMASZ × DIMSCALE in the LEADER. Reading adds the hook vertex
   that AutoCAD writes to DXF (`entities.rs`, an inferred rule).

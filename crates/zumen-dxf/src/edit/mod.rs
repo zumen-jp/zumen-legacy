@@ -2518,10 +2518,16 @@ impl<'a> Editor<'a> {
         for (at, tag) in template.iter().enumerate().take(data_end(&template)) {
             let tag = match tag.code {
                 5 => Tag::new(5, layout_handle.clone()),
-                // 用紙の名前と大きさ（PLOTSETTINGS の 4・44・45、mm）
+                // DXF Reference「PLOTSETTINGS」: 新しい用紙の座標は mm・等倍・回転なしで、左下を原点にする。
+                // 雛形の印刷設定を継ぐと、指定した大きさやビューポートの縮尺が変わる。
                 4 if at < start => Tag::new(4, paper_name(paper[0], paper[1])),
+                40..=43 | 46..=49 | 140..=141 | 148..=149 if at < start => Tag::new(tag.code, "0"),
                 44 if at < start => Tag::new(44, real(paper[0])),
                 45 if at < start => Tag::new(45, real(paper[1])),
+                70 | 73 if at < start => Tag::new(tag.code, "0"),
+                72 | 142..=143 | 147 if at < start => Tag::new(tag.code, "1"),
+                74 if at < start => Tag::new(74, "5"),
+                75 if at < start => Tag::new(75, "16"),
                 1 if at > start => Tag::new(1, name),
                 71 if at > start => Tag::new(71, (tab as i64).to_string()),
                 11 if at > start => Tag::new(11, real(paper[0])),
