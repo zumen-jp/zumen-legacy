@@ -141,6 +141,7 @@ def test_edited_dxf_passes_the_audit_of_ezdxf(tmp_path):
                 "position": [0, -10],
                 "dimensionStyle": "CHECK-DIM",
             },
+            {"op": "add", "kind": "hatch", "pattern": "ANSI31", "boundaries": [[[0, 0], [9, 0], [9, 9], [0, 9]]]},
         ]
         edited = zumen.edit(data, operations)
         path = tmp_path / f"{name}.edited.dxf"
@@ -149,7 +150,7 @@ def test_edited_dxf_passes_the_audit_of_ezdxf(tmp_path):
         auditor = doc.audit()
         found = [(entry.code, entry.message) for entry in [*auditor.errors, *auditor.fixes]]
         assert found == [], (name, found)
-        added = [doc.entitydb[handle] for handle in edited.created[1:-7]]
+        added = [doc.entitydb[handle] for handle in edited.created[1:-8]]
         assert [entity.dxftype() for entity in added[:9]] == [
             "LINE",
             "CIRCLE",
@@ -166,10 +167,12 @@ def test_edited_dxf_passes_the_audit_of_ezdxf(tmp_path):
         assert doc.layers.get("CHECK").dxf.lineweight == 35
         block = doc.blocks.get("CHECK-BLOCK")
         assert [entity.dxftype() for entity in block] == ["CIRCLE"], name
-        assert doc.entitydb[edited.created[-5]].dxf.name == "CHECK-BLOCK", name
+        assert doc.entitydb[edited.created[-6]].dxf.name == "CHECK-BLOCK", name
         assert doc.styles.get("CHECK-JP").get_extended_font_data()[0] == "MS Gothic", name
         assert doc.linetypes.get("CHECK-DASH").simplified_line_pattern() == (2, 1), name
         assert doc.dimstyles.get("CHECK-DIM").dxf.dimscale == 2, name
-        dimension = doc.entitydb[edited.created[-1]]
+        dimension = doc.entitydb[edited.created[-2]]
+        hatch = doc.entitydb[edited.created[-1]]
+        assert hatch.dxf.pattern_name == "ANSI31" and len(hatch.paths) == 1, name
         assert dimension.dxftype() == "DIMENSION" and dimension.get_measurement() == 40, name
         assert len(doc.blocks.get(dimension.dxf.geometry)) >= 7, name

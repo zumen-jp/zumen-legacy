@@ -443,6 +443,14 @@ stay, and an edit without operations gives the same bytes.
   file; a name without one is a TrueType family, written as extended data (`ACAD` 1000) with its Windows file
   (`MS Gothic` → `msgothic.ttc`, `MS Mincho` → `msmincho.ttc`, Meiryo, Yu Gothic, Yu Mincho; others `<family>.ttf`).
   R12, or a drawing without the `ACAD` APPID, gets the file only (`edit-font-family`).
+- **Hatches**: `kind: "hatch"` with `boundaries` (closed polylines `[[[x, y], …], …]`, the first the outer one, the
+  others holes; one boundary may be given as `[[x, y], …]`), `pattern` (`SOLID`, the default, or a built-in pattern:
+  `ANSI31`, `ANSI32`, `ANSI37`, `LINE`, `NET`, `DOTS`, defined in `zumen_dxf::hatch` in millimeters at scale 1, not
+  copied from a CAD pattern file), `patternScale`, `patternAngle` (degrees) and `patternLines` (the lines of a PAT
+  file, `[angle, x, y, dx, dy, dash…]`, for any other name). The HATCH has polyline paths (92 = 3 for the outer one,
+  2 for holes), the normal island style (75 = 0), no association (71 = 0), and pattern lines already scaled and
+  rotated, as AutoCAD stores them (the offset of a PAT line is turned by its angle). R12 has no HATCH
+  (`unsupported-kind`). Unknown names without `patternLines` are `missing-definition`.
 - **Values the version cannot hold** are written as the nearest one and reported: `edit-nearest-color` (no true color
   before AutoCAD 2004), `edit-rounded-lineweight` (the line weights of the DXF Reference), `edit-no-lineweight` (no
   line weights before AutoCAD 2000).

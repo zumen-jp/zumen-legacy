@@ -4,7 +4,8 @@
 use crate::bits::HandleRef;
 use crate::codec::RawText;
 use crate::codec::entities::{
-    Arc, Body, Circle, Ellipse, Insert, Line, LwPolyline, MText, MTextRedundant, Point, Solid, Text,
+    Arc, Body, Circle, Ellipse, Hatch, HatchBoundary, HatchPath, HatchPattern, Insert, Line, LwPolyline, MText,
+    MTextRedundant, PatternLine, Point, Solid, Text,
 };
 use crate::file::Version;
 use crate::write::drawing::{rad, rad_pair};
@@ -294,4 +295,51 @@ pub(super) fn solid(corners: [[f64; 3]; 3]) -> Body {
         corners: [xy(corners[0]), xy(corners[1]), xy(corners[2]), xy(corners[2])],
         extrusion: Z,
     })
+}
+
+/// HATCH（20.4.75）。境界は閉じた折線（外側は 1 も立てる）、関連づけない（DXF の編集と同じ）。角度はラジアン
+pub(super) fn hatch(input: &zumen_dxf::hatch::HatchInput, name: RawText) -> Body {
+    let paths = input
+        .boundaries
+        .iter()
+        .enumerate()
+        .map(|(number, boundary)| HatchPath {
+            flags: if number == 0 { 3 } else { 2 },
+            boundary: HatchBoundary::Polyline {
+                has_bulges: false,
+                closed: true,
+                points: boundary.iter().map(|point| ([point[0], point[1]], 0.0)).collect(),
+            },
+            objects: Vec::new(),
+        })
+        .collect();
+    let pattern = (!input.solid).then(|| HatchPattern {
+        angle: rad(input.angle),
+        scale: input.scale,
+        double: false,
+        lines: input
+            .lines
+            .iter()
+            .map(|line| PatternLine {
+                angle: rad(line.angle),
+                base: line.base,
+                offset: line.offset,
+                dashes: line.dashes.clone(),
+            })
+            .collect(),
+    });
+    Body::Hatch(Box::new(Hatch {
+        gradient: None,
+        elevation: input.boundaries[0][0][2],
+        extrusion: Z,
+        name,
+        solid_fill: input.solid,
+        associative: false,
+        paths,
+        style: 0,
+        pattern_type: input.pattern_type as i16,
+        pattern,
+        pixel_size: None,
+        seeds: Vec::new(),
+    }))
 }

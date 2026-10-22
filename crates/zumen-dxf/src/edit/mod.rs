@@ -6,6 +6,7 @@
 //! 所有者（330）・線の太さ（370）・トゥルーカラー（420）がなく、ハンドル（5）は $HANDLING が 1 のときだけある。
 
 pub mod dimension;
+pub mod hatch;
 mod raw;
 
 use crate::colors::ACI;
@@ -24,8 +25,19 @@ const LINEWEIGHTS: [i64; 24] =
     [0, 5, 9, 13, 15, 18, 20, 25, 30, 35, 40, 50, 53, 60, 70, 80, 90, 100, 106, 120, 140, 158, 200, 211];
 
 /// 足せる図形の種類（DXF）
-const ADDABLE: [&str; 10] =
-    ["line", "polyline", "arc", "circle", "ellipse", "ellipse-arc", "point", "text", BLOCK_REFERENCE, "dimension"];
+const ADDABLE: [&str; 11] = [
+    "line",
+    "polyline",
+    "arc",
+    "circle",
+    "ellipse",
+    "ellipse-arc",
+    "point",
+    "text",
+    BLOCK_REFERENCE,
+    "dimension",
+    "hatch",
+];
 
 /// 図形・レイヤに共通する値のキー
 const COMMON: [&str; 4] = ["layer", "color", "lineType", "lineWidth"];
@@ -328,6 +340,34 @@ fn nearest_aci(rgb: u32) -> i64 {
         }
     }
     best.0
+}
+
+/// HATCH の値（DXF Reference「HATCH」。zumen の DXF の書き出しと同じ並び）。境界は閉じた折線（92 の 2）で、
+/// 最初の境界は外側（1）。島の見つけ方は標準（75 = 0）、関連づけない（71 = 0）
+fn hatch_tags(record: &mut Record, input: &hatch::HatchInput) {
+    let elevation = input.boundaries[0][0][2];
+    record.tag(100, "AcDbHatch").point(10, [0.0, 0.0, elevation], true).point(210, [0.0, 0.0, 1.0], true);
+    record.tag(2, input.pattern.clone()).int(70, i64::from(input.solid)).int(71, 0);
+    record.int(91, input.boundaries.len() as i64);
+    for (number, boundary) in input.boundaries.iter().enumerate() {
+        record.int(92, if number == 0 { 3 } else { 2 }).int(72, 0).int(73, 1).int(93, boundary.len() as i64);
+        for point in boundary {
+            record.point(10, *point, false);
+        }
+        record.int(97, 0);
+    }
+    record.int(75, 0).int(76, input.pattern_type);
+    if !input.solid {
+        record.real(52, input.angle).real(41, input.scale).int(77, 0).int(78, input.lines.len() as i64);
+        for line in &input.lines {
+            record.real(53, line.angle).real(43, line.base[0]).real(44, line.base[1]);
+            record.real(45, line.offset[0]).real(46, line.offset[1]).int(79, line.dashes.len() as i64);
+            for dash in &line.dashes {
+                record.real(49, *dash);
+            }
+        }
+    }
+    record.int(98, 0);
 }
 
 /// 文字スタイルのフォント。拡張子のある名前はファイル、ない名前は TrueType の書体（ファイルと書体の名前）。
@@ -1122,6 +1162,17 @@ impl<'a> Editor<'a> {
                 )?;
                 let common = self.common(index, &reader, true)?;
                 vec![self.dimension_record(index, &reader, &place, &common)?]
+            }
+            "hatch" => {
+                if !r13 {
+                    return Err(EditError::at(index, "unsupported-kind", "R12 の DXF にはハッチング（HATCH）がありません"));
+                }
+                reader.allow(&keys(&hatch::KEYS), "ハッチング")?;
+                let input = hatch::read(&reader, index)?;
+                let common = self.common(index, &reader, true)?;
+                let (mut record, _) = self.entity_record(index, "HATCH", &place, &common)?;
+                hatch_tags(&mut record, &input);
+                vec![record.tags]
             }
             _ => {
                 reader.allow(&keys(&["block", "position", "rotation", "scale"]), "ブロック参照")?;

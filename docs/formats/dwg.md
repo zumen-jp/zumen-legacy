@@ -699,6 +699,9 @@ drawing with `write_dwg` (`$INSUNITS` and `$MEASUREMENT` from the units), which 
 - **Styles**: `add-text-style`, `add-line-type` and `add-dimension-style` take the values of the DXF editor and add a
   STYLE (with the TrueType family as `ACAD` extended data), LTYPE or DIMSTYLE (a copy of `from` with the variables
   set) to its control object.
+- **Hatches**: `kind: "hatch"` takes the keys of the DXF editor and writes a HATCH (20.4.75) with polyline paths and
+  the pattern lines of `zumen_dxf::hatch`; from R2000 on it is the fixed type 78, in R14 the class `HATCH` (added to
+  AcDb:Classes when the drawing lacks it), and R13, which has no HATCH, refuses it (`unsupported-kind`).
 - **Values the version cannot hold** are written as the nearest one and reported: `edit-nearest-color` (no true color
   before AutoCAD 2004) and `edit-rounded-lineweight` (the line weights of DWG). R13 and R14 have no line weights and
   plot every layer, so a line weight other than BYLAYER (entities) or the default (layers) and `plot: false` are not
