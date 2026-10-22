@@ -24,6 +24,7 @@ def test_wraps_the_functions_of_zumen_tools():
         "measure",
         "compare_revisions",
         "find_regions",
+        "draft_drawing",
     ]:
         assert getattr(mcp, name) is getattr(tools, name)
     assert (mcp.Drawings, mcp.DrawingError, mcp.normalize) == (tools.Drawings, tools.DrawingError, tools.normalize)
@@ -49,8 +50,11 @@ def test_serves_the_tools_over_mcp():
                 "measure_distance",
                 "find_regions",
                 "compare_drawings",
+                "draft_drawing",
             }
-            assert all(tool.annotations.read_only_hint for tool in listed.values())
+            # draft_drawing writes a file; every other tool only reads
+            writing = {name for name, tool in listed.items() if not tool.annotations.read_only_hint}
+            assert writing == {"draft_drawing"}
 
             opened = await client.call_tool("open_drawing", {"path": SFC})
             assert not opened.is_error

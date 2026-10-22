@@ -4,6 +4,16 @@ All packages share one version during 0.x.
 
 ## Unreleased
 
+- Rust, Python, the command line and the MCP server: draft whole drawings from a JSON drawing spec
+  ([decision 0018](docs/decisions/0018-drafting-kit.md), [Drafting](docs/drafting.md)). Sheets become layouts with
+  a border and a title block (a strip on the right or a table at the bottom right), views are viewports at their
+  scales onto real-size model space, and items include text (with alignment, wrapping and fitting), linear and aligned
+  dimensions and dimension chains, hatches (solid, built-in patterns or pattern lines), tables with merged cells,
+  blocks with attributes, grid lines with bubbles and dimensions, north arrows, scale bars, level marks, spot levels,
+  leaders, and side lengths and areas of a boundary. Sizes are paper millimeters at any scale. The drawing is written
+  as DXF R12 to 2018, DWG, JWW or SXF; a mistake in the spec names its place and a stable code.
+  `zumen::draft`, the new crate `zumen-draft` with its JSON Schema, `zumen.draft` and `zumen.draft_schema` in
+  Python, `zumen draft`, and the `draft_drawing` MCP tool.
 - Rust, Python and the command line: `edit` and `create` take `{"op": "add-block", "name": ..., "basePoint": [x, y]}`
   for DXF (R12 to 2018) and DWG (R13 to 2018), which creates an empty block definition; later operations of the same
   edit fill it with `"container": "block:<name>"` and place it with `block-reference`. SXF and JWW refuse it

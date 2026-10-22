@@ -1,0 +1,1518 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/zumenjs/zumen/crates/zumen-draft/schema/drawing-spec.schema.json",
+  "title": "zumen drawing spec",
+  "description": "A drawing for zumen::draft (decision 0018). View items are model coordinates in real millimeters; sheet items are paper millimeters; sizes (text heights, arrows, table widths, hatch spacing) are always paper millimeters.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["sheets"],
+  "properties": {
+    "units": {
+      "const": "mm"
+    },
+    "font": {
+      "type": "string",
+      "description": "Default font, such as ＭＳ ゴシック"
+    },
+    "defaults": {
+      "$ref": "#/$defs/defaults"
+    },
+    "layers": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/layer"
+      }
+    },
+    "lineTypes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/lineType"
+      }
+    },
+    "blocks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/block"
+      }
+    },
+    "sheets": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/sheet"
+      }
+    }
+  },
+  "$defs": {
+    "point": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "box": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "points": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/point"
+      }
+    },
+    "color": {
+      "description": "ACI number 1-255, #rrggbb, bylayer or byblock",
+      "oneOf": [
+        {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 255
+        },
+        {
+          "type": "string",
+          "pattern": "^(#[0-9a-fA-F]{6}|[Bb][Yy][Ll][Aa][Yy][Ee][Rr]|[Bb][Yy][Bb][Ll][Oo][Cc][Kk])$"
+        }
+      ]
+    },
+    "align": {
+      "enum": [
+        "top-left",
+        "top-center",
+        "top-right",
+        "middle-left",
+        "middle-center",
+        "middle-right",
+        "bottom-left",
+        "bottom-center",
+        "bottom-right",
+        "left",
+        "center",
+        "right",
+        "middle"
+      ]
+    },
+    "endMark": {
+      "enum": ["arrow", "tick", "dot", "none"]
+    },
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "layer": {
+          "type": "string"
+        },
+        "textHeight": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "dimensionTextHeight": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "arrow": {
+          "$ref": "#/$defs/endMark"
+        },
+        "arrowSize": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "precision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "thousands": {
+          "type": "boolean"
+        },
+        "dimensionLayer": {
+          "type": "string"
+        },
+        "textLayer": {
+          "type": "string"
+        },
+        "hatchLayer": {
+          "type": "string"
+        }
+      }
+    },
+    "layer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "color": {
+          "$ref": "#/$defs/color"
+        },
+        "lineType": {
+          "type": "string"
+        },
+        "lineWidth": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2.11
+        },
+        "plot": {
+          "type": "boolean"
+        },
+        "off": {
+          "type": "boolean"
+        },
+        "locked": {
+          "type": "boolean"
+        }
+      }
+    },
+    "lineType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "pattern"],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "pattern": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": 0
+          },
+          "minItems": 1,
+          "description": "Dash and gap lengths in turn, paper millimeters; a dash of 0 is a dot"
+        }
+      }
+    },
+    "attribute": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tag", "at"],
+      "properties": {
+        "tag": {
+          "type": "string"
+        },
+        "prompt": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        },
+        "at": {
+          "$ref": "#/$defs/point"
+        },
+        "height": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "align": {
+          "$ref": "#/$defs/align"
+        },
+        "rotation": {
+          "type": "number"
+        },
+        "invisible": {
+          "type": "boolean"
+        }
+      }
+    },
+    "block": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "basePoint": {
+          "$ref": "#/$defs/point"
+        },
+        "items": {
+          "$ref": "#/$defs/items"
+        },
+        "attributes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/attribute"
+          }
+        }
+      }
+    },
+    "sheet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "paper": {
+          "oneOf": [
+            {
+              "enum": ["A0", "A1", "A2", "A3", "A4", "B1", "B2", "B3", "B4", "B5"]
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "minItems": 2,
+              "maxItems": 2
+            }
+          ]
+        },
+        "orientation": {
+          "enum": ["landscape", "portrait"]
+        },
+        "frame": {
+          "$ref": "#/$defs/frame"
+        },
+        "views": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/view"
+          }
+        },
+        "items": {
+          "$ref": "#/$defs/items"
+        }
+      }
+    },
+    "frame": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "margins": {
+          "$ref": "#/$defs/box",
+          "description": "Left, bottom, right, top, mm"
+        },
+        "lineWidth": {
+          "type": "number"
+        },
+        "layer": {
+          "type": "string"
+        },
+        "titleBlock": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["rows"],
+          "properties": {
+            "placement": {
+              "enum": ["right", "bottom-right"]
+            },
+            "width": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "textHeight": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "rows": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "label": {
+                    "type": "string"
+                  },
+                  "value": {
+                    "type": "string"
+                  },
+                  "height": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  "valueHeight": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  "align": {
+                    "$ref": "#/$defs/align"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "viewTitle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text"],
+      "properties": {
+        "number": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "scaleText": {
+          "type": "string"
+        },
+        "at": {
+          "$ref": "#/$defs/point"
+        },
+        "height": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "view": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scale", "viewport"],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "scale": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "The denominator: 250 for 1:250"
+        },
+        "viewport": {
+          "$ref": "#/$defs/box",
+          "description": "[x0, y0, x1, y1] on paper, mm"
+        },
+        "center": {
+          "$ref": "#/$defs/point",
+          "description": "Model point at the viewport's center; the extent of the items by default"
+        },
+        "title": {
+          "$ref": "#/$defs/viewTitle"
+        },
+        "border": {
+          "type": "boolean"
+        },
+        "items": {
+          "$ref": "#/$defs/items"
+        }
+      }
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/item"
+      }
+    },
+    "item": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/item.line"
+        },
+        {
+          "$ref": "#/$defs/item.polyline"
+        },
+        {
+          "$ref": "#/$defs/item.rectangle"
+        },
+        {
+          "$ref": "#/$defs/item.circle"
+        },
+        {
+          "$ref": "#/$defs/item.arc"
+        },
+        {
+          "$ref": "#/$defs/item.ellipse"
+        },
+        {
+          "$ref": "#/$defs/item.point"
+        },
+        {
+          "$ref": "#/$defs/item.text"
+        },
+        {
+          "$ref": "#/$defs/item.hatch"
+        },
+        {
+          "$ref": "#/$defs/item.dimension"
+        },
+        {
+          "$ref": "#/$defs/item.dimensionChain"
+        },
+        {
+          "$ref": "#/$defs/item.insert"
+        },
+        {
+          "$ref": "#/$defs/item.table"
+        },
+        {
+          "$ref": "#/$defs/item.grid"
+        },
+        {
+          "$ref": "#/$defs/item.northArrow"
+        },
+        {
+          "$ref": "#/$defs/item.scaleBar"
+        },
+        {
+          "$ref": "#/$defs/item.levelMark"
+        },
+        {
+          "$ref": "#/$defs/item.spotLevel"
+        },
+        {
+          "$ref": "#/$defs/item.leader"
+        },
+        {
+          "$ref": "#/$defs/item.polygonLabel"
+        },
+        {
+          "$ref": "#/$defs/item.viewTitle"
+        },
+        {
+          "$ref": "#/$defs/item.group"
+        }
+      ]
+    },
+    "axis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "at"],
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "at": {
+          "type": "number"
+        }
+      }
+    },
+    "item.line": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "from", "to"],
+      "properties": {
+        "type": {
+          "const": "line"
+        },
+        "layer": {
+          "type": "string"
+        },
+        "color": {
+          "$ref": "#/$defs/color"
+        },
+        "lineType": {
+          "type": "string"
+        },
+        "lineWidth": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2.11
+        },
+        "from": {
+          "$ref": "#/$defs/point"
+        },
+        "to": {
+          "$ref": "#/$defs/point"
+        }
+      }
+    },
+    "item.polyline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "points"],
+      "properties": {
+        "type": {
+          "const": "polyline"
+        },
+        "layer": {
+          "type": "string"
+        },
+        "color": {
+          "$ref": "#/$defs/color"
+        },
+        "lineType": {
+          "type": "string"
+        },
+        "lineWidth": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2.11
+        },
+        "points": {
+          "$ref": "#/$defs/points"
+        },
+        "closed": {
+          "type": "boolean"
+        },
+        "bulges": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "width": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "item.rectangle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "from", "to"],
+      "properties": {
+        "type": {
+          "const": "rectangle"
+        },
+        "layer": {
+          "type": "string"
+        },
+        "color": {
+          "$ref": "#/$defs/color"
+        },
+        "lineType": {
+          "type": "string"
+        },
+        "lineWidth": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2.11
+        },
+        "from": {
+          "$ref": "#/$defs/point"
+        },
+        "to": {
+          "$ref": "#/$defs/point"
+        },
+        "fill": {
+          "type": "boolean"
+        }
+      }
+    },
+    "item.circle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "center", "radius"],
+      "properties": {
+        "type": {
+          "const": "circle"
+        },
+        "layer": {
+          "type": "string"
+        },
+        "color": {
+          "$ref": "#/$defs/color"
+        },
+        "lineType": {
+          "type": "string"
+        },
+        "lineWidth": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2.11
+        },
+        "center": {
+          "$ref": "#/$defs/point"
+        },
+        "radius": {
+          "type": "number"
+        },
+        "fill": {
+          "type": "boolean"
+        }
+      }
+    },
+    "item.arc": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "center", "radius", "start", "end"],
+      "properties": {
+        "type": {
+          "const": "arc"
+        },
+        "layer": {
+          "type": "string"
+        },
+        "color": {
+          "$ref": "#/$defs/color"
+        },
+        "lineType": {
+          "type": "string"
+        },
+        "lineWidth": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2.11
+        },
+        "center": {
+          "$ref": "#/$defs/point"
+        },
+        "radius": {
+          "type": "number"
+        },
+        "start": {
+          "type": "number"
+        },
+        "end": {
+          "type": "number"
+        }
+      }
+    },
+    "item.ellipse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "center", "majorAxis", "ratio"],
+      "properties": {
+        "type": {
+          "const": "ellipse"
+        },
+        "layer": {
+          "type": "string"
+        },
+        "color": {
+          "$ref": "#/$defs/color"
+        },
+        "lineType": {
+          "type": "string"
+        },
+        "lineWidth": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2.11
+        },
+        "center": {
+          "$ref": "#/$defs/point"
+        },
+        "majorAxis": {
+          "$ref": "#/$defs/point"
+        },
+        "ratio": {
+          "type": "number"
+        },
+        "start": {
+          "type": "number"
+        },
+        "end": {
+          "type": "number"
+        }
+      }
+    },
+    "item.point": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "at"],
+      "properties": {
+        "type": {
+          "const": "point"
+        },
+        "layer": {
+          "type": "string"
+        },
+        "color": {
+          "$ref": "#/$defs/color"
+        },
+        "lineType": {
+          "type": "string"
+        },
+        "lineWidth": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2.11
+        },
+        "at": {
+          "$ref": "#/$defs/point"
+        }
+      }
+    },
+    "item.text": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "at", "text"],
+      "properties": {
+        "type": {
+          "const": "text"
+        },
+        "layer": {
+          "type": "string"
+        },
+        "color": {
+          "$ref": "#/$defs/color"
+        },
+        "lineType": {
+          "type": "string"
+        },
+        "lineWidth": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2.11
+        },
+        "at": {
+          "$ref": "#/$defs/point"
+        },
+        "text": {
+          "type": "string"
+        },
+        "height": {
+          "type": "number"
+        },
+        "align": {
+          "$ref": "#/$defs/align"
+        },
+        "rotation": {
+          "type": "number"
+        },
+        "width": {
+          "type": "number",
+          "description": "Wrap at this width, paper mm"
+        },
+        "fit": {
+          "type": "number",
+          "description": "Shrink the width factor to fit this width, paper mm"
+        },
+        "widthFactor": {
+          "type": "number"
+        },
+        "lineSpacing": {
+          "type": "number"
+        },
+        "font": {
+          "type": "string"
+        }
+      }
+    },
+    "item.hatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "boundaries"],
+      "properties": {
+        "type": {
+          "const": "hatch"
+        },
+        "layer": {
+          "type": "string"
+        },
+        "color": {
+          "$ref": "#/$defs/color"
+        },
+        "lineType": {
+          "type": "string"
+        },
+        "lineWidth": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2.11
+        },
+        "boundaries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/points"
+          }
+        },
+        "pattern": {
+          "type": "string",
+          "description": "SOLID (default), LINE, ANSI31, ANSI32, ANSI37, NET, DOTS, DASH, GROUND, or any name with patternLines"
+        },
+        "scale": {
+          "type": "number"
+        },
+        "angle": {
+          "type": "number"
+        },
+        "patternLines": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          }
+        },
+        "outline": {
+          "type": "boolean"
+        }
+      }
+    },
+    "item.dimension": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "from", "to"],
+      "properties": {
+        "type": {
+          "const": "dimension"
+        },
+        "layer": {
+          "type": "string"
+        },
+        "color": {
+          "$ref": "#/$defs/color"
+        },
+        "lineType": {
+          "type": "string"
+        },
+        "lineWidth": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2.11
+        },
+        "kind": {
+          "enum": ["linear", "aligned"]
+        },
+        "from": {
+          "$ref": "#/$defs/point"
+        },
+        "to": {
+          "$ref": "#/$defs/point"
+        },
+        "offset": {
+          "type": "number"
+        },
+        "at": {
+          "$ref": "#/$defs/point"
+        },
+        "angle": {
+          "type": "number"
+        },
+        "text": {
+          "type": "string"
+        },
+        "arrow": {
+          "$ref": "#/$defs/endMark"
+        },
+        "arrowSize": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "textHeight": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "precision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "thousands": {
+          "type": "boolean"
+        },
+        "extensionGap": {
+          "type": "number"
+        },
+        "extensionBeyond": {
+          "type": "number"
+        }
+      }
+    },
+    "item.dimensionChain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "points"],
+      "properties": {
+        "type": {
+          "const": "dimensionChain"
+        },
+        "layer": {
+          "type": "string"
+        },
+        "color": {
+          "$ref": "#/$defs/color"
+        },
+        "lineType": {
+          "type": "string"
+        },
+        "lineWidth": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2.11
+        },
+        "points": {
+          "$ref": "#/$defs/points"
+        },
+        "angle": {
+          "type": "number"
+        },
+        "offset": {
+          "type": "number"
+        },
+        "at": {
+          "$ref": "#/$defs/point"
+        },
+        "total": {
+          "type": "boolean"
+        },
+        "totalOffset": {
+          "type": "number"
+        },
+        "arrow": {
+          "$ref": "#/$defs/endMark"
+        },
+        "arrowSize": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "textHeight": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "precision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "thousands": {
+          "type": "boolean"
+        },
+        "extensionGap": {
+          "type": "number"
+        },
+        "extensionBeyond": {
+          "type": "number"
+        }
+      }
+    },
+    "item.insert": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "block", "at"],
+      "properties": {
+        "type": {
+          "const": "insert"
+        },
+        "layer": {
+          "type": "string"
+        },
+        "color": {
+          "$ref": "#/$defs/color"
+        },
+        "lineType": {
+          "type": "string"
+        },
+        "lineWidth": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2.11
+        },
+        "block": {
+          "type": "string"
+        },
+        "at": {
+          "$ref": "#/$defs/point"
+        },
+        "scale": {
+          "oneOf": [
+            {
+              "type": "number"
+            },
+            {
+              "$ref": "#/$defs/point"
+            }
+          ]
+        },
+        "rotation": {
+          "type": "number"
+        },
+        "attributes": {
+          "type": "object",
+          "additionalProperties": {
+            "type": ["string", "number", "null"]
+          }
+        }
+      }
+    },
+    "item.table": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "at", "columns", "cells"],
+      "properties": {
+        "type": {
+          "const": "table"
+        },
+        "layer": {
+          "type": "string"
+        },
+        "color": {
+          "$ref": "#/$defs/color"
+        },
+        "lineType": {
+          "type": "string"
+        },
+        "lineWidth": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2.11
+        },
+        "at": {
+          "$ref": "#/$defs/point"
+        },
+        "columns": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "rowHeight": {
+          "type": "number"
+        },
+        "cells": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": ["string", "number", "boolean", "null"]
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "text": {
+                      "type": "string"
+                    },
+                    "colspan": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "rowspan": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "align": {
+                      "$ref": "#/$defs/align"
+                    },
+                    "height": {
+                      "type": "number"
+                    },
+                    "diagonal": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "textHeight": {
+          "type": "number"
+        },
+        "padding": {
+          "type": "number"
+        },
+        "align": {
+          "$ref": "#/$defs/align"
+        },
+        "columnAlign": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/align"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "fit": {
+          "enum": ["shrink", "wrap", "none"]
+        },
+        "outerWidth": {
+          "type": "number"
+        },
+        "innerWidth": {
+          "type": "number"
+        }
+      }
+    },
+    "item.grid": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "const": "grid"
+        },
+        "layer": {
+          "type": "string"
+        },
+        "color": {
+          "$ref": "#/$defs/color"
+        },
+        "lineType": {
+          "type": "string"
+        },
+        "lineWidth": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2.11
+        },
+        "x": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/axis"
+          }
+        },
+        "y": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/axis"
+          }
+        },
+        "extent": {
+          "$ref": "#/$defs/box"
+        },
+        "overhang": {
+          "type": "number"
+        },
+        "bubble": {
+          "type": "number"
+        },
+        "bubbles": {
+          "enum": ["start", "end", "both", "none"]
+        },
+        "dimensions": {
+          "type": "boolean"
+        },
+        "arrow": {
+          "$ref": "#/$defs/endMark"
+        },
+        "arrowSize": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "textHeight": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "precision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "thousands": {
+          "type": "boolean"
+        },
+        "extensionGap": {
+          "type": "number"
+        },
+        "extensionBeyond": {
+          "type": "number"
+        }
+      }
+    },
+    "item.northArrow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "at"],
+      "properties": {
+        "type": {
+          "const": "northArrow"
+        },
+        "layer": {
+          "type": "string"
+        },
+        "color": {
+          "$ref": "#/$defs/color"
+        },
+        "lineType": {
+          "type": "string"
+        },
+        "lineWidth": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2.11
+        },
+        "at": {
+          "$ref": "#/$defs/point"
+        },
+        "size": {
+          "type": "number"
+        },
+        "angle": {
+          "type": "number"
+        },
+        "label": {
+          "type": "string"
+        }
+      }
+    },
+    "item.scaleBar": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "at", "length"],
+      "properties": {
+        "type": {
+          "const": "scaleBar"
+        },
+        "layer": {
+          "type": "string"
+        },
+        "color": {
+          "$ref": "#/$defs/color"
+        },
+        "lineType": {
+          "type": "string"
+        },
+        "lineWidth": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2.11
+        },
+        "at": {
+          "$ref": "#/$defs/point"
+        },
+        "length": {
+          "type": "number"
+        },
+        "divisions": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "unit": {
+          "enum": ["m", "mm"]
+        },
+        "height": {
+          "type": "number"
+        }
+      }
+    },
+    "item.levelMark": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "at", "text"],
+      "properties": {
+        "type": {
+          "const": "levelMark"
+        },
+        "layer": {
+          "type": "string"
+        },
+        "color": {
+          "$ref": "#/$defs/color"
+        },
+        "lineType": {
+          "type": "string"
+        },
+        "lineWidth": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2.11
+        },
+        "at": {
+          "$ref": "#/$defs/point"
+        },
+        "text": {
+          "type": "string"
+        },
+        "size": {
+          "type": "number"
+        },
+        "line": {
+          "type": "number"
+        },
+        "textHeight": {
+          "type": "number"
+        }
+      }
+    },
+    "item.spotLevel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "at", "text"],
+      "properties": {
+        "type": {
+          "const": "spotLevel"
+        },
+        "layer": {
+          "type": "string"
+        },
+        "color": {
+          "$ref": "#/$defs/color"
+        },
+        "lineType": {
+          "type": "string"
+        },
+        "lineWidth": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2.11
+        },
+        "at": {
+          "$ref": "#/$defs/point"
+        },
+        "text": {
+          "type": "string"
+        },
+        "textHeight": {
+          "type": "number"
+        }
+      }
+    },
+    "item.leader": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "points", "text"],
+      "properties": {
+        "type": {
+          "const": "leader"
+        },
+        "layer": {
+          "type": "string"
+        },
+        "color": {
+          "$ref": "#/$defs/color"
+        },
+        "lineType": {
+          "type": "string"
+        },
+        "lineWidth": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2.11
+        },
+        "points": {
+          "$ref": "#/$defs/points"
+        },
+        "text": {
+          "type": "string"
+        },
+        "arrow": {
+          "$ref": "#/$defs/endMark"
+        },
+        "arrowSize": {
+          "type": "number"
+        },
+        "textHeight": {
+          "type": "number"
+        }
+      }
+    },
+    "item.polygonLabel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "points"],
+      "properties": {
+        "type": {
+          "const": "polygonLabel"
+        },
+        "layer": {
+          "type": "string"
+        },
+        "color": {
+          "$ref": "#/$defs/color"
+        },
+        "lineType": {
+          "type": "string"
+        },
+        "lineWidth": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2.11
+        },
+        "points": {
+          "$ref": "#/$defs/points"
+        },
+        "lengths": {
+          "type": "boolean"
+        },
+        "unit": {
+          "enum": ["m", "mm"]
+        },
+        "precision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "area": {
+          "type": ["boolean", "string"]
+        },
+        "areaPrecision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "areaAt": {
+          "$ref": "#/$defs/point"
+        },
+        "outline": {
+          "type": "boolean"
+        },
+        "textHeight": {
+          "type": "number"
+        }
+      }
+    },
+    "item.viewTitle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "text", "at"],
+      "properties": {
+        "type": {
+          "const": "viewTitle"
+        },
+        "layer": {
+          "type": "string"
+        },
+        "color": {
+          "$ref": "#/$defs/color"
+        },
+        "lineType": {
+          "type": "string"
+        },
+        "lineWidth": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2.11
+        },
+        "number": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "scaleText": {
+          "type": "string"
+        },
+        "at": {
+          "$ref": "#/$defs/point"
+        },
+        "height": {
+          "type": "number"
+        }
+      }
+    },
+    "item.group": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "items"],
+      "properties": {
+        "type": {
+          "const": "group"
+        },
+        "layer": {
+          "type": "string"
+        },
+        "color": {
+          "$ref": "#/$defs/color"
+        },
+        "lineType": {
+          "type": "string"
+        },
+        "lineWidth": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2.11
+        },
+        "items": {
+          "$ref": "#/$defs/items"
+        }
+      }
+    }
+  }
+}
