@@ -132,10 +132,10 @@ conformance test (`crates/zumen/tests/edit.rs`): the edited drawing is read agai
    ```
 
    `add-layout` creates a LAYOUT with its paper space block (`*Paper_Space<n>`), the paper size in millimeters and
-   the paper's own viewport; `viewport` adds a VIEWPORT whose `center`, `width` and `height` are in paper
-   millimeters, `viewCenter` in model coordinates, and `scale` the denominator (1:100 is `100`, so the view height
-   is `height × scale`). R12 has one paper space and refuses `add-layout`; R13 and R14 DWG keep layouts in the named
-   objects dictionary, as reading finds them.
+   the viewport of the whole sheet; `viewport` adds a VIEWPORT whose `center`, `width` and `height` are in paper
+   millimeters, `viewCenter` in model coordinates, and `scale` the denominator (1:100 is `100`): the view height is
+   `height × scale`, converted from millimeters to the drawing's units (`$INSUNITS`). Layouts exist from AutoCAD 2000
+   on; R12 to R14 refuse `add-layout` and `viewport` (`unsupported-kind`).
 8. **Leaders**: `kind: "leader"` with `vertices` (the first is the arrowhead's tip), `text`, `height` and
    `dimensionStyle`, written as LEADER with an MTEXT annotation (the arrowhead from the style, as in step 2). R12 has
    no LEADER and refuses it.
