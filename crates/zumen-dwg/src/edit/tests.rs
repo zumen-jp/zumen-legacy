@@ -796,3 +796,35 @@ fn places_text_by_justification_in_every_version() {
         assert_eq!(edited.notices.iter().any(|notice| notice.code == "edit-no-line-spacing"), old, "{name}");
     }
 }
+
+/// DWG 2.13: DIMSTYLE の参照が相対ハンドルでも、写したスタイルは元と同じ文字スタイルを指す。
+#[test]
+fn cloned_dimension_style_keeps_relative_references() {
+    for version in crate::DwgVersion::ALL {
+        let name = version.name();
+        let bytes = written_as(version);
+        let mut notices = NoticeList::new();
+        let source = Source::open(&bytes, &mut notices).unwrap();
+        let mut editor = Editor::new(source, notices).unwrap();
+        let template = editor.dimstyles["STANDARD"];
+        let mut style = editor.read(template, |s, _| DimStyle::read(s)).unwrap();
+        let expected: Vec<_> = style.value.handles.iter().map(|handle| handle.resolve(template)).collect();
+        let text_style = expected[0];
+        style.value.handles[0] = if text_style < template {
+            HandleRef { code: 0xC, value: template - text_style }
+        } else {
+            HandleRef { code: 0xA, value: text_style - template }
+        };
+        let kind = style.kind;
+        editor.store(template, kind, &style.eed, |out| style.value.write(out));
+        let relative = editor.finish().bytes;
+        let edited = edit(&relative, r#"[{"op":"add-dimension-style","name":"CLONE"}]"#).unwrap();
+        let mut notices = NoticeList::new();
+        let source = Source::open(&edited.bytes, &mut notices).unwrap();
+        let editor = Editor::new(source, notices).unwrap();
+        let cloned = editor.dimstyles["CLONE"];
+        let style = editor.read(cloned, |s, _| DimStyle::read(s)).unwrap();
+        let actual: Vec<_> = style.value.handles.iter().map(|handle| handle.resolve(cloned)).collect();
+        assert_eq!(actual, expected, "{name}: cloned DIMSTYLE references");
+    }
+}
