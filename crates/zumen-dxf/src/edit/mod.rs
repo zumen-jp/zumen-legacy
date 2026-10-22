@@ -5,6 +5,7 @@
 //! グループコードは DXF Reference（AutoCAD 2026）の各図形の節のとおり。R12（AC1009）にはサブクラスの印（100）・
 //! 所有者（330）・線の太さ（370）・トゥルーカラー（420）がなく、ハンドル（5）は $HANDLING が 1 のときだけある。
 
+pub mod attributes;
 pub mod dimension;
 pub mod hatch;
 pub mod placement;
@@ -26,7 +27,7 @@ const LINEWEIGHTS: [i64; 24] =
     [0, 5, 9, 13, 15, 18, 20, 25, 30, 35, 40, 50, 53, 60, 70, 80, 90, 100, 106, 120, 140, 158, 200, 211];
 
 /// 足せる図形の種類（DXF）
-const ADDABLE: [&str; 11] = [
+const ADDABLE: [&str; 12] = [
     "line",
     "polyline",
     "arc",
@@ -38,6 +39,7 @@ const ADDABLE: [&str; 11] = [
     BLOCK_REFERENCE,
     "dimension",
     "hatch",
+    "attribute-definition",
 ];
 
 /// 図形・レイヤに共通する値のキー
@@ -100,7 +102,8 @@ struct EntityInfo {
 #[derive(Debug, Clone)]
 struct BlockInfo {
     name: String,
-    /// ENDBLK のレコード
+    /// BLOCK と ENDBLK のレコード
+    begin: Option<usize>,
     end: Option<usize>,
     /// この編集で足したブロック（new_blocks の番号）
     new: Option<usize>,
@@ -543,7 +546,10 @@ impl<'a> Editor<'a> {
                 _ if section == "BLOCKS" => match kind.as_str() {
                     "BLOCK" => {
                         let name = value(tags, 2).unwrap_or("").to_string();
-                        self.blocks.insert(upper(&name), BlockInfo { name: name.clone(), end: None, new: None });
+                        self.blocks.insert(
+                            upper(&name),
+                            BlockInfo { name: name.clone(), begin: Some(record), end: None, new: None },
+                        );
                         block = Some(name);
                     }
                     "ENDBLK" => {
@@ -1186,6 +1192,44 @@ impl<'a> Editor<'a> {
                 let common = self.common(index, &reader, true)?;
                 vec![self.dimension_record(index, &reader, &place, &common)?]
             }
+            "attribute-definition" => {
+                let mut own = attributes::DEFINITION_KEYS.to_vec();
+                own.extend(placement::KEYS.iter().filter(|key| **key == "justification"));
+                reader.allow(&keys(&own), "属性の定義")?;
+                if !container.is_some_and(|name| name.trim().starts_with("block:")) {
+                    return Err(EditError::at(
+                        index,
+                        "invalid-value",
+                        "属性の定義（attribute-definition）は container の block:<名前> でブロックに足してください",
+                    ));
+                }
+                let (tag, prompt, default) = attributes::read_definition(&reader, index)?;
+                let position = reader.required("position", reader.point("position")?)?;
+                let height = reader.required("height", reader.positive("height")?)?;
+                let rotation = reader.number("rotation")?.unwrap_or(0.0);
+                let style = self.text_style(index, reader.name("textStyle")?)?;
+                let justification = placement::read(&reader, index)?;
+                let common = self.common(index, &reader, true)?;
+                let definition = attributes::Definition {
+                    tag,
+                    prompt,
+                    default,
+                    position,
+                    align: justification.aligned().then_some(position),
+                    height,
+                    rotation,
+                    width: 1.0,
+                    horizontal: justification.horizontal,
+                    vertical: justification.vertical,
+                    flags: 0,
+                    style,
+                };
+                let (mut record, _) = self.entity_record(index, "ATTDEF", &place, &common)?;
+                self.attribute_definition_tags(&mut record, &definition);
+                let block = container.and_then(|name| name.trim().strip_prefix("block:")).unwrap_or_default();
+                self.mark_attributes(block);
+                vec![record.tags]
+            }
             "hatch" => {
                 if !r13 {
                     return Err(EditError::at(
@@ -1202,7 +1246,7 @@ impl<'a> Editor<'a> {
                 vec![record.tags]
             }
             _ => {
-                reader.allow(&keys(&["block", "position", "rotation", "scale"]), "ブロック参照")?;
+                reader.allow(&keys(&["block", "position", "rotation", "scale", "attributes"]), "ブロック参照")?;
                 let name = reader.required("block", reader.name("block")?)?;
                 let block = self
                     .blocks
@@ -1219,8 +1263,19 @@ impl<'a> Editor<'a> {
                 let rotation = reader.number("rotation")?.unwrap_or(0.0);
                 let scale = self.scale(index, &reader)?.unwrap_or([1.0; 3]);
                 let common = self.common(index, &reader, true)?;
-                let (mut record, _) = self.entity_record(index, "INSERT", &place, &common)?;
+                // 属性（attributes のタグ → 値。ブロックの属性の定義ごとに ATTRIB を書く）
+                let placed = match reader.strings("attributes")? {
+                    Some(values) => {
+                        let (definitions, base) = self.attribute_definitions(&block);
+                        attributes::place(&definitions, values, base, position, scale, rotation, index)?
+                    }
+                    None => Vec::new(),
+                };
+                let (mut record, handle) = self.entity_record(index, "INSERT", &place, &common)?;
                 self.subclass(&mut record, "AcDbBlockReference");
+                if !placed.is_empty() {
+                    record.int(66, 1);
+                }
                 record.tag(2, block).point(10, position, true);
                 if scale != [1.0; 3] {
                     record.real(41, scale[0]).real(42, scale[1]).real(43, scale[2]);
@@ -1228,7 +1283,20 @@ impl<'a> Editor<'a> {
                 if rotation != 0.0 {
                     record.real(50, rotation);
                 }
-                vec![record.tags]
+                let mut records = vec![record.tags];
+                if !placed.is_empty() {
+                    // ATTRIB と SEQEND の所有者は INSERT（DXF Reference「ATTRIB」）
+                    let owned = Place { before: place.before, owner: handle, paper: place.paper, block: place.block };
+                    let follower = Common { layer: common.layer.clone(), color: None, line_type: None, line_width: None };
+                    for attribute in &placed {
+                        let (mut record, _) = self.entity_record(index, "ATTRIB", &owned, &follower)?;
+                        self.attribute_tags(&mut record, attribute);
+                        records.push(record.tags);
+                    }
+                    let (end, _) = self.entity_record(index, "SEQEND", &owned, &follower)?;
+                    records.push(end.tags);
+                }
+                records
             }
         };
         let handle = value(&tags[0], 5).map(str::to_string).unwrap_or_default();
@@ -1410,6 +1478,107 @@ impl<'a> Editor<'a> {
             self.subclass(&mut record, "AcDbRotatedDimension");
         }
         Ok(record.tags)
+    }
+
+    /// ATTDEF の値（DXF Reference「ATTDEF」: AcDbText の 10・40・1・50・7・72・11、AcDbAttributeDefinition の 3・2・70・74）
+    fn attribute_definition_tags(&self, record: &mut Record, definition: &attributes::Definition) {
+        self.subclass(record, "AcDbText");
+        record.point(10, definition.position, true).real(40, definition.height).tag(1, definition.default.clone());
+        if definition.rotation != 0.0 {
+            record.real(50, definition.rotation);
+        }
+        if let Some(style) = &definition.style {
+            record.tag(7, style.clone());
+        }
+        if let Some(align) = definition.align {
+            record.int(72, definition.horizontal).point(11, align, true);
+        }
+        self.subclass(record, "AcDbAttributeDefinition");
+        record.tag(3, definition.prompt.clone()).tag(2, definition.tag.clone()).int(70, definition.flags);
+        if definition.vertical != 0 {
+            record.int(74, definition.vertical);
+        }
+    }
+
+    /// ATTRIB の値（DXF Reference「ATTRIB」: AcDbText の後に AcDbAttribute の 2・70・74）
+    fn attribute_tags(&self, record: &mut Record, attribute: &attributes::Placed) {
+        let definition = &attribute.definition;
+        self.subclass(record, "AcDbText");
+        record.point(10, attribute.position, true).real(40, attribute.height).tag(1, attribute.value.clone());
+        if attribute.rotation != 0.0 {
+            record.real(50, attribute.rotation);
+        }
+        if definition.width != 1.0 {
+            record.real(41, definition.width);
+        }
+        if let Some(style) = &definition.style {
+            record.tag(7, style.clone());
+        }
+        if let Some(align) = attribute.align {
+            record.int(72, definition.horizontal).point(11, align, true);
+        }
+        self.subclass(record, "AcDbAttribute");
+        record.tag(2, definition.tag.clone()).int(70, definition.flags);
+        if definition.vertical != 0 {
+            record.int(74, definition.vertical);
+        }
+    }
+
+    /// ブロックの BLOCK の 70 に「属性を持つ」（2）を立てる
+    fn mark_attributes(&mut self, name: &str) {
+        let Some(info) = self.blocks.get(&upper(name)).cloned() else { return };
+        let tags = match (info.new, info.begin) {
+            (Some(number), _) => &mut self.new_blocks[number].begin,
+            (None, Some(begin)) => self.tags_mut(begin),
+            _ => return,
+        };
+        let flags = number(tags, 70).unwrap_or(0.0) as i64;
+        set(tags, 70, (flags | 2).to_string(), &[2]);
+    }
+
+    /// ブロックの属性の定義（元のレコード、この編集で足したもの）と基点
+    fn attribute_definitions(&self, name: &str) -> (Vec<attributes::Definition>, [f64; 3]) {
+        let Some(info) = self.blocks.get(&upper(name)) else { return (Vec::new(), [0.0; 3]) };
+        let mut records: Vec<&[Tag]> = Vec::new();
+        let base_tags: &[Tag] = match (info.new, info.begin, info.end) {
+            (Some(number), ..) => {
+                let block = &self.new_blocks[number];
+                records.extend(block.entities.iter().map(Vec::as_slice));
+                &block.begin
+            }
+            (None, Some(begin), Some(end)) => {
+                records.extend(
+                    (begin + 1..end).filter(|record| !self.deleted.contains(record)).map(|record| self.tags(record)),
+                );
+                records.extend(self.inserted.get(&end).into_iter().flatten().map(Vec::as_slice));
+                self.tags(begin)
+            }
+            _ => return (Vec::new(), [0.0; 3]),
+        };
+        let base = get_point(base_tags, 10).unwrap_or([0.0; 3]);
+        let definitions = records
+            .into_iter()
+            .filter(|tags| tags.first().is_some_and(|tag| tag.code == 0 && tag.text() == "ATTDEF"))
+            .filter_map(|tags| {
+                let horizontal = number(tags, 72).unwrap_or(0.0) as i64;
+                let vertical = number(tags, 74).unwrap_or(0.0) as i64;
+                Some(attributes::Definition {
+                    tag: value(tags, 2)?.to_string(),
+                    prompt: value(tags, 3).unwrap_or("").to_string(),
+                    default: value(tags, 1).unwrap_or("").to_string(),
+                    position: get_point(tags, 10)?,
+                    align: if horizontal != 0 || vertical != 0 { get_point(tags, 11) } else { None },
+                    height: number(tags, 40).unwrap_or(1.0),
+                    rotation: number(tags, 50).unwrap_or(0.0),
+                    width: number(tags, 41).unwrap_or(1.0),
+                    horizontal,
+                    vertical,
+                    flags: number(tags, 70).unwrap_or(0.0) as i64,
+                    style: value(tags, 7).map(str::to_string),
+                })
+            })
+            .collect();
+        (definitions, base)
     }
 
     /// 尺度。数（すべての向き）、[x, y]、[x, y, z]
@@ -2090,7 +2259,7 @@ impl<'a> Editor<'a> {
         self.subclass(&mut end, "AcDbBlockEnd");
         self.new_blocks.push(NewBlock { at, begin: begin.tags, entities: Vec::new(), end: end.tags });
         let number = self.new_blocks.len() - 1;
-        self.blocks.insert(key, BlockInfo { name: name.to_string(), end: None, new: Some(number) });
+        self.blocks.insert(key, BlockInfo { name: name.to_string(), begin: None, end: None, new: Some(number) });
         Ok(number)
     }
 
