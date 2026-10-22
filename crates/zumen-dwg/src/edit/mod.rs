@@ -1104,6 +1104,23 @@ impl Editor {
                     self.store_entity(annotation_handle, &entity);
                 }
                 let factor = if style.scale > 0.0 { style.scale } else { 1.0 };
+                // LEADER（20.4.47）の Hooklineonxdir。左の注釈は +X に戻ってから最後の頂点へ進む。
+                let hook_on_x = annotation.attachment == 6;
+                // 注釈つきの DWG は読み取りで水平のフックを補う（entities.rs の推定）。最後の線分に収まらないと
+                // 指定した折線と形が変わるので、黙って書かず、変わる引出線の数を知らせる。
+                let last = vertices[vertices.len() - 1];
+                let before = vertices[vertices.len() - 2];
+                let hook_length = style.arrow_size * if style.scale == 0.0 { 1.0 } else { style.scale };
+                if !text.is_empty()
+                    && hook_length > 0.0
+                    && (last[1] != before[1] || last[2] != before[2] || (last[0] - before[0]).abs() < hook_length)
+                {
+                    self.notices.add(
+                        NoticeLevel::Info,
+                        "edit-leader-hook",
+                        "DWG の注釈つき引出線は、終端に水平なフック線を補って描きます",
+                    );
+                }
                 let body = Leader {
                     unknown_bit: false,
                     annotation_type: if text.is_empty() { 3 } else { 0 },
@@ -1115,7 +1132,7 @@ impl Editor {
                     block_offset: [0.0; 3],
                     end_projection: [0.0; 3],
                     box_size: None,
-                    hook_on_x: false,
+                    hook_on_x,
                     arrowhead: true,
                     unknown_short: 0,
                     unknown_bits: [false, false],

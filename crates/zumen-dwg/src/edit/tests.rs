@@ -904,3 +904,32 @@ fn adds_leaders_in_every_version() {
         );
     }
 }
+
+/// 注釈が左にある場合もフックは最後の線分へ戻す。線分に収まらない補助線は種類と数で知らせる。
+#[test]
+fn leader_hooks_follow_the_annotation_and_report_changed_paths() {
+    let operations = r#"[
+        {"op":"add","kind":"leader","vertices":[[0,0],[-10,10],[-30,10]],"text":"left"},
+        {"op":"add","kind":"leader","vertices":[[0,0],[10,10],[30,10]],"text":"right"},
+        {"op":"add","kind":"leader","vertices":[[0,0],[-10,5]],"text":"diagonal"},
+        {"op":"add","kind":"leader","vertices":[[0,0],[1,0]],"text":"short"},
+        {"op":"add","kind":"leader","vertices":[[0,0],[-10,5]]}
+    ]"#;
+    for version in crate::DwgVersion::ALL {
+        let empty = zumen_dxf::parse_dxf(&zumen_dxf::new_dxf("mm").unwrap());
+        let source = crate::write_dwg_as(&empty, version).bytes;
+        let edited = edit(&source, operations).unwrap();
+        check_structure(version.name(), &edited.bytes);
+        let notices: Vec<_> = edited.notices.iter().filter(|notice| notice.code == "edit-leader-hook").collect();
+        assert_eq!(notices.len(), 1, "{}", version.name());
+        assert_eq!(notices[0].count, 2, "{}", version.name());
+        let doc = crate::read_dwg(&edited.bytes).unwrap();
+        let points = |number: usize| match &entity(&doc, &edited.created[number]).unwrap().data {
+            DxfEntityData::Leader(leader) => leader.points.clone(),
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(points(0), [[0.0, 0.0, 0.0], [-10.0, 10.0, 0.0], [-27.5, 10.0, 0.0], [-30.0, 10.0, 0.0]]);
+        assert_eq!(points(1), [[0.0, 0.0, 0.0], [10.0, 10.0, 0.0], [27.5, 10.0, 0.0], [30.0, 10.0, 0.0]]);
+        assert_eq!(points(4), [[0.0, 0.0, 0.0], [-10.0, 5.0, 0.0]]);
+    }
+}

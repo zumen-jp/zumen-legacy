@@ -717,6 +717,9 @@ drawing with `write_dwg` (`$INSUNITS` and `$MEASUREMENT` from the units), which 
 - **Leaders**: `leader` writes the annotation MTEXT and a LEADER (20.4.47) that points to it, with the values of the
   DXF editor; R13 and R14 also get DIMGAP × DIMSCALE and DIMASZ × DIMSCALE in the LEADER. Reading adds the hook vertex
   that AutoCAD writes to DXF (`entities.rs`, an inferred rule).
+  The hook points back toward the penultimate vertex for either annotation side. If the horizontal hook cannot fit
+  inside the supplied final segment (a diagonal or short segment), `edit-leader-hook` counts the leaders whose
+  paths change when read; no hook is synthesized without a text annotation.
 - **Values the version cannot hold** are written as the nearest one and reported: `edit-nearest-color` (no true color
   before AutoCAD 2004) and `edit-rounded-lineweight` (the line weights of DWG). R13 and R14 have no line weights and
   plot every layer, so a line weight other than BYLAYER (entities) or the default (layers) and `plot: false` are not
