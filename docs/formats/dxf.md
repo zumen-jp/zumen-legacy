@@ -462,7 +462,9 @@ stay, and an edit without operations gives the same bytes.
   attributes) of the BLOCK. `block-reference` takes `attributes`, an object from tag to value: the INSERT gets 66 = 1
   and, for each non-constant attribute definition of the block (those the drawing has and those added earlier in the
   edit), an ATTRIB owned by it, placed as AutoCAD places it (the definition's point less the base point, scaled,
-  rotated and moved to the reference; height times the Y scale), with the given value or the default, then a SEQEND.
+  rotated and moved to the reference; the baseline and vertical axis are transformed too, updating height, width,
+  rotation, oblique angle and text generation flags for unequal or negative scales), with the given value or the
+  default, then a SEQEND. The ATTRIB keeps its definition's layer, color, line type and line width.
   A tag that the block does not define is `invalid-value`. Without `attributes`, no ATTRIB is written.
 - **Values the version cannot hold** are written as the nearest one and reported: `edit-nearest-color` (no true color
   before AutoCAD 2004), `edit-rounded-lineweight` (the line weights of the DXF Reference), `edit-no-lineweight` (no

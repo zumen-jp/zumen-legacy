@@ -840,3 +840,48 @@ fn adds_attributes_in_every_version() {
         assert_eq!(attributes.count(), 2, "{name}");
     }
 }
+
+/// DXF と同じく、別の編集で読んだ ATTDEF の見た目と非等方尺度を保つ。
+#[test]
+fn preserves_attribute_appearance_and_nonuniform_scaling_in_every_version() {
+    for version in crate::DwgVersion::ALL {
+        let name = version.name();
+        let definitions = edit(&written_as(version), r#"[
+            {"op":"add-layer","name":"ATTRIBUTES"},
+            {"op":"add-block","name":"REVIEW"},
+            {"op":"add","kind":"attribute-definition","container":"block:REVIEW","tag":"A","text":"hello","position":[1,2],"height":1,"layer":"ATTRIBUTES","color":2,"lineType":"byblock","lineWidth":0.35},
+            {"op":"add","kind":"attribute-definition","container":"block:REVIEW","tag":"B","text":"rotated","position":[0,0],"height":1,"rotation":90,"color":3}
+        ]"#).unwrap();
+        let edited = edit(&definitions.bytes, r#"[
+            {"op":"add","kind":"block-reference","block":"REVIEW","position":[10,20],"scale":[2,1],"attributes":{},"color":4},
+            {"op":"add","kind":"block-reference","block":"REVIEW","position":[0,0],"scale":[-2,1],"attributes":{}}
+        ]"#).unwrap();
+        check_structure(name, &edited.bytes);
+        let doc = crate::read_dwg(&edited.bytes).unwrap();
+        let get = |handle: &str| {
+            let DxfEntityData::Insert(insert) = &entity(&doc, handle).unwrap().data else { panic!("{name}") };
+            insert
+        };
+        let insert = get(&edited.created[0]);
+        let base = &insert.attribs[0].base;
+        assert_eq!(
+            (base.layer.as_str(), base.color_index, base.linetype.as_str()),
+            ("ATTRIBUTES", 2.0, "ByBlock"),
+            "{name}"
+        );
+        if !matches!(version, crate::DwgVersion::R13 | crate::DwgVersion::R14) {
+            assert_eq!(base.lineweight, 35.0, "{name}");
+        }
+        let DxfEntityData::Attrib { text, .. } = &insert.attribs[0].data else { panic!() };
+        assert_eq!((text.insert, text.height, text.width), ([12.0, 22.0, 0.0], 1.0, 2.0), "{name}");
+        let DxfEntityData::Attrib { text, .. } = &insert.attribs[1].data else { panic!() };
+        assert!(
+            (text.height - 2.0).abs() < 1e-9 && (text.width - 0.5).abs() < 1e-9 && (text.rotation - 90.0).abs() < 1e-9,
+            "{name}"
+        );
+        assert_eq!(insert.attribs[1].base.color_index, 3.0, "{name}");
+        let DxfEntityData::Attrib { text, .. } = &get(&edited.created[1]).attribs[0].data else { panic!() };
+        assert_eq!(text.text_generation_flag, 4.0, "{name}");
+        assert!((text.rotation.abs() - 180.0).abs() < 1e-9, "{name}");
+    }
+}

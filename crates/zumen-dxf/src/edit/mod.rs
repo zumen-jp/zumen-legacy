@@ -321,6 +321,7 @@ pub fn new_dxf(units: &str) -> Result<Vec<u8>, EditError> {
 }
 
 /// 図形の共通の値
+#[derive(Clone)]
 struct Common {
     layer: String,
     color: Option<EditColor>,
@@ -1219,6 +1220,8 @@ impl<'a> Editor<'a> {
                     height,
                     rotation,
                     width: 1.0,
+                    oblique: 0.0,
+                    generation: 0,
                     horizontal: justification.horizontal,
                     vertical: justification.vertical,
                     flags: 0,
@@ -1266,8 +1269,14 @@ impl<'a> Editor<'a> {
                 // 属性（attributes のタグ → 値。ブロックの属性の定義ごとに ATTRIB を書く）
                 let placed = match reader.strings("attributes")? {
                     Some(values) => {
-                        let (definitions, base) = self.attribute_definitions(&block);
+                        let (definitions, appearance, base) = self.attribute_definitions(&block);
                         attributes::place(&definitions, values, base, position, scale, rotation, index)?
+                            .into_iter()
+                            .map(|placed| {
+                                let source = placed.source;
+                                (placed, appearance[source].clone())
+                            })
+                            .collect()
                     }
                     None => Vec::new(),
                 };
@@ -1289,8 +1298,9 @@ impl<'a> Editor<'a> {
                     let owned = Place { before: place.before, owner: handle, paper: place.paper, block: place.block };
                     let follower =
                         Common { layer: common.layer.clone(), color: None, line_type: None, line_width: None };
-                    for attribute in &placed {
-                        let (mut record, _) = self.entity_record(index, "ATTRIB", &owned, &follower)?;
+                    for (attribute, appearance) in &placed {
+                        // ATTDEF のレイヤ・色・線種・線幅は参照の値で上書きしない（DXF Reference「ATTRIB」「Common Group Codes」）。
+                        let (mut record, _) = self.entity_record(index, "ATTRIB", &owned, appearance)?;
                         self.attribute_tags(&mut record, attribute);
                         records.push(record.tags);
                     }
@@ -1509,8 +1519,14 @@ impl<'a> Editor<'a> {
         if attribute.rotation != 0.0 {
             record.real(50, attribute.rotation);
         }
-        if definition.width != 1.0 {
-            record.real(41, definition.width);
+        if attribute.width != 1.0 {
+            record.real(41, attribute.width);
+        }
+        if attribute.oblique != 0.0 {
+            record.real(51, attribute.oblique);
+        }
+        if attribute.generation != 0 {
+            record.int(71, attribute.generation);
         }
         if let Some(style) = &definition.style {
             record.tag(7, style.clone());
@@ -1538,8 +1554,8 @@ impl<'a> Editor<'a> {
     }
 
     /// ブロックの属性の定義（元のレコード、この編集で足したもの）と基点
-    fn attribute_definitions(&self, name: &str) -> (Vec<attributes::Definition>, [f64; 3]) {
-        let Some(info) = self.blocks.get(&upper(name)) else { return (Vec::new(), [0.0; 3]) };
+    fn attribute_definitions(&self, name: &str) -> (Vec<attributes::Definition>, Vec<Common>, [f64; 3]) {
+        let Some(info) = self.blocks.get(&upper(name)) else { return (Vec::new(), Vec::new(), [0.0; 3]) };
         let mut records: Vec<&[Tag]> = Vec::new();
         let base_tags: &[Tag] = match (info.new, info.begin, info.end) {
             (Some(number), ..) => {
@@ -1554,16 +1570,16 @@ impl<'a> Editor<'a> {
                 records.extend(self.inserted.get(&end).into_iter().flatten().map(Vec::as_slice));
                 self.tags(begin)
             }
-            _ => return (Vec::new(), [0.0; 3]),
+            _ => return (Vec::new(), Vec::new(), [0.0; 3]),
         };
         let base = get_point(base_tags, 10).unwrap_or([0.0; 3]);
-        let definitions = records
+        let (definitions, appearance) = records
             .into_iter()
             .filter(|tags| tags.first().is_some_and(|tag| tag.code == 0 && tag.text() == "ATTDEF"))
             .filter_map(|tags| {
                 let horizontal = number(tags, 72).unwrap_or(0.0) as i64;
                 let vertical = number(tags, 74).unwrap_or(0.0) as i64;
-                Some(attributes::Definition {
+                let definition = attributes::Definition {
                     tag: value(tags, 2)?.to_string(),
                     prompt: value(tags, 3).unwrap_or("").to_string(),
                     default: value(tags, 1).unwrap_or("").to_string(),
@@ -1572,14 +1588,30 @@ impl<'a> Editor<'a> {
                     height: number(tags, 40).unwrap_or(1.0),
                     rotation: number(tags, 50).unwrap_or(0.0),
                     width: number(tags, 41).unwrap_or(1.0),
+                    oblique: number(tags, 51).unwrap_or(0.0),
+                    generation: number(tags, 71).unwrap_or(0.0) as i64,
                     horizontal,
                     vertical,
                     flags: number(tags, 70).unwrap_or(0.0) as i64,
                     style: value(tags, 7).map(str::to_string),
-                })
+                };
+                let appearance = Common {
+                    layer: value(tags, 8).unwrap_or("0").to_string(),
+                    color: number(tags, 420)
+                        .map(|rgb| EditColor::Rgb(rgb as u32))
+                        .or_else(|| number(tags, 62).map(|aci| EditColor::Index(aci as u32))),
+                    line_type: value(tags, 6).map(str::to_string),
+                    line_width: number(tags, 370).map(|width| match width as i64 {
+                        -1 => EditLineWidth::ByLayer,
+                        -2 => EditLineWidth::ByBlock,
+                        -3 => EditLineWidth::Default,
+                        _ => EditLineWidth::Millimeters(width / 100.0),
+                    }),
+                };
+                Some((definition, appearance))
             })
-            .collect();
-        (definitions, base)
+            .unzip();
+        (definitions, appearance, base)
     }
 
     /// 尺度。数（すべての向き）、[x, y]、[x, y, z]
