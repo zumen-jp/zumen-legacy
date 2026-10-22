@@ -587,3 +587,25 @@ fn extent_points(data: &DxfEntityData) -> Vec<Point> {
         _ => Vec::new(),
     }
 }
+
+#[cfg(test)]
+mod review_tests {
+    #[test]
+    fn reports_views_overlapping_across_sheets() {
+        let spec = serde_json::json!({"sheets": [
+            {"name": "First", "views": [{"scale": 100, "viewport": [0, 0, 100, 100],
+                "center": [0, 0], "items": [{"type": "line", "from": [0, 0], "to": [10, 0]}]}]},
+            {"name": "Second", "views": [{"scale": 100, "viewport": [0, 0, 100, 100],
+                "center": [0, 0], "items": [{"type": "line", "from": [0, 0], "to": [0, 10]}]}]}
+        ]});
+        let drafted = super::draft(&spec).unwrap();
+        let notice = drafted
+            .notices
+            .iter()
+            .find(|notice| notice.code == "view-overlap")
+            .expect("views on separate sheets still share model geometry");
+        assert_eq!(notice.count, 1);
+        assert!(notice.message.contains("sheets[0].views[0]"));
+        assert!(notice.message.contains("sheets[1].views[0]"));
+    }
+}

@@ -54,14 +54,14 @@ fn place(spec: &TableSpec, columns: usize, path: &str) -> Result<(Vec<Placement>
             }
             let cell = parse_cell(value, &cell_path)?;
             let (span_columns, span_rows) = (cell.colspan.unwrap_or(1).max(1), cell.rowspan.unwrap_or(1).max(1));
-            if column + span_columns > columns {
+            if span_columns > columns.saturating_sub(column) {
                 return Err(DraftError::new(
                     "invalid-value",
                     &cell_path,
                     format!("セルが列の数（{columns}）を超えます"),
                 ));
             }
-            if row + span_rows > rows {
+            if span_rows > rows - row {
                 return Err(DraftError::new("invalid-value", &cell_path, format!("セルが行の数（{rows}）を超えます")));
             }
             for cells in owner.iter_mut().skip(row).take(span_rows) {
@@ -245,5 +245,20 @@ mod tests {
     fn merges_runs_of_edges() {
         assert_eq!(runs(&[true, true, false, true]), vec![(0, 2), (3, 4)]);
         assert_eq!(runs(&[false, false]), Vec::<(usize, usize)>::new());
+    }
+
+    #[test]
+    fn rejects_overflowing_cell_spans() {
+        for (key, cells) in [
+            ("colspan", serde_json::json!([["first", {"colspan": usize::MAX}]])),
+            ("rowspan", serde_json::json!([["first"], [{"rowspan": usize::MAX}]])),
+        ] {
+            let spec = serde_json::json!({"sheets": [{"name": "Sheet", "items": [{
+                "type": "table", "at": [0, 0], "columns": [10, 10], "cells": cells
+            }]}]});
+            let error = crate::draft(&spec).unwrap_err();
+            assert_eq!(error.code, "invalid-value", "{key}");
+            assert!(error.path.contains(".cells["), "{error}");
+        }
     }
 }

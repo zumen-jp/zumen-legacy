@@ -126,6 +126,8 @@ pub(crate) fn draw(drafter: &mut Drafter, spec: &Spec) -> Result<(), DraftError>
     }
     let mut layouts = vec![layout(drafter, "Model", "*Model_Space", true, 0, ("", 0.0, 0.0))];
     let mut names: Vec<String> = Vec::new();
+    // All layouts view the same model space, including views on different sheets.
+    let mut regions: Vec<(String, BBox)> = Vec::new();
     for (index, sheet) in spec.sheets.iter().enumerate() {
         let path = format!("sheets[{index}]");
         if names.iter().any(|name| name.eq_ignore_ascii_case(&sheet.name)) {
@@ -140,7 +142,7 @@ pub(crate) fn draw(drafter: &mut Drafter, spec: &Spec) -> Result<(), DraftError>
             (Space::Layout(block.clone()), block)
         };
         layouts.push(layout(drafter, &sheet.name, &block, false, index + 1, (&paper_name, width, height)));
-        draw_sheet(drafter, sheet, &space, (width, height), &path)?;
+        draw_sheet(drafter, sheet, &space, (width, height), &path, &mut regions)?;
     }
     drafter.builder.doc.layouts = layouts;
     // レイアウトを開いた状態にする（決定 0008）
@@ -155,6 +157,7 @@ fn draw_sheet(
     space: &Space,
     size: (f64, f64),
     path: &str,
+    regions: &mut Vec<(String, BBox)>,
 ) -> Result<(), DraftError> {
     let (width, height) = size;
     let paper_ctx = Ctx { space: space.clone(), scale: 1.0, style: StyleSpec::default() };
@@ -179,7 +182,6 @@ fn draw_sheet(
     if let Some(frame) = &sheet.frame {
         draw_frame(drafter, &paper_ctx, frame, size, &format!("{path}.frame"))?;
     }
-    let mut regions: Vec<(String, BBox)> = Vec::new();
     for (index, view) in sheet.views.iter().enumerate() {
         let view_path = format!("{path}.views[{index}]");
         let scale = positive(view.scale, "scale", &view_path)?;
@@ -210,7 +212,7 @@ fn draw_sheet(
             rect,
         };
         let model_region = region(&view_model, [0.0, 0.0]);
-        for (other, other_region) in &regions {
+        for (other, other_region) in regions.iter() {
             let overlaps = model_region.min_x < other_region.max_x
                 && other_region.min_x < model_region.max_x
                 && model_region.min_y < other_region.max_y
