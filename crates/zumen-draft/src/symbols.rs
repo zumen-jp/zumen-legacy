@@ -132,7 +132,7 @@ pub(crate) fn grid(
     let text_layer = drafter.defaults.text_layer.clone();
     let text_look = drafter.look(ctx, &mark_style, text_layer.as_deref(), path)?;
     let label_height = diameter * 0.45;
-    let mut bubble = |drafter: &mut Drafter, center: Point, content: &str| {
+    let bubble = |drafter: &mut Drafter, center: Point, content: &str| {
         drafter.add(&ctx.space, &mark_look, "CIRCLE", DxfEntityData::Circle { center: xyz(center), radius: r }, path);
         label(drafter, ctx, &text_look, center, content, label_height, MIDDLE_CENTER, 0.0, path);
     };

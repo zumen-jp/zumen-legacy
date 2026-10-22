@@ -80,6 +80,20 @@ pub fn draft(value: &Value) -> Result<Drafted, DraftError> {
     Ok(Drafted { document, notices: builder.notices.into_vec(), sources: builder.sources })
 }
 
+/// 仕様の用紙を、名前の 1 枚だけにする（用紙を 1 枚しか持たない JWW・SXF に、2 枚目からの用紙を書くのに使う）
+pub fn select_sheet(value: &mut Value, name: &str) -> Result<(), DraftError> {
+    let Some(Value::Array(sheets)) = value.get_mut("sheets") else {
+        return Err(DraftError::new("invalid-spec", "sheets", "用紙（sheets）がありません"));
+    };
+    let names: Vec<String> =
+        sheets.iter().filter_map(|sheet| sheet.get("name").and_then(Value::as_str).map(str::to_string)).collect();
+    sheets.retain(|sheet| sheet.get("name").and_then(Value::as_str).is_some_and(|sheet| sheet.eq_ignore_ascii_case(name)));
+    if sheets.is_empty() {
+        return Err(DraftError::new("invalid-value", "sheets", format!("用紙 {name} がありません（{}）", names.join("・"))));
+    }
+    Ok(())
+}
+
 /// 文字の既定の高さ（用紙の mm）
 const TEXT_HEIGHT: f64 = 2.5;
 /// 数の値の上限（座標・長さ）
@@ -135,6 +149,8 @@ fn builtin_line_types() -> Vec<(&'static str, &'static str, Vec<f64>)> {
 pub(crate) struct BlockInfo {
     pub name: String,
     pub attributes: Vec<spec::AttributeSpec>,
+    /// 基点
+    pub base: Point,
 }
 
 pub(crate) struct Drafter {

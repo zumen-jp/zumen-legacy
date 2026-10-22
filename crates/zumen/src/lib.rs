@@ -4,6 +4,7 @@
 //! 受け取った図面を信用できないときは、`ReadDrawingOptions::limits` でバイト数・図形の数・時間の上限を指定する。
 //! どの図面も AutoCAD の図面のモデルを経て、DXF・DWG・JWW・SXF に書き直せる（`convert`）。
 //! 図面をその場で編集し（`edit`）、新しい図面を作れる（`create`）。操作は形式によらない（`edit::parse_operations`）。
+//! 図面の仕様（JSON）から、用紙・ビュー・寸法・表のそろった図面を描ける（`draft`、決定 0018）。
 //!
 //! ```no_run
 //! let bytes = std::fs::read("plan.jww").unwrap();
@@ -19,6 +20,7 @@
 pub use zumen_convert as mapping;
 pub use zumen_core::*;
 pub use zumen_dwg as dwg;
+pub use zumen_draft as draft;
 pub use zumen_dxf as dxf;
 pub use zumen_jww as jww;
 pub use zumen_sxf as sxf;
@@ -154,32 +156,64 @@ pub fn convert_with(
         return Err(limit_error(limit, limits));
     }
     let doc = doc?;
-    let (written, exceeded) = zumen_core::limits::with_limits(limits, || -> Result<_, ReadError> {
-        Ok(match target {
-            Target::Dxf(version) => {
-                let written = dxf::write_dxf_as(&doc, version);
-                (written.bytes, written.notices)
-            }
-            Target::Dwg => {
-                let written = dwg::write_dwg(&doc);
-                (written.bytes, written.notices)
-            }
-            Target::Jww => {
-                let mapped = mapping::dxf_to_jww(&doc);
-                let written = mapped.write();
-                (written.bytes, [mapped.notices, written.notices].concat())
-            }
-            Target::Sxf(format, version) => {
-                let mapped = mapping::dxf_to_sxf(&doc);
-                let written = sxf::write_sxf_version(&mapped.drawing, format, version)?;
-                (written.bytes, [mapped.notices, written.notices].concat())
-            }
-        })
-    });
+    let (written, exceeded) = zumen_core::limits::with_limits(limits, || write_document(&doc, &target));
     if let Some(limit) = exceeded {
         return Err(limit_error(limit, limits));
     }
     let (bytes, written) = written?;
+    for notice in &written {
+        notices.add_count(notice.level, &notice.code, notice.message.clone(), notice.count);
+    }
+    Ok(Converted { bytes, notices: notices.into_vec() })
+}
+
+/// AutoCAD の図面のモデルを、形式と版に書く。返すのは書いたバイト列と、書けなかった・形を変えて書いた内容
+fn write_document(doc: &dxf::DxfDocument, target: &Target) -> Result<(Vec<u8>, Vec<Notice>), ReadError> {
+    Ok(match *target {
+        Target::Dxf(version) => {
+            let written = dxf::write_dxf_as(doc, version);
+            (written.bytes, written.notices)
+        }
+        Target::Dwg => {
+            let written = dwg::write_dwg(doc);
+            (written.bytes, written.notices)
+        }
+        Target::Jww => {
+            let mapped = mapping::dxf_to_jww(doc);
+            let written = mapped.write();
+            (written.bytes, [mapped.notices, written.notices].concat())
+        }
+        Target::Sxf(format, version) => {
+            let mapped = mapping::dxf_to_sxf(doc);
+            let written = sxf::write_sxf_version(&mapped.drawing, format, version)?;
+            (written.bytes, [mapped.notices, written.notices].concat())
+        }
+    })
+}
+
+/// `draft` の指定
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DraftOptions {
+    pub write: WriteOptions,
+    /// 描く用紙の名前。省略するとすべての用紙（JWW と SXF は用紙を 1 枚しか持たないので、1 枚目だけを書く）
+    pub sheet: Option<String>,
+}
+
+/// 図面の仕様（JSON、決定 0018）から、用紙・縮尺のあるビュー・寸法・ハッチング・表・表題欄のそろった図面を描き、
+/// `to` の形式（`WRITABLE_FORMATS`）と `write.version` の版で書く。仕様の読み違いは、場所（`sheets[0].items[2]`）と
+/// 変わらない code のある `draft::DraftError` で返す
+pub fn draft(spec: &str, to: &str, options: &DraftOptions) -> Result<Converted, draft::DraftError> {
+    let target = Target::parse(to, options.write.version.as_deref())
+        .map_err(|error| draft::DraftError::new("unsupported-format", "", error.to_string()))?;
+    let mut value: serde_json::Value = serde_json::from_str(spec)
+        .map_err(|error| draft::DraftError::new("invalid-spec", "", format!("仕様の JSON を読めません: {error}")))?;
+    if let Some(sheet) = &options.sheet {
+        draft::select_sheet(&mut value, sheet)?;
+    }
+    let drafted = draft::draft(&value)?;
+    let (bytes, written) = write_document(&drafted.document, &target)
+        .map_err(|error| draft::DraftError::new("unwritable", "", error.to_string()))?;
+    let mut notices = NoticeList::from_notices(&drafted.notices);
     for notice in &written {
         notices.add_count(notice.level, &notice.code, notice.message.clone(), notice.count);
     }
