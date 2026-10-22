@@ -1965,6 +1965,11 @@ impl Editor {
                     .ok_or_else(|| EditError::at(index, "unreadable", "寸法スタイル（DIMSTYLE）が読めません"))?
                     .value;
                 let control = self.tables.dimstyle_control;
+                // DWG 2.13: 相対ハンドルの基準はそのオブジェクト。別のハンドルに写す前に、元のスタイルを基準に解く。
+                style.xref_block = href(5, style.xref_block.resolve(template));
+                for handle in &mut style.handles {
+                    *handle = href(5, handle.resolve(template));
+                }
                 style.common = common(control);
                 style.name = EntryName::new(self.raw_text(name));
                 for (variable, number) in variables {
