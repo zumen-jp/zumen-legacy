@@ -436,6 +436,8 @@ stay, and an edit without operations gives the same bytes.
   not draw (arrow blocks, tolerances, alternate units, suppressed extension lines) are reported (`edit-dimension-style`).
   Variables missing from a DIMSTYLE record take AutoCAD's defaults, as AutoCAD reads them; the `Standard` that zumen
   writes holds only DIMSCALE, DIMASZ and DIMTXT, so its values print with four decimals.
+  DIMTAD 2 places text away from the first definition point, and 4 below the dimension line; JIS placement (3) is
+  approximated above the line and reported (`edit-dimension-text-position`).
 - **Styles**: `add-text-style` (`font`, `bigFont`, `height`, `widthFactor`, `oblique` in degrees), `add-line-type`
   (`description`, `pattern`: up to 12 dashes (positive), gaps (negative) and dots (0) in drawing units) and
   `add-dimension-style` (`from`, by default `Standard`, whose record is copied; `scale` DIMSCALE, `textHeight` DIMTXT,
@@ -465,13 +467,16 @@ stay, and an edit without operations gives the same bytes.
   attributes) of the BLOCK. `block-reference` takes `attributes`, an object from tag to value: the INSERT gets 66 = 1
   and, for each non-constant attribute definition of the block (those the drawing has and those added earlier in the
   edit), an ATTRIB owned by it, placed as AutoCAD places it (the definition's point less the base point, scaled,
-  rotated and moved to the reference; height times the Y scale), with the given value or the default, then a SEQEND.
+  rotated and moved to the reference; the baseline and vertical axis are transformed too, updating height, width,
+  rotation, oblique angle and text generation flags for unequal or negative scales), with the given value or the
+  default, then a SEQEND. The ATTRIB keeps its definition's layer, color, line type and line width.
   A tag that the block does not define is `invalid-value`. Without `attributes`, no ATTRIB is written.
 - **Layouts and viewports** (AutoCAD 2000 and later; older drawings refuse them with `unsupported-kind`):
   `add-layout` (`name`, `paperSize: [width, height]` in millimeters) copies a LAYOUT of the drawing (a paper one if
   there is one) with the new name, the next tab order, the paper size and name (`ISO_A3_(420.00_x_297.00_MM)` for the
   A sizes, else empty), limits and a new paper space block `*Paper_Space<n>` (its BLOCK_RECORD's 340 is the layout),
   adds it to the `ACAD_LAYOUT` dictionary, and puts the viewport of the whole sheet (69 = 1) in the block.
+  New layouts use millimeter paper coordinates at 1:1, with no rotation, plot offset or margins.
   `kind: "viewport"` in `container: "layout:<name>"` takes `center`, `width` and `height` on the sheet (mm),
   `viewCenter` in model coordinates and `scale`, the denominator of the scale (1:100 is `100`): the view height is
   `height × scale` converted from millimeters to the drawing's `$INSUNITS` (unitless counts as millimeters). Its id

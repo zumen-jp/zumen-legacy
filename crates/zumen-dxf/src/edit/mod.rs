@@ -346,6 +346,7 @@ pub fn new_dxf(units: &str) -> Result<Vec<u8>, EditError> {
 }
 
 /// 図形の共通の値
+#[derive(Clone)]
 struct Common {
     layer: String,
     color: Option<EditColor>,
@@ -1303,6 +1304,8 @@ impl<'a> Editor<'a> {
                     height,
                     rotation,
                     width: 1.0,
+                    oblique: 0.0,
+                    generation: 0,
                     horizontal: justification.horizontal,
                     vertical: justification.vertical,
                     flags: 0,
@@ -1443,8 +1446,14 @@ impl<'a> Editor<'a> {
                 // 属性（attributes のタグ → 値。ブロックの属性の定義ごとに ATTRIB を書く）
                 let placed = match reader.strings("attributes")? {
                     Some(values) => {
-                        let (definitions, base) = self.attribute_definitions(&block);
+                        let (definitions, appearance, base) = self.attribute_definitions(&block);
                         attributes::place(&definitions, values, base, position, scale, rotation, index)?
+                            .into_iter()
+                            .map(|placed| {
+                                let source = placed.source;
+                                (placed, appearance[source].clone())
+                            })
+                            .collect()
                     }
                     None => Vec::new(),
                 };
@@ -1466,8 +1475,9 @@ impl<'a> Editor<'a> {
                     let owned = Place { before: place.before, owner: handle, paper: place.paper, block: place.block };
                     let follower =
                         Common { layer: common.layer.clone(), color: None, line_type: None, line_width: None };
-                    for attribute in &placed {
-                        let (mut record, _) = self.entity_record(index, "ATTRIB", &owned, &follower)?;
+                    for (attribute, appearance) in &placed {
+                        // ATTDEF のレイヤ・色・線種・線幅は参照の値で上書きしない（DXF Reference「ATTRIB」「Common Group Codes」）。
+                        let (mut record, _) = self.entity_record(index, "ATTRIB", &owned, appearance)?;
                         self.attribute_tags(&mut record, attribute);
                         records.push(record.tags);
                     }
@@ -1570,6 +1580,13 @@ impl<'a> Editor<'a> {
         let position = reader.required("position", reader.point("position")?)?;
         let text = reader.text("text")?.unwrap_or("<>");
         let (style_name, style, text_style) = self.dimension_style(index, reader.name("dimensionStyle")?)?;
+        if style.text_above == 3 {
+            self.notices.add(
+                NoticeLevel::Info,
+                "edit-dimension-text-position",
+                "寸法文字の JIS 配置（DIMTAD=3）は寸法線の上に置いて近似しました",
+            );
+        }
         let layout = dimension::layout(kind, start, end, position, text, &style).ok_or_else(|| {
             EditError::at(index, "invalid-value", "start と end は寸法の向きで離れた点にしてください")
         })?;
@@ -1581,7 +1598,10 @@ impl<'a> Editor<'a> {
             .filter_map(|name| name.strip_prefix("*D").and_then(|number| number.parse::<u64>().ok()))
             .max()
             .unwrap_or(0)
-            + 1;
+            .checked_add(1)
+            .ok_or_else(|| {
+                EditError::at(index, "name-exhausted", "新しい寸法の表示のブロック名を割り当てられません")
+            })?;
         let block_name = format!("*D{next}");
         let block = self.create_block(index, &block_name, [0.0; 3], 1)?;
         let owner = self.block_records.get(&upper(&block_name)).cloned();
@@ -1686,8 +1706,14 @@ impl<'a> Editor<'a> {
         if attribute.rotation != 0.0 {
             record.real(50, attribute.rotation);
         }
-        if definition.width != 1.0 {
-            record.real(41, definition.width);
+        if attribute.width != 1.0 {
+            record.real(41, attribute.width);
+        }
+        if attribute.oblique != 0.0 {
+            record.real(51, attribute.oblique);
+        }
+        if attribute.generation != 0 {
+            record.int(71, attribute.generation);
         }
         if let Some(style) = &definition.style {
             record.tag(7, style.clone());
@@ -1715,8 +1741,8 @@ impl<'a> Editor<'a> {
     }
 
     /// ブロックの属性の定義（元のレコード、この編集で足したもの）と基点
-    fn attribute_definitions(&self, name: &str) -> (Vec<attributes::Definition>, [f64; 3]) {
-        let Some(info) = self.blocks.get(&upper(name)) else { return (Vec::new(), [0.0; 3]) };
+    fn attribute_definitions(&self, name: &str) -> (Vec<attributes::Definition>, Vec<Common>, [f64; 3]) {
+        let Some(info) = self.blocks.get(&upper(name)) else { return (Vec::new(), Vec::new(), [0.0; 3]) };
         let mut records: Vec<&[Tag]> = Vec::new();
         let base_tags: &[Tag] = match (info.new, info.begin, info.end) {
             (Some(number), ..) => {
@@ -1731,16 +1757,16 @@ impl<'a> Editor<'a> {
                 records.extend(self.inserted.get(&end).into_iter().flatten().map(Vec::as_slice));
                 self.tags(begin)
             }
-            _ => return (Vec::new(), [0.0; 3]),
+            _ => return (Vec::new(), Vec::new(), [0.0; 3]),
         };
         let base = get_point(base_tags, 10).unwrap_or([0.0; 3]);
-        let definitions = records
+        let (definitions, appearance) = records
             .into_iter()
             .filter(|tags| tags.first().is_some_and(|tag| tag.code == 0 && tag.text() == "ATTDEF"))
             .filter_map(|tags| {
                 let horizontal = number(tags, 72).unwrap_or(0.0) as i64;
                 let vertical = number(tags, 74).unwrap_or(0.0) as i64;
-                Some(attributes::Definition {
+                let definition = attributes::Definition {
                     tag: value(tags, 2)?.to_string(),
                     prompt: value(tags, 3).unwrap_or("").to_string(),
                     default: value(tags, 1).unwrap_or("").to_string(),
@@ -1749,14 +1775,30 @@ impl<'a> Editor<'a> {
                     height: number(tags, 40).unwrap_or(1.0),
                     rotation: number(tags, 50).unwrap_or(0.0),
                     width: number(tags, 41).unwrap_or(1.0),
+                    oblique: number(tags, 51).unwrap_or(0.0),
+                    generation: number(tags, 71).unwrap_or(0.0) as i64,
                     horizontal,
                     vertical,
                     flags: number(tags, 70).unwrap_or(0.0) as i64,
                     style: value(tags, 7).map(str::to_string),
-                })
+                };
+                let appearance = Common {
+                    layer: value(tags, 8).unwrap_or("0").to_string(),
+                    color: number(tags, 420)
+                        .map(|rgb| EditColor::Rgb(rgb as u32))
+                        .or_else(|| number(tags, 62).map(|aci| EditColor::Index(aci as u32))),
+                    line_type: value(tags, 6).map(str::to_string),
+                    line_width: number(tags, 370).map(|width| match width as i64 {
+                        -1 => EditLineWidth::ByLayer,
+                        -2 => EditLineWidth::ByBlock,
+                        -3 => EditLineWidth::Default,
+                        _ => EditLineWidth::Millimeters(width / 100.0),
+                    }),
+                };
+                Some((definition, appearance))
             })
-            .collect();
-        (definitions, base)
+            .unzip();
+        (definitions, appearance, base)
     }
 
     /// 尺度。数（すべての向き）、[x, y]、[x, y, z]
@@ -2561,10 +2603,16 @@ impl<'a> Editor<'a> {
         for (at, tag) in template.iter().enumerate().take(data_end(&template)) {
             let tag = match tag.code {
                 5 => Tag::new(5, layout_handle.clone()),
-                // 用紙の名前と大きさ（PLOTSETTINGS の 4・44・45、mm）
+                // DXF Reference「PLOTSETTINGS」: 新しい用紙の座標は mm・等倍・回転なしで、左下を原点にする。
+                // 雛形の印刷設定を継ぐと、指定した大きさやビューポートの縮尺が変わる。
                 4 if at < start => Tag::new(4, paper_name(paper[0], paper[1])),
+                40..=43 | 46..=49 | 140..=141 | 148..=149 if at < start => Tag::new(tag.code, "0"),
                 44 if at < start => Tag::new(44, real(paper[0])),
                 45 if at < start => Tag::new(45, real(paper[1])),
+                70 | 73 if at < start => Tag::new(tag.code, "0"),
+                72 | 142..=143 | 147 if at < start => Tag::new(tag.code, "1"),
+                74 if at < start => Tag::new(74, "5"),
+                75 if at < start => Tag::new(75, "16"),
                 1 if at > start => Tag::new(1, name),
                 71 if at > start => Tag::new(71, (tab as i64).to_string()),
                 11 if at > start => Tag::new(11, real(paper[0])),

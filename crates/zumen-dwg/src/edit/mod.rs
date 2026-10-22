@@ -943,7 +943,7 @@ impl Editor {
         let keys = |own: &[&'static str]| -> Vec<&'static str> { COMMON.iter().chain(own).copied().collect() };
         let place = self.place(index, container)?;
         // ブロック参照に書く属性と、その属性の定義の値
-        let mut pending: Vec<(Placed, Attribute)> = Vec::new();
+        let mut pending: Vec<(Placed, EntityCommon, Attribute)> = Vec::new();
         // 足す画像と、その定義・リアクタのハンドル
         let mut image_objects: Option<(zumen_dxf::image::ImageInput, u64, u64)> = None;
         let (type_number, body) = match kind {
@@ -1108,6 +1108,23 @@ impl Editor {
                     self.store_entity(annotation_handle, &entity);
                 }
                 let factor = if style.scale > 0.0 { style.scale } else { 1.0 };
+                // LEADER（20.4.47）の Hooklineonxdir。左の注釈は +X に戻ってから最後の頂点へ進む。
+                let hook_on_x = annotation.attachment == 6;
+                // 注釈つきの DWG は読み取りで水平のフックを補う（entities.rs の推定）。最後の線分に収まらないと
+                // 指定した折線と形が変わるので、黙って書かず、変わる引出線の数を知らせる。
+                let last = vertices[vertices.len() - 1];
+                let before = vertices[vertices.len() - 2];
+                let hook_length = style.arrow_size * if style.scale == 0.0 { 1.0 } else { style.scale };
+                if !text.is_empty()
+                    && hook_length > 0.0
+                    && (last[1] != before[1] || last[2] != before[2] || (last[0] - before[0]).abs() < hook_length)
+                {
+                    self.notices.add(
+                        NoticeLevel::Info,
+                        "edit-leader-hook",
+                        "DWG の注釈つき引出線は、終端に水平なフック線を補って描きます",
+                    );
+                }
                 let body = Leader {
                     unknown_bit: false,
                     annotation_type: if text.is_empty() { 3 } else { 0 },
@@ -1119,7 +1136,7 @@ impl Editor {
                     block_offset: [0.0; 3],
                     end_projection: [0.0; 3],
                     box_size: None,
-                    hook_on_x: false,
+                    hook_on_x,
                     arrowhead: true,
                     unknown_short: 0,
                     unknown_bits: [false, false],
@@ -1243,11 +1260,8 @@ impl Editor {
                     let (definitions, bodies, base) = self.attribute_definitions(block);
                     let placed = attributes::place(&definitions, values, base, position, scale, rotation, index)?;
                     for attribute in placed {
-                        let Some(body) = bodies.iter().find(|body| self.text_of(&body.tag) == attribute.definition.tag)
-                        else {
-                            continue;
-                        };
-                        pending.push((attribute, body.clone()));
+                        let (common, body) = &bodies[attribute.source];
+                        pending.push((attribute, common.clone(), body.clone()));
                     }
                 }
                 (kind::INSERT, build::insert(position, scale, rotation, block))
@@ -1468,7 +1482,21 @@ impl Editor {
         };
         layout.name = self.raw_text(name);
         layout.tab_order = tab;
+        // PLOTSETTINGS（20.4.84）: 用紙の座標は mm・等倍・回転なしで、左下を原点にする。
+        // 雛形の印刷設定を継ぐと、指定した大きさやビューポートの縮尺が変わる。
         layout.plot_flags = 0;
+        layout.margins = [0.0; 4];
+        layout.plot_origin = [0.0; 2];
+        layout.paper_units = 1;
+        layout.plot_rotation = 0;
+        layout.plot_type = 5;
+        layout.window_min = [0.0; 2];
+        layout.window_max = [0.0; 2];
+        layout.real_units = 1.0;
+        layout.drawing_units = 1.0;
+        layout.scale_type = 16;
+        layout.scale_factor = 1.0;
+        layout.paper_image_origin = [0.0; 2];
         layout.paper = [paper[0], paper[1]];
         layout.paper_size = self.raw_text(&zumen_dxf::paper_name(paper[0], paper[1]));
         layout.limmin = [0.0, 0.0];
@@ -1497,15 +1525,18 @@ impl Editor {
         insert_handle: u64,
         insert_common: &EntityCommon,
         insert: &mut crate::codec::entities::Insert,
-        pending: Vec<(Placed, Attribute)>,
+        pending: Vec<(Placed, EntityCommon, Attribute)>,
     ) -> Result<(), EditError> {
         let mut handles = Vec::with_capacity(pending.len());
         for _ in &pending {
             handles.push(self.next_handle(index)?);
         }
         let seqend = self.next_handle(index)?;
-        let follower = |links: Option<(HandleRef, HandleRef)>| {
-            let mut common = insert_common.clone();
+        let follower = |source: &EntityCommon, links: Option<(HandleRef, HandleRef)>| {
+            // ATTRIB の見た目は ATTDEF から写す（DXF Reference「ATTRIB」「Common Group Codes」）。
+            let mut common = source.clone();
+            common.graphic = None;
+            common.xdictionary = None;
             common.mode = 0;
             common.owner = Some(href(4, insert_handle));
             common.reactors = Vec::new();
@@ -1513,7 +1544,7 @@ impl Editor {
             common
         };
         let r2004 = self.version >= Version::R2004;
-        for (at, (placed, mut body)) in pending.into_iter().enumerate() {
+        for (at, (placed, appearance, mut body)) in pending.into_iter().enumerate() {
             // R2000 までは属性どうしをつなぐ（前の属性と次の属性、端は 0）
             let links = (!r2004).then(|| {
                 let previous = at.checked_sub(1).map_or(0, |before| handles[before]);
@@ -1524,6 +1555,9 @@ impl Editor {
             body.text.elevation = (placed.position[2] != 0.0).then_some(placed.position[2]);
             body.text.align = placed.align.map(|align| [align[0], align[1]]);
             body.text.height = placed.height;
+            body.text.width = (placed.width != 1.0).then_some(placed.width);
+            body.text.oblique = (placed.oblique != 0.0).then(|| placed.oblique.to_radians());
+            body.text.generation = (placed.generation != 0).then_some(placed.generation as i16);
             body.text.rotation = (placed.rotation != 0.0).then(|| placed.rotation.to_radians());
             body.text.value = self.raw_text(&placed.value);
             body.prompt = None;
@@ -1531,14 +1565,14 @@ impl Editor {
             let entity = Decoded {
                 kind: kind::ATTRIB,
                 eed: Vec::new(),
-                value: Entity { common: follower(links), body: Body::Attrib(body) },
+                value: Entity { common: follower(&appearance, links), body: Body::Attrib(body) },
             };
             self.store_entity(handles[at], &entity);
         }
         let end = Decoded {
             kind: kind::SEQEND,
             eed: Vec::new(),
-            value: Entity { common: follower(None), body: Body::Empty },
+            value: Entity { common: follower(insert_common, None), body: Body::Empty },
         };
         self.store_entity(seqend, &end);
         insert.has_attributes = true;
@@ -1552,7 +1586,7 @@ impl Editor {
     }
 
     /// ブロックの属性の定義（ATTDEF）の値と、その図形の値、ブロックの基点
-    fn attribute_definitions(&self, block: u64) -> (Vec<Definition>, Vec<Attribute>, [f64; 3]) {
+    fn attribute_definitions(&self, block: u64) -> (Vec<Definition>, Vec<(EntityCommon, Attribute)>, [f64; 3]) {
         let Some(header) = self.read(block, |s, _| BlockHeader::read(s)) else {
             return (Vec::new(), Vec::new(), [0.0; 3]);
         };
@@ -1569,7 +1603,19 @@ impl Editor {
         let mut bodies = Vec::new();
         for member in members {
             let Some((entity, _)) = self.read_entity(member) else { continue };
-            let Body::Attdef(body) = entity.value.body else { continue };
+            let Body::Attdef(mut body) = entity.value.body else { continue };
+            // 相対参照は元の ATTDEF を基準に解決してから写す（DWG 仕様 2.13 Handle references）。
+            let absolute = |handle: HandleRef| {
+                if handle.code >= 6 { href(5, handle.resolve(member)) } else { handle }
+            };
+            body.text.style = absolute(body.text.style);
+            let mut common = entity.value.common;
+            common.layer = absolute(common.layer);
+            common.ltype = common.ltype.map(absolute);
+            common.book_color = common.book_color.map(absolute);
+            common.plotstyle = common.plotstyle.map(absolute);
+            common.material = common.material.map(absolute);
+            common.visual_styles = common.visual_styles.map(|style| style.map(absolute));
             let text: &Text = &body.text;
             let z = text.elevation.unwrap_or(0.0);
             let (horizontal, vertical) = (i64::from(text.halign.unwrap_or(0)), i64::from(text.valign.unwrap_or(0)));
@@ -1582,12 +1628,14 @@ impl Editor {
                 height: text.height,
                 rotation: text.rotation.unwrap_or(0.0).to_degrees(),
                 width: text.width.unwrap_or(1.0),
+                oblique: text.oblique.unwrap_or(0.0).to_degrees(),
+                generation: i64::from(text.generation.unwrap_or(0)),
                 horizontal,
                 vertical,
                 flags: i64::from(body.flags),
                 style: None,
             });
-            bodies.push(body);
+            bodies.push((common, body));
         }
         (definitions, bodies, header.value.base)
     }
@@ -2306,6 +2354,13 @@ impl Editor {
         let position = reader.required("position", reader.point("position")?)?;
         let text = reader.text("text")?.unwrap_or("<>");
         let (style_handle, style, text_style) = self.dimension_style(index, reader.name("dimensionStyle")?)?;
+        if style.text_above == 3 {
+            self.notices.add(
+                NoticeLevel::Info,
+                "edit-dimension-text-position",
+                "寸法文字の JIS 配置（DIMTAD=3）は寸法線の上に置いて近似しました",
+            );
+        }
         let layout = dimension::layout(kind, start, end, position, text, &style).ok_or_else(|| {
             EditError::at(index, "invalid-value", "start と end は寸法の向きで離れた点にしてください")
         })?;
@@ -2315,7 +2370,10 @@ impl Editor {
             .filter_map(|name| name.strip_prefix("*D").and_then(|number| number.parse::<u64>().ok()))
             .max()
             .unwrap_or(0)
-            + 1;
+            .checked_add(1)
+            .ok_or_else(|| {
+                EditError::at(index, "name-exhausted", "新しい寸法の表示のブロック名を割り当てられません")
+            })?;
         let block_name = format!("*D{next}");
         let block = self.create_block(index, &block_name, [0.0; 3], true)?;
         let place = Place { block, mode: 0 };
@@ -2562,6 +2620,11 @@ impl Editor {
                     .ok_or_else(|| EditError::at(index, "unreadable", "寸法スタイル（DIMSTYLE）が読めません"))?
                     .value;
                 let control = self.tables.dimstyle_control;
+                // DWG 2.13: 相対ハンドルの基準はそのオブジェクト。別のハンドルに写す前に、元のスタイルを基準に解く。
+                style.xref_block = href(5, style.xref_block.resolve(template));
+                for handle in &mut style.handles {
+                    *handle = href(5, handle.resolve(template));
+                }
                 style.common = common(control);
                 style.name = EntryName::new(self.raw_text(name));
                 for (variable, number) in variables {
