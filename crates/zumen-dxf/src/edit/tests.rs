@@ -443,3 +443,61 @@ fn changing_only_bulges_preserves_vertex_widths_and_ids() {
         entity_tags(&bytes, "FACE").into_iter().filter(|(code, _)| [40, 41, 91].contains(code)).collect();
     assert_eq!(kept, before);
 }
+
+#[test]
+fn adds_block_definitions_and_places_them() {
+    let bytes = drawing("");
+    let edited = edit(
+        &bytes,
+        r#"[
+            {"op": "add-block", "name": "WIN-1", "basePoint": [5, 0]},
+            {"op": "add", "kind": "line", "container": "block:WIN-1", "start": [0, 0], "end": [10, 0]},
+            {"op": "add", "kind": "circle", "container": "block:win-1", "center": [5, 0], "radius": 1, "layer": "WALL"},
+            {"op": "add", "kind": "block-reference", "block": "WIN-1", "position": [100, 100]}
+        ]"#,
+    )
+    .unwrap();
+    assert_eq!(edited.created[0], "WIN-1");
+    let doc = parse_dxf(&edited.bytes);
+    let block = doc.blocks.iter().find(|block| block.name == "WIN-1").expect("block");
+    assert_eq!(block.base_point, [5.0, 0.0, 0.0]);
+    let record = block.block_record_handle.clone().expect("block record");
+    let inside: Vec<_> = doc.entities.iter().filter(|entity| entity.base.block.as_deref() == Some("WIN-1")).collect();
+    assert_eq!(inside.len(), 2);
+    assert!(inside.iter().all(|entity| entity.base.owner.as_deref() == Some(record.as_str())));
+    // 参照を通して、ブロックの中の図形が描ける
+    let scene = crate::dxf_to_scene(&doc, None);
+    let reference = &edited.created[3];
+    let drawn = scene.entities.iter().filter(|entity| entity.id.starts_with(&format!("{reference}>"))).count();
+    assert_eq!(drawn, 2);
+    let errors = [
+        (r#"[{"op": "add-block", "name": "DOOR"}]"#, "already-exists"),
+        (r#"[{"op": "add-block", "name": "*U1"}]"#, "invalid-value"),
+        (r#"[{"op": "add-block", "name": "A", "origin": [0, 0]}]"#, "unknown-key"),
+    ];
+    for (operations, code) in errors {
+        assert_eq!(edit(&bytes, operations).unwrap_err().code, code, "{operations}");
+    }
+}
+
+#[test]
+fn adds_block_definitions_to_drawings_without_blocks() {
+    // R12 の図面（ENTITIES だけ）には BLOCKS の節を ENTITIES の前に作る
+    let text = "0\nSECTION\n2\nENTITIES\n0\nLINE\n8\n0\n10\n0\n20\n0\n11\n1\n21\n0\n0\nENDSEC\n0\nEOF\n";
+    let edited = edit(
+        text.as_bytes(),
+        r#"[
+            {"op": "add-block", "name": "MARK"},
+            {"op": "add", "kind": "point", "container": "block:MARK", "position": [0, 0]},
+            {"op": "add", "kind": "block-reference", "block": "MARK", "position": [3, 4]}
+        ]"#,
+    )
+    .unwrap();
+    let doc = parse_dxf(&edited.bytes);
+    assert!(doc.blocks.iter().any(|block| block.name == "MARK"));
+    let scene = crate::dxf_to_scene(&doc, None);
+    // 線は BLOCKS の節（SECTION・BLOCK・POINT・ENDBLK・ENDSEC）の後ろに動く（#2 から #7）。参照は #8
+    let ids: Vec<&str> = scene.entities.iter().map(|entity| entity.id.as_str()).collect();
+    assert_eq!(ids, ["#7", "#8>#3"]);
+    assert_eq!(edited.created, ["MARK", "#3", "#8"]);
+}

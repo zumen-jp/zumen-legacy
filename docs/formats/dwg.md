@@ -686,6 +686,11 @@ drawing with `write_dwg` (`$INSUNITS` and `$MEASUREMENT` from the units), which 
   material stay), with color 7, `CONTINUOUS`, the default line weight and plotting on, and adds it to the layer table;
   `update-layer` sets the color, frozen (1), off (2), locked (8), plot (16) and line weight (0x3E0) of the flags, and the
   line type. An R2000 layer that is off also gets a negative color number, as DXF writes it.
+- **Block definitions**: `add-block` ([decision 0017](../decisions/0017-add-annotations-and-definitions.md)) creates
+  a BLOCK_HEADER (20.4.52) named `name`, with `basePoint`, no entities (R2004 and later) or null first and last
+  entities (R13 to R2000), and its BLOCK and ENDBLK entities on layer `0`, and adds it to BLOCK_CONTROL. Later
+  operations add entities to it with `"container": "block:<name>"` and place it with `block-reference`, as for the
+  blocks the drawing has. Existing names are `already-exists`, names starting with `*` `invalid-value`.
 - **Values the version cannot hold** are written as the nearest one and reported: `edit-nearest-color` (no true color
   before AutoCAD 2004) and `edit-rounded-lineweight` (the line weights of DWG). R13 and R14 have no line weights and
   plot every layer, so a line weight other than BYLAYER (entities) or the default (layers) and `plot: false` are not

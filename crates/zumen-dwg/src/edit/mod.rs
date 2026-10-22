@@ -72,6 +72,10 @@ mod kind {
     pub const LAYER: u16 = 51;
     pub const GROUP: u16 = 72;
     pub const LWPOLYLINE: u16 = 77;
+    pub const BLOCK: u16 = 4;
+    pub const ENDBLK: u16 = 5;
+    pub const BLOCK_CONTROL: u16 = 48;
+    pub const BLOCK_HEADER: u16 = 49;
 }
 
 /// DWG を編集する。すべての操作を確かめてから書き、1 つでも通らなければエラーを返して何も書かない
@@ -96,6 +100,7 @@ pub fn edit_dwg(bytes: &[u8], operations: &[EditOperation]) -> Result<Edited, Ed
             EditOperation::Delete { id } => editor.delete(index, id)?,
             EditOperation::AddLayer { name, values } => editor.add_layer(index, name, values, false)?,
             EditOperation::UpdateLayer { name, set } => editor.update_layer(index, name, set)?,
+            EditOperation::AddBlock { name, values } => editor.add_block(index, name, values)?,
         }
     }
     Ok(editor.finish())
@@ -1510,6 +1515,80 @@ impl Editor {
         if !implicit {
             self.created.push(name.to_string());
         }
+        Ok(())
+    }
+
+    /// 空のブロック定義を足す（docs/decisions/0017）。BLOCK_HEADER（20.4.52）と、その BLOCK・ENDBLK の図形を作り、
+    /// BLOCK_CONTROL の項目に足す。中の図形は後の add が container の block:<名前> で足す
+    fn add_block(&mut self, index: usize, name: &str, values: &EditValues) -> Result<(), EditError> {
+        if !valid_name(name) || name.trim().starts_with('*') {
+            return Err(EditError::at(
+                index,
+                "invalid-value",
+                format!("ブロックの名前 {name} は使えません（* で始まる名前は名前のないブロックのためのものです）"),
+            ));
+        }
+        if self.blocks.contains_key(&upper(name)) {
+            return Err(EditError::at(index, "already-exists", format!("ブロック {name} はすでにあります")));
+        }
+        let reader = ValueReader::new(values, index);
+        reader.allow(&["basePoint"], "ブロックの定義")?;
+        let base = reader.point("basePoint")?.unwrap_or([0.0; 3]);
+        let control = self.tables.block_control;
+        let mut table = self
+            .read(control, Control::read)
+            .ok_or_else(|| EditError::at(index, "unreadable", "DWG のブロックの表（BLOCK_CONTROL）が読めません"))?;
+        let header_handle = self.next_handle(index)?;
+        let begin = self.next_handle(index)?;
+        let end = self.next_handle(index)?;
+        let r2004 = self.version >= Version::R2004;
+        let header = BlockHeader {
+            common: ObjectCommon {
+                owner: href(4, control),
+                reactors: Vec::new(),
+                xdictionary: if r2004 { None } else { Some(href(3, 0)) },
+                ds_binary: false,
+            },
+            name: EntryName::new(self.raw_text(name)),
+            anonymous: false,
+            has_attributes: false,
+            xref: false,
+            overlaid: false,
+            loaded: false,
+            base,
+            xref_path: RawText::empty(self.version),
+            insert_count: Vec::new(),
+            description: RawText::empty(self.version),
+            preview: Vec::new(),
+            insert_units: 0,
+            explodable: true,
+            scaling: 0,
+            null: href(5, 0),
+            block: href(3, begin),
+            entities: Vec::new(),
+            // R2000 までは最初と最後の図形（図形のないブロックは 0。モデルの書き出しと同じ）
+            first_last: (!r2004).then(|| (href(4, 0), href(4, 0))),
+            endblk: href(3, end),
+            inserts: Vec::new(),
+            layout: href(5, 0),
+        };
+        self.store(header_handle, kind::BLOCK_HEADER, &[], |out| header.write(out));
+        let place = Place { block: header_handle, mode: 0 };
+        let none = EditValues::new();
+        let common = self.new_common(index, place, &ValueReader::new(&none, index))?;
+        let block = Decoded {
+            kind: kind::BLOCK,
+            eed: Vec::new(),
+            value: Entity { common: common.clone(), body: Body::Block(self.raw_text(name)) },
+        };
+        self.store_entity(begin, &block);
+        let endblk = Decoded { kind: kind::ENDBLK, eed: Vec::new(), value: Entity { common, body: Body::Empty } };
+        self.store_entity(end, &endblk);
+        table.value.entries.push(href(2, header_handle));
+        let (kind, eed) = (table.kind, table.eed.clone());
+        self.store(control, kind, &eed, |out| table.value.write(out, kind::BLOCK_CONTROL));
+        self.blocks.insert(upper(name), header_handle);
+        self.created.push(name.to_string());
         Ok(())
     }
 
