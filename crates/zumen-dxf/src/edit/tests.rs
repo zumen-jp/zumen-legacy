@@ -752,6 +752,115 @@ fn places_text_by_justification_and_line_spacing() {
 }
 
 #[test]
+fn adds_attribute_definitions_and_fills_them_in_references() {
+    let bytes = drawing("");
+    let edited = edit(
+        &bytes,
+        r#"[
+            {"op": "add-block", "name": "TITLE", "basePoint": [0, 0]},
+            {"op": "add", "kind": "polyline", "container": "block:TITLE", "vertices": [[0, 0], [170, 0], [170, 40], [0, 40]], "closed": true},
+            {"op": "add", "kind": "attribute-definition", "container": "block:TITLE", "tag": "drawing", "prompt": "図面名", "text": "未定", "position": [85, 25], "height": 5, "justification": "middle-center"},
+            {"op": "add", "kind": "attribute-definition", "container": "block:TITLE", "tag": "SCALE", "position": [5, 5], "height": 3},
+            {"op": "add", "kind": "block-reference", "block": "TITLE", "position": [250, 10], "scale": 2, "attributes": {"DRAWING": "1階平面図"}},
+            {"op": "add", "kind": "attribute-definition", "container": "block:DOOR", "tag": "WIDTH", "position": [0, 0], "height": 1, "text": "900"},
+            {"op": "add", "kind": "block-reference", "block": "DOOR", "position": [0, 0], "attributes": {"WIDTH": "800"}}
+        ]"#,
+    )
+    .unwrap();
+    let doc = parse_dxf(&edited.bytes);
+    let block = doc.blocks.iter().find(|block| block.name == "TITLE").unwrap();
+    assert_eq!(block.flags, 2.0);
+    let insert = |handle: &str| match &doc.entities.iter().find(|entity| entity.base.handle == handle).unwrap().data {
+        DxfEntityData::Insert(insert) => insert.clone(),
+        other => panic!("{other:?}"),
+    };
+    let title = insert(&edited.created[4]);
+    let values: Vec<(String, String, [f64; 3])> = title
+        .attribs
+        .iter()
+        .map(|attrib| match &attrib.data {
+            DxfEntityData::Attrib { text, tag, .. } => {
+                (tag.clone(), text.text.clone(), text.align_point.unwrap_or(text.insert))
+            }
+            other => panic!("{other:?}"),
+        })
+        .collect();
+    assert_eq!(
+        values,
+        [
+            ("DRAWING".to_string(), "1階平面図".to_string(), [420.0, 60.0, 0.0]),
+            ("SCALE".into(), String::new(), [260.0, 20.0, 0.0])
+        ]
+    );
+    let door = insert(&edited.created[6]);
+    assert_eq!(door.attribs.len(), 2, "the fixture's NO and the added WIDTH");
+    // 参照を通して属性が描ける
+    let scene = crate::dxf_to_scene(&doc, None);
+    let texts: Vec<&str> = scene
+        .entities
+        .iter()
+        .filter(|entity| entity.kind.name() == "attribute")
+        .filter_map(|entity| {
+            entity.properties.iter().find(|property| property.key == "text").map(|property| property.value.as_str())
+        })
+        .collect();
+    assert!(texts.contains(&"1階平面図") && texts.contains(&"800"), "{texts:?}");
+    for (operations, code) in [
+        (
+            r#"[{"op": "add", "kind": "attribute-definition", "tag": "A", "position": [0, 0], "height": 1}]"#,
+            "invalid-value",
+        ),
+        (
+            r#"[{"op": "add", "kind": "attribute-definition", "container": "block:DOOR", "tag": "A B", "position": [0, 0], "height": 1}]"#,
+            "invalid-value",
+        ),
+        (
+            r#"[{"op": "add", "kind": "block-reference", "block": "DOOR", "position": [0, 0], "attributes": {"NONE": "x"}}]"#,
+            "invalid-value",
+        ),
+    ] {
+        assert_eq!(edit(&bytes, operations).unwrap_err().code, code, "{operations}");
+    }
+}
+
+/// ATTRIB は INSERT から独立した文字なので、定義の見た目を保ち、尺度を文字の両軸に掛ける。
+#[test]
+fn preserves_attribute_appearance_and_nonuniform_scaling() {
+    let definitions = edit(&drawing(""), r#"[
+        {"op":"add-block","name":"REVIEW"},
+        {"op":"add","kind":"attribute-definition","container":"block:REVIEW","tag":"A","text":"hello","position":[1,2],"height":1,"layer":"WALL","color":2,"lineType":"DASHED","lineWidth":0.35},
+        {"op":"add","kind":"attribute-definition","container":"block:REVIEW","tag":"B","text":"rotated","position":[0,0],"height":1,"rotation":90,"color":3}
+    ]"#).unwrap();
+    let edited = edit(&definitions.bytes, r#"[
+        {"op":"add","kind":"block-reference","block":"REVIEW","position":[10,20],"scale":[2,1],"attributes":{},"color":4},
+        {"op":"add","kind":"block-reference","block":"REVIEW","position":[0,0],"scale":[-2,1],"attributes":{}}
+    ]"#).unwrap();
+    let doc = parse_dxf(&edited.bytes);
+    let get = |handle: &str| {
+        let DxfEntityData::Insert(insert) =
+            &doc.entities.iter().find(|entity| entity.base.handle == handle).unwrap().data
+        else {
+            panic!()
+        };
+        insert
+    };
+    let insert = get(&edited.created[0]);
+    let base = &insert.attribs[0].base;
+    assert_eq!(
+        (base.layer.as_str(), base.color_index, base.linetype.as_str(), base.lineweight),
+        ("WALL", 2.0, "DASHED", 35.0)
+    );
+    let DxfEntityData::Attrib { text, .. } = &insert.attribs[0].data else { panic!() };
+    assert_eq!((text.insert, text.height, text.width), ([12.0, 22.0, 0.0], 1.0, 2.0));
+    let DxfEntityData::Attrib { text, .. } = &insert.attribs[1].data else { panic!() };
+    assert!((text.height - 2.0).abs() < 1e-9 && (text.width - 0.5).abs() < 1e-9 && (text.rotation - 90.0).abs() < 1e-9);
+    assert_eq!(insert.attribs[1].base.color_index, 3.0);
+    let DxfEntityData::Attrib { text, .. } = &get(&edited.created[1]).attribs[0].data else { panic!() };
+    assert_eq!(text.text_generation_flag, 4.0);
+    assert!((text.rotation.abs() - 180.0).abs() < 1e-9);
+}
+
+#[test]
 fn reports_approximated_jis_dimension_text_position() {
     let bytes = b"0\nSECTION\n2\nHEADER\n9\n$DIMTAD\n70\n3\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n";
     let edited =

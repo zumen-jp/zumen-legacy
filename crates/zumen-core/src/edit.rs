@@ -34,6 +34,8 @@ pub enum EditValue {
     Points(Vec<Vec<f64>>),
     /// 点の並びの並び（ハッチングの境界 [[[x, y], ...], ...]。docs/decisions/0017）
     Paths(Vec<Vec<Vec<f64>>>),
+    /// 名前から文字列（ブロック参照の属性 {"TAG": "値"}。docs/decisions/0017）
+    Map(BTreeMap<String, String>),
 }
 
 /// キーごとの値
@@ -314,7 +316,14 @@ fn edit_value(index: usize, key: &str, value: &Json) -> Result<EditValue, EditEr
                 .collect::<Result<_, _>>()?,
         ),
         Json::Array(items) => EditValue::Numbers(items.iter().map(number).collect::<Result<_, _>>()?),
-        Json::Object(_) => return Err(invalid()),
+        Json::Object(map) => EditValue::Map(
+            map.iter()
+                .map(|(name, value)| match value {
+                    Json::String(text) => Ok((name.clone(), text.clone())),
+                    _ => Err(EditError::at(index, "invalid-value", format!("{key} の値は文字列で指定してください"))),
+                })
+                .collect::<Result<_, _>>()?,
+        ),
     })
 }
 
@@ -451,6 +460,15 @@ impl<'a> ValueReader<'a> {
         }
     }
 
+    /// 名前から文字列（{"TAG": "値"}）
+    pub fn strings(&self, key: &str) -> Result<Option<&'a BTreeMap<String, String>>, EditError> {
+        match self.get(key) {
+            None => Ok(None),
+            Some(EditValue::Map(map)) => Ok(Some(map)),
+            Some(_) => Err(self.invalid(key, "名前から文字列へのオブジェクト")),
+        }
+    }
+
     /// 色。番号（形式の色の番号）、"#rrggbb"、"bylayer"、"byblock"
     pub fn color(&self, key: &str) -> Result<Option<EditColor>, EditError> {
         let expected = "色の番号、\"#rrggbb\"、\"bylayer\" か \"byblock\"";
@@ -564,6 +582,14 @@ mod tests {
         assert!(
             matches!(&values["boundaries"], EditValue::Paths(paths) if paths.len() == 2 && paths[1][2] == [0.5, 0.5])
         );
+        let operations =
+            parse_operations(r#"[{"op": "add", "kind": "block-reference", "attributes": {"TITLE": "平面図"}}]"#)
+                .unwrap();
+        let EditOperation::Add { values, .. } = &operations[0] else { panic!() };
+        assert_eq!(ValueReader::new(values, 0).strings("attributes").unwrap().unwrap()["TITLE"], "平面図");
+        let error =
+            parse_operations(r#"[{"op": "add", "kind": "block-reference", "attributes": {"N": 1}}]"#).unwrap_err();
+        assert_eq!(error.code, "invalid-value");
         let error = parse_operations(r#"{"op": "delete"}"#).unwrap_err();
         assert_eq!((error.code, error.operation), ("invalid-operations", None));
     }

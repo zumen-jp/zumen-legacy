@@ -129,7 +129,21 @@ def test_edited_dxf_passes_the_audit_of_ezdxf(tmp_path):
         operations += [
             {"op": "add-block", "name": "CHECK-BLOCK", "basePoint": [1, 1]},
             {"op": "add", "kind": "circle", "container": "block:CHECK-BLOCK", "center": [1, 1], "radius": 1},
-            {"op": "add", "kind": "block-reference", "block": "CHECK-BLOCK", "position": [20, 20]},
+            {
+                "op": "add",
+                "kind": "attribute-definition",
+                "container": "block:CHECK-BLOCK",
+                "tag": "NAME",
+                "position": [1, 3],
+                "height": 1,
+            },
+            {
+                "op": "add",
+                "kind": "block-reference",
+                "block": "CHECK-BLOCK",
+                "position": [20, 20],
+                "attributes": {"NAME": "確認"},
+            },
             {"op": "add-text-style", "name": "CHECK-JP", "font": "MS Gothic"},
             {"op": "add-line-type", "name": "CHECK-DASH", "pattern": [2, -1]},
             {"op": "add-dimension-style", "name": "CHECK-DIM", "scale": 2, "decimals": 0, "textStyle": "CHECK-JP"},
@@ -158,7 +172,7 @@ def test_edited_dxf_passes_the_audit_of_ezdxf(tmp_path):
         auditor = doc.audit()
         found = [(entry.code, entry.message) for entry in [*auditor.errors, *auditor.fixes]]
         assert found == [], (name, found)
-        added = [doc.entitydb[handle] for handle in edited.created[1:-9]]
+        added = [doc.entitydb[handle] for handle in edited.created[1:-10]]
         assert [entity.dxftype() for entity in added[:9]] == [
             "LINE",
             "CIRCLE",
@@ -174,8 +188,9 @@ def test_edited_dxf_passes_the_audit_of_ezdxf(tmp_path):
         assert added[7].plain_text() == "一行目\n二行目"
         assert doc.layers.get("CHECK").dxf.lineweight == 35
         block = doc.blocks.get("CHECK-BLOCK")
-        assert [entity.dxftype() for entity in block] == ["CIRCLE"], name
-        assert doc.entitydb[edited.created[-7]].dxf.name == "CHECK-BLOCK", name
+        assert [entity.dxftype() for entity in block] == ["CIRCLE", "ATTDEF"], name
+        reference = doc.entitydb[edited.created[-7]]
+        assert reference.dxf.name == "CHECK-BLOCK" and reference.get_attrib_text("NAME") == "確認", name
         assert doc.styles.get("CHECK-JP").get_extended_font_data()[0] == "MS Gothic", name
         assert doc.linetypes.get("CHECK-DASH").simplified_line_pattern() == (2, 1), name
         assert doc.dimstyles.get("CHECK-DIM").dxf.dimscale == 2, name

@@ -797,6 +797,95 @@ fn places_text_by_justification_in_every_version() {
     }
 }
 
+/// 属性の定義を足し、ブロック参照に属性の値を書く（docs/decisions/0017）
+#[test]
+fn adds_attributes_in_every_version() {
+    let operations = r#"[
+        {"op": "add-block", "name": "TITLE"},
+        {"op": "add", "kind": "line", "container": "block:TITLE", "start": [0, 0], "end": [170, 0]},
+        {"op": "add", "kind": "attribute-definition", "container": "block:TITLE", "tag": "DRAWING", "prompt": "図面名", "text": "未定", "position": [85, 25], "height": 5, "justification": "middle-center"},
+        {"op": "add", "kind": "attribute-definition", "container": "block:TITLE", "tag": "SCALE", "position": [5, 5], "height": 3, "text": "1:100"},
+        {"op": "add", "kind": "block-reference", "block": "TITLE", "position": [250, 10], "scale": 2, "attributes": {"DRAWING": "1階平面図"}}
+    ]"#;
+    let mut versions: Vec<(String, Vec<u8>)> =
+        crate::DwgVersion::ALL.iter().map(|version| (version.name().to_string(), written_as(*version))).collect();
+    versions.push(("new".into(), new_dwg("mm").unwrap()));
+    for (name, bytes) in versions {
+        let edited = edit(&bytes, operations).unwrap_or_else(|error| panic!("{name}: {error}"));
+        check_structure(&name, &edited.bytes);
+        let doc = crate::read_dwg(&edited.bytes).unwrap_or_else(|error| panic!("{name}: {error}"));
+        assert!(doc.blocks.iter().any(|block| block.name == "TITLE" && block.flags == 2.0), "{name}");
+        let DxfEntityData::Insert(insert) = &entity(&doc, &edited.created[4]).unwrap().data else { panic!("{name}") };
+        let values: Vec<(String, String)> = insert
+            .attribs
+            .iter()
+            .map(|attrib| match &attrib.data {
+                DxfEntityData::Attrib { text, tag, .. } => (tag.clone(), text.text.clone()),
+                other => panic!("{name}: {other:?}"),
+            })
+            .collect();
+        assert_eq!(values, [("DRAWING".into(), "1階平面図".into()), ("SCALE".into(), "1:100".into())], "{name}");
+        let DxfEntityData::Attrib { text, .. } = &insert.attribs[0].data else { panic!() };
+        assert_eq!(
+            (text.align_point.map(|point| [point[0], point[1]]), text.height),
+            (Some([420.0, 60.0]), 10.0),
+            "{name}"
+        );
+        let scene = zumen_dxf::dxf_to_scene(&doc, None);
+        let reference = &edited.created[4];
+        let attributes = scene
+            .entities
+            .iter()
+            .filter(|entity| entity.id.starts_with(&format!("{reference}>")) && entity.kind.name() == "attribute");
+        assert_eq!(attributes.count(), 2, "{name}");
+    }
+}
+
+/// DXF と同じく、別の編集で読んだ ATTDEF の見た目と非等方尺度を保つ。
+#[test]
+fn preserves_attribute_appearance_and_nonuniform_scaling_in_every_version() {
+    for version in crate::DwgVersion::ALL {
+        let name = version.name();
+        let definitions = edit(&written_as(version), r#"[
+            {"op":"add-layer","name":"ATTRIBUTES"},
+            {"op":"add-block","name":"REVIEW"},
+            {"op":"add","kind":"attribute-definition","container":"block:REVIEW","tag":"A","text":"hello","position":[1,2],"height":1,"layer":"ATTRIBUTES","color":2,"lineType":"byblock","lineWidth":0.35},
+            {"op":"add","kind":"attribute-definition","container":"block:REVIEW","tag":"B","text":"rotated","position":[0,0],"height":1,"rotation":90,"color":3}
+        ]"#).unwrap();
+        let edited = edit(&definitions.bytes, r#"[
+            {"op":"add","kind":"block-reference","block":"REVIEW","position":[10,20],"scale":[2,1],"attributes":{},"color":4},
+            {"op":"add","kind":"block-reference","block":"REVIEW","position":[0,0],"scale":[-2,1],"attributes":{}}
+        ]"#).unwrap();
+        check_structure(name, &edited.bytes);
+        let doc = crate::read_dwg(&edited.bytes).unwrap();
+        let get = |handle: &str| {
+            let DxfEntityData::Insert(insert) = &entity(&doc, handle).unwrap().data else { panic!("{name}") };
+            insert
+        };
+        let insert = get(&edited.created[0]);
+        let base = &insert.attribs[0].base;
+        assert_eq!(
+            (base.layer.as_str(), base.color_index, base.linetype.as_str()),
+            ("ATTRIBUTES", 2.0, "ByBlock"),
+            "{name}"
+        );
+        if !matches!(version, crate::DwgVersion::R13 | crate::DwgVersion::R14) {
+            assert_eq!(base.lineweight, 35.0, "{name}");
+        }
+        let DxfEntityData::Attrib { text, .. } = &insert.attribs[0].data else { panic!() };
+        assert_eq!((text.insert, text.height, text.width), ([12.0, 22.0, 0.0], 1.0, 2.0), "{name}");
+        let DxfEntityData::Attrib { text, .. } = &insert.attribs[1].data else { panic!() };
+        assert!(
+            (text.height - 2.0).abs() < 1e-9 && (text.width - 0.5).abs() < 1e-9 && (text.rotation - 90.0).abs() < 1e-9,
+            "{name}"
+        );
+        assert_eq!(insert.attribs[1].base.color_index, 3.0, "{name}");
+        let DxfEntityData::Attrib { text, .. } = &get(&edited.created[1]).attribs[0].data else { panic!() };
+        assert_eq!(text.text_generation_flag, 4.0, "{name}");
+        assert!((text.rotation.abs() - 180.0).abs() < 1e-9, "{name}");
+    }
+}
+
 /// DWG 2.13: DIMSTYLE の参照が相対ハンドルでも、写したスタイルは元と同じ文字スタイルを指す。
 #[test]
 fn cloned_dimension_style_keeps_relative_references() {
