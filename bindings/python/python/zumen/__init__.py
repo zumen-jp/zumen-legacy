@@ -12,15 +12,18 @@ format-neutral ``Scene`` in paper millimeters (Y up), the same model as the
 >>> changes = zumen.compare(zumen.read("plan-rev1.jww"), scene)  # removed, added and changed entities
 >>> zumen.convert("plan.jww", "dxf").save("plan.dxf")  # every format can be written as DXF
 >>> zumen.edit("plan.dxf", [{"op": "add", "kind": "line", "start": [0, 0], "end": [1000, 0]}]).save("plan.dxf")
+>>> zumen.draft("sheets.json", "dwg").save("sheets.dwg")  # draw sheets from a drawing spec (docs/drafting.md)
 """
 
 from __future__ import annotations
 
+import json
 import os
 
 from ._zumen import (
     Comparison,
     Converted,
+    DraftError,
     Edited,
     EditError,
     LimitError,
@@ -34,12 +37,16 @@ from ._zumen import (
     detect,
 )
 from ._zumen import convert as _convert
+from ._zumen import draft as _draft
+from ._zumen import draft_into as _draft_into
+from ._zumen import draft_schema as _draft_schema
 from ._zumen import edit as _edit
 from ._zumen import read as _read
 
 __all__ = [
     "Comparison",
     "Converted",
+    "DraftError",
     "EditError",
     "Edited",
     "LimitError",
@@ -52,6 +59,9 @@ __all__ = [
     "convert",
     "create",
     "detect",
+    "draft",
+    "draft_into",
+    "draft_schema",
     "edit",
     "read",
 ]
@@ -136,7 +146,17 @@ def edit(
 
     ``operations`` is a list of dicts (or the same as a JSON string): ``{"op": "add", "kind": "line", ...}``,
     ``{"op": "update", "id": ..., "set": {...}}``, ``{"op": "delete", "id": ...}``, ``{"op": "add-layer", "name":
-    ...}`` and ``{"op": "update-layer", "name": ..., "set": {...}}``. Kinds and keys are the ones that ``Scene``
+    ...}``, ``{"op": "update-layer", "name": ..., "set": {...}}`` and ``{"op": "add-block", "name": ...,
+    "basePoint": [x, y]}`` (an empty block definition that later operations fill with ``"container":
+    "block:<name>"``; DXF and DWG only). DXF and DWG also take ``"kind": "dimension"`` (``dimensionType``
+    ``"linear"`` or ``"aligned"``, ``start``, ``end``, ``position``, ``rotation``, ``text``, ``dimensionStyle``) and the ops ``add-text-style``,
+    ``add-line-type`` and ``add-dimension-style``, and ``"kind": "hatch"`` (``boundaries``, ``pattern``,
+    ``patternScale``, ``patternAngle``, ``patternLines``); ``text`` takes ``justification``, ``lineSpacing``,
+    ``multiline`` and ``widthFactor``; ``"kind": "attribute-definition"`` goes in a block and ``block-reference`` takes ``attributes``
+    (``{"TAG": "value"}``); ``add-layout`` (``paperSize`` and ``margins`` in mm) and ``"kind": "viewport"`` in ``"container":
+    "layout:<name>"`` (``center``, ``width``, ``height``, ``viewCenter``, ``scale``) make sheets; ``"kind": "leader"`` (``vertices``, ``text``, ``height``,
+    ``dimensionStyle``) adds a leader with its note; ``"kind": "image"`` (``path``, ``pixels``,
+    ``position``, ``width``, ``rotation``) adds a raster image that refers to ``path``. Kinds and keys are the ones that ``Scene``
     reports (``kind`` and the property keys), and coordinates are the drawing's own (the ``raw`` of properties), not
     paper millimeters. The format, its version, its text encoding and everything that no operation names stay as they
     were, including what zumen cannot read. DXF, DWG, JWW and SXF can be edited.
@@ -147,3 +167,53 @@ def edit(
     (``"not-found"``, ``"unknown-key"`` and so on) and ``operation``, the number of the operation (from 0).
     """
     return _edit(_load(source), operations, format=format, max_bytes=max_bytes)
+
+
+def draft(
+    spec: object,
+    to: str = "dxf",
+    *,
+    version: str | None = None,
+    sheet: str | None = None,
+) -> Converted:
+    """Draw a drawing from a drawing spec and write it as ``to`` (dxf, dwg, jww, sfc, p21, sfz or p2z).
+
+    ``spec`` is a dict (the JSON document of docs/drafting.md), a JSON string, or the path of a JSON file.
+    ``version`` is the version to write (DXF R12 to 2018, SXF 2.0 to 3.1). JWW and SXF hold one sheet, so
+    ``sheet`` names the sheet to write (the first one by default). A mistake in the spec raises
+    ``DraftError`` with ``code`` and ``path`` (such as ``sheets[0].views[1].items[4]``).
+    """
+    return _draft(_spec(spec), to, version=version, sheet=sheet)
+
+
+def draft_into(
+    spec: object,
+    template: bytes | bytearray | memoryview | str | os.PathLike[str],
+    *,
+    sheet: str | None = None,
+    format: str | None = None,
+    max_bytes: int | None = None,
+) -> Converted:
+    """Draw a drawing spec into a DXF or DWG drawing (a template) in place.
+
+    The drawing is changed through the operations of ``edit``, so its entities, handles, extended data and what zumen
+    cannot read stay, and the format and version stay too. A sheet named after a layout of the template is drawn into
+    that layout, with its paper size when the sheet gives none; other sheets become new layouts. The ``fields`` of a
+    sheet (``{"TAG": "value"}``) fill the attributes of the block references on it, such as the template's title
+    block. ``template`` is bytes or a file path, ``sheet`` draws one sheet only. A mistake in the spec, or an operation
+    that the drawing refuses, raises ``DraftError`` with ``code`` and ``path``.
+    """
+    return _draft_into(_spec(spec), _load(template), sheet=sheet, format=format, max_bytes=max_bytes)
+
+
+def _spec(spec: object) -> object:
+    """The spec as a dict or JSON string. A path (or a string that is not JSON) is read from the file."""
+    if isinstance(spec, os.PathLike) or (isinstance(spec, str) and not spec.lstrip().startswith("{")):
+        with open(spec, encoding="utf-8") as file:
+            return file.read()
+    return spec
+
+
+def draft_schema() -> dict[str, object]:
+    """The JSON Schema (draft 2020-12) of the drawing spec that ``draft`` takes."""
+    return json.loads(_draft_schema())

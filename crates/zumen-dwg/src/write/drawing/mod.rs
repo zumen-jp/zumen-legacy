@@ -261,6 +261,18 @@ pub(super) struct Writer<'a> {
     /// R2000 で持ち主（POLYLINE・INSERT）の直後に並べる頂点・属性と SEQEND（AutoCAD の図面と同じ並び。持つ図形の並びの
     /// ない R2000 では、ファイルの中の並びで頂点を集める読み取りがある）
     pub followers: HashMap<u64, Vec<u64>>,
+    /// 書く画像の定義（IMAGEDEF）と、元の定義のハンドル（大文字）→ その番号
+    pub image_defs: Vec<ImageDefPlan>,
+    pub image_def_index: HashMap<String, usize>,
+}
+
+/// 書く画像の定義（IMAGEDEF）。元の定義ごとに 1 つ
+pub(super) struct ImageDefPlan {
+    pub handle: u64,
+    pub path: String,
+    pub size: [f64; 2],
+    /// この定義を使う画像のリアクタ（IMAGEDEF_REACTOR）のハンドルと、画像のハンドル
+    pub reactors: Vec<(u64, u64)>,
 }
 
 /// 図形（属性を含む）
@@ -427,6 +439,8 @@ impl<'a> Writer<'a> {
             mline_styles: Vec::new(),
             fixed: Fixed::default(),
             sort_tables: Vec::new(),
+            image_defs: Vec::new(),
+            image_def_index: HashMap::new(),
             viewports: HashSet::new(),
             long_texts: Cell::new(0),
             version_colors: Cell::new(0),

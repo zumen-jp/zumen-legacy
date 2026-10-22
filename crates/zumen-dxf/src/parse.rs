@@ -118,6 +118,8 @@ struct Parser<'a> {
     /// LAYOUT の BLOCK_RECORD のハンドルとレイアウト
     layout_records: Vec<(String, DxfLayout)>,
     sort_tables: Vec<(String, HashMap<String, String>)>,
+    /// IMAGEDEF のハンドル → 画像のファイルの名前
+    image_paths: HashMap<String, String>,
     has_paper_entities: bool,
     /// タグごとの、そこまでのレコード（グループコード 0）の数。ハンドルのない図形があるときに作る
     records: OnceCell<Vec<u32>>,
@@ -2011,6 +2013,8 @@ impl<'a> Parser<'a> {
             boundary,
             flags: self.number(body, 70, 0.0),
             clipping: self.number(body, 280, 0.0) != 0.0,
+            definition_handle: Some(self.handle_of(body, 340)).filter(|handle| !handle.is_empty() && handle != "0"),
+            path: None,
         };
         DxfEntity { base, data: DxfEntityData::Image(image) }
     }
@@ -2033,6 +2037,11 @@ impl<'a> Parser<'a> {
                 "LAYOUT" => self.layout(&body),
                 "SORTENTSTABLE" => self.sort_table(&body),
                 "MLINESTYLE" => self.mline_style(&body),
+                "IMAGEDEF" => {
+                    let own = self.subclass_body(&body, "AcDbRasterImageDef");
+                    let path = self.text(&own, 1, "");
+                    self.image_paths.insert(self.handle_of(&body, 5), path);
+                }
                 _ => {}
             }
             self.i = end;
@@ -2139,6 +2148,16 @@ impl<'a> Parser<'a> {
     // --- 仕上げ ---------------------------------------------------------------
 
     fn finish(&mut self) {
+        // 画像の定義は OBJECTS にあり、図形の後で読む
+        if !self.image_paths.is_empty() {
+            for entity in &mut self.doc.entities {
+                if let DxfEntityData::Image(image) = &mut entity.data
+                    && let Some(handle) = &image.definition_handle
+                {
+                    image.path = self.image_paths.get(handle).cloned();
+                }
+            }
+        }
         for (record, mut layout) in std::mem::take(&mut self.layout_records) {
             let name = self.block_records.get(&record).cloned().unwrap_or_default();
             layout.model = is_model_block(&name) || upper_is(&layout.name, "MODEL");
@@ -2251,6 +2270,7 @@ pub fn parse_dxf(bytes: &[u8]) -> DxfDocument {
         block_records: HashMap::new(),
         layout_records: Vec::new(),
         sort_tables: Vec::new(),
+        image_paths: HashMap::new(),
         has_paper_entities: false,
         records: OnceCell::new(),
     };

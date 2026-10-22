@@ -46,6 +46,9 @@ and gives you a framework-agnostic drawing engine to embed in your own interface
 - Editing in Rust and Python: add, change and delete entities and layers of a DXF, DWG, JWW or SXF drawing in place,
   keeping its version, encoding and everything the edit does not name, and create new drawings
   ([decision 0012](docs/decisions/0012-edit-in-place-and-write-every-format.md)).
+- Drafting in Rust, Python, the command line and the MCP server: draw complete sheets from one JSON drawing spec
+  (border and title block, views at their scales, text, dimensions, hatches, tables, grid lines and symbols) and
+  write them in every format ([Drafting](docs/drafting.md), [decision 0018](docs/decisions/0018-drafting-kit.md)).
 - No runtime dependencies; `@zumenjs/reader` ships its WebAssembly readers. Reading also runs in Node.js.
 
 ## Packages
@@ -228,6 +231,14 @@ edited = zumen.edit("plan.dxf", [
 ])
 edited.save("plan.dxf")  # edited.created holds the ids of what was added
 zumen.create("dxf", [{"op": "add", "kind": "line", "start": [0, 0], "end": [5000, 0]}], units="mm")  # a new drawing
+
+# Draft whole sheets from a drawing spec: sizes in paper millimeters, view coordinates in real millimeters
+spec = {"sheets": [{"name": "A01", "paper": "A3", "frame": {}, "views": [{
+    "scale": 100, "viewport": [30, 30, 400, 280], "center": [5000, 3000], "title": {"number": "1", "text": "平面図"},
+    "items": [{"type": "rectangle", "from": [0, 0], "to": [10000, 6000]},
+              {"type": "dimensionChain", "points": [[0, 0], [4000, 0], [10000, 0]], "offset": -10, "total": True}],
+}]}]}
+zumen.draft(spec, "dwg").save("plan.dwg")  # docs/drafting.md describes every item
 ```
 
 AI applications can read drawings through the MCP server of the Python package (`pip install "zumen[mcp]"`, then
@@ -283,9 +294,10 @@ drawing in any of them.
 | [`zumen-dxf`](crates/zumen-dxf) | `parse_dxf` (the AutoCAD drawing model, shared with DWG), `dxf_to_scene`, the `DXF` reader, `write_dxf` (the model as DXF of AutoCAD 2013), and `edit_dxf` (editing in place) |
 | [`zumen-dwg`](crates/zumen-dwg) | `read_dwg` (DWG 1.0 to 2018 into the AutoCAD drawing model of `zumen-dxf`), the `DWG` reader |
 | [`zumen-convert`](crates/zumen-convert) | `sxf_to_dxf` and `jww_to_dxf` (SXF and JWW into the AutoCAD drawing model, to be written as DXF), and `dxf_to_sxf` (the model as an SXF drawing, to be written as SFC) |
-| [`zumen`](crates/zumen) | `read` and `detect` over every reader, with limits on bytes, entities and time for untrusted drawings, `convert` (every format to DXF, DWG, JWW and SXF), `edit` and `create` (DXF, DWG, JWW and SXF) |
+| [`zumen-draft`](crates/zumen-draft) | `draft`: sheets, views, dimensions, hatches, tables, title blocks and symbols from a JSON drawing spec, into the AutoCAD drawing model ([Drafting](docs/drafting.md)) |
+| [`zumen`](crates/zumen) | `read` and `detect` over every reader, with limits on bytes, entities and time for untrusted drawings, `convert` (every format to DXF, DWG, JWW and SXF), `edit` and `create` (DXF, DWG, JWW and SXF), and `draft` (a drawing spec in every format) |
 | [`zumen-render`](crates/zumen-render) | PNG, SVG and PDF rendering with the rules of the browser renderer, and the pixel box of every entity drawn; BIZ UDGothic is bundled for Japanese text |
-| [`zumen-cli`](crates/zumen-cli) | The `zumen` command: `detect`, `scene` (JSON), `texts` and `entities` (JSON lines), `title`, `regions`, `render` (PNG), `compare`, `convert` (DXF, DWG, JWW, SXF), `edit` and `create` |
+| [`zumen-cli`](crates/zumen-cli) | The `zumen` command: `detect`, `scene` (JSON), `texts` and `entities` (JSON lines), `title`, `regions`, `render` (PNG), `compare`, `convert` (DXF, DWG, JWW, SXF), `edit`, `create` and `draft` |
 
 Reading, rendering, converting and editing release the GIL in Python.
 
@@ -309,7 +321,7 @@ sending them anywhere.
 3. Rust readers with Python and WebAssembly bindings, and PNG, SVG and PDF rendering on servers (JWW, SXF and DXF done).
 4. DWG, read into the same AutoCAD object model (1.0 to 2018 done in Rust and in the browser through WebAssembly).
 5. Writing, converting and editing drawings (every format to DXF, DWG, JWW and SXF, and editing all four in place,
-   done in Rust).
+   done in Rust), and drafting whole sheets from a drawing spec ([decision 0018](docs/decisions/0018-drafting-kit.md)).
 6. Analysis (closed regions such as rooms with their areas and the comparison of revisions done; ruled tables and
    checks against CAD standards next, [decision 0015](docs/decisions/0015-analysis-in-zumen-core.md)), markup and PDF
    drawings.
@@ -321,6 +333,7 @@ sending them anywhere.
 - [How JWW is handled](docs/formats/jww.md) (Japanese)
 - [How DXF is handled](docs/formats/dxf.md)
 - [How DWG is handled](docs/formats/dwg.md)
+- [Drafting sheets from a drawing spec](docs/drafting.md)
 - [Verification records](docs/verification.md)
 - [Design decisions](docs/decisions/README.md)
 

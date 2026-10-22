@@ -299,3 +299,140 @@ fn refuses_formats_it_cannot_edit_yet() {
     let error = zumen::create("jwc", "mm", &[]).unwrap_err();
     assert_eq!(error.code, "unsupported-format");
 }
+
+/// ブロックの定義を足し、中に図形を足して配置し、寸法を足す（docs/decisions/0017）。DXF・DWG のすべての fixtures で、
+/// 配置を通して足した図形と寸法が描け、ほかの図形の数は変わらない。SXF・JWW はまだ受け付けない
+#[test]
+fn adds_block_definitions_to_every_dxf_and_dwg() {
+    let operations = parse_operations(
+        r#"[
+            {"op": "add-block", "name": "ZUMEN-EDIT-BLOCK", "basePoint": [0, 0]},
+            {"op": "add", "kind": "line", "container": "block:ZUMEN-EDIT-BLOCK", "start": [0, 0], "end": [100, 0]},
+            {"op": "add", "kind": "circle", "container": "block:ZUMEN-EDIT-BLOCK", "center": [50, 0], "radius": 10},
+            {"op": "add", "kind": "block-reference", "block": "ZUMEN-EDIT-BLOCK", "position": [10, 20], "rotation": 30},
+            {"op": "add", "kind": "dimension", "start": [0, 0], "end": [100, 0], "position": [0, -30]}
+        ]"#,
+    )
+    .unwrap();
+    let options = ReadDrawingOptions::default();
+    let mut problems = Vec::new();
+    for (folder, extension) in [("dxf", "dxf"), ("dwg", "dwg")] {
+        for file in drawings(&fixtures().join(folder), &[extension]) {
+            let name = file.file_name().unwrap().to_string_lossy().to_string();
+            let bytes = fs::read(&file).unwrap();
+            // テストの書き手が書いた DWG（r2000.dwg など）は寸法スタイルを持たないので、寸法を足せない
+            let mut operations = operations.clone();
+            let edited = match zumen::edit(&bytes, &operations, &options) {
+                Err(error) if error.code == "missing-definition" && error.operation == Some(4) && folder == "dwg" => {
+                    operations.pop();
+                    zumen::edit(&bytes, &operations, &options)
+                }
+                result => result,
+            };
+            let edited = match edited {
+                Ok(edited) => edited,
+                // R12 以前の DWG はまだ編集できない
+                Err(error) if error.code == "unreadable" && folder == "dwg" => continue,
+                Err(error) => {
+                    problems.push(format!("{name}: {error}"));
+                    continue;
+                }
+            };
+            let (before, after) = (read(&bytes), read(&edited.bytes));
+            // ブロックの中の図形の上限を超える図面（limits.dxf）は、足した配置の中も描かない
+            if before.notices.iter().any(|notice| notice.code == "block-limit") {
+                continue;
+            }
+            let reference = &edited.created[3];
+            let inside = after.entities.iter().filter(|entity| entity.id.starts_with(&format!("{reference}>"))).count();
+            if inside != 2 {
+                problems.push(format!("{name}: {inside} entities drawn through the new reference"));
+            }
+            let dimension = edited.created.get(4).map(|id| after.entities.iter().find(|entity| &entity.id == id));
+            if dimension.is_some_and(|dimension| {
+                !dimension
+                    .is_some_and(|dimension| dimension.kind.name() == "dimension" && !dimension.primitives.is_empty())
+            }) {
+                problems.push(format!("{name}: the dimension is not drawn"));
+            }
+            if after.entities.len() != before.entities.len() + operations.len() - 2 {
+                problems.push(format!(
+                    "{name}: {} entities before, {} after",
+                    before.entities.len(),
+                    after.entities.len()
+                ));
+            }
+        }
+    }
+    assert!(problems.is_empty(), "{problems:#?}");
+    for format in ["jww", "sfc"] {
+        let error = zumen::create(format, "mm", &operations).unwrap_err();
+        assert_eq!((error.code, error.operation), ("unsupported-kind", Some(0)), "{format}");
+    }
+}
+
+/// 新しい DXF・DWG に、スタイル・寸法・ハッチングを足して描ける（docs/decisions/0017）
+#[test]
+fn creates_drawings_with_styles_dimensions_and_hatches() {
+    let operations = parse_operations(
+        r#"[
+            {"op": "add-text-style", "name": "JP", "font": "MS Gothic"},
+            {"op": "add-dimension-style", "name": "DIM-100", "scale": 100, "textHeight": 2.5, "arrowSize": 2.5, "decimals": 0, "textStyle": "JP"},
+            {"op": "add", "kind": "polyline", "vertices": [[0, 0], [5000, 0], [5000, 3600], [0, 3600]], "closed": true},
+            {"op": "add", "kind": "hatch", "pattern": "ANSI31", "patternScale": 30, "boundaries": [[[0, 0], [5000, 0], [5000, 150], [0, 150]]]},
+            {"op": "add", "kind": "dimension", "dimensionStyle": "DIM-100", "start": [0, 0], "end": [5000, 0], "position": [0, -800]}
+        ]"#,
+    )
+    .unwrap();
+    for format in ["dxf", "dwg"] {
+        let created = zumen::create(format, "mm", &operations).unwrap_or_else(|error| panic!("{format}: {error}"));
+        let scene = read(&created.bytes);
+        let kinds: Vec<&str> = scene.entities.iter().map(|entity| entity.kind.name()).collect();
+        assert_eq!(kinds, ["polyline", "hatch", "dimension"], "{format}");
+        assert!(scene.entities.iter().all(|entity| !entity.primitives.is_empty()), "{format}");
+    }
+}
+
+/// 画像を足す（docs/decisions/0017）。R14 以降の DXF・DWG のすべての fixtures で、足した画像が描け、ほかの図形の数は
+/// 変わらない。それより前の版と SXF・JWW は受け付けない
+#[test]
+fn adds_images_to_every_dxf_and_dwg_from_r14_on() {
+    let operations = parse_operations(
+        r#"[{"op": "add", "kind": "image", "path": "地図/案内図.png", "pixels": [640, 480], "position": [0, 0], "width": 6400}]"#,
+    )
+    .unwrap();
+    let options = ReadDrawingOptions::default();
+    let mut problems = Vec::new();
+    for (folder, extension) in [("dxf", "dxf"), ("dwg", "dwg")] {
+        for file in drawings(&fixtures().join(folder), &[extension]) {
+            let name = file.file_name().unwrap().to_string_lossy().to_string();
+            let bytes = fs::read(&file).unwrap();
+            let edited = match zumen::edit(&bytes, &operations, &options) {
+                Ok(edited) => edited,
+                Err(error) if error.code == "unsupported-kind" => continue,
+                // R12 以前の DWG はまだ編集できない
+                Err(error) if error.code == "unreadable" && folder == "dwg" => continue,
+                Err(error) => {
+                    problems.push(format!("{name}: {error}"));
+                    continue;
+                }
+            };
+            let (before, after) = (read(&bytes), read(&edited.bytes));
+            if !after.entities.iter().any(|entity| entity.id == edited.created[0] && entity.kind.name() == "image") {
+                problems.push(format!("{name}: the image is not drawn"));
+            }
+            if after.entities.len() != before.entities.len() + 1 {
+                problems.push(format!(
+                    "{name}: {} entities before, {} after",
+                    before.entities.len(),
+                    after.entities.len()
+                ));
+            }
+        }
+    }
+    assert!(problems.is_empty(), "{problems:#?}");
+    for format in ["jww", "sfc"] {
+        let error = zumen::create(format, "mm", &operations).unwrap_err();
+        assert_eq!((error.code, error.operation), ("unsupported-kind", Some(0)), "{format}");
+    }
+}

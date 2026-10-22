@@ -243,7 +243,8 @@ bytes ─▶ zumen-sxf, zumen-jww, zumen-dxf, zumen-dwg ─▶ Scene (zumen-core
 | `zumen-dxf` | DXF parsing (ASCII and binary) into the AutoCAD drawing model (`parse_dxf` → `DxfDocument`), conversion of model space or a layout to a scene (`dxf_to_scene`), the `DXF` reader, and writing the model as DXF (`write_dxf`, and `write_dxf_as` for R12 to 2018). The draw order of each space (`draw_order`) and the drawing unit (`drawing_unit`) are public, for the conversion to SXF. |
 | `zumen-dwg` | DWG decoding (AutoCAD 2000 to 2018) into the AutoCAD drawing model of `zumen-dxf` (`read_dwg` → `DxfDocument`), drawn with `dxf_to_scene`, and the `DWG` reader. |
 | `zumen-convert` | Maps SXF and JWW into the AutoCAD drawing model (`sxf_to_dxf`, `jww_to_dxf` → `Mapped`: the `DxfDocument`, the notices, and the source of each entity), so that they can be written as DXF ([decision 0007](decisions/0007-mapping-crate-between-formats.md)), and maps the AutoCAD drawing model into the SXF feature model (`dxf_to_sxf` → `MappedSxf`), so that it can be written as SXF ([decision 0010](decisions/0010-write-sxf-from-the-autocad-model.md)), and into the JWW document model (`dxf_to_jww` → `MappedJww`). |
-| `zumen` | `read` and `detect` over every reader, with limits for untrusted drawings (`ReadDrawingOptions::limits`), `convert` (every format to DXF, DWG, JWW and SXF through the AutoCAD model; `mapping` re-exports `zumen-convert`), and `edit` and `create` (DXF, DWG, JWW and SXF). The entry point for applications. |
+| `zumen-draft` | Draws a drawing from a JSON drawing spec into the AutoCAD drawing model with the builder of `zumen-convert` (`draft` → `Drafted`: the `DxfDocument`, the notices and the place in the spec of each entity): one layout per sheet, a viewport for each view at its scale, sizes in paper millimeters, dimensions with their blocks, hatches with pattern lines, tables, title blocks, blocks with attributes ([decision 0018](decisions/0018-drafting-kit.md), [Drafting](drafting.md)). |
+| `zumen` | `read` and `detect` over every reader, with limits for untrusted drawings (`ReadDrawingOptions::limits`), `convert` (every format to DXF, DWG, JWW and SXF through the AutoCAD model; `mapping` re-exports `zumen-convert`), `edit` and `create` (DXF, DWG, JWW and SXF), and `draft` (a drawing spec written in any of those formats; `draft` re-exports `zumen-draft`). The entry point for applications. |
 | `zumen-render` | Draws a scene to PNG with the rules of `render.ts` in `@zumenjs/viewer` (color inversion, line weights with a 1 px minimum, dash rules, even-odd fills, clipping, per-character text, small text as a line), and reports which entities it drew and where (`render_image`, `drawn_entities`, `View::pixel_box`). It also writes SVG (`render_svg`) and one-page PDF (`render_pdf`) with the same colors, fills, clipping and text placement. |
 | `zumen-cli` | The `zumen` command (`detect`, `scene`, `texts`, `entities`, `title`, `render`, `compare`, `convert`). |
 | `bindings/python` | PyO3 bindings, built with maturin as an abi3 wheel for Python 3.12 and later. The GIL is released while reading, rendering and converting. `Scene.to_arrow` needs pyarrow (Apache-2.0, `zumen[arrow]`), and the MCP server `zumen.mcp` needs the MCP SDK (MIT, `zumen[mcp]`); both are optional dependencies. `zumen.tools`, the functions behind the MCP tools, needs neither. |
@@ -253,6 +254,8 @@ The dependency rules follow the TypeScript packages: format crates depend only o
 (the exception is `zumen-dwg`, which reads into the AutoCAD model of `zumen-dxf` and draws with `dxf_to_scene`), and
 parsing does not depend on rendering. `zumen-convert` is not a format crate: it is the one place that knows two formats
 at once, and depends on `zumen-dxf`, `zumen-sxf` and `zumen-jww` ([decision 0007](decisions/0007-mapping-crate-between-formats.md)).
+`zumen-draft` builds the AutoCAD model only, with the public `builder` and `sheet` modules of `zumen-convert`, and
+leaves writing to the facade, so it knows no format but the model ([decision 0018](decisions/0018-drafting-kit.md)).
 
 ### The readers in the browser
 
@@ -441,7 +444,8 @@ that adds entities is the same for new and existing drawings.
 
 ```text
 bytes ─▶ editor of the format (tags, objects, instances, records) ─▶ bytes: what no operation names, byte for byte
-            ▲ operations (zumen_core::edit): add, update, delete, add-layer, update-layer
+            ▲ operations (zumen_core::edit): add, update, delete, add-layer, update-layer, add-block,
+              add-text-style, add-line-type, add-dimension-style
 ```
 
 `crates/zumen/tests/edit.rs` is the conformance test of every editor: without operations the bytes stay the same, and

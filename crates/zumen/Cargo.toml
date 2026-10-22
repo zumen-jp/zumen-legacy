@@ -10,14 +10,15 @@ publish.workspace = true
 [dependencies]
 zumen-convert.workspace = true
 zumen-core.workspace = true
+zumen-draft.workspace = true
 zumen-dxf.workspace = true
 zumen-dwg.workspace = true
 zumen-jww.workspace = true
 zumen-sxf.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
 encoding_rs.workspace = true
-serde_json.workspace = true
 
 [lints]
 workspace = true

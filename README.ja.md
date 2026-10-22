@@ -57,6 +57,9 @@ TypeScript の読み取り（`packages/sxf`・`packages/jww`・`packages/dxf`）
   Ver.2.0・3.0・3.1）に書ける。
 - Rust と Python での編集。DXF・DWG・JWW・SXF の図形とレイヤを、その場で足す・変える・消す。版・文字コードと、操作で名指ししない
   内容は元のまま残す。新しい図面も作れる（[決定 0012（英語）](docs/decisions/0012-edit-in-place-and-write-every-format.md)）。
+- Rust・Python・コマンド・MCP サーバーでの作図。1 つの JSON の図面の仕様から、図枠と表題欄、縮尺ごとのビュー、文字・寸法・
+  ハッチング・表・通り芯・記号のそろった図面を描き、どの形式にも書ける（[作図（英語）](docs/drafting.md)、
+  [決定 0018（英語）](docs/decisions/0018-drafting-kit.md)）。
 
 ## 使い方
 
@@ -236,6 +239,7 @@ cargo run --release -p zumen-cli -- convert plan.dxf -o plan.sfc  # plan.p21 --t
 cargo run --release -p zumen-cli -- convert plan.sfc -o plan.dwg  # plan.jww も
 cargo run --release -p zumen-cli -- edit plan.dxf operations.json -o edited.dxf
 cargo run --release -p zumen-cli -- create operations.json -o new.dxf --units mm
+cargo run --release -p zumen-cli -- draft sheets.json -o sheets.dwg  # 図面の仕様から作図（--sheet A10-1 で 1 枚）
 ```
 
 `convert` は、どの形式の図面も AutoCAD の図面のモデルを経て AutoCAD 2013 の DXF に書く（`--target-version` で
@@ -256,6 +260,10 @@ P21・SFZ・P2Z も同じに書き、`--target-version` で SXF Ver.2.0・3.0 �
 DXF（R12〜2018、テキストとバイナリ）・DWG（R13〜2018）・JWW・SXF（SFC・P21・SFZ・P2Z）を編集できる
 （[決定 0012（英語）](docs/decisions/0012-edit-in-place-and-write-every-format.md)）。`create` はどの形式でも新しい図面を作る。
 
+`draft` は図面の仕様（JSON）から図面を描く。用紙ごとにレイアウトを作り、ビューはモデル空間に実寸で描いてその縮尺の
+ビューポートで見せる。文字の高さ・矢印・表の幅などの大きさは用紙の mm で指定する。仕様の誤りは、場所
+（`sheets[0].views[1].items[4]`）と変わらない code で返す（[作図（英語）](docs/drafting.md)）。
+
 | クレート | 中身 |
 | --- | --- |
 | `zumen-core` | 表示用モデル（`@zumenjs/core` と同じ JSON）、幾何、文字の配置、図面の文字と図形と表題欄の項目の取り出し、線で閉じた領域（部屋）と面積、2 つの版の比較、編集の操作 |
@@ -264,9 +272,10 @@ DXF（R12〜2018、テキストとバイナリ）・DWG（R13〜2018）・JWW・
 | `zumen-dxf` | `parse_dxf`（DWG と共有する AutoCAD の図形モデル）、`dxf_to_scene`、読み取りの `DXF`、`write_dxf`（モデルを AutoCAD 2013 の DXF に書く）、`edit_dxf`（その場の編集） |
 | `zumen-dwg` | `read_dwg`（DWG 1.0〜2018 を `zumen-dxf` の AutoCAD の図形モデルにする）、読み取りの `DWG` |
 | `zumen-convert` | `sxf_to_dxf`・`jww_to_dxf`（SXF・JWW を AutoCAD の図形モデルに写し、DXF に書けるようにする）、`dxf_to_sxf`（モデルを SXF の図面に写し、SFC に書けるようにする） |
-| `zumen` | すべての読み取りをまとめた `read`・`detect` と、`convert`（どの形式も DXF・DWG・JWW・SXF に書き直す）、`edit`・`create`（DXF・DWG・JWW・SXF）。受け取った図面のためのバイト数・図形の数・時間の上限 |
+| `zumen-draft` | `draft`（図面の仕様から、用紙・ビュー・寸法・ハッチング・表・表題欄・記号を AutoCAD の図形モデルに描く） |
+| `zumen` | すべての読み取りをまとめた `read`・`detect` と、`convert`（どの形式も DXF・DWG・JWW・SXF に書き直す）、`edit`・`create`（DXF・DWG・JWW・SXF）、`draft`（図面の仕様をどの形式にも書く）。受け取った図面のためのバイト数・図形の数・時間の上限 |
 | `zumen-render` | ブラウザの描画と同じ規則で PNG・SVG・PDF に描き、描いた図形の画像の上の位置を返す。日本語の文字は同梱の BIZ UDゴシックで描く |
-| `zumen-cli` | `zumen` コマンド（`detect`、`scene` で JSON、`texts`・`entities` で 1 行 1 つの JSON、`title` で表題欄、`regions` で部屋と面積、`render` で PNG、`compare` で版の比較、`convert` で DXF・DWG・JWW・SXF、`edit` で編集、`create` で新しい図面） |
+| `zumen-cli` | `zumen` コマンド（`detect`、`scene` で JSON、`texts`・`entities` で 1 行 1 つの JSON、`title` で表題欄、`regions` で部屋と面積、`render` で PNG、`compare` で版の比較、`convert` で DXF・DWG・JWW・SXF、`edit` で編集、`create` で新しい図面、`draft` で図面の仕様から作図） |
 
 Python では、読み取り・描画・書き出し・編集の間 GIL を外す。
 
@@ -277,6 +286,7 @@ Python では、読み取り・描画・書き出し・編集の間 GIL を外�
 - [JWW の扱い](docs/formats/jww.md)
 - [DXF の扱い（英語）](docs/formats/dxf.md)
 - [DWG の扱い（英語）](docs/formats/dwg.md)
+- [図面の仕様からの作図（英語）](docs/drafting.md)
 - [検証の記録（英語）](docs/verification.md)
 - [設計の判断の記録（英語）](docs/decisions/README.md)
 - [開発への参加（英語）](CONTRIBUTING.md)

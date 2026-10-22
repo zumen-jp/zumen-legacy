@@ -33,6 +33,8 @@ Usage:
   zumen convert <file> -o <out.dxf|.dwg|.jww|.sfc|.p21|.sfz|.p2z> [--target-version <version>] [--format <name>]
   zumen edit <file> <operations.json> -o <out> [--format <name>]
   zumen create <operations.json> -o <out.dxf|.dwg|.jww|.sfc|.p21|.sfz|.p2z> [--units mm|cm|m|inch|foot|unitless]
+  zumen draft <spec.json> -o <out.dxf|.dwg|.jww|.sfc|.p21|.sfz|.p2z> [--target-version <version>] [--sheet <name>]
+              [--into <template.dxf|.dwg>]
 
 Every command that reads takes --max-bytes <n>, --max-entities <n> and --timeout <seconds>, to stop
 reading an untrusted drawing that is too large (P2Z and SFZ after unpacking), too complex or too slow.
@@ -62,10 +64,17 @@ DWG (AutoCAD 2013), JWW (Jw_cad 8) or SXF (SFC, P21, SFZ or P2Z of SXF Ver.3.1, 
 sheet as a layout with a viewport for each scale. SXF is written from that model: the layout is the sheet, each
 viewport a sub-figure at its scale and each block a drawing part. JWW is written from it the same way: the layout is
 the sheet and the model space in each viewport is a layer group at the viewport's scale.
-edit changes a drawing in place: it applies the operations (a JSON array of add, update, delete, add-layer and
-update-layer) and keeps everything else as it was, in the same format and version (DXF, DWG, JWW and SXF). create
+edit changes a drawing in place: it applies the operations (a JSON array of add, update, delete, add-layer,
+update-layer, add-block, add-text-style, add-line-type and add-dimension-style) and keeps everything else as it was, in the same format and version (DXF, DWG, JWW and SXF). create
 starts a new drawing in the format of the output and applies the operations (JWW and SXF lengths are in mm). Both write the ids of what they added and the notices as
-JSON, and on an error write the number of the operation that failed.";
+JSON, and on an error write the number of the operation that failed.
+draft draws a drawing from a drawing spec (JSON: layers, blocks, sheets with a frame and title block, views at
+scales, and items such as text, dimensions, hatches, tables and grid lines, decision 0018) and writes it in the
+format of the output (JWW and SXF hold one sheet: --sheet chooses it, else the first); an error names the place in the spec (sheets[0].views[1].items[4]) and a code.
+--into draws the spec into a DXF or DWG template in place, through the operations of edit, so that the template's
+entities, handles and data stay: a sheet named after a layout of the template is drawn into it, other sheets become
+new layouts, and the fields of a sheet fill the attributes of its title block. The output keeps the template's
+format and version.";
 
 struct Args {
     command: String,
@@ -90,6 +99,8 @@ struct Args {
     min_area: f64,
     units: String,
     target_version: Option<String>,
+    sheet: Option<String>,
+    into: Option<String>,
     style: bool,
     align: bool,
     limits: ReadLimits,
@@ -141,6 +152,8 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
         min_area: 0.0,
         units: "mm".into(),
         target_version: None,
+        sheet: None,
+        into: None,
         style: false,
         align: true,
         limits: ReadLimits::default(),
@@ -180,6 +193,8 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
             "--style" => parsed.style = true,
             "--units" => parsed.units = value("--units")?,
             "--target-version" => parsed.target_version = Some(value("--target-version")?),
+            "--sheet" => parsed.sheet = Some(value("--sheet")?),
+            "--into" => parsed.into = Some(value("--into")?),
             "--no-align" => parsed.align = false,
             "--max-bytes" => {
                 parsed.limits.max_bytes = Some(value("--max-bytes")?.parse().map_err(|_| "--max-bytes needs a count")?)
@@ -522,6 +537,38 @@ fn extension(output: &str) -> String {
 fn run(args: Args) -> Result<(), String> {
     if args.command == "compare" {
         return compare(&args);
+    }
+    if args.command == "draft" {
+        let output = args.output.as_deref().ok_or("draft needs -o <out.dxf|out.dwg|out.jww|out.sfc|...>")?;
+        let spec = std::fs::read_to_string(&args.file).map_err(|error| format!("{}: {error}", args.file))?;
+        if let Some(template) = &args.into {
+            if args.target_version.is_some() {
+                return Err("--into keeps the template's version; leave out --target-version".into());
+            }
+            let bytes = std::fs::read(template).map_err(|error| format!("{template}: {error}"))?;
+            let options = zumen::DraftIntoOptions {
+                sheet: args.sheet.clone(),
+                read: ReadDrawingOptions { format: args.format.clone(), view: None, limits: args.limits },
+            };
+            let drafted =
+                zumen::draft_into(&bytes, &spec, &options).map_err(|error| format!("{error} ({})", error.code))?;
+            let format = zumen::detect(&drafted.bytes).unwrap_or_default();
+            if extension(output) != format {
+                return Err(format!("{output}: --into writes {} like the template", format.to_uppercase()));
+            }
+            std::fs::write(output, &drafted.bytes).map_err(|error| format!("{output}: {error}"))?;
+            print_notices(&drafted.notices);
+            return Ok(());
+        }
+        let options = zumen::DraftOptions {
+            write: zumen::WriteOptions { version: args.target_version.clone() },
+            sheet: args.sheet.clone(),
+        };
+        let drafted =
+            zumen::draft(&spec, &extension(output), &options).map_err(|error| format!("{error} ({})", error.code))?;
+        std::fs::write(output, &drafted.bytes).map_err(|error| format!("{output}: {error}"))?;
+        print_notices(&drafted.notices);
+        return Ok(());
     }
     if args.command == "create" {
         let output = args.output.as_deref().ok_or("create needs -o <out.dxf|out.dwg|out.jww|out.sfc|...>")?;

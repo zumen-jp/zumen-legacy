@@ -4,6 +4,46 @@ All packages share one version during 0.x.
 
 ## Unreleased
 
+- Rust, Python, the command line and the MCP server: draft whole drawings from a JSON drawing spec
+  ([decision 0018](docs/decisions/0018-drafting-kit.md), [Drafting](docs/drafting.md)). Sheets become layouts with
+  a border and a title block (a strip on the right or a table at the bottom right), views are viewports at their
+  scales onto real-size model space, and items include text (with alignment, wrapping and fitting), linear and aligned
+  dimensions and dimension chains, hatches (solid, built-in patterns or pattern lines), tables with merged cells,
+  blocks with attributes, grid lines with bubbles and dimensions, north arrows, scale bars, level marks, spot levels,
+  leaders, and side lengths and areas of a boundary. Sizes are paper millimeters at any scale. The drawing is written
+  as DXF R12 to 2018, DWG, JWW or SXF; a mistake in the spec names its place and a stable code.
+  `zumen::draft`, the new crate `zumen-draft` with its JSON Schema, `zumen.draft` and `zumen.draft_schema` in
+  Python, `zumen draft`, and the `draft_drawing` MCP tool.
+- Rust, Python, the command line and the MCP server: draw a drawing spec into a DXF or DWG template in place
+  (`zumen::draft_into`, `zumen.draft_into`, `zumen draft --into template.dwg`, `into` of `draft_drawing`). The drawing
+  becomes edit operations of decision 0017 (`zumen_draft::plan`), so the template's entities, handles and data stay;
+  sheets named after its layouts are drawn into them, and the new `fields` of a sheet fill the attributes of its
+  title block ([Drawing into a template](docs/drafting.md#drawing-into-a-template)).
+- Rust, Python and the command line: `edit` and `create` take `{"op": "add-block", "name": ..., "basePoint": [x, y]}`
+  for DXF (R12 to 2018) and DWG (R13 to 2018), which creates an empty block definition; later operations of the same
+  edit fill it with `"container": "block:<name>"` and place it with `block-reference`. SXF and JWW refuse it
+  (`unsupported-kind`). First step of [decision 0017](docs/decisions/0017-add-annotations-and-definitions.md).
+- Rust, Python and the command line: `add` takes `kind: "dimension"` (linear and aligned) for DXF and DWG, written as
+  a DIMENSION with its `*D` block computed from the dimension style, so that zumen and other readers draw it.
+- Rust, Python and the command line: `add-text-style`, `add-line-type` and `add-dimension-style` for DXF and DWG, so
+  that a new drawing gets a Japanese text style and dimensions sized for its units and scale.
+- Rust, Python and the command line: `add` takes `kind: "hatch"` for DXF (R13 to 2018) and DWG (R14
+  to 2018): closed polyline boundaries with holes, `SOLID`, built-in patterns (`ANSI31`, `ANSI32`, `ANSI37`, `LINE`,
+  `NET`, `DOTS`) or the lines of a PAT pattern.
+- Rust, Python and the command line: `text` takes `justification` (`top-left` … `bottom-right`, and `left`,
+  `center`, `right` on the baseline), `lineSpacing`, `multiline` and `widthFactor` in DXF and DWG, for text placed in
+  table cells.
+- Rust, Python and the command line: block attributes in DXF and DWG: `kind: "attribute-definition"` in a block and
+  `attributes: {"TAG": "value"}` on `block-reference`, which writes the ATTRIBs, for title blocks.
+- Rust, Python and the command line: sheets in DXF and DWG (AutoCAD 2000 and later): `add-layout` with a paper size
+  and `kind: "viewport"` in it, showing model space at a scale such as 1:100. `margins` sets the printer margins.
+- Rust, Python and the command line: `kind: "leader"` in DXF and DWG, a LEADER with an MTEXT note sized from the
+  dimension style.
+- Rust, Python and the command line: `kind: "image"` in DXF and DWG (R14 and later), an IMAGE with its IMAGEDEF in
+  `ACAD_IMAGE_DICT` that keeps `path`, for raster location maps. Reading keeps the image's file name
+  (`DxfImage::path`), and converting to DXF and DWG now writes IMAGE with its IMAGEDEF instead of leaving it out
+  (`version-image` in R12 DXF and R13 DWG; `image` only when the image definition is unknown).
+
 ## 0.1.1 — 2026-10-21
 
 - Rust: `zumen_dwg::write_dwg_as` writes AutoCAD R13, R14, 2000, 2004, 2007, 2010, 2013 or 2018 DWG, with

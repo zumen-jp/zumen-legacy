@@ -1,6 +1,6 @@
 //! 図形でないオブジェクト: DICTIONARY（20.4.44）、DICTIONARYWDFLT（20.4.45）、ACDBPLACEHOLDER、LAYOUT（20.4.84）、
 //! MLINESTYLE（20.4.73）、MLEADERSTYLE（20.4.87）、XRECORD（20.4.104）、DICTIONARYVAR（20.4.74）、SCALE（20.4.92）、
-//! SORTENTSTABLE（20.4.93）、GROUP（20.4.72）、MATERIAL（仕様にない。ACadSharp の並びに従い、実物の図面で確かめた）
+//! SORTENTSTABLE（20.4.93）、GROUP（20.4.72）、IMAGEDEF（20.4.82）、IMAGEDEF_REACTOR（20.4.83）、MATERIAL（仕様にない。ACadSharp の並びに従い、実物の図面で確かめた）
 
 use super::object::ObjectCommon;
 use super::{CmColor, In, RawText};
@@ -636,6 +636,65 @@ impl DictionaryVar {
         self.common.write(o);
         o.data.rc(self.schema);
         o.text(&self.value);
+    }
+}
+
+/// IMAGEDEF（20.4.82）
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ImageDef {
+    pub common: ObjectCommon,
+    pub class_version: i32,
+    /// 画素の数（幅、高さ）
+    pub size: [f64; 2],
+    pub path: RawText,
+    pub loaded: bool,
+    /// 0 なし、2 cm、5 インチ
+    pub resolution_units: u8,
+    /// 画素 1 つ分の大きさ
+    pub pixel_size: [f64; 2],
+}
+
+impl ImageDef {
+    pub fn read(s: &mut In<'_>) -> Read<Self> {
+        let common = ObjectCommon::read(s)?;
+        Ok(Self {
+            common,
+            class_version: s.data.bl()?,
+            size: s.data.rd2()?,
+            path: s.text()?,
+            loaded: s.data.bit()?,
+            resolution_units: s.data.rc()?,
+            pixel_size: s.data.rd2()?,
+        })
+    }
+
+    pub fn write(&self, o: &mut ObjectWriter) {
+        self.common.write(o);
+        o.data.bl(self.class_version);
+        o.data.rd2(self.size);
+        o.text(&self.path);
+        o.data.bit(self.loaded);
+        o.data.rc(self.resolution_units);
+        o.data.rd2(self.pixel_size);
+    }
+}
+
+/// IMAGEDEF_REACTOR（20.4.83）。所有者は画像（IMAGE）
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ImageDefReactor {
+    pub common: ObjectCommon,
+    pub class_version: i32,
+}
+
+impl ImageDefReactor {
+    pub fn read(s: &mut In<'_>) -> Read<Self> {
+        let common = ObjectCommon::read(s)?;
+        Ok(Self { common, class_version: s.data.bl()? })
+    }
+
+    pub fn write(&self, o: &mut ObjectWriter) {
+        self.common.write(o);
+        o.data.bl(self.class_version);
     }
 }
 

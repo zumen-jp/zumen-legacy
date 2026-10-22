@@ -15,7 +15,7 @@ const VIEWPORT_FLAGS: f64 = 49152.0;
 
 /// 1 つのビューポート。モデルの座標（ずらす前）から用紙へ: 用紙 = origin + scale · R(angle) · モデル
 #[derive(Debug, Clone)]
-pub(crate) struct View {
+pub struct View {
     /// モデル空間の図形のまとまりの番号（同じ部分図を 2 か所に置けば、2 つのビューポートが同じまとまりを見る）
     pub content: usize,
     pub scale: f64,
@@ -28,7 +28,7 @@ pub(crate) struct View {
 
 /// モデル空間の図形のまとまり
 #[derive(Debug, Clone, Default)]
-pub(crate) struct Content {
+pub struct Content {
     /// 元の図面で描いた図形の数。重なるときは、多いまとまりを元の座標に残す
     pub weight: usize,
     /// ずらした量（モデルの座標）
@@ -41,7 +41,7 @@ fn rotate(angle: f64, [x, y]: [f64; 2]) -> [f64; 2] {
 }
 
 /// ビューポートに映るモデルの範囲（ずらした後）
-pub(crate) fn region(view: &View, offset: [f64; 2]) -> BBox {
+pub fn region(view: &View, offset: [f64; 2]) -> BBox {
     let mut out = empty_box();
     let r = &view.rect;
     for [x, y] in [[r.min_x, r.min_y], [r.max_x, r.min_y], [r.max_x, r.max_y], [r.min_x, r.max_y]] {
@@ -61,7 +61,7 @@ fn step(size: f64) -> f64 {
 }
 
 /// 図形の外接矩形を、余白を足したビューポートの範囲にする
-pub(crate) fn rect_of(bbox: &BBox) -> Option<BBox> {
+pub fn rect_of(bbox: &BBox) -> Option<BBox> {
     if is_empty_box(bbox) {
         return None;
     }
@@ -75,7 +75,7 @@ pub(crate) fn rect_of(bbox: &BBox) -> Option<BBox> {
 }
 
 /// 元の図面の図形の外接矩形を、id の先頭（# から > まで）ごとにまとめる
-pub(crate) fn boxes_by_top_id(scene: &Scene) -> std::collections::HashMap<String, (BBox, usize)> {
+pub fn boxes_by_top_id(scene: &Scene) -> std::collections::HashMap<String, (BBox, usize)> {
     let mut out: std::collections::HashMap<String, (BBox, usize)> = std::collections::HashMap::new();
     for entity in &scene.entities {
         let top = entity.id.split('>').next().unwrap_or("").to_string();
@@ -88,7 +88,7 @@ pub(crate) fn boxes_by_top_id(scene: &Scene) -> std::collections::HashMap<String
 
 /// まとまりがモデル空間で重ならないよう、ずらす量を決める。重なったまとまりは、それまでのまとまりの右へ、
 /// 下端をそろえて置く。ずらしたまとまりの数を返す
-pub(crate) fn separate(views: &[View], contents: &mut [Content]) -> u64 {
+pub fn separate(views: &[View], contents: &mut [Content]) -> u64 {
     let mut order: Vec<usize> = (0..contents.len()).collect();
     order.sort_by_key(|index| std::cmp::Reverse(contents[*index].weight));
     let mut placed: Vec<BBox> = Vec::new();
@@ -122,7 +122,7 @@ pub(crate) fn separate(views: &[View], contents: &mut [Content]) -> u64 {
 
 /// VIEWPORT の値。ezdxf の Viewport.get_transformation_matrix（zumen-dxf の表示）と同じく、
 /// 用紙 = 中心 − 縮尺 × 表示の中心 + 縮尺 × R(ねじれ) × (モデル − 目標点)
-pub(crate) fn viewport(view: &View, offset: [f64; 2], id: f64) -> DxfViewport {
+pub fn viewport(view: &View, offset: [f64; 2], id: f64) -> DxfViewport {
     let r = &view.rect;
     let center = [(r.min_x + r.max_x) / 2.0, (r.min_y + r.max_y) / 2.0];
     let width = r.max_x - r.min_x;
@@ -150,7 +150,7 @@ pub(crate) fn viewport(view: &View, offset: [f64; 2], id: f64) -> DxfViewport {
 }
 
 /// 紙空間の全体のビューポート（ID 1）。AutoCAD はレイアウトごとに 1 つ持ち、表示はモデルの表示に使わない
-pub(crate) fn overall_viewport(builder: &mut Builder, width: f64, height: f64) {
+pub fn overall_viewport(builder: &mut Builder, width: f64, height: f64) {
     let look = Look {
         layer: VIEWPORT_LAYER.into(),
         color: crate::builder::BY_LAYER,

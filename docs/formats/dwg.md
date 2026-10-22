@@ -502,7 +502,7 @@ The codes of the DXF writer, with the same messages, and two more:
 | `mpolygon` | An MPOLYGON | A HATCH |
 | `table` | An ACAD_TABLE | An INSERT of its block |
 | `attrib-alone` | An ATTRIB that no INSERT owns | A TEXT or MTEXT |
-| `image` | An IMAGE (the model does not keep the image file) | Nothing |
+| `image` | An IMAGE whose image definition (IMAGEDEF) the model does not know | Nothing |
 | `dimension-block` | A dimension without its block | Nothing |
 | `mleader-block` | A MULTILEADER whose block content is not defined | No content |
 | `multiline-attrib` | A multi-line attribute, which DWG before AutoCAD 2018 cannot hold (the embedded MTEXT is R2018) | A single-line attribute with the text on one line |
@@ -603,6 +603,7 @@ DWG (the DXF writer has no R13 or R14):
 | `version-line-spacing` | R13, R14 | MTEXT with the default line spacing (at least, 1) (DWG only) |
 | `version-layouts` | R13, R14 | Layouts other than the current one as AutoCAD 2000 and later read them; R13 and R14 show one paper space (DWG only) |
 | `version-hatch` | R13 | HATCH with the class of R14, which R13 cannot show (DWG only) |
+| `version-image` | R13 | Nothing: R13 has no IMAGE |
 | `version-color` | R13 to 2000 | True colors as the nearest ACI (entities, layers, and the CMC colors of other objects) |
 | `version-transparency` | R13 to 2000 | No transparency (entities and layers) |
 | `version-gradient` | R13 to 2000 | A gradient hatch as a solid fill in its first color |
@@ -686,6 +687,49 @@ drawing with `write_dwg` (`$INSUNITS` and `$MEASUREMENT` from the units), which 
   material stay), with color 7, `CONTINUOUS`, the default line weight and plotting on, and adds it to the layer table;
   `update-layer` sets the color, frozen (1), off (2), locked (8), plot (16) and line weight (0x3E0) of the flags, and the
   line type. An R2000 layer that is off also gets a negative color number, as DXF writes it.
+- **Block definitions**: `add-block` ([decision 0017](../decisions/0017-add-annotations-and-definitions.md)) creates
+  a BLOCK_HEADER (20.4.52) named `name`, with `basePoint`, no entities (R2004 and later) or null first and last
+  entities (R13 to R2000), and its BLOCK and ENDBLK entities on layer `0`, and adds it to BLOCK_CONTROL. Later
+  operations add entities to it with `"container": "block:<name>"` and place it with `block-reference`, as for the
+  blocks the drawing has. Existing names are `already-exists`, names starting with `*` `invalid-value`.
+- **Dimensions**: `kind: "dimension"` takes the keys of the DXF editor and writes DIMENSION_LINEAR (21) or
+  DIMENSION_ALIGNED (22) with the anonymous block `*D<n>` (BLOCK_HEADER named `*D`, anonymous), drawn with the same
+  code as DXF (`zumen_dxf::dimension`) from the values of the DIMSTYLE object; text is MTEXT with attachment 5. The
+  style is `dimensionStyle`, else `$DIMSTYLE`, else `Standard` (`missing-definition` if the drawing has none). R13 and
+  R14 hold no measurement value.
+- **Styles**: `add-text-style`, `add-line-type` and `add-dimension-style` take the values of the DXF editor and add a
+  STYLE (with the TrueType family as `ACAD` extended data), LTYPE or DIMSTYLE (a copy of `from` with the variables
+  set) to its control object.
+- **Hatches**: `kind: "hatch"` takes the keys of the DXF editor and writes a HATCH (20.4.75) with polyline paths and
+  the pattern lines of `zumen_dxf::hatch`; from R2000 on it is the fixed type 78, in R14 the class `HATCH` (added to
+  AcDb:Classes when the drawing lacks it), and R13, which has no HATCH, refuses it (`unsupported-kind`).
+- **Text placement**: `justification`, `lineSpacing` and `multiline` as in the DXF editor: TEXT gets its horizontal
+  and vertical alignment and alignment point, MTEXT its attachment and line spacing factor (R13 and R14 have none,
+  `edit-no-line-spacing`). `widthFactor` is the width factor of TEXT, and a `\W` code at the start of MTEXT.
+- **Attributes**: `attribute-definition` and the `attributes` of `block-reference` as in the DXF editor. The ATTDEF
+  sets the block header's has-attributes flag; the ATTRIBs copy their definition's values, are owned by the INSERT
+  (entity mode 0), linked to each other in R13 to R2000 and listed by the INSERT from R2004 on, followed by a SEQEND.
+- **Layouts and viewports** (R2000 and later): `add-layout` copies a LAYOUT object (20.4.84) of the drawing with the
+  new name, tab order, paper and limits, a new BLOCK_HEADER (named `*Paper_Space`, as every paper space is, with the
+  layout's handle; its BLOCK is `*Paper_Space<n>`) and the viewport of the whole sheet, the first in the block, and
+  adds it to `ACAD_LAYOUT`; `margins` sets the margins of the LAYOUT as in the DXF editor. `viewport` writes a VIEWPORT (20.4.37) with the values of the DXF editor and joins the
+  layout's viewport list (R2004 and later). R2000 keeps a VIEWPORT ENTITY HEADER for the viewports of the active
+  paper space, so a viewport can be added there only from R2004 on; layouts added by the edit take them in R2000 too.
+  New layouts use millimeter paper coordinates at 1:1, with no rotation or plot offset. Their margins default to
+  zero; an explicit `margins` value overrides that default.
+- **Leaders**: `leader` writes the annotation MTEXT and a LEADER (20.4.47) that points to it, with the values of the
+  DXF editor; R13 and R14 also get DIMGAP × DIMSCALE and DIMASZ × DIMSCALE in the LEADER. Reading adds the hook vertex
+  that AutoCAD writes to DXF (`entities.rs`, an inferred rule).
+  The hook points back toward the penultimate vertex for either annotation side. If the horizontal hook cannot fit
+  inside the supplied final segment (a diagonal or short segment), `edit-leader-hook` counts the leaders whose
+  paths change when read; no hook is synthesized without a text annotation.
+- **Images** (R14 and later; R13 refuses them with `unsupported-kind`): `image` writes an IMAGE (20.4.80) with the
+  values of the DXF editor, an IMAGEDEF (20.4.82) with `path` and the pixel counts, owned by `ACAD_IMAGE_DICT`, and an
+  IMAGEDEF_REACTOR (20.4.83) owned by the IMAGE. `ACAD_IMAGE_DICT` is created in the named objects dictionary when
+  the drawing has none, and the IMAGE, IMAGEDEF and IMAGEDEF_REACTOR classes are added with the editor's class
+  numbers. Reading keeps the IMAGEDEF's file name (`DxfImage::path`).
+  Deleting an image removes its owned IMAGEDEF_REACTOR and the reference to that reactor from IMAGEDEF, while
+  retaining the image definition in the dictionary for other images that may share it.
 - **Values the version cannot hold** are written as the nearest one and reported: `edit-nearest-color` (no true color
   before AutoCAD 2004) and `edit-rounded-lineweight` (the line weights of DWG). R13 and R14 have no line weights and
   plot every layer, so a line weight other than BYLAYER (entities) or the default (layers) and `plot: false` are not

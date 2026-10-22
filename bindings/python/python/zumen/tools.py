@@ -44,7 +44,7 @@ from numbers import Real
 from pathlib import Path
 from typing import Any, Literal, TypedDict, cast
 
-from . import LimitError, ReadError, RenderError, Scene, compare, read
+from . import DraftError, LimitError, ReadError, RenderError, Scene, compare, draft, draft_into, read
 
 #: Long edge of a rendered image when the caller does not ask for a size (pixels). Vision models see about this much
 #: detail; a larger image costs more and is often scaled down by the client.
@@ -456,6 +456,17 @@ class MeasurementInfo(_MeasurementInfo, total=False):
     reason: str
 
 
+class DraftInfo(TypedDict):
+    """A drawing drafted from a drawing spec and written to ``path``. ``sheets`` are the layouts written (pass one as
+    the ``view`` of ``render`` after reading the file to look at it); JWW and SXF hold one sheet."""
+
+    path: str
+    format: str
+    bytes: int
+    sheets: list[str]
+    notices: list[NoticeInfo]
+
+
 class ChangeRegionInfo(TypedDict):
     """Nearby changes grouped into a box (paper millimeters of the earlier revision)."""
 
@@ -772,6 +783,17 @@ class Drawings:
         size = resolved.stat().st_size
         if size > self.max_bytes:
             raise DrawingError(f"{path} is {size:,} bytes, more than the limit of {self.max_bytes:,} bytes")
+        return resolved
+
+    def writable(self, path: str | os.PathLike[str]) -> Path:
+        """The real path to write a drawing to, after checking the roots and that its directory exists."""
+        resolved = Path(path).expanduser().resolve()
+        if self.roots and not any(resolved.is_relative_to(root) for root in self.roots):
+            raise DrawingError(f"{path} is outside the directories this server may use")
+        if not resolved.parent.is_dir():
+            raise DrawingError(f"the directory of {path} does not exist")
+        if resolved.is_dir():
+            raise DrawingError(f"{path} is a directory")
         return resolved
 
     def scene(self, path: str | os.PathLike[str], view: str | None = None) -> Scene:
@@ -1417,3 +1439,66 @@ def compare_revisions(
         "colors": "red: removed or before a change; blue: added or after a change; gray: unchanged",
     }
     return png, info
+
+
+#: Formats ``draft_drawing`` writes, by the extension of the output.
+DRAFT_FORMATS = ("dxf", "dwg", "jww", "sfc", "p21", "sfz", "p2z")
+
+
+def draft_drawing(
+    drawings: Drawings,
+    spec: dict[str, Any] | str,
+    output: str | os.PathLike[str],
+    *,
+    version: str | None = None,
+    sheet: str | None = None,
+    into: str | os.PathLike[str] | None = None,
+) -> DraftInfo:
+    """Draw a drawing from a drawing spec (docs/drafting.md) and write it to ``output``, in the format of its
+    extension. A mistake in the spec is a ``DrawingError`` whose message starts with the place in the spec and ends
+    with the code, such as ``sheets[0].views[1].items[4]: ... (unknown-key)``.
+
+    With ``into``, the spec is drawn into that DXF or DWG drawing (a template) in place, keeping its entities and
+    format: sheets named after its layouts are drawn into them, and the ``fields`` of a sheet fill its title block.
+    ``output`` must then have the template's extension."""
+    path = drawings.writable(output)
+    to = path.suffix.lower().lstrip(".")
+    if to not in DRAFT_FORMATS:
+        raise DrawingError(f"cannot write .{to}; use one of {', '.join('.' + name for name in DRAFT_FORMATS)}")
+    if isinstance(spec, dict):
+        sheets = [str(item.get("name")) for item in spec.get("sheets", []) if isinstance(item, dict)]
+    else:
+        sheets = []
+    text = spec if isinstance(spec, dict) else str(spec)
+    try:
+        if into is None:
+            drafted = draft(text, to, version=version, sheet=sheet)
+        else:
+            if version is not None:
+                raise DrawingError("drawing into a template keeps its version; leave out version")
+            template = drawings.resolve(into)
+            drafted = draft_into(text, template.read_bytes(), sheet=sheet, max_bytes=drawings.max_bytes)
+            if drafted.format != to:
+                raise DrawingError(f"{into} is {drafted.format.upper()}; write to a .{drafted.format} file")
+    except DraftError as error:
+        raise DrawingError(f"{error} ({error.code})") from error
+    if sheet is not None:
+        sheets = [name for name in sheets if name.lower() == sheet.lower()]
+    elif to not in ("dxf", "dwg"):
+        sheets = sheets[:1]
+    path.write_bytes(drafted.data)
+    return {
+        "path": str(path),
+        "format": to,
+        "bytes": len(drafted),
+        "sheets": sheets,
+        "notices": [
+            {
+                "level": "warning" if notice["level"] == "warning" else "info",
+                "code": str(notice["code"]),
+                "message": str(notice["message"]),
+                "count": int(notice["count"]),
+            }
+            for notice in drafted.notices
+        ],
+    }

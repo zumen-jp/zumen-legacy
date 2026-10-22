@@ -248,10 +248,12 @@ impl Writer<'_> {
         self.links(chain[index], previous, next)
     }
 
-    /// 書く図形か（IMAGE と、表示のブロックを持たない寸法は書かない）。R2000 の図形のつながりを先に決めるのに使う
-    fn writes(entity: &DxfEntity) -> bool {
+    /// 書く図形か（R13 の画像、画像の定義のファイルが分からない画像と、表示のブロックを持たない寸法は書かない）。
+    /// R2000 の図形のつながりを先に決めるのに使う
+    fn writes(&self, entity: &DxfEntity) -> bool {
         if entity.base.kind.eq_ignore_ascii_case("IMAGE") {
-            return false;
+            return self.version >= Version::R14
+                && matches!(&entity.data, DxfEntityData::Image(image) if image.path.is_some());
         }
         !matches!(&entity.data, DxfEntityData::Dimension(dimension) if dimension.anonymous_block_name.is_empty())
     }
@@ -275,11 +277,8 @@ impl Writer<'_> {
             self.put(4, begin, self.plain_common(owner), Body::Block(name));
             let entities: Vec<&DxfEntity> = contents.get(&key).into_iter().flatten().copied().collect();
             // R2000 の図形は前後の図形を持つので、書く図形のハンドルを先に並べる
-            let chain: Vec<u64> = entities
-                .iter()
-                .filter(|entity| Self::writes(entity))
-                .map(|entity| self.handle_of(&entity.base))
-                .collect();
+            let written: Vec<&DxfEntity> = entities.iter().copied().filter(|entity| self.writes(entity)).collect();
+            let chain: Vec<u64> = written.iter().map(|entity| self.handle_of(&entity.base)).collect();
             for entity in entities {
                 let position = self.blocks[index].entities.len();
                 let links = if chain.get(position).is_some() { self.chained(&chain, position) } else { None };
@@ -319,12 +318,20 @@ impl Writer<'_> {
     fn entity(&mut self, entity: &DxfEntity, owner: Owner, links: Option<(HandleRef, HandleRef)>) -> Option<u64> {
         let base = &entity.base;
         let kind = upper(&base.kind);
-        if kind == "IMAGE" {
-            self.notices.add(
-                NoticeLevel::Warning,
-                "image",
-                "画像（IMAGE）は、画像のファイルへの参照を読んでいないため省きました",
-            );
+        if kind == "IMAGE" && !self.writes(entity) {
+            if matches!(&entity.data, DxfEntityData::Image(image) if image.path.is_some()) {
+                self.notices.add(
+                    NoticeLevel::Info,
+                    "version-image",
+                    "画像（IMAGE）は、AutoCAD R13 にないため、省きました",
+                );
+            } else {
+                self.notices.add(
+                    NoticeLevel::Warning,
+                    "image",
+                    "画像（IMAGE）は、画像のファイル（IMAGEDEF）が分からないため省きました",
+                );
+            }
             return None;
         }
         if let DxfEntityData::Dimension(dimension) = &entity.data
@@ -779,6 +786,19 @@ impl Writer<'_> {
             DxfEntityData::XLine { start, unit_vector } => {
                 let body = Ray { point: *start, vector: *unit_vector };
                 self.put(if kind == "RAY" { 40 } else { 41 }, handle, common, Body::Ray(body));
+            }
+            DxfEntityData::Image(image) if kind == "IMAGE" => {
+                let (definition, reactor) = self.plan_image(image, handle);
+                let mut body = wipeout(image);
+                if body.boundary.is_empty() {
+                    // 境界がなければ画像の全体の矩形（画素の座標）
+                    body.boundary = vec![[-0.5, -0.5], [image.image_size[0] - 0.5, image.image_size[1] - 0.5]];
+                    body.clip_type = 1;
+                }
+                body.imagedef = href(5, definition);
+                body.reactor = href(3, reactor);
+                let number = self.class_number("IMAGE");
+                self.put(number, handle, common, Body::Image(Box::new(body)));
             }
             DxfEntityData::Image(image) => {
                 let body = wipeout(image);
@@ -1670,6 +1690,30 @@ fn spline_body(spline: &DxfSpline, version: Version) -> Spline {
             points: spline.control_points.clone(),
             weights: if weighted { spline.weights.clone() } else { Vec::new() },
         }),
+    }
+}
+
+impl Writer<'_> {
+    /// 画像の定義（IMAGEDEF）とリアクタ（IMAGEDEF_REACTOR）のハンドル。同じ定義を指していた画像は、1 つの定義を
+    /// 共有する（DXF の書き出しと同じ）
+    fn plan_image(&mut self, image: &DxfImage, handle: u64) -> (u64, u64) {
+        let original = image.definition_handle.as_deref().map(upper).unwrap_or_default();
+        let number = match self.image_def_index.get(&original).copied().filter(|_| !original.is_empty()) {
+            Some(number) => number,
+            None => {
+                self.image_defs.push(super::ImageDefPlan {
+                    handle: self.handles.fresh(),
+                    path: image.path.clone().unwrap_or_default(),
+                    size: image.image_size,
+                    reactors: Vec::new(),
+                });
+                self.image_def_index.insert(original, self.image_defs.len() - 1);
+                self.image_defs.len() - 1
+            }
+        };
+        let reactor = self.handles.fresh();
+        self.image_defs[number].reactors.push((reactor, handle));
+        (self.image_defs[number].handle, reactor)
     }
 }
 

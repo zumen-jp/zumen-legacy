@@ -4,6 +4,7 @@
 //! 受け取った図面を信用できないときは、`ReadDrawingOptions::limits` でバイト数・図形の数・時間の上限を指定する。
 //! どの図面も AutoCAD の図面のモデルを経て、DXF・DWG・JWW・SXF に書き直せる（`convert`）。
 //! 図面をその場で編集し（`edit`）、新しい図面を作れる（`create`）。操作は形式によらない（`edit::parse_operations`）。
+//! 図面の仕様（JSON）から、用紙・ビュー・寸法・表のそろった図面を描ける（`draft`、決定 0018）。
 //!
 //! ```no_run
 //! let bytes = std::fs::read("plan.jww").unwrap();
@@ -18,6 +19,7 @@
 
 pub use zumen_convert as mapping;
 pub use zumen_core::*;
+pub use zumen_draft as draft;
 pub use zumen_dwg as dwg;
 pub use zumen_dxf as dxf;
 pub use zumen_jww as jww;
@@ -154,28 +156,7 @@ pub fn convert_with(
         return Err(limit_error(limit, limits));
     }
     let doc = doc?;
-    let (written, exceeded) = zumen_core::limits::with_limits(limits, || -> Result<_, ReadError> {
-        Ok(match target {
-            Target::Dxf(version) => {
-                let written = dxf::write_dxf_as(&doc, version);
-                (written.bytes, written.notices)
-            }
-            Target::Dwg => {
-                let written = dwg::write_dwg(&doc);
-                (written.bytes, written.notices)
-            }
-            Target::Jww => {
-                let mapped = mapping::dxf_to_jww(&doc);
-                let written = mapped.write();
-                (written.bytes, [mapped.notices, written.notices].concat())
-            }
-            Target::Sxf(format, version) => {
-                let mapped = mapping::dxf_to_sxf(&doc);
-                let written = sxf::write_sxf_version(&mapped.drawing, format, version)?;
-                (written.bytes, [mapped.notices, written.notices].concat())
-            }
-        })
-    });
+    let (written, exceeded) = zumen_core::limits::with_limits(limits, || write_document(&doc, &target));
     if let Some(limit) = exceeded {
         return Err(limit_error(limit, limits));
     }
@@ -184,6 +165,117 @@ pub fn convert_with(
         notices.add_count(notice.level, &notice.code, notice.message.clone(), notice.count);
     }
     Ok(Converted { bytes, notices: notices.into_vec() })
+}
+
+/// AutoCAD の図面のモデルを、形式と版に書く。返すのは書いたバイト列と、書けなかった・形を変えて書いた内容
+fn write_document(doc: &dxf::DxfDocument, target: &Target) -> Result<(Vec<u8>, Vec<Notice>), ReadError> {
+    Ok(match *target {
+        Target::Dxf(version) => {
+            let written = dxf::write_dxf_as(doc, version);
+            (written.bytes, written.notices)
+        }
+        Target::Dwg => {
+            let written = dwg::write_dwg(doc);
+            (written.bytes, written.notices)
+        }
+        Target::Jww => {
+            let mapped = mapping::dxf_to_jww(doc);
+            let written = mapped.write();
+            (written.bytes, [mapped.notices, written.notices].concat())
+        }
+        Target::Sxf(format, version) => {
+            let mapped = mapping::dxf_to_sxf(doc);
+            let written = sxf::write_sxf_version(&mapped.drawing, format, version)?;
+            (written.bytes, [mapped.notices, written.notices].concat())
+        }
+    })
+}
+
+/// `draft` の指定
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DraftOptions {
+    pub write: WriteOptions,
+    /// 描く用紙の名前。省略するとすべての用紙（JWW と SXF は用紙を 1 枚しか持たないので、1 枚目だけを書く）
+    pub sheet: Option<String>,
+}
+
+/// 図面の仕様（JSON、決定 0018）から、用紙・縮尺のあるビュー・寸法・ハッチング・表・表題欄のそろった図面を描き、
+/// `to` の形式（`WRITABLE_FORMATS`）と `write.version` の版で書く。仕様の読み違いは、場所（`sheets[0].items[2]`）と
+/// 変わらない code のある `draft::DraftError` で返す
+pub fn draft(spec: &str, to: &str, options: &DraftOptions) -> Result<Converted, draft::DraftError> {
+    let target = Target::parse(to, options.write.version.as_deref())
+        .map_err(|error| draft::DraftError::new("unsupported-format", "", error.to_string()))?;
+    let mut value: serde_json::Value = serde_json::from_str(spec)
+        .map_err(|error| draft::DraftError::new("invalid-spec", "", format!("仕様の JSON を読めません: {error}")))?;
+    if let Some(sheet) = &options.sheet {
+        draft::select_sheet(&mut value, sheet)?;
+    }
+    let drafted = draft::draft(&value)?;
+    let (bytes, written) = write_document(&drafted.document, &target)
+        .map_err(|error| draft::DraftError::new("unwritable", "", error.to_string()))?;
+    let mut notices = NoticeList::from_notices(&drafted.notices);
+    for notice in &written {
+        notices.add_count(notice.level, &notice.code, notice.message.clone(), notice.count);
+    }
+    Ok(Converted { bytes, notices: notices.into_vec() })
+}
+
+/// 受け取った図面に描く指定
+#[derive(Debug, Clone, Default)]
+pub struct DraftIntoOptions {
+    /// 描く用紙の名前。省略するとすべての用紙
+    pub sheet: Option<String>,
+    /// 描き込む図面の形式（dxf・dwg）と、読み取りの上限
+    pub read: ReadDrawingOptions,
+}
+
+/// 図面の仕様（決定 0018）を、受け取った DXF・DWG の図面（テンプレート）にその場で描く。描いたものは決定 0017 の
+/// 編集の操作（`draft::plan`）にして `edit` で当てるので、元の図形・ハンドル・拡張データ・zumen が読まない内容は
+/// 残る。用紙の名前と同じレイアウトがあればそこに描き（用紙の大きさもそのレイアウトのもの）、なければレイアウトを
+/// 足す。用紙の `fields` は、その用紙のブロック参照（表題欄）の属性を埋める。図面の版と形式は元のまま
+pub fn draft_into(bytes: &[u8], spec: &str, options: &DraftIntoOptions) -> Result<Converted, draft::DraftError> {
+    let error = |code: &'static str, message: String| draft::DraftError::new(code, "", message);
+    let limits = &options.read.limits;
+    if limits.max_bytes.is_some_and(|max| bytes.len() as u64 > max) {
+        return Err(error("too-large", limit_error(Limit::Bytes, limits).to_string()));
+    }
+    let format = match options.read.format.as_deref() {
+        Some(format) => format,
+        None => detect(bytes).ok_or_else(|| error("unreadable", "対応していない形式のファイルです".into()))?,
+    };
+    if format != "dxf" && format != "dwg" {
+        return Err(error(
+            "unsupported-format",
+            format!("{} の図面には描き込めません（描き込めるのは DXF・DWG）", format.to_uppercase()),
+        ));
+    }
+    let mut value: serde_json::Value = serde_json::from_str(spec)
+        .map_err(|e| draft::DraftError::new("invalid-spec", "", format!("仕様の JSON を読めません: {e}")))?;
+    if let Some(sheet) = &options.sheet {
+        draft::select_sheet(&mut value, sheet)?;
+    }
+    let (template, exceeded) = zumen_core::limits::with_limits(limits, || match format {
+        "dxf" => Ok(dxf::parse_dxf(bytes)),
+        _ => dwg::read_dwg(bytes),
+    });
+    if let Some(limit) = exceeded {
+        return Err(error("too-large", limit_error(limit, limits).to_string()));
+    }
+    let template = template.map_err(|message| error("unreadable", message.to_string()))?;
+    let planned = draft::plan(&value, &template)?;
+    let operations = edit::operations_from_json(&planned.operations)
+        .map_err(|e| error("unwritable", format!("描き込む操作を作れませんでした: {e}")))?;
+    let edit_options = ReadDrawingOptions { format: Some(format.to_string()), ..options.read.clone() };
+    let edited = edit(bytes, &operations, &edit_options).map_err(|e| {
+        // 編集の誤りは、その操作の元の仕様の図形の場所で返す
+        let path = e.operation.and_then(|index| planned.sources.get(index)).cloned().unwrap_or_default();
+        draft::DraftError::new(e.code, &path, e.message)
+    })?;
+    let mut notices = NoticeList::from_notices(&planned.notices);
+    for notice in &edited.notices {
+        notices.add_count(notice.level, &notice.code, notice.message.clone(), notice.count);
+    }
+    Ok(Converted { bytes: edited.bytes, notices: notices.into_vec() })
 }
 
 /// その場で編集できる形式

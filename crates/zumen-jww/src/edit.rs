@@ -60,6 +60,19 @@ pub fn edit_jww(bytes: &[u8], operations: &[EditOperation]) -> Result<Edited, Ed
                 editor.created.push(Created::Layer(scene_layer_name(group, layer, name)));
             }
             EditOperation::UpdateLayer { name, set } => editor.update_layer(index, name, set)?,
+            EditOperation::AddBlock { .. } => {
+                return Err(EditError::at(index, "unsupported-kind", "JWW の編集ではブロックの定義をまだ足せません"));
+            }
+            EditOperation::AddLayout { .. } => {
+                return Err(EditError::at(index, "unsupported-kind", "JWW の編集ではレイアウトをまだ足せません"));
+            }
+            EditOperation::AddStyle { kind, .. } => {
+                return Err(EditError::at(
+                    index,
+                    "unsupported-kind",
+                    format!("JWW の編集では {} をまだ使えません", kind.op()),
+                ));
+            }
         }
     }
     Ok(editor.finish())

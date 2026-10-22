@@ -5,14 +5,22 @@
 //! グループコードは DXF Reference（AutoCAD 2026）の各図形の節のとおり。R12（AC1009）にはサブクラスの印（100）・
 //! 所有者（330）・線の太さ（370）・トゥルーカラー（420）がなく、ハンドル（5）は $HANDLING が 1 のときだけある。
 
+pub mod attributes;
+pub mod dimension;
+pub mod hatch;
+pub mod image;
+pub mod leader;
+pub mod placement;
 mod raw;
 
 use crate::colors::ACI;
 use crate::write::real;
+use dimension::{DimStyleValues, DimensionKind, Part, Role};
 use raw::{RawDxf, Tag};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use zumen_core::edit::{
-    BLOCK_REFERENCE, EditColor, EditError, EditLineWidth, EditOperation, EditValue, EditValues, Edited, ValueReader,
+    BLOCK_REFERENCE, EditColor, EditError, EditLineWidth, EditOperation, EditValue, EditValues, Edited, StyleKind,
+    ValueReader,
 };
 use zumen_core::{NoticeLevel, NoticeList};
 
@@ -21,8 +29,23 @@ const LINEWEIGHTS: [i64; 24] =
     [0, 5, 9, 13, 15, 18, 20, 25, 30, 35, 40, 50, 53, 60, 70, 80, 90, 100, 106, 120, 140, 158, 200, 211];
 
 /// 足せる図形の種類（DXF）
-const ADDABLE: [&str; 9] =
-    ["line", "polyline", "arc", "circle", "ellipse", "ellipse-arc", "point", "text", BLOCK_REFERENCE];
+const ADDABLE: [&str; 15] = [
+    "line",
+    "polyline",
+    "arc",
+    "circle",
+    "ellipse",
+    "ellipse-arc",
+    "point",
+    "text",
+    BLOCK_REFERENCE,
+    "dimension",
+    "hatch",
+    "attribute-definition",
+    "viewport",
+    "leader",
+    "image",
+];
 
 /// 図形・レイヤに共通する値のキー
 const COMMON: [&str; 4] = ["layer", "color", "lineType", "lineWidth"];
@@ -40,7 +63,11 @@ pub fn edit_dxf(bytes: &[u8], operations: &[EditOperation]) -> Result<Edited, Ed
     for (index, operation) in operations.iter().enumerate() {
         // DXF Reference「Binary DXF Files」: 文字列は NUL 終端。値の途中の NUL は後続のタグを壊す。
         let values = match operation {
-            EditOperation::Add { values, .. } | EditOperation::AddLayer { values, .. } => Some(values),
+            EditOperation::Add { values, .. }
+            | EditOperation::AddLayer { values, .. }
+            | EditOperation::AddBlock { values, .. }
+            | EditOperation::AddStyle { values, .. }
+            | EditOperation::AddLayout { values, .. } => Some(values),
             EditOperation::Update { set, .. } | EditOperation::UpdateLayer { set, .. } => Some(set),
             EditOperation::Delete { .. } => None,
         };
@@ -57,6 +84,9 @@ pub fn edit_dxf(bytes: &[u8], operations: &[EditOperation]) -> Result<Edited, Ed
             EditOperation::Delete { id } => editor.delete(index, id)?,
             EditOperation::AddLayer { name, values } => editor.add_layer(index, name, values, false)?,
             EditOperation::UpdateLayer { name, set } => editor.update_layer(index, name, set)?,
+            EditOperation::AddBlock { name, values } => editor.add_block(index, name, values)?,
+            EditOperation::AddStyle { kind, name, values } => editor.add_style(index, *kind, name, values)?,
+            EditOperation::AddLayout { name, values } => editor.add_layout(index, name, values)?,
         }
     }
     editor.finish_handles();
@@ -79,8 +109,28 @@ struct EntityInfo {
 #[derive(Debug, Clone)]
 struct BlockInfo {
     name: String,
-    /// ENDBLK のレコード
+    /// BLOCK と ENDBLK のレコード
+    begin: Option<usize>,
     end: Option<usize>,
+    /// この編集で足したブロック（new_blocks の番号）
+    new: Option<usize>,
+}
+
+/// この編集で足したブロック定義（docs/decisions/0017）。BLOCK・中の図形・ENDBLK を at のレコードの前に書く
+#[derive(Debug, Clone)]
+struct NewBlock {
+    at: usize,
+    begin: Vec<Tag>,
+    entities: Vec<Vec<Tag>>,
+    end: Vec<Tag>,
+}
+
+/// 画像を足す辞書（ACAD_IMAGE_DICT）のありか
+#[derive(Debug, Clone)]
+enum ImageDictionary {
+    Record(usize),
+    /// この編集で足した辞書（inserted の、足す位置と何番目か）
+    Added(usize, usize),
 }
 
 /// 足す先
@@ -89,6 +139,8 @@ struct Place {
     before: usize,
     owner: Option<String>,
     paper: bool,
+    /// この編集で足したブロックに足す（new_blocks の番号）
+    block: Option<usize>,
 }
 
 struct Editor<'a> {
@@ -108,6 +160,11 @@ struct Editor<'a> {
     block_record_names: HashMap<String, String>,
     /// レイアウトの名前（大文字）→ 紙空間の BLOCK_RECORD のハンドル
     layouts: HashMap<String, String>,
+    /// LAYOUT のレコードと、この編集で足したレイアウトの数
+    layout_records: Vec<usize>,
+    layouts_added: usize,
+    /// ビューポートの番号（69）の最大（紙空間の BLOCK_RECORD のハンドル → 番号）
+    viewport_ids: HashMap<String, i64>,
     /// 表（LAYER など）の TABLE と ENDTAB のレコード
     tables: HashMap<String, (usize, Option<usize>)>,
     /// 節（HEADER など）の SECTION と ENDSEC のレコード
@@ -116,10 +173,27 @@ struct Editor<'a> {
     created_table: Option<(usize, usize, Option<String>)>,
     /// 足したレコードの後に閉じるレコード（作った表の ENDTAB・ENDSEC）
     closers: HashMap<usize, Vec<Vec<Tag>>>,
+    /// 足したブロック定義
+    new_blocks: Vec<NewBlock>,
+    /// BLOCKS の節がない図面に作る節の位置（このレコードの前）
+    blocks_section: Option<usize>,
     /// レイヤの名前（大文字）→ レコード（足したレイヤは足すレコードの番号）
     layers: HashMap<String, LayerRef>,
     linetypes: HashMap<String, String>,
     styles: HashMap<String, String>,
+    /// STYLE のハンドル → 名前
+    style_handles: HashMap<String, String>,
+    /// 寸法スタイルの名前（大文字）→ レコード
+    dimstyles: HashMap<String, LayerRef>,
+    /// APPID の名前（大文字）
+    appids: HashSet<String>,
+    /// 表の項目の数（表の名前 → 数）
+    table_counts: HashMap<String, usize>,
+    /// 見出しの $DIMSTYLE と、寸法の変数（$DIMSCALE など。$ なしの名前）
+    header_dimstyle: Option<String>,
+    header_dims: Vec<(String, f64)>,
+    /// 見出しの $INSUNITS
+    insunits: f64,
     /// オブジェクトの所有者のハンドル → 所有されるオブジェクトのレコード
     owned: HashMap<String, Vec<usize>>,
     /// レコードのハンドル
@@ -134,6 +208,9 @@ struct Editor<'a> {
     created: Vec<String>,
     /// created の図形の先頭のレコードの場所（足す位置、そこでの順）。ハンドルのない図形の id を書いた後で決める
     created_places: Vec<Option<(usize, usize)>>,
+    /// 画像を足す辞書とそのハンドル、OBJECTS の節の終わり。画像のクラスを確かめたか
+    image_dictionary: Option<(ImageDictionary, String, usize)>,
+    image_classes: bool,
     notices: NoticeList,
 }
 
@@ -269,6 +346,7 @@ pub fn new_dxf(units: &str) -> Result<Vec<u8>, EditError> {
 }
 
 /// 図形の共通の値
+#[derive(Clone)]
 struct Common {
     layer: String,
     color: Option<EditColor>,
@@ -292,6 +370,101 @@ fn nearest_aci(rgb: u32) -> i64 {
         }
     }
     best.0
+}
+
+/// VIEWPORT の値（DXF Reference「VIEWPORT」。AutoCAD・ezdxf が書く並びと既定の値）。center・width・height は用紙の
+/// 座標、view_center・view_height はモデルの座標。status は 68（1 は用紙の全体、2 から重なりの順）、id は 69
+#[allow(clippy::too_many_arguments)]
+fn viewport_tags(
+    record: &mut Record,
+    center: [f64; 3],
+    width: f64,
+    height: f64,
+    view_center: [f64; 3],
+    view_height: f64,
+    id: i64,
+    status: i64,
+) {
+    record.tag(100, "AcDbViewport").point(10, center, true).real(40, width).real(41, height);
+    record.int(68, status).int(69, id).point(12, view_center, false).point(13, [0.0; 3], false);
+    record.point(14, [10.0, 10.0, 0.0], false).point(15, [10.0, 10.0, 0.0], false);
+    record.point(16, [0.0, 0.0, 1.0], true).point(17, [0.0; 3], true);
+    record.real(42, 50.0).real(43, 0.0).real(44, 0.0).real(45, view_height).real(50, 0.0).real(51, 0.0);
+    // 32864 = 0x8060（UCS アイコン・大きいズーム・グリッドの既定。ezdxf の既定）
+    record.int(72, 1000).int(90, 32864).tag(1, "").int(281, 0).int(71, 1).int(74, 0);
+    record.point(110, [0.0; 3], true).point(111, [1.0, 0.0, 0.0], true).point(112, [0.0, 1.0, 0.0], true);
+    record.int(79, 0).real(146, 0.0).int(170, 0).int(61, 5);
+}
+
+/// ビューポートが見せるモデルの高さ（図面の単位）。height は用紙の mm、scale は縮尺の分母（1:100 は 100）、insunits は
+/// 図面の $INSUNITS（単位なしは mm とみなす）。DWG の編集も使う
+pub fn view_height(height: f64, scale: f64, insunits: f64) -> f64 {
+    height * scale / crate::scene::unit_to_mm(insunits).unwrap_or(1.0)
+}
+
+/// 用紙の大きさの名前（ISO の A 判の横と縦。ほかは空）。DWG の編集も使う
+pub fn paper_name(width: f64, height: f64) -> String {
+    let sizes =
+        [("A0", 1189.0, 841.0), ("A1", 841.0, 594.0), ("A2", 594.0, 420.0), ("A3", 420.0, 297.0), ("A4", 297.0, 210.0)];
+    for (name, long, short) in sizes {
+        if (width - long).abs() < 0.5 && (height - short).abs() < 0.5 {
+            return format!("ISO_{name}_({long:.2}_x_{short:.2}_MM)");
+        }
+        if (width - short).abs() < 0.5 && (height - long).abs() < 0.5 {
+            return format!("ISO_{name}_({short:.2}_x_{long:.2}_MM)");
+        }
+    }
+    String::new()
+}
+
+/// HATCH の値（DXF Reference「HATCH」。zumen の DXF の書き出しと同じ並び）。境界は閉じた折線（92 の 2）で、
+/// 最初の境界は外側（1）。島の見つけ方は標準（75 = 0）、関連づけない（71 = 0）
+fn hatch_tags(record: &mut Record, input: &hatch::HatchInput) {
+    let elevation = input.boundaries[0][0][2];
+    record.tag(100, "AcDbHatch").point(10, [0.0, 0.0, elevation], true).point(210, [0.0, 0.0, 1.0], true);
+    record.tag(2, input.pattern.clone()).int(70, i64::from(input.solid)).int(71, 0);
+    record.int(91, input.boundaries.len() as i64);
+    for (number, boundary) in input.boundaries.iter().enumerate() {
+        record.int(92, if number == 0 { 3 } else { 2 }).int(72, 0).int(73, 1).int(93, boundary.len() as i64);
+        for point in boundary {
+            record.point(10, *point, false);
+        }
+        record.int(97, 0);
+    }
+    record.int(75, 0).int(76, input.pattern_type);
+    if !input.solid {
+        record.real(52, input.angle).real(41, input.scale).int(77, 0).int(78, input.lines.len() as i64);
+        for line in &input.lines {
+            record.real(53, line.angle).real(43, line.base[0]).real(44, line.base[1]);
+            record.real(45, line.offset[0]).real(46, line.offset[1]).int(79, line.dashes.len() as i64);
+            for dash in &line.dashes {
+                record.real(49, *dash);
+            }
+        }
+    }
+    record.int(98, 0);
+}
+
+/// 文字スタイルのフォント。拡張子のある名前はファイル、ない名前は TrueType の書体（ファイルと書体の名前）。
+/// DWG の編集も使う
+pub fn font_file(font: &str) -> (String, Option<String>) {
+    let font = font.trim();
+    let lower = font.to_ascii_lowercase();
+    if [".shx", ".ttf", ".ttc", ".otf", ".pfb"].iter().any(|extension| lower.ends_with(extension)) || lower == "txt" {
+        return (font.to_string(), None);
+    }
+    // Windows の日本語の書体のファイル
+    let file = match lower.as_str() {
+        "ms gothic" | "ms pgothic" | "ms ui gothic" | "ｍｓ ゴシック" | "ｍｓ ｐゴシック" => {
+            "msgothic.ttc"
+        }
+        "ms mincho" | "ms pmincho" | "ｍｓ 明朝" | "ｍｓ ｐ明朝" => "msmincho.ttc",
+        "meiryo" | "meiryo ui" | "メイリオ" => "meiryo.ttc",
+        "yu gothic" | "游ゴシック" => "YuGothM.ttc",
+        "yu mincho" | "游明朝" => "yumin.ttf",
+        _ => return (format!("{font}.ttf"), Some(font.to_string())),
+    };
+    (file.to_string(), Some(font.to_string()))
 }
 
 /// 名前に使えない文字（AutoCAD の記号表の名前の規則）
@@ -323,13 +496,25 @@ impl<'a> Editor<'a> {
             block_records: HashMap::new(),
             block_record_names: HashMap::new(),
             layouts: HashMap::new(),
+            layout_records: Vec::new(),
+            layouts_added: 0,
+            viewport_ids: HashMap::new(),
             tables: HashMap::new(),
             sections: HashMap::new(),
             created_table: None,
             closers: HashMap::new(),
+            new_blocks: Vec::new(),
+            blocks_section: None,
             layers: HashMap::new(),
             linetypes: HashMap::new(),
             styles: HashMap::new(),
+            style_handles: HashMap::new(),
+            dimstyles: HashMap::new(),
+            appids: HashSet::new(),
+            table_counts: HashMap::new(),
+            header_dimstyle: None,
+            header_dims: Vec::new(),
+            insunits: 0.0,
             owned: HashMap::new(),
             record_handles: HashMap::new(),
             references: Vec::new(),
@@ -340,6 +525,8 @@ impl<'a> Editor<'a> {
             inserted: BTreeMap::new(),
             created: Vec::new(),
             created_places: Vec::new(),
+            image_dictionary: None,
+            image_classes: false,
             notices: NoticeList::new(),
         };
         editor.index();
@@ -402,6 +589,7 @@ impl<'a> Editor<'a> {
                         }
                     }
                     _ => {
+                        *self.table_counts.entry(table.clone()).or_default() += 1;
                         let name = value(tags, 2).unwrap_or("").to_string();
                         match kind.as_str() {
                             "LAYER" => {
@@ -411,7 +599,16 @@ impl<'a> Editor<'a> {
                                 self.linetypes.insert(upper(&name), name);
                             }
                             "STYLE" if !name.is_empty() => {
+                                if let Some(handle) = &handle {
+                                    self.style_handles.insert(upper(handle), name.clone());
+                                }
                                 self.styles.insert(upper(&name), name);
+                            }
+                            "DIMSTYLE" => {
+                                self.dimstyles.insert(upper(&name), LayerRef::Record(record));
+                            }
+                            "APPID" => {
+                                self.appids.insert(upper(&name));
                             }
                             "BLOCK_RECORD" => {
                                 if let Some(handle) = &handle {
@@ -426,7 +623,10 @@ impl<'a> Editor<'a> {
                 _ if section == "BLOCKS" => match kind.as_str() {
                     "BLOCK" => {
                         let name = value(tags, 2).unwrap_or("").to_string();
-                        self.blocks.insert(upper(&name), BlockInfo { name: name.clone(), end: None });
+                        self.blocks.insert(
+                            upper(&name),
+                            BlockInfo { name: name.clone(), begin: Some(record), end: None, new: None },
+                        );
                         block = Some(name);
                     }
                     "ENDBLK" => {
@@ -470,6 +670,13 @@ impl<'a> Editor<'a> {
                     }
                 }
                 "$HANDLING" if next.is_some_and(|tag| tag.number() == 1.0) => self.handles = true,
+                "$DIMSTYLE" => self.header_dimstyle = next.map(|tag| tag.text().to_string()),
+                "$INSUNITS" => self.insunits = next.map_or(0.0, Tag::number),
+                name if name.starts_with("$DIM") => {
+                    if let Some(value) = next.map(Tag::number).filter(|value| value.is_finite()) {
+                        self.header_dims.push((name[1..].to_string(), value));
+                    }
+                }
                 _ => {}
             }
         }
@@ -483,6 +690,12 @@ impl<'a> Editor<'a> {
     }
 
     fn index_entity(&mut self, record: usize, kind: &str) -> usize {
+        if kind == "VIEWPORT"
+            && let (Some(owner), Some(id)) = (value(&self.records[record], 330), number(&self.records[record], 69))
+        {
+            let entry = self.viewport_ids.entry(upper(owner)).or_insert(0);
+            *entry = (*entry).max(id as i64);
+        }
         let key = self.entity_key(record);
         let mut end = record + 1;
         let attributes = kind == "INSERT" && number(&self.records[record], 66) == Some(1.0);
@@ -522,6 +735,7 @@ impl<'a> Editor<'a> {
             if let (Some(name), Some(block_record)) = (name, block_record) {
                 self.layouts.insert(upper(&name), block_record);
             }
+            self.layout_records.push(record);
         }
     }
 
@@ -592,6 +806,36 @@ impl<'a> Editor<'a> {
                     self.source.write_tag(tag, &mut out);
                 }
             }
+            if self.new_blocks.iter().any(|block| block.at == index) {
+                let section = self.blocks_section == Some(index);
+                let mut records: Vec<&Vec<Tag>> = Vec::new();
+                let start = Record::new("SECTION").tag(2, "BLOCKS").tags.clone();
+                let end = Record::new("ENDSEC").tags;
+                let mut places: Vec<Option<(usize, usize)>> = Vec::new();
+                for (number, block) in self.new_blocks.iter().enumerate().filter(|(_, block)| block.at == index) {
+                    records.push(&block.begin);
+                    places.push(None);
+                    records.extend(&block.entities);
+                    places.extend((0..block.entities.len()).map(|position| Some((usize::MAX - number, position))));
+                    records.push(&block.end);
+                    places.push(None);
+                }
+                if section {
+                    records.insert(0, &start);
+                    places.insert(0, None);
+                    records.push(&end);
+                    places.push(None);
+                }
+                for (tags, place) in records.into_iter().zip(places) {
+                    count += usize::from(tags.first().is_some_and(|tag| tag.code == 0));
+                    if let Some(place) = place {
+                        positions.insert(place, count);
+                    }
+                    for tag in tags {
+                        self.source.write_tag(tag, &mut out);
+                    }
+                }
+            }
             if self.deleted.contains(&index) {
                 continue;
             }
@@ -660,11 +904,15 @@ impl<'a> Editor<'a> {
     }
 
     fn layer_name(&self, layer: &LayerRef) -> Option<String> {
-        let tags = match layer {
-            LayerRef::Record(record) => self.tags(*record),
-            LayerRef::Added(before, position) => self.inserted.get(before)?.get(*position)?,
-        };
-        value(tags, 2).map(str::to_string)
+        value(self.record_tags(layer)?, 2).map(str::to_string)
+    }
+
+    /// 表の項目（元のレコードか、足したレコード）のタグ
+    fn record_tags(&self, record: &LayerRef) -> Option<&[Tag]> {
+        match record {
+            LayerRef::Record(record) => Some(self.tags(*record)),
+            LayerRef::Added(before, position) => self.inserted.get(before)?.get(*position).map(Vec::as_slice),
+        }
     }
 
     fn common(&mut self, index: usize, reader: &ValueReader<'_>, default_layer: bool) -> Result<Common, EditError> {
@@ -800,7 +1048,7 @@ impl<'a> Editor<'a> {
             let before = self
                 .entities_end
                 .ok_or_else(|| EditError::at(index, "unreadable", "図面に ENTITIES の節がありません"))?;
-            Ok(Place { before, owner, paper })
+            Ok(Place { before, owner, paper, block: None })
         };
         let model_owner = || self.block_records.get("*MODEL_SPACE").cloned();
         let container = container.map(str::trim).unwrap_or("model");
@@ -819,10 +1067,13 @@ impl<'a> Editor<'a> {
             let info = self.blocks.get(&key).ok_or_else(|| {
                 EditError::at(index, "missing-definition", format!("ブロック {name} は図面にありません"))
             })?;
+            if let Some(block) = info.new {
+                return Ok(Place { before: 0, owner, paper: key.starts_with("*PAPER_SPACE"), block: Some(block) });
+            }
             let before = info
                 .end
                 .ok_or_else(|| EditError::at(index, "unreadable", format!("ブロック {name} に ENDBLK がありません")))?;
-            Ok(Place { before, owner, paper: key.starts_with("*PAPER_SPACE") })
+            Ok(Place { before, owner, paper: key.starts_with("*PAPER_SPACE"), block: None })
         };
         if let Some(name) = container.strip_prefix("layout:") {
             if name.eq_ignore_ascii_case("model") {
@@ -946,7 +1197,11 @@ impl<'a> Editor<'a> {
                 self.polyline_records(index, &place, &common, &vertices, &bulges, closed, width, &version)?
             }
             "text" => {
-                reader.allow(&keys(&["position", "text", "height", "rotation", "textStyle", "wrapWidth"]), "文字")?;
+                let mut own = vec!["position", "text", "height", "rotation", "textStyle", "wrapWidth", "widthFactor"];
+                own.extend(placement::KEYS);
+                reader.allow(&keys(&own), "文字")?;
+                let placement = placement::read(&reader, index)?;
+                let width_factor = placement::width_factor(&reader)?;
                 let position = reader.required("position", reader.point("position")?)?;
                 let text = reader.required("text", reader.text("text")?)?;
                 let height = reader.required("height", reader.positive("height")?)?;
@@ -954,7 +1209,7 @@ impl<'a> Editor<'a> {
                 let style = self.text_style(index, reader.name("textStyle")?)?;
                 let wrap = reader.number("wrapWidth")?;
                 let common = self.common(index, &reader, true)?;
-                let multiline = text.contains('\n') || wrap.is_some();
+                let multiline = text.contains('\n') || wrap.is_some() || placement.multiline;
                 if multiline && !r13 {
                     return Err(EditError::at(
                         index,
@@ -969,9 +1224,9 @@ impl<'a> Editor<'a> {
                         .point(10, position, true)
                         .real(40, height)
                         .real(41, wrap.unwrap_or(0.0))
-                        .int(71, 7)
+                        .int(71, placement.attachment)
                         .int(72, 1);
-                    let content = mtext_content(text);
+                    let content = placement::with_width_factor(mtext_content(text), width_factor);
                     let chunks = chunks(&content, 250);
                     for chunk in &chunks[..chunks.len() - 1] {
                         record.tag(3, chunk.clone());
@@ -981,6 +1236,18 @@ impl<'a> Editor<'a> {
                         record.tag(7, style);
                     }
                     record.real(50, rotation);
+                    if let Some(factor) = placement.line_spacing {
+                        // 行間は少なくともこの倍率（73 = 1）。MTEXT の行間は AutoCAD 2000 から
+                        if version.as_str() >= "AC1015" {
+                            record.int(73, 1).real(44, factor);
+                        } else {
+                            self.notices.add(
+                                NoticeLevel::Info,
+                                "edit-no-line-spacing",
+                                "AutoCAD 2000 より前の MTEXT には行間がないため、書きませんでした",
+                            );
+                        }
+                    }
                     vec![record.tags]
                 } else {
                     let (mut record, _) = self.entity_record(index, "TEXT", &place, &common)?;
@@ -989,15 +1256,181 @@ impl<'a> Editor<'a> {
                     if rotation != 0.0 {
                         record.real(50, rotation);
                     }
+                    if let Some(factor) = width_factor {
+                        record.real(41, factor);
+                    }
                     if let Some(style) = style {
                         record.tag(7, style);
                     }
+                    // 位置合わせ（DXF Reference「TEXT」: 72・73 が 0 でなければ 11 が位置を決める）
+                    if placement.aligned() {
+                        record.int(72, placement.horizontal).point(11, position, true);
+                    }
                     self.subclass(&mut record, "AcDbText");
+                    if placement.vertical != 0 {
+                        record.int(73, placement.vertical);
+                    }
                     vec![record.tags]
                 }
             }
+            "dimension" => {
+                reader.allow(
+                    &keys(&["dimensionType", "start", "end", "position", "rotation", "dimensionStyle", "text"]),
+                    "寸法",
+                )?;
+                let common = self.common(index, &reader, true)?;
+                vec![self.dimension_record(index, &reader, &place, &common)?]
+            }
+            "attribute-definition" => {
+                let mut own = attributes::DEFINITION_KEYS.to_vec();
+                own.extend(placement::KEYS.iter().filter(|key| **key == "justification"));
+                reader.allow(&keys(&own), "属性の定義")?;
+                if !container.is_some_and(|name| name.trim().starts_with("block:")) {
+                    return Err(EditError::at(
+                        index,
+                        "invalid-value",
+                        "属性の定義（attribute-definition）は container の block:<名前> でブロックに足してください",
+                    ));
+                }
+                let (tag, prompt, default) = attributes::read_definition(&reader, index)?;
+                let position = reader.required("position", reader.point("position")?)?;
+                let height = reader.required("height", reader.positive("height")?)?;
+                let rotation = reader.number("rotation")?.unwrap_or(0.0);
+                let style = self.text_style(index, reader.name("textStyle")?)?;
+                let justification = placement::read(&reader, index)?;
+                let common = self.common(index, &reader, true)?;
+                let definition = attributes::Definition {
+                    tag,
+                    prompt,
+                    default,
+                    position,
+                    align: justification.aligned().then_some(position),
+                    height,
+                    rotation,
+                    width: 1.0,
+                    oblique: 0.0,
+                    generation: 0,
+                    horizontal: justification.horizontal,
+                    vertical: justification.vertical,
+                    flags: 0,
+                    style,
+                };
+                let (mut record, _) = self.entity_record(index, "ATTDEF", &place, &common)?;
+                self.attribute_definition_tags(&mut record, &definition);
+                let block = container.and_then(|name| name.trim().strip_prefix("block:")).unwrap_or_default();
+                self.mark_attributes(block);
+                vec![record.tags]
+            }
+            "leader" => {
+                if !r13 {
+                    return Err(EditError::at(
+                        index,
+                        "unsupported-kind",
+                        "R12 の DXF には引出線（LEADER）がありません",
+                    ));
+                }
+                reader.allow(&keys(&leader::KEYS), "引出線")?;
+                let (vertices, height) = leader::read(&reader)?;
+                let text = reader.text("text")?.unwrap_or("");
+                let text_style = self.text_style(index, reader.name("textStyle")?)?;
+                let (style_name, style, dimension_text_style) =
+                    self.dimension_style(index, reader.name("dimensionStyle")?)?;
+                let common = self.common(index, &reader, true)?;
+                let annotation = leader::annotation(&vertices, height, &style);
+                // LEADER（DXF Reference「LEADER」）。注釈の MTEXT は LEADER の後に書き、340 で指す
+                let (mut record, _) = self.entity_record(index, "LEADER", &place, &common)?;
+                self.subclass(&mut record, "AcDbLeader");
+                record.tag(3, style_name).int(71, 1).int(72, 0).int(73, if text.is_empty() { 3 } else { 0 });
+                record.int(74, 0).int(75, 0).real(40, annotation.height).real(41, 0.0);
+                record.int(76, vertices.len() as i64);
+                for vertex in &vertices {
+                    record.point(10, *vertex, true);
+                }
+                let mut records = vec![record];
+                if !text.is_empty() {
+                    let (mut mtext, handle) = self.entity_record(index, "MTEXT", &place, &common)?;
+                    self.subclass(&mut mtext, "AcDbMText");
+                    mtext.point(10, annotation.position, true).real(40, annotation.height).real(41, 0.0);
+                    mtext.int(71, annotation.attachment).int(72, 1).tag(1, mtext_content(text));
+                    if let Some(style) = text_style.or(dimension_text_style) {
+                        mtext.tag(7, style);
+                    }
+                    if let Some(handle) = handle {
+                        records[0].tag(340, handle);
+                    }
+                    records.push(mtext);
+                }
+                records[0].point(210, [0.0, 0.0, 1.0], true).point(211, [1.0, 0.0, 0.0], true);
+                records.into_iter().map(|record| record.tags).collect()
+            }
+            "image" => {
+                if version.as_str() < "AC1014" {
+                    return Err(EditError::at(
+                        index,
+                        "unsupported-kind",
+                        "R14 より前の DXF には画像（IMAGE）がありません",
+                    ));
+                }
+                reader.allow(&keys(&image::KEYS), "画像")?;
+                let input = image::read(&reader, index)?;
+                let common = self.common(index, &reader, true)?;
+                // IMAGE（DXF Reference「IMAGE」）。画像の定義（IMAGEDEF）とリアクタは OBJECTS に足す
+                let (mut record, handle) = self.entity_record(index, "IMAGE", &place, &common)?;
+                let handle = handle.ok_or_else(|| EditError::at(index, "unreadable", "図面にハンドルがありません"))?;
+                let (definition, reactor) = self.image_objects(index, &handle, &input)?;
+                let [width, height] = input.pixels;
+                self.subclass(&mut record, "AcDbRasterImage");
+                if version.as_str() >= "AC1015" {
+                    record.int(90, 0);
+                }
+                record.point(10, input.position, true).point(11, input.u_pixel, true).point(12, input.v_pixel, true);
+                record.real(13, width).real(23, height).tag(340, definition);
+                // 70 は表示・回転したときも表示・切り抜きを使う。281〜283 は明るさ・コントラスト・フェードの既定
+                record.int(70, 7).int(280, 0).int(281, 50).int(282, 50).int(283, 0).tag(360, reactor);
+                // 切り抜きの境界は画像の全体の矩形（画素の座標）
+                record.int(71, 1).int(91, 2).real(14, -0.5).real(24, -0.5).real(14, width - 0.5).real(24, height - 0.5);
+                vec![record.tags]
+            }
+            "viewport" => {
+                reader.allow(&keys(&["center", "width", "height", "viewCenter", "scale"]), "ビューポート")?;
+                if version.as_str() < "AC1015" || !place.paper || place.owner.is_none() {
+                    return Err(EditError::at(
+                        index,
+                        if version.as_str() < "AC1015" { "unsupported-kind" } else { "invalid-value" },
+                        "ビューポートは AutoCAD 2000 以降の DXF の、container の layout:<名前> に足してください",
+                    ));
+                }
+                let center = reader.required("center", reader.point("center")?)?;
+                let width = reader.required("width", reader.positive("width")?)?;
+                let height = reader.required("height", reader.positive("height")?)?;
+                let view_center = reader.required("viewCenter", reader.point("viewCenter")?)?;
+                let scale = reader.positive("scale")?.unwrap_or(1.0);
+                let common = self.common(index, &reader, true)?;
+                let owner = place.owner.clone().unwrap_or_default();
+                let id = self.viewport_ids.get(&upper(&owner)).copied().unwrap_or(1).max(1) + 1;
+                self.viewport_ids.insert(upper(&owner), id);
+                let (mut record, _) = self.entity_record(index, "VIEWPORT", &place, &common)?;
+                let view = view_height(height, scale, self.insunits);
+                viewport_tags(&mut record, center, width, height, view_center, view, id, 2);
+                vec![record.tags]
+            }
+            "hatch" => {
+                if !r13 {
+                    return Err(EditError::at(
+                        index,
+                        "unsupported-kind",
+                        "R12 の DXF にはハッチング（HATCH）がありません",
+                    ));
+                }
+                reader.allow(&keys(&hatch::KEYS), "ハッチング")?;
+                let input = hatch::read(&reader, index)?;
+                let common = self.common(index, &reader, true)?;
+                let (mut record, _) = self.entity_record(index, "HATCH", &place, &common)?;
+                hatch_tags(&mut record, &input);
+                vec![record.tags]
+            }
             _ => {
-                reader.allow(&keys(&["block", "position", "rotation", "scale"]), "ブロック参照")?;
+                reader.allow(&keys(&["block", "position", "rotation", "scale", "attributes"]), "ブロック参照")?;
                 let name = reader.required("block", reader.name("block")?)?;
                 let block = self
                     .blocks
@@ -1014,8 +1447,25 @@ impl<'a> Editor<'a> {
                 let rotation = reader.number("rotation")?.unwrap_or(0.0);
                 let scale = self.scale(index, &reader)?.unwrap_or([1.0; 3]);
                 let common = self.common(index, &reader, true)?;
-                let (mut record, _) = self.entity_record(index, "INSERT", &place, &common)?;
+                // 属性（attributes のタグ → 値。ブロックの属性の定義ごとに ATTRIB を書く）
+                let placed = match reader.strings("attributes")? {
+                    Some(values) => {
+                        let (definitions, appearance, base) = self.attribute_definitions(&block);
+                        attributes::place(&definitions, values, base, position, scale, rotation, index)?
+                            .into_iter()
+                            .map(|placed| {
+                                let source = placed.source;
+                                (placed, appearance[source].clone())
+                            })
+                            .collect()
+                    }
+                    None => Vec::new(),
+                };
+                let (mut record, handle) = self.entity_record(index, "INSERT", &place, &common)?;
                 self.subclass(&mut record, "AcDbBlockReference");
+                if !placed.is_empty() {
+                    record.int(66, 1);
+                }
                 record.tag(2, block).point(10, position, true);
                 if scale != [1.0; 3] {
                     record.real(41, scale[0]).real(42, scale[1]).real(43, scale[2]);
@@ -1023,18 +1473,336 @@ impl<'a> Editor<'a> {
                 if rotation != 0.0 {
                     record.real(50, rotation);
                 }
-                vec![record.tags]
+                let mut records = vec![record.tags];
+                if !placed.is_empty() {
+                    // ATTRIB と SEQEND の所有者は INSERT（DXF Reference「ATTRIB」）
+                    let owned = Place { before: place.before, owner: handle, paper: place.paper, block: place.block };
+                    let follower =
+                        Common { layer: common.layer.clone(), color: None, line_type: None, line_width: None };
+                    for (attribute, appearance) in &placed {
+                        // ATTDEF のレイヤ・色・線種・線幅は参照の値で上書きしない（DXF Reference「ATTRIB」「Common Group Codes」）。
+                        let (mut record, _) = self.entity_record(index, "ATTRIB", &owned, appearance)?;
+                        self.attribute_tags(&mut record, attribute);
+                        records.push(record.tags);
+                    }
+                    let (end, _) = self.entity_record(index, "SEQEND", &owned, &follower)?;
+                    records.push(end.tags);
+                }
+                records
             }
         };
         let handle = value(&tags[0], 5).map(str::to_string).unwrap_or_default();
         let mut first = None;
         for record in tags {
+            if let Some(block) = place.block {
+                // 足したブロックの中の図形の場所は、new_blocks の番号を usize::MAX から数えて表す
+                let entities = &mut self.new_blocks[block].entities;
+                entities.push(record);
+                first.get_or_insert((usize::MAX - block, entities.len() - 1));
+                continue;
+            }
             let position = self.insert(place.before, record);
             first.get_or_insert((place.before, position));
         }
         self.created.push(handle);
         self.created_places.push(first);
         Ok(())
+    }
+
+    /// 寸法スタイルの名前と値、文字スタイル。名前の省略は見出しの $DIMSTYLE、なければ Standard。図面に寸法スタイルの
+    /// 表がなければ、見出しの寸法の変数（$DIMSCALE など）で描く
+    fn dimension_style(
+        &mut self,
+        index: usize,
+        name: Option<&str>,
+    ) -> Result<(String, DimStyleValues, Option<String>), EditError> {
+        let wanted = name.map(str::to_string).or_else(|| self.header_dimstyle.clone());
+        let wanted = wanted.unwrap_or_else(|| "Standard".into());
+        let mut values = DimStyleValues::default();
+        let record = self.dimstyles.get(&upper(&wanted)).cloned();
+        let Some(record) = record else {
+            if name.is_some() || !self.dimstyles.is_empty() {
+                return Err(EditError::at(
+                    index,
+                    "missing-definition",
+                    format!("寸法スタイル {wanted} は図面にありません"),
+                ));
+            }
+            for (variable, value) in &self.header_dims {
+                values.set(variable, *value);
+            }
+            return Ok((wanted, values, None));
+        };
+        let tags = self.record_tags(&record).map(<[Tag]>::to_vec).unwrap_or_default();
+        for (code, variable) in DimStyleValues::CODES {
+            if let Some(value) = number(&tags, code) {
+                values.set(variable, value);
+            }
+        }
+        let style = value(&tags, 340).and_then(|handle| self.style_handles.get(&upper(handle)).cloned());
+        // 描かない変数（矢印のブロック・許容差・換算単位・寸法補助線を省く設定）
+        let blocks = [5, 6, 7].iter().any(|code| value(&tags, *code).is_some_and(|name| !name.trim().is_empty()))
+            || [341, 342, 343, 344].iter().any(|code| value(&tags, *code).is_some_and(|handle| handle.trim() != "0"));
+        let flags =
+            [71, 170, 75, 76, 281, 282].iter().any(|code| number(&tags, *code).is_some_and(|value| value != 0.0));
+        if blocks || flags {
+            self.notices.add(
+                NoticeLevel::Info,
+                "edit-dimension-style",
+                "寸法スタイルの矢印のブロック・許容差・換算単位・寸法補助線の省略は描かず、塗りつぶしの閉じた矢印で描きました",
+            );
+        }
+        let name = value(&tags, 2).unwrap_or(&wanted).to_string();
+        Ok((name, values, style))
+    }
+
+    /// 寸法（DXF Reference「DIMENSION」の Common Dimension Group Codes と Aligned・Linear Dimension Group Codes）
+    /// と、その表示の名前のないブロック（*D…）
+    fn dimension_record(
+        &mut self,
+        index: usize,
+        reader: &ValueReader<'_>,
+        place: &Place,
+        common: &Common,
+    ) -> Result<Vec<Tag>, EditError> {
+        let kind = match reader.text("dimensionType")?.unwrap_or("linear") {
+            "linear" => DimensionKind::Linear(reader.number("rotation")?.unwrap_or(0.0)),
+            "aligned" if reader.has("rotation") => {
+                return Err(EditError::at(index, "invalid-value", "平行寸法（aligned）に rotation は指定できません"));
+            }
+            "aligned" => DimensionKind::Aligned,
+            other => {
+                return Err(EditError::at(
+                    index,
+                    "unsupported-kind",
+                    format!("寸法の種類 {other} はまだ足せません（足せるのは linear、aligned）"),
+                ));
+            }
+        };
+        let start = reader.required("start", reader.point("start")?)?;
+        let end = reader.required("end", reader.point("end")?)?;
+        let position = reader.required("position", reader.point("position")?)?;
+        let text = reader.text("text")?.unwrap_or("<>");
+        let (style_name, style, text_style) = self.dimension_style(index, reader.name("dimensionStyle")?)?;
+        if style.text_above == 3 {
+            self.notices.add(
+                NoticeLevel::Info,
+                "edit-dimension-text-position",
+                "寸法文字の JIS 配置（DIMTAD=3）は寸法線の上に置いて近似しました",
+            );
+        }
+        let layout = dimension::layout(kind, start, end, position, text, &style).ok_or_else(|| {
+            EditError::at(index, "invalid-value", "start と end は寸法の向きで離れた点にしてください")
+        })?;
+        // 表示のブロック: 名前のない *D の次の番号
+        let next = self
+            .blocks
+            .keys()
+            .chain(self.block_records.keys())
+            .filter_map(|name| name.strip_prefix("*D").and_then(|number| number.parse::<u64>().ok()))
+            .max()
+            .unwrap_or(0)
+            .checked_add(1)
+            .ok_or_else(|| {
+                EditError::at(index, "name-exhausted", "新しい寸法の表示のブロック名を割り当てられません")
+            })?;
+        let block_name = format!("*D{next}");
+        let block = self.create_block(index, &block_name, [0.0; 3], 1)?;
+        let owner = self.block_records.get(&upper(&block_name)).cloned();
+        let inside = Place { before: 0, owner, paper: false, block: Some(block) };
+        for (part, role) in &layout.parts {
+            let color = match style.colors[match role {
+                Role::DimensionLine => 0,
+                Role::ExtensionLine => 1,
+                Role::Text => 2,
+            }] {
+                0 => EditColor::ByBlock,
+                256 => EditColor::ByLayer,
+                value => EditColor::Index(value.clamp(1, 255) as u32),
+            };
+            let part_common = Common { layer: "0".into(), color: Some(color), line_type: None, line_width: None };
+            let tags = match part {
+                Part::Line(from, to) => {
+                    let (mut record, _) = self.entity_record(index, "LINE", &inside, &part_common)?;
+                    self.subclass(&mut record, "AcDbLine");
+                    record.point(10, *from, true).point(11, *to, true);
+                    record.tags
+                }
+                Part::Solid(points) => {
+                    let (mut record, _) = self.entity_record(index, "SOLID", &inside, &part_common)?;
+                    self.subclass(&mut record, "AcDbTrace");
+                    record.point(10, points[0], true).point(11, points[1], true);
+                    record.point(12, points[2], true).point(13, points[2], true);
+                    record.tags
+                }
+                Part::Text { position, height, rotation, text } if self.r13 => {
+                    let (mut record, _) = self.entity_record(index, "MTEXT", &inside, &part_common)?;
+                    self.subclass(&mut record, "AcDbMText");
+                    record.point(10, *position, true).real(40, *height).real(41, 0.0).int(71, 5).int(72, 1);
+                    record.tag(1, mtext_content(text));
+                    if let Some(style) = &text_style {
+                        record.tag(7, style.clone());
+                    }
+                    record.real(50, *rotation);
+                    record.tags
+                }
+                Part::Text { position, height, rotation, text } => {
+                    let (mut record, _) = self.entity_record(index, "TEXT", &inside, &part_common)?;
+                    record.point(10, *position, true).real(40, *height).tag(1, text.clone()).real(50, *rotation);
+                    if let Some(style) = &text_style {
+                        record.tag(7, style.clone());
+                    }
+                    record.int(72, 1).point(11, *position, true).int(73, 2);
+                    record.tags
+                }
+            };
+            self.new_blocks[block].entities.push(tags);
+        }
+        let (mut record, _) = self.entity_record(index, "DIMENSION", place, common)?;
+        self.subclass(&mut record, "AcDbDimension");
+        let flags = match kind {
+            DimensionKind::Linear(_) => 32,
+            DimensionKind::Aligned => 33,
+        };
+        record.tag(2, block_name).point(10, layout.definition, true).point(11, layout.text_midpoint, true);
+        record.int(70, flags);
+        if self.r13 {
+            record.int(71, 5).int(72, 1).real(41, 1.0).real(42, layout.measurement);
+        }
+        if text != "<>" && !text.is_empty() {
+            record.tag(1, text.to_string());
+        }
+        record.tag(3, style_name);
+        self.subclass(&mut record, "AcDbAlignedDimension");
+        record.point(13, start, true).point(14, end, true);
+        if let DimensionKind::Linear(angle) = kind {
+            record.real(50, angle);
+            self.subclass(&mut record, "AcDbRotatedDimension");
+        }
+        Ok(record.tags)
+    }
+
+    /// ATTDEF の値（DXF Reference「ATTDEF」: AcDbText の 10・40・1・50・7・72・11、AcDbAttributeDefinition の 3・2・70・74）
+    fn attribute_definition_tags(&self, record: &mut Record, definition: &attributes::Definition) {
+        self.subclass(record, "AcDbText");
+        record.point(10, definition.position, true).real(40, definition.height).tag(1, definition.default.clone());
+        if definition.rotation != 0.0 {
+            record.real(50, definition.rotation);
+        }
+        if let Some(style) = &definition.style {
+            record.tag(7, style.clone());
+        }
+        if let Some(align) = definition.align {
+            record.int(72, definition.horizontal).point(11, align, true);
+        }
+        self.subclass(record, "AcDbAttributeDefinition");
+        record.tag(3, definition.prompt.clone()).tag(2, definition.tag.clone()).int(70, definition.flags);
+        if definition.vertical != 0 {
+            record.int(74, definition.vertical);
+        }
+    }
+
+    /// ATTRIB の値（DXF Reference「ATTRIB」: AcDbText の後に AcDbAttribute の 2・70・74）
+    fn attribute_tags(&self, record: &mut Record, attribute: &attributes::Placed) {
+        let definition = &attribute.definition;
+        self.subclass(record, "AcDbText");
+        record.point(10, attribute.position, true).real(40, attribute.height).tag(1, attribute.value.clone());
+        if attribute.rotation != 0.0 {
+            record.real(50, attribute.rotation);
+        }
+        if attribute.width != 1.0 {
+            record.real(41, attribute.width);
+        }
+        if attribute.oblique != 0.0 {
+            record.real(51, attribute.oblique);
+        }
+        if attribute.generation != 0 {
+            record.int(71, attribute.generation);
+        }
+        if let Some(style) = &definition.style {
+            record.tag(7, style.clone());
+        }
+        if let Some(align) = attribute.align {
+            record.int(72, definition.horizontal).point(11, align, true);
+        }
+        self.subclass(record, "AcDbAttribute");
+        record.tag(2, definition.tag.clone()).int(70, definition.flags);
+        if definition.vertical != 0 {
+            record.int(74, definition.vertical);
+        }
+    }
+
+    /// ブロックの BLOCK の 70 に「属性を持つ」（2）を立てる
+    fn mark_attributes(&mut self, name: &str) {
+        let Some(info) = self.blocks.get(&upper(name)).cloned() else { return };
+        let tags = match (info.new, info.begin) {
+            (Some(number), _) => &mut self.new_blocks[number].begin,
+            (None, Some(begin)) => self.tags_mut(begin),
+            _ => return,
+        };
+        let flags = number(tags, 70).unwrap_or(0.0) as i64;
+        set(tags, 70, (flags | 2).to_string(), &[2]);
+    }
+
+    /// ブロックの属性の定義（元のレコード、この編集で足したもの）と基点
+    fn attribute_definitions(&self, name: &str) -> (Vec<attributes::Definition>, Vec<Common>, [f64; 3]) {
+        let Some(info) = self.blocks.get(&upper(name)) else { return (Vec::new(), Vec::new(), [0.0; 3]) };
+        let mut records: Vec<&[Tag]> = Vec::new();
+        let base_tags: &[Tag] = match (info.new, info.begin, info.end) {
+            (Some(number), ..) => {
+                let block = &self.new_blocks[number];
+                records.extend(block.entities.iter().map(Vec::as_slice));
+                &block.begin
+            }
+            (None, Some(begin), Some(end)) => {
+                records.extend(
+                    (begin + 1..end).filter(|record| !self.deleted.contains(record)).map(|record| self.tags(record)),
+                );
+                records.extend(self.inserted.get(&end).into_iter().flatten().map(Vec::as_slice));
+                self.tags(begin)
+            }
+            _ => return (Vec::new(), Vec::new(), [0.0; 3]),
+        };
+        let base = get_point(base_tags, 10).unwrap_or([0.0; 3]);
+        let (definitions, appearance) = records
+            .into_iter()
+            .filter(|tags| tags.first().is_some_and(|tag| tag.code == 0 && tag.text() == "ATTDEF"))
+            .filter_map(|tags| {
+                let horizontal = number(tags, 72).unwrap_or(0.0) as i64;
+                let vertical = number(tags, 74).unwrap_or(0.0) as i64;
+                let definition = attributes::Definition {
+                    tag: value(tags, 2)?.to_string(),
+                    prompt: value(tags, 3).unwrap_or("").to_string(),
+                    default: value(tags, 1).unwrap_or("").to_string(),
+                    position: get_point(tags, 10)?,
+                    align: if horizontal != 0 || vertical != 0 { get_point(tags, 11) } else { None },
+                    height: number(tags, 40).unwrap_or(1.0),
+                    rotation: number(tags, 50).unwrap_or(0.0),
+                    width: number(tags, 41).unwrap_or(1.0),
+                    oblique: number(tags, 51).unwrap_or(0.0),
+                    generation: number(tags, 71).unwrap_or(0.0) as i64,
+                    horizontal,
+                    vertical,
+                    flags: number(tags, 70).unwrap_or(0.0) as i64,
+                    style: value(tags, 7).map(str::to_string),
+                };
+                let appearance = Common {
+                    layer: value(tags, 8).unwrap_or("0").to_string(),
+                    color: number(tags, 420)
+                        .map(|rgb| EditColor::Rgb(rgb as u32))
+                        .or_else(|| number(tags, 62).map(|aci| EditColor::Index(aci as u32))),
+                    line_type: value(tags, 6).map(str::to_string),
+                    line_width: number(tags, 370).map(|width| match width as i64 {
+                        -1 => EditLineWidth::ByLayer,
+                        -2 => EditLineWidth::ByBlock,
+                        -3 => EditLineWidth::Default,
+                        _ => EditLineWidth::Millimeters(width / 100.0),
+                    }),
+                };
+                Some((definition, appearance))
+            })
+            .unzip();
+        (definitions, appearance, base)
     }
 
     /// 尺度。数（すべての向き）、[x, y]、[x, y, z]
@@ -1631,6 +2399,581 @@ impl<'a> Editor<'a> {
                 }
             }
         }
+        Ok(())
+    }
+
+    /// 空のブロック定義を足す（docs/decisions/0017）。R13 以降は BLOCK_RECORD・BLOCK・ENDBLK、R12 は BLOCK・ENDBLK
+    /// （DXF Reference「BLOCK_RECORD」「BLOCK」「ENDBLK」）。BLOCKS の節がなければ ENTITIES の前に作る
+    fn add_block(&mut self, index: usize, name: &str, values: &EditValues) -> Result<(), EditError> {
+        if !valid_name(name) || name.trim().starts_with('*') {
+            return Err(EditError::at(
+                index,
+                "invalid-value",
+                format!("ブロックの名前 {name} は使えません（* で始まる名前は名前のないブロックのためのものです）"),
+            ));
+        }
+        let key = upper(name);
+        if self.blocks.contains_key(&key) || self.block_records.contains_key(&key) {
+            return Err(EditError::at(index, "already-exists", format!("ブロック {name} はすでにあります")));
+        }
+        let reader = ValueReader::new(values, index);
+        reader.allow(&["basePoint"], "ブロックの定義")?;
+        let base = reader.point("basePoint")?.unwrap_or([0.0; 3]);
+        self.create_block(index, name, base, 0)?;
+        self.created.push(name.to_string());
+        self.created_places.push(None);
+        Ok(())
+    }
+
+    /// ブロックの定義を作り、new_blocks の番号を返す。flags は BLOCK の 70（1 は名前のないブロック）
+    fn create_block(&mut self, index: usize, name: &str, base: [f64; 3], flags: i64) -> Result<usize, EditError> {
+        let key = upper(name);
+        let at = match self.sections.get("BLOCKS") {
+            Some(&(_, Some(end))) => end,
+            Some(_) => return Err(EditError::at(index, "unreadable", "BLOCKS の節に ENDSEC がありません")),
+            None => {
+                let at = ["ENTITIES", "OBJECTS"]
+                    .iter()
+                    .filter_map(|name| self.sections.get(*name).map(|entry| entry.0))
+                    .min()
+                    .ok_or_else(|| EditError::at(index, "unreadable", "図面に ENTITIES の節がありません"))?;
+                self.blocks_section = Some(at);
+                at
+            }
+        };
+        // R13 以降はブロックの表の項目（所有者は BLOCK_RECORD の表）
+        let mut owner = None;
+        if self.r13
+            && let Some(&(table, Some(end))) = self.tables.get("BLOCK_RECORD")
+        {
+            let handle = self.next_handle(index)?;
+            let mut record = Record::new("BLOCK_RECORD");
+            if let Some(handle) = &handle {
+                record.tag(5, handle.clone());
+            }
+            if let Some(table) = self.record_handles.get(&table) {
+                record.tag(330, table.clone());
+            }
+            record.tag(100, "AcDbSymbolTableRecord").tag(100, "AcDbBlockTableRecord").tag(2, name).tag(340, "0");
+            if self.source.version.as_str() >= "AC1018" {
+                // 挿入の単位（0 は単位なし）、分解できる、尺度を揃えない（AutoCAD 2004 以降の既定）
+                record.int(70, 0).int(280, 1).int(281, 0);
+            }
+            self.insert(end, record.tags);
+            let count = self.block_records.len() + 1;
+            let table_tags = self.tags_mut(table);
+            if number(table_tags, 70).is_none_or(|current| current < count as f64) {
+                set(table_tags, 70, count.to_string(), &[100, 2]);
+            }
+            if let Some(handle) = handle {
+                self.block_records.insert(key.clone(), handle.clone());
+                self.block_record_names.insert(handle.clone(), name.to_string());
+                owner = Some(handle);
+            }
+        }
+        let common = Common { layer: "0".into(), color: None, line_type: None, line_width: None };
+        let place = Place { before: at, owner, paper: false, block: None };
+        let (mut begin, _) = self.entity_record(index, "BLOCK", &place, &common)?;
+        self.subclass(&mut begin, "AcDbBlockBegin");
+        begin.tag(2, name).int(70, flags).point(10, base, true).tag(3, name);
+        if self.r13 {
+            begin.tag(1, "");
+        }
+        let (mut end, _) = self.entity_record(index, "ENDBLK", &place, &common)?;
+        self.subclass(&mut end, "AcDbBlockEnd");
+        self.new_blocks.push(NewBlock { at, begin: begin.tags, entities: Vec::new(), end: end.tags });
+        let number = self.new_blocks.len() - 1;
+        self.blocks.insert(key, BlockInfo { name: name.to_string(), begin: None, end: None, new: Some(number) });
+        Ok(number)
+    }
+
+    /// 表（STYLE・LTYPE・DIMSTYLE）の終わりに項目を足し、表の項目の数（70）を直す。返すのは足した場所
+    fn add_table_record(&mut self, index: usize, table: &str, tags: Vec<Tag>) -> Result<LayerRef, EditError> {
+        let Some(&(record, Some(end))) = self.tables.get(table) else {
+            return Err(EditError::at(index, "unreadable", format!("図面に {table} の表がありません")));
+        };
+        let position = self.insert(end, tags);
+        let count = self.table_counts.entry(table.to_string()).or_default();
+        *count += 1;
+        let count = *count;
+        let table_tags = self.tags_mut(record);
+        if number(table_tags, 70).is_none_or(|current| current < count as f64) {
+            set(table_tags, 70, count.to_string(), &[100, 2]);
+        }
+        Ok(LayerRef::Added(end, position))
+    }
+
+    /// 表の項目の始まり（種類、ハンドル、所有者、サブクラスの印、名前）
+    fn table_record(&mut self, index: usize, kind: &str, subclass: &str, name: &str) -> Result<Record, EditError> {
+        let mut record = Record::new(kind);
+        if let Some(handle) = self.next_handle(index)? {
+            record.tag(if kind == "DIMSTYLE" { 105 } else { 5 }, handle);
+        }
+        if self.r13 {
+            if let Some(owner) = self.tables.get(kind).and_then(|(record, _)| self.record_handles.get(record)) {
+                record.tag(330, owner.clone());
+            }
+            record.tag(100, "AcDbSymbolTableRecord").tag(100, subclass);
+        }
+        record.tag(2, name);
+        Ok(record)
+    }
+
+    /// レイアウトを足す（docs/decisions/0017。DXF Reference「LAYOUT」「PLOTSETTINGS」）。図面のレイアウトの LAYOUT を
+    /// 写して名前・用紙・紙空間のブロックを変え、ACAD_LAYOUT の辞書に足す。紙空間のブロック（*Paper_Space<n>）と、
+    /// 用紙の全体を表すビューポート（69 = 1）も作る。AutoCAD 2000 から
+    fn add_layout(&mut self, index: usize, name: &str, values: &EditValues) -> Result<(), EditError> {
+        if self.source.version.as_str() < "AC1015" {
+            return Err(EditError::at(
+                index,
+                "unsupported-kind",
+                "AutoCAD 2000 より前の DXF にはレイアウト（LAYOUT）がありません",
+            ));
+        }
+        if !valid_name(name) || name.eq_ignore_ascii_case("model") {
+            return Err(EditError::at(index, "invalid-value", format!("レイアウトの名前 {name} は使えません")));
+        }
+        if self.layouts.contains_key(&upper(name)) {
+            return Err(EditError::at(index, "already-exists", format!("レイアウト {name} はすでにあります")));
+        }
+        let reader = ValueReader::new(values, index);
+        reader.allow(&["paperSize", "margins"], "レイアウト")?;
+        let paper = reader.required("paperSize", reader.numbers("paperSize", 2)?)?;
+        if paper[0] <= 0.0 || paper[1] <= 0.0 {
+            return Err(EditError::at(
+                index,
+                "invalid-value",
+                "paperSize は 0 より大きい [幅, 高さ]（mm）にしてください",
+            ));
+        }
+        // 用紙の余白（左・下・右・上、mm）。省略すると写したレイアウトのまま
+        let margins = reader.numbers("margins", 4)?;
+        if margins.as_ref().is_some_and(|margins| margins.iter().any(|margin| *margin < 0.0)) {
+            return Err(EditError::at(
+                index,
+                "invalid-value",
+                "margins は 0 以上の [左, 下, 右, 上]（mm）にしてください",
+            ));
+        }
+        let unreadable = || EditError::at(index, "unreadable", "図面のレイアウト（LAYOUT）と OBJECTS の節が読めません");
+        // 写すレイアウト（モデルでないもの、なければモデル）
+        let template = self
+            .layout_records
+            .iter()
+            .copied()
+            .filter(|record| !self.deleted.contains(record))
+            .max_by_key(|record| {
+                let tags = self.tags(*record);
+                let start = tags.iter().position(|tag| tag.code == 100 && tag.text() == "AcDbLayout").unwrap_or(0);
+                find_from(tags, 1, start).is_some_and(|at| !tags[at].text().eq_ignore_ascii_case("model"))
+            })
+            .ok_or_else(unreadable)?;
+        let objects_end = self.sections.get("OBJECTS").and_then(|(_, end)| *end).ok_or_else(unreadable)?;
+        let template = self.tags(template).to_vec();
+        let dictionary = value(&template, 330).map(upper).ok_or_else(unreadable)?;
+        let dictionary_record = self
+            .record_handles
+            .iter()
+            .find(|(record, handle)| **handle == dictionary && self.kind(**record) == "DICTIONARY")
+            .map(|(record, _)| *record)
+            .ok_or_else(unreadable)?;
+        let tab = self
+            .layout_records
+            .iter()
+            .filter_map(|record| {
+                let tags = self.tags(*record);
+                let start = tags.iter().position(|tag| tag.code == 100 && tag.text() == "AcDbLayout")?;
+                find_from(tags, 71, start).map(|at| tags[at].number())
+            })
+            .fold(0.0, f64::max)
+            + 1.0
+            + self.layouts_added as f64;
+        self.layouts_added += 1;
+        // 紙空間のブロック
+        let suffix = self
+            .blocks
+            .keys()
+            .chain(self.block_records.keys())
+            .filter_map(|block| block.strip_prefix("*PAPER_SPACE").and_then(|number| number.parse::<u64>().ok()))
+            .max()
+            .map_or(0, |number| number + 1);
+        let block_name = format!("*Paper_Space{suffix}");
+        let layout_handle = self.next_handle(index)?.ok_or_else(unreadable)?;
+        let block = self.create_block(index, &block_name, [0.0; 3], 0)?;
+        let record_handle = self.block_records.get(&upper(&block_name)).cloned().ok_or_else(unreadable)?;
+        // BLOCK_RECORD の 340 をこのレイアウトにする
+        for list in self.inserted.values_mut() {
+            for tags in list.iter_mut() {
+                if tags.first().is_some_and(|tag| tag.text() == "BLOCK_RECORD")
+                    && value(tags, 5).is_some_and(|handle| upper(handle) == record_handle)
+                {
+                    set(tags, 340, layout_handle.clone(), &[2]);
+                }
+            }
+        }
+        let start = template.iter().position(|tag| tag.code == 100 && tag.text() == "AcDbLayout").unwrap_or(0);
+        let mut tags: Vec<Tag> = Vec::with_capacity(template.len());
+        for (at, tag) in template.iter().enumerate().take(data_end(&template)) {
+            let tag = match tag.code {
+                5 => Tag::new(5, layout_handle.clone()),
+                // DXF Reference「PLOTSETTINGS」: 新しい用紙の座標は mm・等倍・回転なしで、左下を原点にする。
+                // 雛形の印刷設定を継ぐと、指定した大きさやビューポートの縮尺が変わる。
+                4 if at < start => Tag::new(4, paper_name(paper[0], paper[1])),
+                40..=43 if at < start => {
+                    Tag::new(tag.code, real(margins.as_ref().map_or(0.0, |margins| margins[(tag.code - 40) as usize])))
+                }
+                46..=49 | 140..=141 | 148..=149 if at < start => Tag::new(tag.code, "0"),
+                44 if at < start => Tag::new(44, real(paper[0])),
+                45 if at < start => Tag::new(45, real(paper[1])),
+                70 | 73 if at < start => Tag::new(tag.code, "0"),
+                72 | 142..=143 | 147 if at < start => Tag::new(tag.code, "1"),
+                74 if at < start => Tag::new(74, "5"),
+                75 if at < start => Tag::new(75, "16"),
+                1 if at > start => Tag::new(1, name),
+                71 if at > start => Tag::new(71, (tab as i64).to_string()),
+                11 if at > start => Tag::new(11, real(paper[0])),
+                21 if at > start => Tag::new(21, real(paper[1])),
+                330 if at > start => Tag::new(330, record_handle.clone()),
+                331 => continue,
+                _ => tag.clone(),
+            };
+            tags.push(tag);
+        }
+        self.insert(objects_end, tags);
+        // ACAD_LAYOUT の辞書の項目
+        let dictionary_tags = self.tags_mut(dictionary_record);
+        let at = data_end(dictionary_tags);
+        dictionary_tags.insert(at, Tag::new(3, name));
+        dictionary_tags.insert(at + 1, Tag::new(350, layout_handle));
+        self.layouts.insert(upper(name), record_handle.clone());
+        // 用紙の全体を表すビューポート（ID 1）
+        let place = Place { before: 0, owner: Some(record_handle.clone()), paper: true, block: Some(block) };
+        let common = Common { layer: "0".into(), color: None, line_type: None, line_width: None };
+        let (mut record, _) = self.entity_record(index, "VIEWPORT", &place, &common)?;
+        let middle = [paper[0] / 2.0, paper[1] / 2.0, 0.0];
+        viewport_tags(&mut record, middle, paper[0], paper[1], middle, paper[1], 1, 1);
+        self.new_blocks[block].entities.push(record.tags);
+        self.viewport_ids.insert(record_handle, 1);
+        self.created.push(name.to_string());
+        self.created_places.push(None);
+        Ok(())
+    }
+
+    /// 画像の定義（IMAGEDEF）とリアクタ（IMAGEDEF_REACTOR）を OBJECTS に足し、定義を ACAD_IMAGE_DICT に載せる。
+    /// 画像のクラスがなければ CLASSES に足す。定義とリアクタのハンドルを返す
+    fn image_objects(
+        &mut self,
+        index: usize,
+        image: &str,
+        input: &image::ImageInput,
+    ) -> Result<(String, String), EditError> {
+        let unreadable = || EditError::at(index, "unreadable", "図面にハンドルがありません");
+        let (dictionary, dictionary_handle, objects_end) = self.image_dictionary(index)?;
+        let definition = self.next_handle(index)?.ok_or_else(unreadable)?;
+        let reactor = self.next_handle(index)?.ok_or_else(unreadable)?;
+        let dictionary_tags = match dictionary {
+            ImageDictionary::Record(record) => self.tags_mut(record),
+            ImageDictionary::Added(at, position) => &mut self.inserted.get_mut(&at).expect("the dictionary")[position],
+        };
+        let name = image::entry_name(&input.path, |name| {
+            dictionary_tags.iter().any(|tag| tag.code == 3 && tag.text().eq_ignore_ascii_case(name))
+        });
+        let at = data_end(dictionary_tags);
+        dictionary_tags.insert(at, Tag::new(3, name));
+        dictionary_tags.insert(at + 1, Tag::new(350, definition.clone()));
+        // IMAGEDEF（DXF Reference「IMAGEDEF」）。画素の大きさは単位なしの 1
+        let mut record = Record::new("IMAGEDEF");
+        record.tag(5, definition.clone()).tag(102, "{ACAD_REACTORS").tag(330, dictionary_handle.clone());
+        record.tag(330, reactor.clone()).tag(102, "}").tag(330, dictionary_handle);
+        record.tag(100, "AcDbRasterImageDef").int(90, 0).tag(1, input.path.clone());
+        record.point(10, [input.pixels[0], input.pixels[1], 0.0], false).point(11, [1.0, 1.0, 0.0], false);
+        record.int(280, 1).int(281, 0);
+        self.insert(objects_end, record.tags);
+        // IMAGEDEF_REACTOR（DXF Reference「IMAGEDEF_REACTOR」）。所有者は画像
+        let mut record = Record::new("IMAGEDEF_REACTOR");
+        record.tag(5, reactor.clone()).tag(330, image).tag(100, "AcDbRasterImageDefReactor").int(90, 2);
+        record.tag(330, image);
+        self.insert(objects_end, record.tags);
+        self.add_image_classes();
+        Ok((definition, reactor))
+    }
+
+    /// ACAD_IMAGE_DICT と、OBJECTS の節の終わり（オブジェクトを足す位置）。ACAD_IMAGE_DICT がなければ作り、名前つき
+    /// オブジェクトの辞書（DXF Reference「OBJECTS Section」: OBJECTS の最初のオブジェクト）に載せる。名前つきオブジェクトの
+    /// 辞書・OBJECTS の節がない図面（手で書いた DXF など）には作る
+    fn image_dictionary(&mut self, index: usize) -> Result<(ImageDictionary, String, usize), EditError> {
+        if let Some(found) = &self.image_dictionary {
+            return Ok(found.clone());
+        }
+        let unreadable = || EditError::at(index, "unreadable", "図面の OBJECTS の節を足す位置が読めません");
+        let (first, objects_end) = match self.sections.get("OBJECTS").copied() {
+            Some((start, Some(end))) => (start + 1, end),
+            Some((_, None)) => return Err(unreadable()),
+            None => {
+                let eof =
+                    (1..self.records.len()).rev().find(|record| self.kind(*record) == "EOF").ok_or_else(unreadable)?;
+                self.insert(eof, Record::new("SECTION").tag(2, "OBJECTS").tags.clone());
+                self.closers.entry(eof).or_default().push(Record::new("ENDSEC").tags);
+                self.sections.insert("OBJECTS".into(), (eof, Some(eof)));
+                (eof, eof)
+            }
+        };
+        let root = (first < objects_end && self.kind(first) == "DICTIONARY")
+            .then(|| self.record_handles.get(&first).cloned().map(|handle| (first, handle)))
+            .flatten();
+        let existing = root.as_ref().and_then(|(root, _)| {
+            let tags = self.tags(*root);
+            let handle = tags
+                .iter()
+                .position(|tag| tag.code == 3 && tag.text().eq_ignore_ascii_case(image::DICTIONARY))
+                .and_then(|at| tags.get(at + 1))
+                .filter(|tag| tag.code == 350 || tag.code == 360)
+                .map(|tag| upper(tag.text()))?;
+            let record = self
+                .record_handles
+                .iter()
+                .find(|(record, own)| **own == handle && self.kind(**record) == "DICTIONARY")
+                .map(|(record, _)| *record)?;
+            Some((ImageDictionary::Record(record), handle))
+        });
+        let (dictionary, handle) = match existing {
+            Some(found) => found,
+            None => {
+                let handle = self.next_handle(index)?.ok_or_else(unreadable)?;
+                let root_handle = match &root {
+                    Some((root, root_handle)) => {
+                        let tags = self.tags_mut(*root);
+                        let at = data_end(tags);
+                        tags.insert(at, Tag::new(3, image::DICTIONARY));
+                        tags.insert(at + 1, Tag::new(350, handle.clone()));
+                        root_handle.clone()
+                    }
+                    None => {
+                        // 名前つきオブジェクトの辞書（所有者なし）を OBJECTS の最初に足す
+                        let root_handle = self.next_handle(index)?.ok_or_else(unreadable)?;
+                        let mut record = Record::new("DICTIONARY");
+                        record.tag(5, root_handle.clone()).tag(330, "0").tag(100, "AcDbDictionary").int(281, 1);
+                        record.tag(3, image::DICTIONARY).tag(350, handle.clone());
+                        self.insert(first, record.tags);
+                        root_handle
+                    }
+                };
+                let mut record = Record::new("DICTIONARY");
+                record.tag(5, handle.clone()).tag(102, "{ACAD_REACTORS").tag(330, root_handle.clone());
+                record.tag(102, "}").tag(330, root_handle).tag(100, "AcDbDictionary").int(281, 1);
+                let position = self.insert(objects_end, record.tags);
+                (ImageDictionary::Added(objects_end, position), handle)
+            }
+        };
+        self.image_dictionary = Some((dictionary, handle, objects_end));
+        Ok(self.image_dictionary.clone().expect("the dictionary"))
+    }
+
+    /// 画像のクラス（DXF Reference「CLASSES Section」）のうち図面にないものを足す。CLASSES の節がなければ、
+    /// HEADER の後に作る
+    fn add_image_classes(&mut self) {
+        if std::mem::replace(&mut self.image_classes, true) {
+            return;
+        }
+        let section = self.sections.get("CLASSES").copied();
+        let existing: HashSet<String> = section
+            .and_then(|(start, end)| Some(start..end?))
+            .into_iter()
+            .flatten()
+            .filter(|record| self.kind(*record) == "CLASS")
+            .filter_map(|record| value(self.tags(record), 1).map(upper))
+            .collect();
+        let counts = self.source.version.as_str() >= "AC1018";
+        let classes: Vec<Vec<Tag>> = image::CLASSES
+            .iter()
+            .filter(|(name, ..)| !existing.contains(*name))
+            .map(|(name, cpp, flags, entity)| {
+                let mut record = Record::new("CLASS");
+                record.tag(1, *name).tag(2, *cpp).tag(3, image::APPLICATION).int(90, *flags);
+                if counts {
+                    record.int(91, 0);
+                }
+                record.int(280, 0).int(281, i64::from(*entity));
+                record.tags
+            })
+            .collect();
+        if classes.is_empty() {
+            return;
+        }
+        match section {
+            Some((_, Some(end))) => {
+                for tags in classes {
+                    self.insert(end, tags);
+                }
+            }
+            _ => {
+                let before = self
+                    .sections
+                    .get("HEADER")
+                    .and_then(|(_, end)| *end)
+                    .map_or(1, |end| end + 1)
+                    .min(self.records.len() - 1);
+                self.insert(before, Record::new("SECTION").tag(2, "CLASSES").tags.clone());
+                for tags in classes {
+                    self.insert(before, tags);
+                }
+                self.insert(before, Record::new("ENDSEC").tags);
+            }
+        }
+    }
+
+    /// 文字スタイル・寸法スタイル・線種を足す（docs/decisions/0017）
+    fn add_style(&mut self, index: usize, kind: StyleKind, name: &str, values: &EditValues) -> Result<(), EditError> {
+        if !valid_name(name) {
+            return Err(EditError::at(index, "invalid-value", format!("名前 {name} は使えません")));
+        }
+        let key = upper(name);
+        let exists = match kind {
+            StyleKind::Text => self.styles.contains_key(&key),
+            StyleKind::Dimension => self.dimstyles.contains_key(&key),
+            StyleKind::LineType => self.linetypes.contains_key(&key),
+        };
+        if exists {
+            return Err(EditError::at(index, "already-exists", format!("{name} はすでにあります")));
+        }
+        let reader = ValueReader::new(values, index);
+        match kind {
+            StyleKind::Text => self.add_text_style(index, name, &reader)?,
+            StyleKind::Dimension => self.add_dimension_style(index, name, &reader)?,
+            StyleKind::LineType => self.add_line_type(index, name, &reader)?,
+        }
+        self.created.push(name.to_string());
+        self.created_places.push(None);
+        Ok(())
+    }
+
+    /// 文字スタイル（DXF Reference「STYLE」）。font は SHX・TrueType のファイル（拡張子つき）か TrueType の書体の名前で、
+    /// 書体の名前は拡張データ（ACAD の 1000）に書き、3 にはその書体のファイルを書く（font_file）
+    fn add_text_style(&mut self, index: usize, name: &str, reader: &ValueReader<'_>) -> Result<(), EditError> {
+        reader.allow(&["font", "bigFont", "height", "widthFactor", "oblique"], "文字スタイル")?;
+        let font = reader.name("font")?.unwrap_or("txt");
+        let big_font = reader.text("bigFont")?.unwrap_or("");
+        let height = reader.number("height")?.unwrap_or(0.0);
+        let width = reader.positive("widthFactor")?.unwrap_or(1.0);
+        let oblique = reader.number("oblique")?.unwrap_or(0.0);
+        if height < 0.0 {
+            return Err(EditError::at(index, "invalid-value", "height は 0 以上の数にしてください"));
+        }
+        let (file, family) = font_file(font);
+        let mut record = self.table_record(index, "STYLE", "AcDbTextStyleTableRecord", name)?;
+        record.int(70, 0).real(40, height).real(41, width).real(50, oblique).int(71, 0).real(42, 2.5);
+        record.tag(3, file).tag(4, big_font);
+        if let Some(family) = family {
+            if self.r13 && self.appids.contains("ACAD") {
+                record.tag(1001, "ACAD").tag(1000, family).int(1071, 0);
+            } else {
+                self.notices.add(
+                    NoticeLevel::Info,
+                    "edit-font-family",
+                    "TrueType の書体の名前を書けない図面（R12、APPID の ACAD がない）なので、フォントのファイルだけを書きました",
+                );
+            }
+        }
+        let handle = value(&record.tags, 5).map(upper);
+        self.add_table_record(index, "STYLE", record.tags)?;
+        if let Some(handle) = handle {
+            self.style_handles.insert(handle, name.to_string());
+        }
+        self.styles.insert(upper(name), name.to_string());
+        Ok(())
+    }
+
+    /// 線種（DXF Reference「LTYPE」）。pattern は線（正）・空白（負）・点（0）の長さ
+    fn add_line_type(&mut self, index: usize, name: &str, reader: &ValueReader<'_>) -> Result<(), EditError> {
+        reader.allow(&["description", "pattern"], "線種")?;
+        let description = reader.text("description")?.unwrap_or("");
+        let pattern = match reader.value("pattern") {
+            None => Vec::new(),
+            Some(EditValue::Numbers(values)) if values.len() <= 12 => values.clone(),
+            Some(EditValue::Number(value)) => vec![*value],
+            Some(_) => {
+                return Err(EditError::at(index, "invalid-value", "pattern は 12 個までの数の配列にしてください"));
+            }
+        };
+        let mut record = self.table_record(index, "LTYPE", "AcDbLinetypeTableRecord", name)?;
+        record.int(70, 0).tag(3, description).int(72, 65).int(73, pattern.len() as i64);
+        record.real(40, pattern.iter().map(|dash| dash.abs()).sum());
+        for dash in &pattern {
+            record.real(49, *dash);
+            if self.r13 {
+                record.int(74, 0);
+            }
+        }
+        self.add_table_record(index, "LTYPE", record.tags)?;
+        self.linetypes.insert(upper(name), name.to_string());
+        Ok(())
+    }
+
+    /// 寸法スタイル（DXF Reference「DIMSTYLE」）。from（省略は Standard）の項目を写し、指定された変数を書く
+    fn add_dimension_style(&mut self, index: usize, name: &str, reader: &ValueReader<'_>) -> Result<(), EditError> {
+        reader.allow(&dimension::STYLE_KEYS, "寸法スタイル")?;
+        let variables = dimension::style_variables(reader, index)?;
+        let from = reader.name("from")?.unwrap_or("Standard");
+        let template = self.dimstyles.get(&upper(from)).cloned().ok_or_else(|| {
+            EditError::at(index, "missing-definition", format!("寸法スタイル {from} は図面にありません"))
+        })?;
+        let template = self.record_tags(&template).map(<[Tag]>::to_vec).unwrap_or_default();
+        let text_style = match reader.name("textStyle")? {
+            Some(style) => {
+                let wanted = self.text_style(index, Some(style))?.unwrap_or_default();
+                Some(
+                    self.style_handles
+                        .iter()
+                        .find(|(_, name)| upper(name) == upper(&wanted))
+                        .map(|(handle, _)| handle.clone())
+                        .ok_or_else(|| {
+                            EditError::at(
+                                index,
+                                "missing-definition",
+                                format!("文字スタイル {style} のハンドルがありません"),
+                            )
+                        })?,
+                )
+            }
+            None => None,
+        };
+        let mut record = self.table_record(index, "DIMSTYLE", "AcDbDimStyleTableRecord", name)?;
+        // 写さない値: 種類・名前・ハンドル・所有者・サブクラスの印・102 の組・拡張データ
+        let mut group = false;
+        for tag in template.iter().take(data_end(&template)).skip(1) {
+            if tag.code == 102 {
+                group = tag.text().starts_with('{');
+                continue;
+            }
+            if group || matches!(tag.code, 2 | 5 | 105 | 100 | 330) {
+                continue;
+            }
+            record.tags.push(tag.clone());
+        }
+        if find(&record.tags, 70).is_none() {
+            record.int(70, 0);
+        }
+        for (variable, number) in variables {
+            let Some((code, _)) = DimStyleValues::CODES.iter().find(|(_, name)| *name == variable) else { continue };
+            // R12 の寸法スタイルには DIMDEC（271）がない
+            if *code == 271 && !self.r13 {
+                self.notices.add(
+                    NoticeLevel::Info,
+                    "edit-no-dimdec",
+                    "R12 の寸法スタイルには小数の桁（DIMDEC）がないため、書きませんでした",
+                );
+                continue;
+            }
+            let text = if [77, 78, 271].contains(code) { (number as i64).to_string() } else { real(number) };
+            set(&mut record.tags, *code, text, &[70]);
+        }
+        if let Some(handle) = text_style
+            && self.r13
+        {
+            set(&mut record.tags, 340, handle, &[70]);
+        }
+        let place = self.add_table_record(index, "DIMSTYLE", record.tags)?;
+        self.dimstyles.insert(upper(name), place);
         Ok(())
     }
 
