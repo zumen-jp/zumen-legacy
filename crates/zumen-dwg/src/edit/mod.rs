@@ -20,7 +20,9 @@ use crate::codec::entities::{Dimension, DimensionKind as DwgDimensionKind};
 use crate::codec::header::{HeaderVars, Value, read_header_vars, write_header_vars};
 use crate::codec::object::{EntityColor, EntityCommon, ObjectCommon, open_raw, writer};
 use crate::codec::objects::{Dictionary, Group, Layout, SortEntsTable};
-use crate::codec::tables::{BlockHeader, Control, DimStyle, DimValue, EntryName, Layer, Linetype, TextStyle};
+use crate::codec::tables::{
+    Appid, BlockHeader, Control, Dash, DimStyle, DimValue, EntryName, Layer, Linetype, TextStyle,
+};
 use crate::codec::{CmColor, In, RawText};
 use crate::file::Version;
 use crate::write::classes::{classes_bits, classes_data, read_class_defs};
@@ -31,7 +33,8 @@ use crate::write::sections::{CLASSES_END, CLASSES_SENTINEL, Framed, HEADER_END, 
 use encoding_rs::Encoding;
 use std::collections::{HashMap, HashSet};
 use zumen_core::edit::{
-    BLOCK_REFERENCE, EditColor, EditError, EditLineWidth, EditOperation, EditValue, EditValues, Edited, ValueReader,
+    BLOCK_REFERENCE, EditColor, EditError, EditLineWidth, EditOperation, EditValue, EditValues, Edited, StyleKind,
+    ValueReader,
 };
 use zumen_core::{NoticeLevel, NoticeList};
 use zumen_dxf::dimension::{self, DimStyleValues, DimensionKind, Part, Role};
@@ -81,6 +84,12 @@ mod kind {
     pub const SOLID: u16 = 31;
     pub const DIMENSION_LINEAR: u16 = 21;
     pub const DIMENSION_ALIGNED: u16 = 22;
+    pub const STYLE_CONTROL: u16 = 52;
+    pub const STYLE: u16 = 53;
+    pub const LTYPE_CONTROL: u16 = 56;
+    pub const LTYPE: u16 = 57;
+    pub const DIMSTYLE_CONTROL: u16 = 68;
+    pub const DIMSTYLE: u16 = 69;
 }
 
 /// DWG を編集する。すべての操作を確かめてから書き、1 つでも通らなければエラーを返して何も書かない
@@ -106,6 +115,7 @@ pub fn edit_dwg(bytes: &[u8], operations: &[EditOperation]) -> Result<Edited, Ed
             EditOperation::AddLayer { name, values } => editor.add_layer(index, name, values, false)?,
             EditOperation::UpdateLayer { name, set } => editor.update_layer(index, name, set)?,
             EditOperation::AddBlock { name, values } => editor.add_block(index, name, values)?,
+            EditOperation::AddStyle { kind, name, values } => editor.add_style(index, *kind, name, values)?,
         }
     }
     Ok(editor.finish())
@@ -1787,6 +1797,192 @@ impl Editor {
             block: href(5, block),
         };
         Ok((type_number, Body::Dimension(body)))
+    }
+
+    /// 表の管理のオブジェクトに項目を足す
+    fn add_entry(&mut self, index: usize, control: u64, control_kind: u16, entry: u64) -> Result<(), EditError> {
+        let mut table = self
+            .read(control, Control::read)
+            .ok_or_else(|| EditError::at(index, "unreadable", "DWG の表の管理のオブジェクトが読めません"))?;
+        table.value.entries.push(href(2, entry));
+        let (kind, eed) = (table.kind, table.eed.clone());
+        self.store(control, kind, &eed, |out| table.value.write(out, control_kind));
+        Ok(())
+    }
+
+    /// APPID の ACAD のハンドル
+    fn acad_appid(&self) -> Option<u64> {
+        self.control(self.tables.appid_control).into_iter().find(|handle| {
+            self.read(*handle, |s, _| Appid::read(s))
+                .is_some_and(|appid| upper(&self.text_of(&appid.value.name.name)) == "ACAD")
+        })
+    }
+
+    /// 拡張データの文字列（1000）。R2007 以降は印 0・RS の文字の数・UTF-16、それより前は印 0・RC のバイト数・文字コードの
+    /// 番号（上位のバイトが先）・バイト（モデルの書き出しの eed_string と同じ）
+    fn eed_string(&self, out: &mut Vec<u8>, value: &str) {
+        out.push(0);
+        match self.raw_text(value) {
+            RawText::Bytes(mut bytes) => {
+                bytes.pop();
+                bytes.truncate(255);
+                out.push(bytes.len() as u8);
+                out.extend_from_slice(&self.source.codepage.to_be_bytes());
+                out.extend_from_slice(&bytes);
+            }
+            RawText::Units(units) => {
+                out.extend_from_slice(&(units.len().min(i16::MAX as usize) as u16).to_le_bytes());
+                for unit in units.iter().take(i16::MAX as usize) {
+                    out.extend_from_slice(&unit.to_le_bytes());
+                }
+            }
+        }
+    }
+
+    /// 文字スタイル・寸法スタイル・線種を足す（docs/decisions/0017。値は DXF の編集と同じ）
+    fn add_style(&mut self, index: usize, kind: StyleKind, name: &str, values: &EditValues) -> Result<(), EditError> {
+        if !valid_name(name) {
+            return Err(EditError::at(index, "invalid-value", format!("名前 {name} は使えません")));
+        }
+        let key = upper(name);
+        let exists = match kind {
+            StyleKind::Text => self.styles.contains_key(&key),
+            StyleKind::Dimension => self.dimstyles.contains_key(&key),
+            StyleKind::LineType => self.linetypes.contains_key(&key),
+        };
+        if exists {
+            return Err(EditError::at(index, "already-exists", format!("{name} はすでにあります")));
+        }
+        let reader = ValueReader::new(values, index);
+        let r2004 = self.version >= Version::R2004;
+        let common = |control: u64| ObjectCommon {
+            owner: href(4, control),
+            reactors: Vec::new(),
+            xdictionary: if r2004 { None } else { Some(href(3, 0)) },
+            ds_binary: false,
+        };
+        match kind {
+            StyleKind::Text => {
+                reader.allow(&["font", "bigFont", "height", "widthFactor", "oblique"], "文字スタイル")?;
+                let font = reader.name("font")?.unwrap_or("txt");
+                let big_font = reader.text("bigFont")?.unwrap_or("");
+                let height = reader.number("height")?.unwrap_or(0.0);
+                if height < 0.0 {
+                    return Err(EditError::at(index, "invalid-value", "height は 0 以上の数にしてください"));
+                }
+                let (file, family) = zumen_dxf::font_file(font);
+                let control = self.tables.style_control;
+                let style = TextStyle {
+                    common: common(control),
+                    name: EntryName::new(self.raw_text(name)),
+                    shape: false,
+                    vertical: false,
+                    height,
+                    width: reader.positive("widthFactor")?.unwrap_or(1.0),
+                    oblique: reader.number("oblique")?.unwrap_or(0.0).to_radians(),
+                    generation: 0,
+                    last_height: 2.5,
+                    font: self.raw_text(&file),
+                    bigfont: if big_font.is_empty() { RawText::empty(self.version) } else { self.raw_text(big_font) },
+                    xref_block: href(5, 0),
+                };
+                // TrueType の書体の名前は拡張データ（ACAD の 1000 と 1071。モデルの書き出しと同じ）
+                let mut eed = Vec::new();
+                if let Some(family) = family {
+                    match self.acad_appid() {
+                        Some(app) => {
+                            let mut data = Vec::new();
+                            self.eed_string(&mut data, &family);
+                            data.push(71);
+                            data.extend_from_slice(&0i32.to_le_bytes());
+                            eed.push((href(5, app), data));
+                        }
+                        None => self.notices.add(
+                            NoticeLevel::Info,
+                            "edit-font-family",
+                            "APPID の ACAD がない図面なので、TrueType の書体の名前を書かず、フォントのファイルだけを書きました",
+                        ),
+                    }
+                }
+                let handle = self.next_handle(index)?;
+                self.store(handle, kind::STYLE, &eed, |out| style.write(out));
+                self.add_entry(index, control, kind::STYLE_CONTROL, handle)?;
+                self.styles.insert(key, handle);
+            }
+            StyleKind::LineType => {
+                reader.allow(&["description", "pattern"], "線種")?;
+                let description = reader.text("description")?.unwrap_or("");
+                let pattern = match reader.value("pattern") {
+                    None => Vec::new(),
+                    Some(EditValue::Numbers(values)) if values.len() <= 12 => values.clone(),
+                    Some(EditValue::Number(value)) => vec![*value],
+                    Some(_) => {
+                        return Err(EditError::at(index, "invalid-value", "pattern は 12 個までの数の配列にしてください"));
+                    }
+                };
+                let control = self.tables.linetype_control;
+                let linetype = Linetype {
+                    common: common(control),
+                    name: EntryName::new(self.raw_text(name)),
+                    description: self.raw_text(description),
+                    pattern_length: pattern.iter().map(|dash| dash.abs()).sum(),
+                    alignment: b'A',
+                    dashes: pattern
+                        .iter()
+                        .map(|length| Dash {
+                            length: *length,
+                            shape: 0,
+                            offset: [0.0; 2],
+                            scale: 1.0,
+                            rotation: 0.0,
+                            flags: 0,
+                        })
+                        .collect(),
+                    // 文字の要素の領域は R2004 までは 256 バイト、R2007 以降は文字の要素があるときだけ（モデルの書き出しと同じ）
+                    strings: if self.version >= Version::R2007 { Vec::new() } else { vec![0; 256] },
+                    xref_block: href(5, 0),
+                    shapefiles: vec![href(5, 0); pattern.len()],
+                };
+                let handle = self.next_handle(index)?;
+                self.store(handle, kind::LTYPE, &[], |out| linetype.write(out));
+                self.add_entry(index, control, kind::LTYPE_CONTROL, handle)?;
+                self.linetypes.insert(key, handle);
+            }
+            StyleKind::Dimension => {
+                reader.allow(&zumen_dxf::dimension::STYLE_KEYS, "寸法スタイル")?;
+                let variables = zumen_dxf::dimension::style_variables(&reader, index)?;
+                let from = reader.name("from")?.unwrap_or("Standard");
+                let template = self.dimstyles.get(&upper(from)).copied().ok_or_else(|| {
+                    EditError::at(index, "missing-definition", format!("寸法スタイル {from} は図面にありません"))
+                })?;
+                let text_style = self.text_style(index, reader.name("textStyle")?)?;
+                let mut style = self
+                    .read(template, |s, _| DimStyle::read(s))
+                    .ok_or_else(|| EditError::at(index, "unreadable", "寸法スタイル（DIMSTYLE）が読めません"))?
+                    .value;
+                let control = self.tables.dimstyle_control;
+                style.common = common(control);
+                style.name = EntryName::new(self.raw_text(name));
+                for (variable, number) in variables {
+                    if let Some((_, value)) = style.values.iter_mut().find(|(key, _)| *key == variable) {
+                        *value = match value {
+                            DimValue::Bit(_) => DimValue::Bit(number != 0.0),
+                            DimValue::Short(_) => DimValue::Short(number as i16),
+                            _ => DimValue::Double(number),
+                        };
+                    }
+                }
+                if let (Some(text_style), Some(first)) = (text_style, style.handles.first_mut()) {
+                    *first = href(5, text_style);
+                }
+                let handle = self.next_handle(index)?;
+                self.store(handle, kind::DIMSTYLE, &[], |out| style.write(out));
+                self.add_entry(index, control, kind::DIMSTYLE_CONTROL, handle)?;
+                self.dimstyles.insert(key, handle);
+            }
+        }
+        self.created.push(name.to_string());
+        Ok(())
     }
 
     fn update_layer(&mut self, index: usize, name: &str, values: &EditValues) -> Result<(), EditError> {

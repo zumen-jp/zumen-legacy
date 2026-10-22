@@ -594,3 +594,58 @@ fn adds_dimensions_to_r12_drawings_with_text_and_header_variables() {
     assert_eq!(scene.entities.len(), 1);
     assert_eq!(scene.entities[0].kind.name(), "dimension");
 }
+
+#[test]
+fn adds_text_and_dimension_styles_and_line_types_that_later_operations_use() {
+    let bytes = drawing("");
+    let edited = edit(
+        &bytes,
+        r#"[
+            {"op": "add-text-style", "name": "JP", "font": "MS Gothic", "widthFactor": 0.8},
+            {"op": "add-text-style", "name": "ROMANS", "font": "romans.shx", "bigFont": "extfont.shx"},
+            {"op": "add-line-type", "name": "DASH2", "description": "__ __", "pattern": [6, -3]},
+            {"op": "add-dimension-style", "name": "DIM-100", "scale": 100, "textHeight": 2.5, "arrowSize": 2.5,
+             "extensionOffset": 1, "extensionExtension": 2, "textGap": 1, "textAbove": true, "decimals": 0,
+             "suppressTrailingZeros": true, "textStyle": "JP"},
+            {"op": "add", "kind": "line", "lineType": "DASH2", "start": [0, 0], "end": [10, 0]},
+            {"op": "add", "kind": "text", "textStyle": "JP", "position": [0, 0], "text": "案内", "height": 3},
+            {"op": "add", "kind": "dimension", "dimensionStyle": "DIM-100", "start": [0, 0], "end": [5000, 0], "position": [0, -800]}
+        ]"#,
+    )
+    .unwrap();
+    assert_eq!(&edited.created[..4], ["JP", "ROMANS", "DASH2", "DIM-100"]);
+    let doc = parse_dxf(&edited.bytes);
+    let style = doc.styles.iter().find(|style| style.name == "JP").unwrap();
+    assert_eq!((style.font.as_str(), style.font_family.as_deref(), style.width), ("msgothic.ttc", Some("MS Gothic"), 0.8));
+    let romans = doc.styles.iter().find(|style| style.name == "ROMANS").unwrap();
+    assert_eq!((romans.font.as_str(), romans.bigfont.as_str(), romans.font_family.as_deref()), ("romans.shx", "extfont.shx", None));
+    let linetype = doc.linetypes.iter().find(|linetype| linetype.name == "DASH2").unwrap();
+    assert_eq!((linetype.dashes.clone(), linetype.pattern_length), (vec![6.0, -3.0], 9.0));
+    let dimstyle = doc.dimstyles.iter().find(|style| style.name == "DIM-100").unwrap();
+    assert_eq!((dimstyle.dimscale, dimstyle.dimtxt, dimstyle.dimasz), (100.0, 2.5, 2.5));
+    // 寸法の文字は DIM-100 の値（小数なし、高さ 250、文字スタイル JP）
+    let label = doc
+        .entities
+        .iter()
+        .find_map(|entity| match &entity.data {
+            DxfEntityData::MText(text) if entity.base.block.as_deref() == Some("*D1") => Some(text.clone()),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!((label.raw_text.as_str(), label.char_height, label.style.as_str()), ("5000", 250.0, "JP"));
+    let table = tags(&edited.bytes);
+    let count = |name: &str| {
+        let at = table.windows(2).position(|pair| pair[0] == (0, "TABLE".into()) && pair[1] == (2, name.into())).unwrap();
+        table[at..].iter().find(|tag| tag.0 == 70).unwrap().1.clone()
+    };
+    // STYLE は Standard と 2 つ、LTYPE は ByBlock・ByLayer・Continuous・DASHED と 1 つ
+    assert_eq!((count("STYLE"), count("LTYPE"), count("DIMSTYLE")), ("3".into(), "5".into(), "2".into()));
+    for (operations, code) in [
+        (r#"[{"op": "add-text-style", "name": "standard"}]"#, "already-exists"),
+        (r#"[{"op": "add-dimension-style", "name": "X", "from": "NONE"}]"#, "missing-definition"),
+        (r#"[{"op": "add-dimension-style", "name": "X", "decimals": 1.5}]"#, "invalid-value"),
+        (r#"[{"op": "add-line-type", "name": "X", "dashes": [1]}]"#, "unknown-key"),
+    ] {
+        assert_eq!(edit(&bytes, operations).unwrap_err().code, code, "{operations}");
+    }
+}
