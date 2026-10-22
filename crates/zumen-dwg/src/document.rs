@@ -460,6 +460,7 @@ pub fn read_dwg(bytes: &[u8]) -> Result<DxfDocument, String> {
         }
     }
     doc.blocks = records.into_iter().map(|record| record.block).collect();
+    read_image_paths(&mut reader, &mut doc);
     if !version_has_layouts(version) && !doc.layouts.iter().any(|layout| !layout.model) {
         add_paper_layout(&mut doc);
     }
@@ -1011,6 +1012,30 @@ fn read_mline_styles(reader: &mut Reader<'_>, header: &Header, doc: &mut DxfDocu
                 list.push(style);
             }
         }
+    }
+}
+
+/// 画像（IMAGE）が指す IMAGEDEF（20.4.82）の画像のファイルの名前
+fn read_image_paths(reader: &mut Reader<'_>, doc: &mut DxfDocument) {
+    let mut paths: HashMap<u64, Option<String>> = HashMap::new();
+    for entity in &mut doc.entities {
+        let DxfEntityData::Image(image) = &mut entity.data else { continue };
+        let Some(handle) = image.definition_handle.as_deref().and_then(|handle| u64::from_str_radix(handle, 16).ok())
+        else {
+            continue;
+        };
+        image.path = paths
+            .entry(handle)
+            .or_insert_with(|| {
+                reader.object(handle, &["IMAGEDEF"], |object, _| {
+                    non_entity(object)?;
+                    let s = &mut object.streams;
+                    s.data.bl()?;
+                    s.data.rd2()?;
+                    Ok(decode_escapes(&s.tv()?))
+                })
+            })
+            .clone();
     }
 }
 

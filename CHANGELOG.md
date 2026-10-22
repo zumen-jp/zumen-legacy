@@ -23,6 +23,10 @@ All packages share one version during 0.x.
   and `kind: "viewport"` in it, showing model space at a scale such as 1:100.
 - Rust, Python and the command line: `kind: "leader"` in DXF and DWG, a LEADER with an MTEXT note sized from the
   dimension style.
+- Rust, Python and the command line: `kind: "image"` in DXF and DWG (R14 and later), an IMAGE with its IMAGEDEF in
+  `ACAD_IMAGE_DICT` that keeps `path`, for raster location maps. Reading keeps the image's file name
+  (`DxfImage::path`), and converting to DXF and DWG now writes IMAGE with its IMAGEDEF instead of leaving it out
+  (`version-image` in R12 DXF and R13 DWG; `image` only when the image definition is unknown).
 
 ## 0.1.1 — 2026-10-21
 

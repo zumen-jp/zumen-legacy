@@ -526,6 +526,7 @@ fn reports_what_r12_cannot_hold() {
         "version-mask",
         "version-xline",
         "version-wipeout",
+        "version-image",
         "version-invisible",
         "version-lineweight",
         "version-linetype-scale",

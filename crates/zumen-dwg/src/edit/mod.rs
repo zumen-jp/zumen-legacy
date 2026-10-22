@@ -15,11 +15,12 @@
 mod build;
 
 use crate::bits::{HandleRef, Read};
+use crate::codec::entities::Image;
 use crate::codec::entities::{Attribute, Dimension, DimensionKind as DwgDimensionKind, Leader, LeaderR14, Text};
 use crate::codec::entities::{Body, Entity, fixed_name};
 use crate::codec::header::{HeaderVars, Value, read_header_vars, write_header_vars};
 use crate::codec::object::{EntityColor, EntityCommon, ObjectCommon, open_raw, writer};
-use crate::codec::objects::{Dictionary, Group, Layout, SortEntsTable};
+use crate::codec::objects::{Dictionary, Group, ImageDef, ImageDefReactor, Layout, SortEntsTable};
 use crate::codec::tables::{
     Appid, BlockHeader, Control, Dash, DimStyle, DimValue, EntryName, Layer, Linetype, TextStyle,
 };
@@ -41,7 +42,7 @@ use zumen_dxf::attributes::{self, Definition, Placed};
 use zumen_dxf::dimension::{self, DimStyleValues, DimensionKind, Part, Role};
 
 /// 足せる図形の種類（DXF の編集と同じ）
-const ADDABLE: [&str; 14] = [
+const ADDABLE: [&str; 15] = [
     "line",
     "polyline",
     "arc",
@@ -56,6 +57,7 @@ const ADDABLE: [&str; 14] = [
     "attribute-definition",
     "viewport",
     "leader",
+    "image",
 ];
 
 /// 図形・レイヤに共通する値のキー
@@ -942,6 +944,8 @@ impl Editor {
         let place = self.place(index, container)?;
         // ブロック参照に書く属性と、その属性の定義の値
         let mut pending: Vec<(Placed, EntityCommon, Attribute)> = Vec::new();
+        // 足す画像と、その定義・リアクタのハンドル
+        let mut image_objects: Option<(zumen_dxf::image::ImageInput, u64, u64)> = None;
         let (type_number, body) = match kind {
             "line" => {
                 reader.allow(&keys(&["start", "end"]), "線分")?;
@@ -1150,6 +1154,41 @@ impl Editor {
                 };
                 (kind::LEADER, Body::Leader(body))
             }
+            "image" => {
+                if self.version < Version::R14 {
+                    return Err(EditError::at(
+                        index,
+                        "unsupported-kind",
+                        "AutoCAD R14 より前の DWG には画像（IMAGE）を足せません",
+                    ));
+                }
+                reader.allow(&keys(&zumen_dxf::image::KEYS), "画像")?;
+                let input = zumen_dxf::image::read(&reader, index)?;
+                let type_number = self.class_number(index, "IMAGE")?;
+                let definition = self.next_handle(index)?;
+                let reactor = self.next_handle(index)?;
+                let [width, height] = input.pixels;
+                // IMAGE（20.4.80）。値は DXF の編集と同じ
+                let body = Image {
+                    class_version: 0,
+                    insert: input.position,
+                    u_vector: input.u_pixel,
+                    v_vector: input.v_pixel,
+                    size: input.pixels,
+                    display: 7,
+                    clipping: false,
+                    brightness: 50,
+                    contrast: 50,
+                    fade: 0,
+                    clip_mode: false,
+                    clip_type: 1,
+                    boundary: vec![[-0.5, -0.5], [width - 0.5, height - 0.5]],
+                    imagedef: href(5, definition),
+                    reactor: href(3, reactor),
+                };
+                image_objects = Some((input, definition, reactor));
+                (type_number, Body::Image(Box::new(body)))
+            }
             "viewport" => {
                 reader.allow(&keys(&["center", "width", "height", "viewCenter", "scale"]), "ビューポート")?;
                 self.viewport_place(index, place)?;
@@ -1244,7 +1283,80 @@ impl Editor {
         if is_viewport {
             self.add_layout_viewport(place.block, handle);
         }
+        if let Some((input, definition, reactor)) = image_objects {
+            self.add_image_objects(index, handle, &input, definition, reactor)?;
+        }
         self.created.push(format!("{handle:X}"));
+        Ok(())
+    }
+
+    /// 画像の定義（IMAGEDEF）とリアクタ（IMAGEDEF_REACTOR）を書き、定義を ACAD_IMAGE_DICT に載せる。ACAD_IMAGE_DICT が
+    /// なければ作り、名前つきオブジェクトの辞書に載せる。クラスがなければ足す
+    fn add_image_objects(
+        &mut self,
+        index: usize,
+        image: u64,
+        input: &zumen_dxf::image::ImageInput,
+        definition: u64,
+        reactor: u64,
+    ) -> Result<(), EditError> {
+        let unreadable = || EditError::at(index, "unreadable", "DWG の名前つきオブジェクトの辞書が読めません");
+        let definition_kind = self.class_number(index, "IMAGEDEF")?;
+        let reactor_kind = self.class_number(index, "IMAGEDEF_REACTOR")?;
+        let named = self.tables.named_objects;
+        let mut root = self.read(named, |s, _| Dictionary::read(s, false)).ok_or_else(unreadable)?;
+        let r2004 = self.version >= Version::R2004;
+        let common = |owner: u64, reactors: Vec<HandleRef>| ObjectCommon {
+            owner: href(4, owner),
+            reactors,
+            xdictionary: if r2004 { None } else { Some(href(3, 0)) },
+            ds_binary: false,
+        };
+        let existing = root
+            .value
+            .entries
+            .iter()
+            .find(|(name, _)| upper(&self.text_of(name)) == zumen_dxf::image::DICTIONARY)
+            .map(|(_, entry)| entry.resolve(named));
+        let mut dictionary =
+            match existing.and_then(|handle| Some((handle, self.read(handle, |s, _| Dictionary::read(s, false))?))) {
+                Some(found) => found,
+                None => {
+                    let handle = self.next_handle(index)?;
+                    root.value.entries.push((self.raw_text(zumen_dxf::image::DICTIONARY), href(2, handle)));
+                    let (kind, eed) = (root.kind, root.eed.clone());
+                    self.store(named, kind, &eed, |out| root.value.write(out));
+                    let value = Dictionary {
+                        common: common(named, vec![href(4, named)]),
+                        cloning: 1,
+                        hard_owner: 1,
+                        r14_unknown: 0,
+                        entries: Vec::new(),
+                        default: None,
+                    };
+                    (handle, Decoded { kind: kind::DICTIONARY, eed: Vec::new(), value })
+                }
+            };
+        let names: Vec<String> = dictionary.1.value.entries.iter().map(|(name, _)| self.text_of(name)).collect();
+        let name =
+            zumen_dxf::image::entry_name(&input.path, |name| names.iter().any(|used| used.eq_ignore_ascii_case(name)));
+        dictionary.1.value.entries.push((self.raw_text(&name), href(2, definition)));
+        let (handle, dictionary) = dictionary;
+        self.store(handle, dictionary.kind, &dictionary.eed, |out| dictionary.value.write(out));
+        // IMAGEDEF（20.4.82）。画素の大きさは単位なしの 1（DXF の編集と同じ）
+        let value = ImageDef {
+            common: common(handle, vec![href(4, handle), href(4, reactor)]),
+            class_version: 0,
+            size: input.pixels,
+            path: self.raw_text(&input.path),
+            loaded: true,
+            resolution_units: 0,
+            pixel_size: [1.0, 1.0],
+        };
+        self.store(definition, definition_kind, &[], |out| value.write(out));
+        // IMAGEDEF_REACTOR（20.4.83）
+        let value = ImageDefReactor { common: common(image, Vec::new()), class_version: 2 };
+        self.store(reactor, reactor_kind, &[], |out| value.write(out));
         Ok(())
     }
 
@@ -1829,6 +1941,32 @@ impl Editor {
         }
         let mut gone: Vec<u64> = vec![handle];
         gone.extend(self.followers(handle, &entity.value));
+        // IMAGEDEF_REACTOR（20.4.83）は IMAGE が所有し、IMAGEDEF（20.4.82）がリアクタとして指す。
+        // 定義はほかの画像も共有できるので残し、この画像のリアクタだけを両側から除く。
+        if let Body::Image(image) = &entity.value.body {
+            let reactor = image.reactor.resolve(handle);
+            let owned = self.read(reactor, |s, kind| {
+                if self.kind_of(kind).is_some_and(|(name, _)| name.eq_ignore_ascii_case("IMAGEDEF_REACTOR")) {
+                    ImageDefReactor::read(s)
+                } else {
+                    Err(crate::bits::Eof)
+                }
+            });
+            if owned.is_some_and(|decoded| decoded.value.common.owner.resolve(reactor) == handle) {
+                gone.push(reactor);
+                let definition = image.imagedef.resolve(handle);
+                if let Some(mut decoded) = self.read(definition, |s, kind| {
+                    if self.kind_of(kind).is_some_and(|(name, _)| name.eq_ignore_ascii_case("IMAGEDEF")) {
+                        ImageDef::read(s)
+                    } else {
+                        Err(crate::bits::Eof)
+                    }
+                }) {
+                    decoded.value.common.reactors.retain(|entry| entry.resolve(definition) != reactor);
+                    self.store(definition, decoded.kind, &decoded.eed, |out| decoded.value.write(out));
+                }
+            }
+        }
         // 図形とそれに従う図形が持つ拡張辞書と、その中のオブジェクト
         let mut queue: Vec<u64> = Vec::new();
         for member in gone.clone() {

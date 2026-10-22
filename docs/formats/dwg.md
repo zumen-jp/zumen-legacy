@@ -502,7 +502,7 @@ The codes of the DXF writer, with the same messages, and two more:
 | `mpolygon` | An MPOLYGON | A HATCH |
 | `table` | An ACAD_TABLE | An INSERT of its block |
 | `attrib-alone` | An ATTRIB that no INSERT owns | A TEXT or MTEXT |
-| `image` | An IMAGE (the model does not keep the image file) | Nothing |
+| `image` | An IMAGE whose image definition (IMAGEDEF) the model does not know | Nothing |
 | `dimension-block` | A dimension without its block | Nothing |
 | `mleader-block` | A MULTILEADER whose block content is not defined | No content |
 | `multiline-attrib` | A multi-line attribute, which DWG before AutoCAD 2018 cannot hold (the embedded MTEXT is R2018) | A single-line attribute with the text on one line |
@@ -603,6 +603,7 @@ DWG (the DXF writer has no R13 or R14):
 | `version-line-spacing` | R13, R14 | MTEXT with the default line spacing (at least, 1) (DWG only) |
 | `version-layouts` | R13, R14 | Layouts other than the current one as AutoCAD 2000 and later read them; R13 and R14 show one paper space (DWG only) |
 | `version-hatch` | R13 | HATCH with the class of R14, which R13 cannot show (DWG only) |
+| `version-image` | R13 | Nothing: R13 has no IMAGE |
 | `version-color` | R13 to 2000 | True colors as the nearest ACI (entities, layers, and the CMC colors of other objects) |
 | `version-transparency` | R13 to 2000 | No transparency (entities and layers) |
 | `version-gradient` | R13 to 2000 | A gradient hatch as a solid fill in its first color |
@@ -721,6 +722,13 @@ drawing with `write_dwg` (`$INSUNITS` and `$MEASUREMENT` from the units), which 
   The hook points back toward the penultimate vertex for either annotation side. If the horizontal hook cannot fit
   inside the supplied final segment (a diagonal or short segment), `edit-leader-hook` counts the leaders whose
   paths change when read; no hook is synthesized without a text annotation.
+- **Images** (R14 and later; R13 refuses them with `unsupported-kind`): `image` writes an IMAGE (20.4.80) with the
+  values of the DXF editor, an IMAGEDEF (20.4.82) with `path` and the pixel counts, owned by `ACAD_IMAGE_DICT`, and an
+  IMAGEDEF_REACTOR (20.4.83) owned by the IMAGE. `ACAD_IMAGE_DICT` is created in the named objects dictionary when
+  the drawing has none, and the IMAGE, IMAGEDEF and IMAGEDEF_REACTOR classes are added with the editor's class
+  numbers. Reading keeps the IMAGEDEF's file name (`DxfImage::path`).
+  Deleting an image removes its owned IMAGEDEF_REACTOR and the reference to that reactor from IMAGEDEF, while
+  retaining the image definition in the dictionary for other images that may share it.
 - **Values the version cannot hold** are written as the nearest one and reported: `edit-nearest-color` (no true color
   before AutoCAD 2004) and `edit-rounded-lineweight` (the line weights of DWG). R13 and R14 have no line weights and
   plot every layer, so a line weight other than BYLAYER (entities) or the default (layers) and `plot: false` are not

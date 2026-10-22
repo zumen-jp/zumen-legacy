@@ -841,34 +841,6 @@ fn adds_attributes_in_every_version() {
     }
 }
 
-/// 新しい用紙の座標は、雛形のインチ・回転・印刷倍率・余白に依存しない。
-#[test]
-fn new_layout_uses_millimeters_at_full_size() {
-    let mut source = zumen_dxf::parse_dxf(&zumen_dxf::new_dxf("mm").unwrap());
-    for layout in source.layouts.iter_mut().filter(|layout| !layout.model) {
-        layout.paper_units = 0.0;
-        layout.plot_rotation = 1.0;
-        layout.plot_scale = [1.0, 4.0];
-        layout.plot_origin = [123.0, 456.0];
-        layout.margins = [7.0, 8.0, 9.0, 10.0];
-    }
-    let operations = r#"[
-        {"op":"add-layout","name":"NEW","paperSize":[420,297]},
-        {"op":"add","kind":"line","container":"layout:NEW","start":[0,0],"end":[420,297]}
-    ]"#;
-    let edited = edit(&crate::write_dwg(&source).bytes, operations).unwrap();
-    check_structure("new layout", &edited.bytes);
-    let doc = crate::read_dwg(&edited.bytes).unwrap();
-    let layout = doc.layouts.iter().find(|layout| layout.name == "NEW").unwrap();
-    assert_eq!((layout.paper_units, layout.plot_rotation, layout.plot_scale), (1.0, 0.0, [1.0, 1.0]));
-    assert_eq!((layout.margins, layout.plot_origin), ([0.0; 4], [0.0; 2]));
-    let scene = zumen_dxf::dxf_to_scene(&doc, Some("NEW"));
-    let sheet = scene.sheet.unwrap();
-    assert_eq!((sheet.width, sheet.height), (420.0, 297.0));
-    let line = scene.entities.iter().find(|entity| entity.id == edited.created[1]).unwrap();
-    assert_eq!((line.bbox.min_x, line.bbox.min_y, line.bbox.max_x, line.bbox.max_y), (0.0, 0.0, 420.0, 297.0));
-}
-
 /// レイアウトとビューポートを足す（docs/decisions/0017）。R2000 から
 #[test]
 fn adds_layouts_with_viewports_from_r2000_on() {
@@ -931,6 +903,111 @@ fn adds_leaders_in_every_version() {
             "{name}"
         );
     }
+}
+
+/// 画像と、その定義・辞書・クラスを足す（docs/decisions/0017）
+#[test]
+fn adds_images_from_r14_on() {
+    let operations = r#"[
+        {"op": "add", "kind": "image", "path": "maps/site.png", "pixels": [200, 100], "position": [10, 20], "width": 50},
+        {"op": "add", "kind": "image", "path": "maps/site.png", "pixels": [20, 10], "position": [0, 0], "rotation": 30}
+    ]"#;
+    let mut versions: Vec<(String, Vec<u8>)> =
+        crate::DwgVersion::ALL.iter().map(|version| (version.name().to_string(), written_as(*version))).collect();
+    versions.push(("new".into(), new_dwg("mm").unwrap()));
+    for (name, bytes) in versions {
+        let result = edit(&bytes, operations);
+        if name == "R13" {
+            assert_eq!(result.unwrap_err().code, "unsupported-kind", "{name}");
+            continue;
+        }
+        let edited = result.unwrap_or_else(|error| panic!("{name}: {error}"));
+        check_structure(&name, &edited.bytes);
+        // 辞書とクラスがある図面にもう 1 つ足す
+        let edited = edit(&edited.bytes, operations).unwrap_or_else(|error| panic!("{name}: {error}"));
+        check_structure(&name, &edited.bytes);
+        let doc = crate::read_dwg(&edited.bytes).unwrap_or_else(|error| panic!("{name}: {error}"));
+        let images: Vec<_> = doc
+            .entities
+            .iter()
+            .filter_map(|entity| match &entity.data {
+                DxfEntityData::Image(image) if entity.base.kind == "IMAGE" => Some(image.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(images.len(), 4, "{name}");
+        assert!(images.iter().all(|image| image.path.as_deref() == Some("maps/site.png")), "{name}: {images:?}");
+        let DxfEntityData::Image(first) = &entity(&doc, &edited.created[0]).unwrap().data else { panic!("{name}") };
+        assert_eq!(
+            (first.image_size, first.u_pixel, first.insert),
+            ([200.0, 100.0], [0.25, 0.0, 0.0], [10.0, 20.0, 0.0])
+        );
+        let scene = zumen_dxf::dxf_to_scene(&doc, None);
+        assert!(
+            scene.entities.iter().any(|entity| entity.id == edited.created[1] && entity.kind.name() == "image"),
+            "{name}"
+        );
+    }
+}
+
+/// IMAGE を消したとき、その画像が所有する IMAGEDEF_REACTOR と、定義からの逆参照も片付ける。
+#[test]
+fn deleting_an_image_removes_its_owned_reactor() {
+    for version in crate::DwgVersion::ALL.into_iter().filter(|version| *version != crate::DwgVersion::R13) {
+        let empty = zumen_dxf::parse_dxf(&zumen_dxf::new_dxf("mm").unwrap());
+        let source = crate::write_dwg_as(&empty, version).bytes;
+        let added =
+            edit(&source, r#"[{"op":"add","kind":"image","path":"map.png","pixels":[2,2],"position":[0,0]}]"#).unwrap();
+        let source = Source::open(&added.bytes, &mut NoticeList::new()).unwrap();
+        let editor = Editor::new(source, NoticeList::new()).unwrap();
+        let handle = u64::from_str_radix(&added.created[0], 16).unwrap();
+        let (image, _) = editor.read_entity(handle).unwrap();
+        let Body::Image(image) = image.value.body else { panic!() };
+        let reactor = image.reactor.resolve(handle);
+        let definition = image.imagedef.resolve(handle);
+        assert!(editor.bytes(reactor).is_some());
+        let removed = edit(&added.bytes, &format!(r#"[{{"op":"delete","id":"{:X}"}}]"#, handle)).unwrap();
+        let source = Source::open(&removed.bytes, &mut NoticeList::new()).unwrap();
+        let editor = Editor::new(source, NoticeList::new()).unwrap();
+        assert!(
+            editor.bytes(reactor).is_none(),
+            "{}: orphan reactor {reactor:X} points to removed image {handle:X}",
+            version.name()
+        );
+        let definition = editor.read(definition, |s, _| ImageDef::read(s)).unwrap().value;
+        assert!(
+            !definition.common.reactors.iter().any(|entry| entry.resolve(image.imagedef.resolve(handle)) == reactor)
+        );
+        check_structure(version.name(), &removed.bytes);
+    }
+}
+
+/// 新しい用紙の座標は、雛形のインチ・回転・印刷倍率・余白に依存しない。
+#[test]
+fn new_layout_uses_millimeters_at_full_size() {
+    let mut source = zumen_dxf::parse_dxf(&zumen_dxf::new_dxf("mm").unwrap());
+    for layout in source.layouts.iter_mut().filter(|layout| !layout.model) {
+        layout.paper_units = 0.0;
+        layout.plot_rotation = 1.0;
+        layout.plot_scale = [1.0, 4.0];
+        layout.plot_origin = [123.0, 456.0];
+        layout.margins = [7.0, 8.0, 9.0, 10.0];
+    }
+    let operations = r#"[
+        {"op":"add-layout","name":"NEW","paperSize":[420,297]},
+        {"op":"add","kind":"line","container":"layout:NEW","start":[0,0],"end":[420,297]}
+    ]"#;
+    let edited = edit(&crate::write_dwg(&source).bytes, operations).unwrap();
+    check_structure("new layout", &edited.bytes);
+    let doc = crate::read_dwg(&edited.bytes).unwrap();
+    let layout = doc.layouts.iter().find(|layout| layout.name == "NEW").unwrap();
+    assert_eq!((layout.paper_units, layout.plot_rotation, layout.plot_scale), (1.0, 0.0, [1.0, 1.0]));
+    assert_eq!((layout.margins, layout.plot_origin), ([0.0; 4], [0.0; 2]));
+    let scene = zumen_dxf::dxf_to_scene(&doc, Some("NEW"));
+    let sheet = scene.sheet.unwrap();
+    assert_eq!((sheet.width, sheet.height), (420.0, 297.0));
+    let line = scene.entities.iter().find(|entity| entity.id == edited.created[1]).unwrap();
+    assert_eq!((line.bbox.min_x, line.bbox.min_y, line.bbox.max_x, line.bbox.max_y), (0.0, 0.0, 420.0, 297.0));
 }
 
 /// 注釈が左にある場合もフックは最後の線分へ戻す。線分に収まらない補助線は種類と数で知らせる。

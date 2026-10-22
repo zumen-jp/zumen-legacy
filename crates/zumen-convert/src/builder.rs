@@ -592,6 +592,8 @@ pub(crate) fn wipeout(points: &[Vec2]) -> DxfEntityData {
         boundary,
         flags: 7.0,
         clipping: true,
+        definition_handle: None,
+        path: None,
     })
 }
 

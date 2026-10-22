@@ -6,8 +6,9 @@
 //! DXF・DWG から読んだ図面を DXF にする変換に使う（DXF Reference の各節・各図形のグループコードに従う）。
 //!
 //! 書くもの: 見出しの主な変数、クラス、表（VPORT・LTYPE・LAYER・STYLE・VIEW・UCS・APPID・DIMSTYLE・
-//! BLOCK_RECORD）、ブロック定義、図形、OBJECTS の辞書（ACAD_GROUP・ACAD_LAYOUT・ACAD_MLEADERSTYLE・
-//! ACAD_MLINESTYLE・ACAD_PLOTSETTINGS・ACAD_PLOTSTYLENAME）、レイアウト、MLINESTYLE、MLEADERSTYLE。
+//! BLOCK_RECORD）、ブロック定義、図形、OBJECTS の辞書（ACAD_GROUP・ACAD_IMAGE_DICT・ACAD_LAYOUT・ACAD_MLEADERSTYLE・
+//! ACAD_MLINESTYLE・ACAD_PLOTSETTINGS・ACAD_PLOTSTYLENAME）、レイアウト、MLINESTYLE、MLEADERSTYLE、画像の定義と
+//! そのリアクタ。
 //! ハンドルは元の図面のものを保ち、ないもの・重なるものには新しいハンドルを振る。
 //! 図形が参照するのに表にないレイヤ・線種・文字スタイル・寸法スタイル・ブロックは補う。
 //! 書けなかった・形を変えて書いた内容は、読み取りと同じ notices（種類ごとの件数）で返す。
@@ -379,7 +380,31 @@ struct Writer<'a> {
     /// 図形（`DxfEntityBase` の場所）→ 書くハンドル。参照（属性定義・切り抜きの境界）を書く順に関係なく
     /// 付け替えられるよう、図形を書く前に決める
     entity_handles: HashMap<usize, u64>,
+    /// 書く画像の定義（IMAGEDEF）。元の定義ごとに 1 つ（ハンドル、画像のファイル、画素の数、リアクタ）
+    image_defs: Vec<ImageDefOut>,
+    /// 画像（`DxfEntityBase` の場所）→ 画像の定義（image_defs の番号）とリアクタのハンドル
+    image_links: HashMap<usize, (usize, u64)>,
     placeholder: u64,
+}
+
+/// 書く画像の定義（IMAGEDEF）
+#[derive(Debug, Clone)]
+struct ImageDefOut {
+    handle: u64,
+    path: String,
+    size: [f64; 2],
+    /// この定義を使う画像のリアクタ（IMAGEDEF_REACTOR）のハンドルと、画像のハンドル
+    reactors: Vec<(u64, u64)>,
+}
+
+/// 書ける画像（R12 でなく、画像の定義のファイルが分かる IMAGE）
+fn writable_image(entity: &DxfEntity) -> Option<&DxfImage> {
+    match &entity.data {
+        DxfEntityData::Image(image) if entity.base.kind.eq_ignore_ascii_case("IMAGE") && image.path.is_some() => {
+            Some(image)
+        }
+        _ => None,
+    }
 }
 
 /// 図形（属性を含む）
@@ -485,6 +510,8 @@ impl<'a> Writer<'a> {
             mleader_style: 0,
             in_insert: false,
             entity_handles: HashMap::new(),
+            image_defs: Vec::new(),
+            image_links: HashMap::new(),
             placeholder: 0,
         }
     }
@@ -643,6 +670,9 @@ impl<'a> Writer<'a> {
             let handle = self.keep(&entity.base.handle);
             self.entity_handles.insert(std::ptr::from_ref(&entity.base) as usize, handle);
         }
+        if !self.r12() {
+            self.plan_images();
+        }
         self.blocks_section();
         self.entities_section();
         if !self.r12() {
@@ -652,6 +682,34 @@ impl<'a> Writer<'a> {
         // $HANDSEED は最後に決まるので、見出しの仮の値を置き換える
         let seed = format!("{:X}", self.handles.next + 1);
         self.out.text = self.out.text.replacen("HANDSEED_PLACEHOLDER", &seed, 1);
+    }
+
+    /// 画像の定義とリアクタのハンドルを決める。同じ定義を指していた画像は、1 つの定義を共有する
+    fn plan_images(&mut self) {
+        let mut definitions: HashMap<String, usize> = HashMap::new();
+        for entity in all_entities(self.doc) {
+            let Some(image) = writable_image(entity) else { continue };
+            let key = std::ptr::from_ref(&entity.base) as usize;
+            let image_handle = self.entity_handles[&key];
+            let original = image.definition_handle.as_deref().map(upper).unwrap_or_default();
+            let number = match definitions.get(&original).copied().filter(|_| !original.is_empty()) {
+                Some(number) => number,
+                None => {
+                    let handle = self.handles.fresh();
+                    self.image_defs.push(ImageDefOut {
+                        handle,
+                        path: image.path.clone().unwrap_or_default(),
+                        size: image.image_size,
+                        reactors: Vec::new(),
+                    });
+                    definitions.insert(original, self.image_defs.len() - 1);
+                    self.image_defs.len() - 1
+                }
+            };
+            let reactor = self.handles.fresh();
+            self.image_defs[number].reactors.push((reactor, image_handle));
+            self.image_links.insert(key, (number, reactor));
+        }
     }
 
     /// R12 の書き方か
@@ -769,6 +827,18 @@ impl<'a> Writer<'a> {
                     && entity.base.kind.eq_ignore_ascii_case(kind)
             })
         };
+        // 画像と、その定義（元の定義ごとに 1 つ）の数
+        let mut definitions: HashSet<String> = HashSet::new();
+        let mut images = 0;
+        for entity in all_entities(doc).filter(|_| !self.r12()) {
+            if let Some(image) = writable_image(entity) {
+                images += 1;
+                match image.definition_handle.as_deref() {
+                    Some(handle) => definitions.insert(upper(handle)),
+                    None => definitions.insert(format!("#{images}")),
+                };
+            }
+        }
         let classes = [
             ("ACDBDICTIONARYWDFLT", "AcDbDictionaryWithDefault", "ObjectDBX Classes", 0, 1, false),
             ("ACDBPLACEHOLDER", "AcDbPlaceHolder", "ObjectDBX Classes", 0, 1, false),
@@ -776,6 +846,10 @@ impl<'a> Writer<'a> {
             ("MLEADERSTYLE", "AcDbMLeaderStyle", "ACDB_MLEADERSTYLE_CLASS", 4095, 1, false),
             ("MULTILEADER", "AcDbMLeader", "ACDB_MLEADER_CLASS", 1025, mleaders, true),
             ("WIPEOUT", "AcDbWipeout", "WipeOut", 127, wipeouts, true),
+            // 画像（ezdxf の classes.py と同じ印）。画像の定義・リアクタのクラスも、画像があるときだけ置く
+            ("IMAGE", "AcDbRasterImage", "ISM", 2175, images, true),
+            ("IMAGEDEF", "AcDbRasterImageDef", "ISM", 0, definitions.len(), false),
+            ("IMAGEDEF_REACTOR", "AcDbRasterImageDefReactor", "ISM", 1, images, false),
             ("ARC_DIMENSION", "AcDbArcDimension", "ObjectDBX Classes", 1025, dimensions("ARC_DIMENSION"), true),
             (
                 "LARGE_RADIAL_DIMENSION",
@@ -788,7 +862,7 @@ impl<'a> Writer<'a> {
         ];
         self.section("CLASSES");
         for (name, cpp, application, flags, instances, entity) in classes {
-            if entity && instances == 0 {
+            if (entity || name.starts_with("IMAGEDEF")) && instances == 0 {
                 continue;
             }
             let out = &mut self.out;
@@ -1322,19 +1396,23 @@ impl<'a> Writer<'a> {
             self.handles.fresh(),
             self.handles.fresh(),
         );
-        self.dictionary(
-            root,
-            0,
-            &[
-                ("ACAD_GROUP".into(), group),
-                ("ACAD_LAYOUT".into(), layout),
-                ("ACAD_MLEADERSTYLE".into(), mleader),
-                ("ACAD_MLINESTYLE".into(), mline),
-                ("ACAD_PLOTSETTINGS".into(), plot),
-                ("ACAD_PLOTSTYLENAME".into(), plotstyle),
-            ],
-        );
+        let images = (!self.image_defs.is_empty()).then(|| self.handles.fresh());
+        let mut entries: Vec<(String, u64)> = vec![("ACAD_GROUP".into(), group)];
+        if let Some(images) = images {
+            entries.push((crate::edit::image::DICTIONARY.into(), images));
+        }
+        entries.extend([
+            ("ACAD_LAYOUT".into(), layout),
+            ("ACAD_MLEADERSTYLE".into(), mleader),
+            ("ACAD_MLINESTYLE".into(), mline),
+            ("ACAD_PLOTSETTINGS".into(), plot),
+            ("ACAD_PLOTSTYLENAME".into(), plotstyle),
+        ]);
+        self.dictionary(root, 0, &entries);
         self.dictionary(group, root, &[]);
+        if let Some(images) = images {
+            self.image_objects(images, root);
+        }
         let entries: Vec<(String, u64)> =
             self.layouts.iter().map(|(name, handle, _, _)| (name.clone(), *handle)).collect();
         self.dictionary(layout, root, &entries);
@@ -1389,6 +1467,50 @@ impl<'a> Writer<'a> {
             }
         }
         self.out.tag(0, "ENDSEC");
+    }
+
+    /// 画像の辞書（ACAD_IMAGE_DICT）と、画像の定義（IMAGEDEF）・リアクタ（IMAGEDEF_REACTOR）。辞書の項目の名前は
+    /// 編集と同じく、ファイルの名前から拡張子を除いたもの
+    fn image_objects(&mut self, dictionary: u64, root: u64) {
+        let definitions = std::mem::take(&mut self.image_defs);
+        let mut names: Vec<String> = Vec::new();
+        for definition in &definitions {
+            let name = crate::edit::image::entry_name(&definition.path, |name| {
+                names.iter().any(|used| used.eq_ignore_ascii_case(name))
+            });
+            names.push(name);
+        }
+        let entries: Vec<(String, u64)> =
+            names.into_iter().zip(&definitions).map(|(name, definition)| (name, definition.handle)).collect();
+        self.dictionary(dictionary, root, &entries);
+        for definition in &definitions {
+            let out = &mut self.out;
+            out.tag(0, "IMAGEDEF");
+            out.handle(5, definition.handle);
+            out.tag(102, "{ACAD_REACTORS");
+            out.handle(330, dictionary);
+            for (reactor, _) in &definition.reactors {
+                out.handle(330, *reactor);
+            }
+            out.tag(102, "}");
+            out.handle(330, dictionary);
+            out.tag(100, "AcDbRasterImageDef");
+            out.tag(90, 0);
+            out.str(1, &definition.path);
+            out.point2(10, &definition.size);
+            out.point2(11, &[1.0, 1.0]);
+            out.tag(280, 1);
+            out.tag(281, 0);
+            for (reactor, image) in &definition.reactors {
+                out.tag(0, "IMAGEDEF_REACTOR");
+                out.handle(5, *reactor);
+                out.handle(330, *image);
+                out.tag(100, "AcDbRasterImageDefReactor");
+                out.tag(90, 2);
+                out.handle(330, *image);
+            }
+        }
+        self.image_defs = definitions;
     }
 
     /// レイアウト（AcDbPlotSettings と AcDbLayout）
@@ -1717,6 +1839,40 @@ impl<'a> Writer<'a> {
         out.tag(290, 0);
     }
 
+    /// 画像（DXF Reference「IMAGE」）。画像の定義（340）とリアクタ（360）は plan_images で決めたもの
+    fn image(&mut self, base: &DxfEntityBase, image: &DxfImage, owner: u64, paper: bool) {
+        let (definition, reactor) = self
+            .image_links
+            .get(&(std::ptr::from_ref(base) as usize))
+            .map_or((0, 0), |(number, reactor)| (self.image_defs[*number].handle, *reactor));
+        self.common("IMAGE", base, owner, paper);
+        let out = &mut self.out;
+        out.tag(100, "AcDbRasterImage");
+        out.tag(90, 0);
+        out.point(10, &image.insert);
+        out.point(11, &image.u_pixel);
+        out.point(12, &image.v_pixel);
+        out.point2(13, &image.image_size);
+        out.handle(340, definition);
+        out.int(70, image.flags);
+        out.tag(280, i32::from(image.clipping));
+        out.tag(281, 50);
+        out.tag(282, 50);
+        out.tag(283, 0);
+        out.handle(360, reactor);
+        // 境界がなければ画像の全体の矩形（画素の座標）
+        let whole = [[-0.5, -0.5], [image.image_size[0] - 0.5, image.image_size[1] - 0.5]];
+        let boundary: &[[f64; 2]] = if image.boundary.is_empty() { &whole } else { &image.boundary };
+        out.tag(71, if boundary.len() == 2 { 1 } else { 2 });
+        out.tag(91, boundary.len());
+        for vertex in boundary {
+            out.point2(14, vertex);
+        }
+        if self.version >= DxfVersion::R2010 {
+            out.tag(290, 0);
+        }
+    }
+
     /// 図形の共通の値（DXF Reference「Common Group Codes for Entities」）
     fn common(&mut self, kind: &str, base: &DxfEntityBase, owner: u64, paper: bool) -> u64 {
         let handle = match self.entity_handles.get(&(std::ptr::from_ref(base) as usize)) {
@@ -1824,11 +1980,11 @@ impl<'a> Writer<'a> {
     fn entity(&mut self, entity: &DxfEntity, owner: u64, paper: bool) {
         let base = &entity.base;
         let kind = upper(&base.kind);
-        if kind == "IMAGE" {
+        if kind == "IMAGE" && writable_image(entity).is_none() && !self.r12() {
             self.notices.add(
                 NoticeLevel::Warning,
                 "image",
-                "画像（IMAGE）は、画像のファイルへの参照を読んでいないため省きました",
+                "画像（IMAGE）は、画像のファイル（IMAGEDEF）が分からないため省きました",
             );
             return;
         }
@@ -2188,6 +2344,7 @@ impl<'a> Writer<'a> {
                 self.out.point(10, start);
                 self.out.point(11, unit_vector);
             }
+            DxfEntityData::Image(image) if kind == "IMAGE" => self.image(base, image, owner, paper),
             DxfEntityData::Image(image) => self.wipeout(base, image, owner, paper),
             DxfEntityData::Table(table) => {
                 // 表（ACAD_TABLE）は、表示の図形を持つブロックの配置として書く
@@ -3431,5 +3588,57 @@ mod tests {
             written.notices[0].message,
             "ブロック参照に属さない属性（ATTRIB）は、文字（TEXT・MTEXT）として書きました"
         );
+    }
+
+    /// 画像の定義のファイルが分かる画像は、定義・リアクタ・辞書・クラスとともに書く。同じ定義を指していた画像は
+    /// 1 つの定義を共有する。R12 は省いて知らせる
+    #[test]
+    fn writes_images_with_their_definitions() {
+        let source = write_dxf(&parse_dxf(b"0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n")).bytes;
+        let operations = zumen_core::edit::parse_operations(
+            r#"[
+                {"op": "add", "kind": "image", "path": "maps/site.png", "pixels": [200, 100], "position": [10, 20], "width": 50},
+                {"op": "add", "kind": "image", "path": "地図/案内図.jpg", "pixels": [20, 10], "position": [0, 0], "rotation": 30}
+            ]"#,
+        )
+        .unwrap();
+        let mut doc = parse_dxf(&crate::edit_dxf(&source, &operations).unwrap().bytes);
+        // 2 つ目の画像を、1 つ目と同じ定義を指す画像として複製する
+        let mut shared = doc.entities.iter().find(|entity| entity.base.kind == "IMAGE").unwrap().clone();
+        shared.base.handle = "FFFF".into();
+        doc.entities.push(shared);
+        let paths = |doc: &DxfDocument| -> Vec<Option<String>> {
+            doc.entities
+                .iter()
+                .filter_map(|entity| match &entity.data {
+                    DxfEntityData::Image(image) => Some(image.path.clone()),
+                    _ => None,
+                })
+                .collect()
+        };
+        for version in DxfVersion::ALL {
+            let written = write_dxf_as(&doc, version);
+            let again = parse_dxf(&written.bytes);
+            if version == DxfVersion::R12 {
+                assert!(paths(&again).is_empty());
+                assert!(written.notices.iter().any(|notice| notice.code == "version-image"));
+                continue;
+            }
+            assert!(written.notices.is_empty(), "{version:?}: {:?}", written.notices);
+            assert_eq!(paths(&again), paths(&doc), "{version:?}");
+            let text = String::from_utf8_lossy(&written.bytes);
+            assert_eq!(text.matches("IMAGEDEF\r\n").count(), 3, "{version:?}: two definitions and their class");
+            assert_eq!(text.matches("IMAGEDEF_REACTOR\r\n").count(), 4, "{version:?}: three reactors and their class");
+            assert!(text.contains("ACAD_IMAGE_DICT") && text.contains("\r\nsite\r\n"), "{version:?}");
+        }
+        // 画像の定義のファイルが分からない画像は、これまでどおり省いて知らせる
+        for entity in &mut doc.entities {
+            if let DxfEntityData::Image(image) = &mut entity.data {
+                image.path = None;
+            }
+        }
+        let written = write_dxf(&doc);
+        assert!(written.notices.iter().any(|notice| notice.code == "image"));
+        assert!(!String::from_utf8_lossy(&written.bytes).contains("IMAGEDEF"));
     }
 }
