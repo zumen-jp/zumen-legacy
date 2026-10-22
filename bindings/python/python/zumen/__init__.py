@@ -38,6 +38,7 @@ from ._zumen import (
 )
 from ._zumen import convert as _convert
 from ._zumen import draft as _draft
+from ._zumen import draft_into as _draft_into
 from ._zumen import draft_schema as _draft_schema
 from ._zumen import edit as _edit
 from ._zumen import read as _read
@@ -59,6 +60,7 @@ __all__ = [
     "create",
     "detect",
     "draft",
+    "draft_into",
     "draft_schema",
     "edit",
     "read",
@@ -180,10 +182,35 @@ def draft(
     ``sheet`` names the sheet to write (the first one by default). A mistake in the spec raises
     ``DraftError`` with ``code`` and ``path`` (such as ``sheets[0].views[1].items[4]``).
     """
+    return _draft(_spec(spec), to, version=version, sheet=sheet)
+
+
+def draft_into(
+    spec: object,
+    template: bytes | bytearray | memoryview | str | os.PathLike[str],
+    *,
+    sheet: str | None = None,
+    format: str | None = None,
+    max_bytes: int | None = None,
+) -> Converted:
+    """Draw a drawing spec into a DXF or DWG drawing (a template) in place.
+
+    The drawing is changed through the operations of ``edit``, so its entities, handles, extended data and what zumen
+    cannot read stay, and the format and version stay too. A sheet named after a layout of the template is drawn into
+    that layout, with its paper size when the sheet gives none; other sheets become new layouts. The ``fields`` of a
+    sheet (``{"TAG": "value"}``) fill the attributes of the block references on it, such as the template's title
+    block. ``template`` is bytes or a file path, ``sheet`` draws one sheet only. A mistake in the spec, or an operation
+    that the drawing refuses, raises ``DraftError`` with ``code`` and ``path``.
+    """
+    return _draft_into(_spec(spec), _load(template), sheet=sheet, format=format, max_bytes=max_bytes)
+
+
+def _spec(spec: object) -> object:
+    """The spec as a dict or JSON string. A path (or a string that is not JSON) is read from the file."""
     if isinstance(spec, os.PathLike) or (isinstance(spec, str) and not spec.lstrip().startswith("{")):
         with open(spec, encoding="utf-8") as file:
-            spec = file.read()
-    return _draft(spec, to, version=version, sheet=sheet)
+            return file.read()
+    return spec
 
 
 def draft_schema() -> dict[str, object]:

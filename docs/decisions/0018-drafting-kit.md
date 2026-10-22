@@ -59,7 +59,8 @@ schedules) can be drawn from data, in every format zumen writes.
 Option 3, with one JSON document per drawing. The kit is a new crate, `zumen-draft`, which depends on `zumen-core`,
 `zumen-dxf` and `zumen-convert` (whose builder becomes public for it), and the facade gains `zumen::draft`. Option 2
 follows once decision 0017's operations exist, for drawing into a received file in place (`zumen::draft_into`); both
-paths share the geometry code.
+paths share the geometry code. (Done: `zumen_draft::plan` turns the drawn model into 0017's operations, and
+`zumen::draft_into` applies them; see [Drawing into a template](../drafting.md#drawing-into-a-template).)
 
 ### The spec
 
@@ -127,7 +128,7 @@ edits rather than builds).
   same way every time. Changing a value and drafting again gives the same drawing with only that change.
 - Drafting from a template reads the template into the model and writes it again. What the model does not hold
   (extension data, objects that zumen does not read) is lost and reported by the writer; drawing into a received file
-  without such loss waits for option 2.
+  without such loss is `zumen::draft_into` (option 2).
 - Dimensions are drawn by zumen with closed filled arrowheads, ticks or dots, the text above the line, and the
   measured value rounded to the dimension's precision. AutoCAD recomputes a dimension when someone edits it, from its
   style, and may then draw it differently.
