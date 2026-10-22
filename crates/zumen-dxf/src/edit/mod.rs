@@ -14,7 +14,8 @@ use dimension::{DimStyleValues, DimensionKind, Part, Role};
 use raw::{RawDxf, Tag};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use zumen_core::edit::{
-    BLOCK_REFERENCE, EditColor, EditError, EditLineWidth, EditOperation, EditValue, EditValues, Edited, ValueReader,
+    BLOCK_REFERENCE, EditColor, EditError, EditLineWidth, EditOperation, EditValue, EditValues, Edited, StyleKind,
+    ValueReader,
 };
 use zumen_core::{NoticeLevel, NoticeList};
 
@@ -44,7 +45,8 @@ pub fn edit_dxf(bytes: &[u8], operations: &[EditOperation]) -> Result<Edited, Ed
         let values = match operation {
             EditOperation::Add { values, .. }
             | EditOperation::AddLayer { values, .. }
-            | EditOperation::AddBlock { values, .. } => Some(values),
+            | EditOperation::AddBlock { values, .. }
+            | EditOperation::AddStyle { values, .. } => Some(values),
             EditOperation::Update { set, .. } | EditOperation::UpdateLayer { set, .. } => Some(set),
             EditOperation::Delete { .. } => None,
         };
@@ -62,6 +64,7 @@ pub fn edit_dxf(bytes: &[u8], operations: &[EditOperation]) -> Result<Edited, Ed
             EditOperation::AddLayer { name, values } => editor.add_layer(index, name, values, false)?,
             EditOperation::UpdateLayer { name, set } => editor.update_layer(index, name, set)?,
             EditOperation::AddBlock { name, values } => editor.add_block(index, name, values)?,
+            EditOperation::AddStyle { kind, name, values } => editor.add_style(index, *kind, name, values)?,
         }
     }
     editor.finish_handles();
@@ -145,7 +148,11 @@ struct Editor<'a> {
     /// STYLE のハンドル → 名前
     style_handles: HashMap<String, String>,
     /// 寸法スタイルの名前（大文字）→ レコード
-    dimstyles: HashMap<String, usize>,
+    dimstyles: HashMap<String, LayerRef>,
+    /// APPID の名前（大文字）
+    appids: HashSet<String>,
+    /// 表の項目の数（表の名前 → 数）
+    table_counts: HashMap<String, usize>,
     /// 見出しの $DIMSTYLE と、寸法の変数（$DIMSCALE など。$ なしの名前）
     header_dimstyle: Option<String>,
     header_dims: Vec<(String, f64)>,
@@ -323,6 +330,26 @@ fn nearest_aci(rgb: u32) -> i64 {
     best.0
 }
 
+/// 文字スタイルのフォント。拡張子のある名前はファイル、ない名前は TrueType の書体（ファイルと書体の名前）。
+/// DWG の編集も使う
+pub fn font_file(font: &str) -> (String, Option<String>) {
+    let font = font.trim();
+    let lower = font.to_ascii_lowercase();
+    if [".shx", ".ttf", ".ttc", ".otf", ".pfb"].iter().any(|extension| lower.ends_with(extension)) || lower == "txt" {
+        return (font.to_string(), None);
+    }
+    // Windows の日本語の書体のファイル
+    let file = match lower.as_str() {
+        "ms gothic" | "ms pgothic" | "ms ui gothic" | "ｍｓ ゴシック" | "ｍｓ ｐゴシック" => "msgothic.ttc",
+        "ms mincho" | "ms pmincho" | "ｍｓ 明朝" | "ｍｓ ｐ明朝" => "msmincho.ttc",
+        "meiryo" | "meiryo ui" | "メイリオ" => "meiryo.ttc",
+        "yu gothic" | "游ゴシック" => "YuGothM.ttc",
+        "yu mincho" | "游明朝" => "yumin.ttf",
+        _ => return (format!("{font}.ttf"), Some(font.to_string())),
+    };
+    (file.to_string(), Some(font.to_string()))
+}
+
 /// 名前に使えない文字（AutoCAD の記号表の名前の規則）
 fn valid_name(name: &str) -> bool {
     !name.trim().is_empty()
@@ -363,6 +390,8 @@ impl<'a> Editor<'a> {
             styles: HashMap::new(),
             style_handles: HashMap::new(),
             dimstyles: HashMap::new(),
+            appids: HashSet::new(),
+            table_counts: HashMap::new(),
             header_dimstyle: None,
             header_dims: Vec::new(),
             owned: HashMap::new(),
@@ -437,6 +466,7 @@ impl<'a> Editor<'a> {
                         }
                     }
                     _ => {
+                        *self.table_counts.entry(table.clone()).or_default() += 1;
                         let name = value(tags, 2).unwrap_or("").to_string();
                         match kind.as_str() {
                             "LAYER" => {
@@ -452,7 +482,10 @@ impl<'a> Editor<'a> {
                                 self.styles.insert(upper(&name), name);
                             }
                             "DIMSTYLE" => {
-                                self.dimstyles.insert(upper(&name), record);
+                                self.dimstyles.insert(upper(&name), LayerRef::Record(record));
+                            }
+                            "APPID" => {
+                                self.appids.insert(upper(&name));
                             }
                             "BLOCK_RECORD" => {
                                 if let Some(handle) = &handle {
@@ -737,11 +770,15 @@ impl<'a> Editor<'a> {
     }
 
     fn layer_name(&self, layer: &LayerRef) -> Option<String> {
-        let tags = match layer {
-            LayerRef::Record(record) => self.tags(*record),
-            LayerRef::Added(before, position) => self.inserted.get(before)?.get(*position)?,
-        };
-        value(tags, 2).map(str::to_string)
+        value(self.record_tags(layer)?, 2).map(str::to_string)
+    }
+
+    /// 表の項目（元のレコードか、足したレコード）のタグ
+    fn record_tags(&self, record: &LayerRef) -> Option<&[Tag]> {
+        match record {
+            LayerRef::Record(record) => Some(self.tags(*record)),
+            LayerRef::Added(before, position) => self.inserted.get(before)?.get(*position).map(Vec::as_slice),
+        }
     }
 
     fn common(&mut self, index: usize, reader: &ValueReader<'_>, default_layer: bool) -> Result<Common, EditError> {
@@ -1142,7 +1179,7 @@ impl<'a> Editor<'a> {
         let wanted = name.map(str::to_string).or_else(|| self.header_dimstyle.clone());
         let wanted = wanted.unwrap_or_else(|| "Standard".into());
         let mut values = DimStyleValues::default();
-        let record = self.dimstyles.get(&upper(&wanted)).copied();
+        let record = self.dimstyles.get(&upper(&wanted)).cloned();
         let Some(record) = record else {
             if name.is_some() || !self.dimstyles.is_empty() {
                 return Err(EditError::at(
@@ -1156,7 +1193,7 @@ impl<'a> Editor<'a> {
             }
             return Ok((wanted, values, None));
         };
-        let tags = self.tags(record).to_vec();
+        let tags = self.record_tags(&record).map(<[Tag]>::to_vec).unwrap_or_default();
         for (code, variable) in DimStyleValues::CODES {
             if let Some(value) = number(&tags, code) {
                 values.set(variable, value);
@@ -1975,6 +2012,187 @@ impl<'a> Editor<'a> {
         let number = self.new_blocks.len() - 1;
         self.blocks.insert(key, BlockInfo { name: name.to_string(), end: None, new: Some(number) });
         Ok(number)
+    }
+
+    /// 表（STYLE・LTYPE・DIMSTYLE）の終わりに項目を足し、表の項目の数（70）を直す。返すのは足した場所
+    fn add_table_record(&mut self, index: usize, table: &str, tags: Vec<Tag>) -> Result<LayerRef, EditError> {
+        let Some(&(record, Some(end))) = self.tables.get(table) else {
+            return Err(EditError::at(index, "unreadable", format!("図面に {table} の表がありません")));
+        };
+        let position = self.insert(end, tags);
+        let count = self.table_counts.entry(table.to_string()).or_default();
+        *count += 1;
+        let count = *count;
+        let table_tags = self.tags_mut(record);
+        if number(table_tags, 70).is_none_or(|current| current < count as f64) {
+            set(table_tags, 70, count.to_string(), &[100, 2]);
+        }
+        Ok(LayerRef::Added(end, position))
+    }
+
+    /// 表の項目の始まり（種類、ハンドル、所有者、サブクラスの印、名前）
+    fn table_record(&mut self, index: usize, kind: &str, subclass: &str, name: &str) -> Result<Record, EditError> {
+        let mut record = Record::new(kind);
+        if let Some(handle) = self.next_handle(index)? {
+            record.tag(if kind == "DIMSTYLE" { 105 } else { 5 }, handle);
+        }
+        if self.r13 {
+            if let Some(owner) = self.tables.get(kind).and_then(|(record, _)| self.record_handles.get(record)) {
+                record.tag(330, owner.clone());
+            }
+            record.tag(100, "AcDbSymbolTableRecord").tag(100, subclass);
+        }
+        record.tag(2, name);
+        Ok(record)
+    }
+
+    /// 文字スタイル・寸法スタイル・線種を足す（docs/decisions/0017）
+    fn add_style(&mut self, index: usize, kind: StyleKind, name: &str, values: &EditValues) -> Result<(), EditError> {
+        if !valid_name(name) {
+            return Err(EditError::at(index, "invalid-value", format!("名前 {name} は使えません")));
+        }
+        let key = upper(name);
+        let exists = match kind {
+            StyleKind::Text => self.styles.contains_key(&key),
+            StyleKind::Dimension => self.dimstyles.contains_key(&key),
+            StyleKind::LineType => self.linetypes.contains_key(&key),
+        };
+        if exists {
+            return Err(EditError::at(index, "already-exists", format!("{name} はすでにあります")));
+        }
+        let reader = ValueReader::new(values, index);
+        match kind {
+            StyleKind::Text => self.add_text_style(index, name, &reader)?,
+            StyleKind::Dimension => self.add_dimension_style(index, name, &reader)?,
+            StyleKind::LineType => self.add_line_type(index, name, &reader)?,
+        }
+        self.created.push(name.to_string());
+        self.created_places.push(None);
+        Ok(())
+    }
+
+    /// 文字スタイル（DXF Reference「STYLE」）。font は SHX・TrueType のファイル（拡張子つき）か TrueType の書体の名前で、
+    /// 書体の名前は拡張データ（ACAD の 1000）に書き、3 にはその書体のファイルを書く（font_file）
+    fn add_text_style(&mut self, index: usize, name: &str, reader: &ValueReader<'_>) -> Result<(), EditError> {
+        reader.allow(&["font", "bigFont", "height", "widthFactor", "oblique"], "文字スタイル")?;
+        let font = reader.name("font")?.unwrap_or("txt");
+        let big_font = reader.text("bigFont")?.unwrap_or("");
+        let height = reader.number("height")?.unwrap_or(0.0);
+        let width = reader.positive("widthFactor")?.unwrap_or(1.0);
+        let oblique = reader.number("oblique")?.unwrap_or(0.0);
+        if height < 0.0 {
+            return Err(EditError::at(index, "invalid-value", "height は 0 以上の数にしてください"));
+        }
+        let (file, family) = font_file(font);
+        let mut record = self.table_record(index, "STYLE", "AcDbTextStyleTableRecord", name)?;
+        record.int(70, 0).real(40, height).real(41, width).real(50, oblique).int(71, 0).real(42, 2.5);
+        record.tag(3, file).tag(4, big_font);
+        if let Some(family) = family {
+            if self.r13 && self.appids.contains("ACAD") {
+                record.tag(1001, "ACAD").tag(1000, family).int(1071, 0);
+            } else {
+                self.notices.add(
+                    NoticeLevel::Info,
+                    "edit-font-family",
+                    "TrueType の書体の名前を書けない図面（R12、APPID の ACAD がない）なので、フォントのファイルだけを書きました",
+                );
+            }
+        }
+        let handle = value(&record.tags, 5).map(upper);
+        self.add_table_record(index, "STYLE", record.tags)?;
+        if let Some(handle) = handle {
+            self.style_handles.insert(handle, name.to_string());
+        }
+        self.styles.insert(upper(name), name.to_string());
+        Ok(())
+    }
+
+    /// 線種（DXF Reference「LTYPE」）。pattern は線（正）・空白（負）・点（0）の長さ
+    fn add_line_type(&mut self, index: usize, name: &str, reader: &ValueReader<'_>) -> Result<(), EditError> {
+        reader.allow(&["description", "pattern"], "線種")?;
+        let description = reader.text("description")?.unwrap_or("");
+        let pattern = match reader.value("pattern") {
+            None => Vec::new(),
+            Some(EditValue::Numbers(values)) if values.len() <= 12 => values.clone(),
+            Some(EditValue::Number(value)) => vec![*value],
+            Some(_) => return Err(EditError::at(index, "invalid-value", "pattern は 12 個までの数の配列にしてください")),
+        };
+        let mut record = self.table_record(index, "LTYPE", "AcDbLinetypeTableRecord", name)?;
+        record.int(70, 0).tag(3, description).int(72, 65).int(73, pattern.len() as i64);
+        record.real(40, pattern.iter().map(|dash| dash.abs()).sum());
+        for dash in &pattern {
+            record.real(49, *dash);
+            if self.r13 {
+                record.int(74, 0);
+            }
+        }
+        self.add_table_record(index, "LTYPE", record.tags)?;
+        self.linetypes.insert(upper(name), name.to_string());
+        Ok(())
+    }
+
+    /// 寸法スタイル（DXF Reference「DIMSTYLE」）。from（省略は Standard）の項目を写し、指定された変数を書く
+    fn add_dimension_style(&mut self, index: usize, name: &str, reader: &ValueReader<'_>) -> Result<(), EditError> {
+        reader.allow(&dimension::STYLE_KEYS, "寸法スタイル")?;
+        let variables = dimension::style_variables(reader, index)?;
+        let from = reader.name("from")?.unwrap_or("Standard");
+        let template = self.dimstyles.get(&upper(from)).cloned().ok_or_else(|| {
+            EditError::at(index, "missing-definition", format!("寸法スタイル {from} は図面にありません"))
+        })?;
+        let template = self.record_tags(&template).map(<[Tag]>::to_vec).unwrap_or_default();
+        let text_style = match reader.name("textStyle")? {
+            Some(style) => {
+                let wanted = self.text_style(index, Some(style))?.unwrap_or_default();
+                Some(
+                    self.style_handles
+                        .iter()
+                        .find(|(_, name)| upper(name) == upper(&wanted))
+                        .map(|(handle, _)| handle.clone())
+                        .ok_or_else(|| {
+                            EditError::at(index, "missing-definition", format!("文字スタイル {style} のハンドルがありません"))
+                        })?,
+                )
+            }
+            None => None,
+        };
+        let mut record = self.table_record(index, "DIMSTYLE", "AcDbDimStyleTableRecord", name)?;
+        // 写さない値: 種類・名前・ハンドル・所有者・サブクラスの印・102 の組・拡張データ
+        let mut group = false;
+        for tag in template.iter().take(data_end(&template)).skip(1) {
+            if tag.code == 102 {
+                group = tag.text().starts_with('{');
+                continue;
+            }
+            if group || matches!(tag.code, 2 | 5 | 105 | 100 | 330) {
+                continue;
+            }
+            record.tags.push(tag.clone());
+        }
+        if find(&record.tags, 70).is_none() {
+            record.int(70, 0);
+        }
+        for (variable, number) in variables {
+            let Some((code, _)) = DimStyleValues::CODES.iter().find(|(_, name)| *name == variable) else { continue };
+            // R12 の寸法スタイルには DIMDEC（271）がない
+            if *code == 271 && !self.r13 {
+                self.notices.add(
+                    NoticeLevel::Info,
+                    "edit-no-dimdec",
+                    "R12 の寸法スタイルには小数の桁（DIMDEC）がないため、書きませんでした",
+                );
+                continue;
+            }
+            let text = if [77, 78, 271].contains(code) { (number as i64).to_string() } else { real(number) };
+            set(&mut record.tags, *code, text, &[70]);
+        }
+        if let Some(handle) = text_style
+            && self.r13
+        {
+            set(&mut record.tags, 340, handle, &[70]);
+        }
+        let place = self.add_table_record(index, "DIMSTYLE", record.tags)?;
+        self.dimstyles.insert(upper(name), place);
+        Ok(())
     }
 
     /// レイヤの値（DXF Reference「LAYER」: 70 の 1 は凍結、4 はロック、62 が負なら非表示、290 は印刷）

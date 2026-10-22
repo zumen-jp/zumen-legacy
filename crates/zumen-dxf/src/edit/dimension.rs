@@ -6,6 +6,8 @@
 //! （長さ DIMASZ、幅はその 1/3）、DIMTSZ が 0 より大きければ斜線（ezdxf の ARCHITECTURAL_TICK と同じ形）。
 //! 文字は寸法線の中央に置き、DIMTAD が 0 なら寸法線を文字の幅と DIMGAP だけ切り、0 でなければ DIMGAP だけ上に置く。
 
+use zumen_core::edit::{EditError, ValueReader};
+
 /// 寸法スタイルの値（図面の単位。DIMSCALE を掛ける前）
 #[derive(Debug, Clone, PartialEq)]
 pub struct DimStyleValues {
@@ -91,6 +93,66 @@ impl DimStyleValues {
     fn factor(&self) -> f64 {
         if self.scale > 0.0 { self.scale } else { 1.0 }
     }
+}
+
+/// add-dimension-style の値のキー（docs/decisions/0017）。from は写す寸法スタイル、textStyle は DIMTXSTY
+pub const STYLE_KEYS: [&str; 13] = [
+    "from",
+    "textStyle",
+    "scale",
+    "textHeight",
+    "arrowSize",
+    "extensionOffset",
+    "extensionExtension",
+    "textGap",
+    "textAbove",
+    "decimals",
+    "suppressTrailingZeros",
+    "tickSize",
+    "linearFactor",
+];
+
+/// add-dimension-style の数の値と変数の名前
+const STYLE_NUMBERS: [(&str, &str); 8] = [
+    ("scale", "DIMSCALE"),
+    ("textHeight", "DIMTXT"),
+    ("arrowSize", "DIMASZ"),
+    ("extensionOffset", "DIMEXO"),
+    ("extensionExtension", "DIMEXE"),
+    ("textGap", "DIMGAP"),
+    ("tickSize", "DIMTSZ"),
+    ("linearFactor", "DIMLFAC"),
+];
+
+/// add-dimension-style の値を、寸法の変数の名前と値にする（指定されたものだけ）。長さは 0 以上、decimals は 0〜8
+pub fn style_variables(reader: &ValueReader<'_>, index: usize) -> Result<Vec<(&'static str, f64)>, EditError> {
+    let mut out = Vec::new();
+    for (key, variable) in STYLE_NUMBERS {
+        if let Some(value) = reader.number(key)? {
+            let valid = if key == "linearFactor" { value != 0.0 } else { value >= 0.0 };
+            if !valid {
+                return Err(EditError::at(
+                    index,
+                    "invalid-value",
+                    format!("{key} は 0 以上（linearFactor は 0 以外）の数にしてください"),
+                ));
+            }
+            out.push((variable, value));
+        }
+    }
+    if let Some(above) = reader.bool("textAbove")? {
+        out.push(("DIMTAD", f64::from(u8::from(above))));
+    }
+    if let Some(decimals) = reader.number("decimals")? {
+        if !(0.0..=8.0).contains(&decimals) || decimals.fract() != 0.0 {
+            return Err(EditError::at(index, "invalid-value", "decimals は 0〜8 の整数にしてください"));
+        }
+        out.push(("DIMDEC", decimals));
+    }
+    if let Some(suppress) = reader.bool("suppressTrailingZeros")? {
+        out.push(("DIMZIN", if suppress { 8.0 } else { 0.0 }));
+    }
+    Ok(out)
 }
 
 /// 寸法の種類
