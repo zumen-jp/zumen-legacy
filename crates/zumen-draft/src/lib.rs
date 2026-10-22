@@ -9,6 +9,7 @@
 
 mod dimension;
 mod hatch;
+mod into;
 mod sheet;
 mod spec;
 mod symbols;
@@ -25,6 +26,7 @@ use zumen_convert::builder::{
 use zumen_core::{Notice, NoticeLevel};
 use zumen_dxf::{DxfDocument, DxfEntityData};
 
+pub use into::{Planned, plan};
 pub use spec::TYPES;
 
 /// 仕様の JSON Schema（draft 2020-12）。エージェントやエディタが仕様を組み立て、確かめるのに使う
@@ -73,14 +75,26 @@ pub fn draft_json(json: &str) -> Result<Drafted, DraftError> {
 
 /// 仕様から描く
 pub fn draft(value: &Value) -> Result<Drafted, DraftError> {
+    Ok(draft_on(value, None)?.0)
+}
+
+/// 仕様から描く。template は描き込む先の図面（draft_into）で、用紙の名前と同じレイアウトがあれば、その用紙の
+/// 大きさを使う。描いたものと、寸法スタイルの値（操作に写すのに使う）を返す
+pub(crate) fn draft_on(value: &Value, template: Option<&DxfDocument>) -> Result<(Drafted, Drafter), DraftError> {
     let spec = spec::parse(value)?;
     let mut drafter = Drafter::new(&spec)?;
+    if let Some(template) = template {
+        drafter.into = true;
+        for layout in template.layouts.iter().filter(|layout| !layout.model) {
+            drafter.existing_layouts.insert(layout.name.to_uppercase(), (layout.paper_width, layout.paper_height));
+        }
+    }
     sheet::draw(&mut drafter, &spec)?;
     drafter.builder.report_renamed();
-    let Drafter { builder, .. } = drafter;
+    let builder = std::mem::take(&mut drafter.builder);
     let mut document = builder.doc;
     document.notices = Vec::new();
-    Ok(Drafted { document, notices: builder.notices.into_vec(), sources: builder.sources })
+    Ok((Drafted { document, notices: builder.notices.into_vec(), sources: builder.sources }, drafter))
 }
 
 /// 仕様の用紙を、名前の 1 枚だけにする（用紙を 1 枚しか持たない JWW・SXF に、2 枚目からの用紙を書くのに使う）
@@ -173,10 +187,18 @@ pub(crate) struct Drafter {
     /// フォント → 文字スタイルの名前
     styles: HashMap<String, String>,
     pub font: String,
-    /// 縮尺（ビット列）→ 寸法スタイルの名前
-    pub dimension_styles: HashMap<u64, String>,
+    /// 縮尺と寸法の見た目 → 寸法スタイルの名前
+    pub dimension_styles: HashMap<String, String>,
     /// 描いた図形の範囲（ビューの中心を決めるのに、ビューごとに集める）
     pub extent: Option<[f64; 4]>,
+    /// 寸法スタイルの名前 → 縮尺と寸法の見た目（draft_into で寸法スタイルを足すのに使う）
+    pub dimension_looks: HashMap<String, (f64, dimension::DimStyle)>,
+    /// 描き込む先の図面のレイアウト（大文字の名前 → 用紙の幅・高さ）
+    pub existing_layouts: HashMap<String, (f64, f64)>,
+    /// 描き込む先がある（draft_into）。用紙の fields の使われなかったタグは、描き込む先と合わせて確かめる
+    pub into: bool,
+    /// 用紙ごとの、ブロック参照の属性に埋めた fields のタグ（大文字）
+    pub filled: Vec<std::collections::BTreeSet<String>>,
 }
 
 impl Drafter {
@@ -197,6 +219,10 @@ impl Drafter {
             font: spec.font.clone().unwrap_or_else(|| zumen_convert::builder::DEFAULT_FONT.to_string()),
             dimension_styles: HashMap::new(),
             extent: None,
+            dimension_looks: HashMap::new(),
+            existing_layouts: HashMap::new(),
+            into: false,
+            filled: Vec::new(),
         };
         drafter.layers.insert("0".into(), "0".into());
         for (name, description, pattern) in builtin_line_types() {

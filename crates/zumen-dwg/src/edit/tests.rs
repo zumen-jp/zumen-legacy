@@ -777,7 +777,8 @@ fn adds_hatches_from_r14_on() {
 fn places_text_by_justification_in_every_version() {
     let operations = r#"[
         {"op": "add", "kind": "text", "position": [100, 50], "text": "中央", "height": 5, "justification": "middle-center"},
-        {"op": "add", "kind": "text", "position": [10, 90], "text": "一行", "height": 3, "multiline": true, "justification": "top-right", "lineSpacing": 1.5}
+        {"op": "add", "kind": "text", "position": [10, 90], "text": "一行", "height": 3, "multiline": true, "justification": "top-right", "lineSpacing": 1.5},
+        {"op": "add", "kind": "text", "position": [10, 70], "text": "細い", "height": 3, "widthFactor": 0.8}
     ]"#;
     let mut versions: Vec<(String, Vec<u8>)> =
         crate::DwgVersion::ALL.iter().map(|version| (version.name().to_string(), written_as(*version))).collect();
@@ -794,6 +795,8 @@ fn places_text_by_justification_in_every_version() {
         let old = matches!(name.as_str(), "R13" | "R14");
         assert_eq!((top.attachment_point, top.line_spacing_factor), (3.0, if old { 1.0 } else { 1.5 }), "{name}");
         assert_eq!(edited.notices.iter().any(|notice| notice.code == "edit-no-line-spacing"), old, "{name}");
+        let DxfEntityData::Text(narrow) = &entity(&doc, &edited.created[2]).unwrap().data else { panic!("{name}") };
+        assert_eq!(narrow.width, 0.8, "{name}");
     }
 }
 
@@ -841,12 +844,43 @@ fn adds_attributes_in_every_version() {
     }
 }
 
+/// 新しい用紙の座標は、雛形のインチ・回転・印刷倍率・余白に依存しない。
+#[test]
+fn new_layout_uses_millimeters_at_full_size() {
+    let mut source = zumen_dxf::parse_dxf(&zumen_dxf::new_dxf("mm").unwrap());
+    for layout in source.layouts.iter_mut().filter(|layout| !layout.model) {
+        layout.paper_units = 0.0;
+        layout.plot_rotation = 1.0;
+        layout.plot_scale = [1.0, 4.0];
+        layout.plot_origin = [123.0, 456.0];
+        layout.margins = [7.0, 8.0, 9.0, 10.0];
+    }
+    let operations = r#"[
+        {"op":"add-layout","name":"NEW","paperSize":[420,297]},
+        {"op":"add","kind":"line","container":"layout:NEW","start":[0,0],"end":[420,297]},
+        {"op":"add-layout","name":"CUSTOM","paperSize":[420,297],"margins":[1,2,3,4]}
+    ]"#;
+    let edited = edit(&crate::write_dwg(&source).bytes, operations).unwrap();
+    check_structure("new layout", &edited.bytes);
+    let doc = crate::read_dwg(&edited.bytes).unwrap();
+    let layout = doc.layouts.iter().find(|layout| layout.name == "NEW").unwrap();
+    assert_eq!((layout.paper_units, layout.plot_rotation, layout.plot_scale), (1.0, 0.0, [1.0, 1.0]));
+    assert_eq!((layout.margins, layout.plot_origin), ([0.0; 4], [0.0; 2]));
+    let custom = doc.layouts.iter().find(|layout| layout.name == "CUSTOM").unwrap();
+    assert_eq!(custom.margins, [1.0, 2.0, 3.0, 4.0]);
+    let scene = zumen_dxf::dxf_to_scene(&doc, Some("NEW"));
+    let sheet = scene.sheet.unwrap();
+    assert_eq!((sheet.width, sheet.height), (420.0, 297.0));
+    let line = scene.entities.iter().find(|entity| entity.id == edited.created[1]).unwrap();
+    assert_eq!((line.bbox.min_x, line.bbox.min_y, line.bbox.max_x, line.bbox.max_y), (0.0, 0.0, 420.0, 297.0));
+}
+
 /// レイアウトとビューポートを足す（docs/decisions/0017）。R2000 から
 #[test]
 fn adds_layouts_with_viewports_from_r2000_on() {
     let operations = r#"[
         {"op": "add", "kind": "line", "start": [0, 0], "end": [10000, 8000]},
-        {"op": "add-layout", "name": "A3-平面図", "paperSize": [420, 297]},
+        {"op": "add-layout", "name": "A3-平面図", "paperSize": [420, 297], "margins": [0, 0, 0, 0]},
         {"op": "add", "kind": "viewport", "container": "layout:A3-平面図", "center": [210, 148.5], "width": 380, "height": 257, "viewCenter": [5000, 4000], "scale": 100},
         {"op": "add", "kind": "text", "container": "layout:A3-平面図", "position": [20, 10], "text": "1階平面図", "height": 5}
     ]"#;
@@ -864,6 +898,7 @@ fn adds_layouts_with_viewports_from_r2000_on() {
         let doc = crate::read_dwg(&edited.bytes).unwrap_or_else(|error| panic!("{name}: {error}"));
         let layout = doc.layouts.iter().find(|layout| layout.name == "A3-平面図").unwrap_or_else(|| panic!("{name}"));
         assert_eq!((layout.paper_width, layout.paper_height), (420.0, 297.0), "{name}");
+        assert_eq!(layout.margins, [0.0; 4], "{name}");
         let scene = zumen_dxf::dxf_to_scene(&doc, Some("A3-平面図"));
         let kinds: Vec<&str> = scene.entities.iter().map(|entity| entity.kind.name()).collect();
         assert!(kinds.contains(&"line") && kinds.contains(&"text"), "{name}: {kinds:?}");
@@ -982,108 +1017,6 @@ fn deleting_an_image_removes_its_owned_reactor() {
     }
 }
 
-/// 新しい用紙の座標は、雛形のインチ・回転・印刷倍率・余白に依存しない。
-#[test]
-fn new_layout_uses_millimeters_at_full_size() {
-    let mut source = zumen_dxf::parse_dxf(&zumen_dxf::new_dxf("mm").unwrap());
-    for layout in source.layouts.iter_mut().filter(|layout| !layout.model) {
-        layout.paper_units = 0.0;
-        layout.plot_rotation = 1.0;
-        layout.plot_scale = [1.0, 4.0];
-        layout.plot_origin = [123.0, 456.0];
-        layout.margins = [7.0, 8.0, 9.0, 10.0];
-    }
-    let operations = r#"[
-        {"op":"add-layout","name":"NEW","paperSize":[420,297]},
-        {"op":"add","kind":"line","container":"layout:NEW","start":[0,0],"end":[420,297]}
-    ]"#;
-    let edited = edit(&crate::write_dwg(&source).bytes, operations).unwrap();
-    check_structure("new layout", &edited.bytes);
-    let doc = crate::read_dwg(&edited.bytes).unwrap();
-    let layout = doc.layouts.iter().find(|layout| layout.name == "NEW").unwrap();
-    assert_eq!((layout.paper_units, layout.plot_rotation, layout.plot_scale), (1.0, 0.0, [1.0, 1.0]));
-    assert_eq!((layout.margins, layout.plot_origin), ([0.0; 4], [0.0; 2]));
-    let scene = zumen_dxf::dxf_to_scene(&doc, Some("NEW"));
-    let sheet = scene.sheet.unwrap();
-    assert_eq!((sheet.width, sheet.height), (420.0, 297.0));
-    let line = scene.entities.iter().find(|entity| entity.id == edited.created[1]).unwrap();
-    assert_eq!((line.bbox.min_x, line.bbox.min_y, line.bbox.max_x, line.bbox.max_y), (0.0, 0.0, 420.0, 297.0));
-}
-
-/// 注釈が左にある場合もフックは最後の線分へ戻す。線分に収まらない補助線は種類と数で知らせる。
-#[test]
-fn leader_hooks_follow_the_annotation_and_report_changed_paths() {
-    let operations = r#"[
-        {"op":"add","kind":"leader","vertices":[[0,0],[-10,10],[-30,10]],"text":"left"},
-        {"op":"add","kind":"leader","vertices":[[0,0],[10,10],[30,10]],"text":"right"},
-        {"op":"add","kind":"leader","vertices":[[0,0],[-10,5]],"text":"diagonal"},
-        {"op":"add","kind":"leader","vertices":[[0,0],[1,0]],"text":"short"},
-        {"op":"add","kind":"leader","vertices":[[0,0],[-10,5]]}
-    ]"#;
-    for version in crate::DwgVersion::ALL {
-        let empty = zumen_dxf::parse_dxf(&zumen_dxf::new_dxf("mm").unwrap());
-        let source = crate::write_dwg_as(&empty, version).bytes;
-        let edited = edit(&source, operations).unwrap();
-        check_structure(version.name(), &edited.bytes);
-        let notices: Vec<_> = edited.notices.iter().filter(|notice| notice.code == "edit-leader-hook").collect();
-        assert_eq!(notices.len(), 1, "{}", version.name());
-        assert_eq!(notices[0].count, 2, "{}", version.name());
-        let doc = crate::read_dwg(&edited.bytes).unwrap();
-        let points = |number: usize| match &entity(&doc, &edited.created[number]).unwrap().data {
-            DxfEntityData::Leader(leader) => leader.points.clone(),
-            other => panic!("{other:?}"),
-        };
-        assert_eq!(points(0), [[0.0, 0.0, 0.0], [-10.0, 10.0, 0.0], [-27.5, 10.0, 0.0], [-30.0, 10.0, 0.0]]);
-        assert_eq!(points(1), [[0.0, 0.0, 0.0], [10.0, 10.0, 0.0], [27.5, 10.0, 0.0], [30.0, 10.0, 0.0]]);
-        assert_eq!(points(4), [[0.0, 0.0, 0.0], [-10.0, 5.0, 0.0]]);
-    }
-}
-
-/// DXF と同じく、別の編集で読んだ ATTDEF の見た目と非等方尺度を保つ。
-#[test]
-fn preserves_attribute_appearance_and_nonuniform_scaling_in_every_version() {
-    for version in crate::DwgVersion::ALL {
-        let name = version.name();
-        let definitions = edit(&written_as(version), r#"[
-            {"op":"add-layer","name":"ATTRIBUTES"},
-            {"op":"add-block","name":"REVIEW"},
-            {"op":"add","kind":"attribute-definition","container":"block:REVIEW","tag":"A","text":"hello","position":[1,2],"height":1,"layer":"ATTRIBUTES","color":2,"lineType":"byblock","lineWidth":0.35},
-            {"op":"add","kind":"attribute-definition","container":"block:REVIEW","tag":"B","text":"rotated","position":[0,0],"height":1,"rotation":90,"color":3}
-        ]"#).unwrap();
-        let edited = edit(&definitions.bytes, r#"[
-            {"op":"add","kind":"block-reference","block":"REVIEW","position":[10,20],"scale":[2,1],"attributes":{},"color":4},
-            {"op":"add","kind":"block-reference","block":"REVIEW","position":[0,0],"scale":[-2,1],"attributes":{}}
-        ]"#).unwrap();
-        check_structure(name, &edited.bytes);
-        let doc = crate::read_dwg(&edited.bytes).unwrap();
-        let get = |handle: &str| {
-            let DxfEntityData::Insert(insert) = &entity(&doc, handle).unwrap().data else { panic!("{name}") };
-            insert
-        };
-        let insert = get(&edited.created[0]);
-        let base = &insert.attribs[0].base;
-        assert_eq!(
-            (base.layer.as_str(), base.color_index, base.linetype.as_str()),
-            ("ATTRIBUTES", 2.0, "ByBlock"),
-            "{name}"
-        );
-        if !matches!(version, crate::DwgVersion::R13 | crate::DwgVersion::R14) {
-            assert_eq!(base.lineweight, 35.0, "{name}");
-        }
-        let DxfEntityData::Attrib { text, .. } = &insert.attribs[0].data else { panic!() };
-        assert_eq!((text.insert, text.height, text.width), ([12.0, 22.0, 0.0], 1.0, 2.0), "{name}");
-        let DxfEntityData::Attrib { text, .. } = &insert.attribs[1].data else { panic!() };
-        assert!(
-            (text.height - 2.0).abs() < 1e-9 && (text.width - 0.5).abs() < 1e-9 && (text.rotation - 90.0).abs() < 1e-9,
-            "{name}"
-        );
-        assert_eq!(insert.attribs[1].base.color_index, 3.0, "{name}");
-        let DxfEntityData::Attrib { text, .. } = &get(&edited.created[1]).attribs[0].data else { panic!() };
-        assert_eq!(text.text_generation_flag, 4.0, "{name}");
-        assert!((text.rotation.abs() - 180.0).abs() < 1e-9, "{name}");
-    }
-}
-
 /// DWG 2.13: DIMSTYLE の参照が相対ハンドルでも、写したスタイルは元と同じ文字スタイルを指す。
 #[test]
 fn cloned_dimension_style_keeps_relative_references() {
@@ -1145,4 +1078,78 @@ fn exhausted_dimension_block_names_fail_without_overflowing() {
     let error =
         edit(&bytes, r#"[{"op":"add","kind":"dimension","start":[0,0],"end":[10,0],"position":[0,5]}]"#).unwrap_err();
     assert_eq!((error.code, error.operation), ("name-exhausted", Some(0)));
+}
+
+/// DXF と同じく、別の編集で読んだ ATTDEF の見た目と非等方尺度を保つ。
+#[test]
+fn preserves_attribute_appearance_and_nonuniform_scaling_in_every_version() {
+    for version in crate::DwgVersion::ALL {
+        let name = version.name();
+        let definitions = edit(&written_as(version), r#"[
+            {"op":"add-layer","name":"ATTRIBUTES"},
+            {"op":"add-block","name":"REVIEW"},
+            {"op":"add","kind":"attribute-definition","container":"block:REVIEW","tag":"A","text":"hello","position":[1,2],"height":1,"layer":"ATTRIBUTES","color":2,"lineType":"byblock","lineWidth":0.35},
+            {"op":"add","kind":"attribute-definition","container":"block:REVIEW","tag":"B","text":"rotated","position":[0,0],"height":1,"rotation":90,"color":3}
+        ]"#).unwrap();
+        let edited = edit(&definitions.bytes, r#"[
+            {"op":"add","kind":"block-reference","block":"REVIEW","position":[10,20],"scale":[2,1],"attributes":{},"color":4},
+            {"op":"add","kind":"block-reference","block":"REVIEW","position":[0,0],"scale":[-2,1],"attributes":{}}
+        ]"#).unwrap();
+        check_structure(name, &edited.bytes);
+        let doc = crate::read_dwg(&edited.bytes).unwrap();
+        let get = |handle: &str| {
+            let DxfEntityData::Insert(insert) = &entity(&doc, handle).unwrap().data else { panic!("{name}") };
+            insert
+        };
+        let insert = get(&edited.created[0]);
+        let base = &insert.attribs[0].base;
+        assert_eq!(
+            (base.layer.as_str(), base.color_index, base.linetype.as_str()),
+            ("ATTRIBUTES", 2.0, "ByBlock"),
+            "{name}"
+        );
+        if !matches!(version, crate::DwgVersion::R13 | crate::DwgVersion::R14) {
+            assert_eq!(base.lineweight, 35.0, "{name}");
+        }
+        let DxfEntityData::Attrib { text, .. } = &insert.attribs[0].data else { panic!() };
+        assert_eq!((text.insert, text.height, text.width), ([12.0, 22.0, 0.0], 1.0, 2.0), "{name}");
+        let DxfEntityData::Attrib { text, .. } = &insert.attribs[1].data else { panic!() };
+        assert!(
+            (text.height - 2.0).abs() < 1e-9 && (text.width - 0.5).abs() < 1e-9 && (text.rotation - 90.0).abs() < 1e-9,
+            "{name}"
+        );
+        assert_eq!(insert.attribs[1].base.color_index, 3.0, "{name}");
+        let DxfEntityData::Attrib { text, .. } = &get(&edited.created[1]).attribs[0].data else { panic!() };
+        assert_eq!(text.text_generation_flag, 4.0, "{name}");
+        assert!((text.rotation.abs() - 180.0).abs() < 1e-9, "{name}");
+    }
+}
+
+/// 注釈が左にある場合もフックは最後の線分へ戻す。線分に収まらない補助線は種類と数で知らせる。
+#[test]
+fn leader_hooks_follow_the_annotation_and_report_changed_paths() {
+    let operations = r#"[
+        {"op":"add","kind":"leader","vertices":[[0,0],[-10,10],[-30,10]],"text":"left"},
+        {"op":"add","kind":"leader","vertices":[[0,0],[10,10],[30,10]],"text":"right"},
+        {"op":"add","kind":"leader","vertices":[[0,0],[-10,5]],"text":"diagonal"},
+        {"op":"add","kind":"leader","vertices":[[0,0],[1,0]],"text":"short"},
+        {"op":"add","kind":"leader","vertices":[[0,0],[-10,5]]}
+    ]"#;
+    for version in crate::DwgVersion::ALL {
+        let empty = zumen_dxf::parse_dxf(&zumen_dxf::new_dxf("mm").unwrap());
+        let source = crate::write_dwg_as(&empty, version).bytes;
+        let edited = edit(&source, operations).unwrap();
+        check_structure(version.name(), &edited.bytes);
+        let notices: Vec<_> = edited.notices.iter().filter(|notice| notice.code == "edit-leader-hook").collect();
+        assert_eq!(notices.len(), 1, "{}", version.name());
+        assert_eq!(notices[0].count, 2, "{}", version.name());
+        let doc = crate::read_dwg(&edited.bytes).unwrap();
+        let points = |number: usize| match &entity(&doc, &edited.created[number]).unwrap().data {
+            DxfEntityData::Leader(leader) => leader.points.clone(),
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(points(0), [[0.0, 0.0, 0.0], [-10.0, 10.0, 0.0], [-27.5, 10.0, 0.0], [-30.0, 10.0, 0.0]]);
+        assert_eq!(points(1), [[0.0, 0.0, 0.0], [10.0, 10.0, 0.0], [27.5, 10.0, 0.0], [30.0, 10.0, 0.0]]);
+        assert_eq!(points(4), [[0.0, 0.0, 0.0], [-10.0, 5.0, 0.0]]);
+    }
 }

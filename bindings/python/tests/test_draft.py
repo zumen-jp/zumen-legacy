@@ -97,3 +97,90 @@ def test_the_sample_follows_the_schema_and_mistakes_do_not():
     assert list(validator.iter_errors(SPEC)) == []
     item = {"type": "line", "from": [0, 0], "to": [1, 1], "weight": 2}
     assert list(validator.iter_errors({"sheets": [{"name": "S", "items": [item]}]}))
+
+
+def _template(to: str) -> bytes:
+    """A template: a title block with attributes on the layout A3."""
+    return zumen.create(
+        to,
+        [
+            {"op": "add-block", "name": "TITLE"},
+            {
+                "op": "add",
+                "kind": "attribute-definition",
+                "container": "block:TITLE",
+                "tag": "DWGNAME",
+                "text": "未定",
+                "position": [5, 5],
+                "height": 3,
+            },
+            {"op": "add-layout", "name": "A3", "paperSize": [420, 297]},
+            {
+                "op": "add",
+                "kind": "block-reference",
+                "container": "layout:A3",
+                "block": "TITLE",
+                "position": [300, 10],
+                "attributes": {"DWGNAME": "-"},
+            },
+        ],
+    ).data
+
+
+INTO = {
+    "sheets": [
+        {
+            "name": "A3",
+            "fields": {"DWGNAME": "配置図"},
+            "views": [
+                {
+                    "viewport": [20, 20, 280, 280],
+                    "scale": 100,
+                    "items": [
+                        {"type": "rectangle", "from": [0, 0], "to": [10000, 8000]},
+                        {"type": "dimension", "from": [0, 0], "to": [10000, 0], "offset": -10},
+                    ],
+                }
+            ],
+        }
+    ]
+}
+
+
+def test_drafts_into_a_template_and_fills_its_title_block(tmp_path):
+    for to in ["dxf", "dwg"]:
+        template = _template(to)
+        drafted = zumen.draft_into(INTO, template)
+        assert drafted.format == to
+        sheet = zumen.read(drafted.data, view="A3")
+        texts = {text["text"] for text in sheet.texts()}
+        assert {"配置図", "10,000"} <= texts and "-" not in texts, texts
+        path = tmp_path / f"template.{to}"
+        path.write_bytes(template)
+        assert zumen.draft_into(INTO, path).data == drafted.data
+    with pytest.raises(zumen.DraftError) as raised:
+        zumen.draft_into(INTO, zumen.create("jww").data)
+    assert raised.value.code == "unsupported-format"
+
+
+def test_drafted_into_dxf_passes_the_audit_of_ezdxf(tmp_path):
+    ezdxf = pytest.importorskip("ezdxf")
+    path = tmp_path / "into.dxf"
+    zumen.draft_into(SPEC, _template("dxf")).save(path)
+    doc = ezdxf.readfile(path)
+    auditor = doc.audit()
+    found = [(entry.code, entry.message) for entry in [*auditor.errors, *auditor.fixes]]
+    assert found == [], found
+    assert [layout.name for layout in doc.layouts if layout.name != "Model"][-4:] == SHEETS
+
+
+def test_draft_drawing_draws_into_a_template(tmp_path):
+    drawings = tools.Drawings([tmp_path])
+    template = tmp_path / "template.dwg"
+    template.write_bytes(_template("dwg"))
+    info = tools.draft_drawing(drawings, INTO, tmp_path / "out.dwg", into=template)
+    assert (info["format"], info["sheets"]) == ("dwg", ["A3"])
+    with pytest.raises(tools.DrawingError, match="DWG"):
+        tools.draft_drawing(drawings, INTO, tmp_path / "out.dxf", into=template)
+    with pytest.raises(tools.DrawingError, match="outside"):
+        tools.draft_drawing(drawings, INTO, tmp_path / "out2.dwg", into=tmp_path.parent / "elsewhere.dwg")

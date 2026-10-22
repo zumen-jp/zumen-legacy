@@ -1197,10 +1197,11 @@ impl<'a> Editor<'a> {
                 self.polyline_records(index, &place, &common, &vertices, &bulges, closed, width, &version)?
             }
             "text" => {
-                let mut own = vec!["position", "text", "height", "rotation", "textStyle", "wrapWidth"];
+                let mut own = vec!["position", "text", "height", "rotation", "textStyle", "wrapWidth", "widthFactor"];
                 own.extend(placement::KEYS);
                 reader.allow(&keys(&own), "文字")?;
                 let placement = placement::read(&reader, index)?;
+                let width_factor = placement::width_factor(&reader)?;
                 let position = reader.required("position", reader.point("position")?)?;
                 let text = reader.required("text", reader.text("text")?)?;
                 let height = reader.required("height", reader.positive("height")?)?;
@@ -1225,7 +1226,7 @@ impl<'a> Editor<'a> {
                         .real(41, wrap.unwrap_or(0.0))
                         .int(71, placement.attachment)
                         .int(72, 1);
-                    let content = mtext_content(text);
+                    let content = placement::with_width_factor(mtext_content(text), width_factor);
                     let chunks = chunks(&content, 250);
                     for chunk in &chunks[..chunks.len() - 1] {
                         record.tag(3, chunk.clone());
@@ -1254,6 +1255,9 @@ impl<'a> Editor<'a> {
                     record.point(10, position, true).real(40, height).tag(1, text.to_string());
                     if rotation != 0.0 {
                         record.real(50, rotation);
+                    }
+                    if let Some(factor) = width_factor {
+                        record.real(41, factor);
                     }
                     if let Some(style) = style {
                         record.tag(7, style);
@@ -2533,13 +2537,22 @@ impl<'a> Editor<'a> {
             return Err(EditError::at(index, "already-exists", format!("レイアウト {name} はすでにあります")));
         }
         let reader = ValueReader::new(values, index);
-        reader.allow(&["paperSize"], "レイアウト")?;
+        reader.allow(&["paperSize", "margins"], "レイアウト")?;
         let paper = reader.required("paperSize", reader.numbers("paperSize", 2)?)?;
         if paper[0] <= 0.0 || paper[1] <= 0.0 {
             return Err(EditError::at(
                 index,
                 "invalid-value",
                 "paperSize は 0 より大きい [幅, 高さ]（mm）にしてください",
+            ));
+        }
+        // 用紙の余白（左・下・右・上、mm）。省略すると写したレイアウトのまま
+        let margins = reader.numbers("margins", 4)?;
+        if margins.as_ref().is_some_and(|margins| margins.iter().any(|margin| *margin < 0.0)) {
+            return Err(EditError::at(
+                index,
+                "invalid-value",
+                "margins は 0 以上の [左, 下, 右, 上]（mm）にしてください",
             ));
         }
         let unreadable = || EditError::at(index, "unreadable", "図面のレイアウト（LAYOUT）と OBJECTS の節が読めません");
@@ -2606,7 +2619,10 @@ impl<'a> Editor<'a> {
                 // DXF Reference「PLOTSETTINGS」: 新しい用紙の座標は mm・等倍・回転なしで、左下を原点にする。
                 // 雛形の印刷設定を継ぐと、指定した大きさやビューポートの縮尺が変わる。
                 4 if at < start => Tag::new(4, paper_name(paper[0], paper[1])),
-                40..=43 | 46..=49 | 140..=141 | 148..=149 if at < start => Tag::new(tag.code, "0"),
+                40..=43 if at < start => {
+                    Tag::new(tag.code, real(margins.as_ref().map_or(0.0, |margins| margins[(tag.code - 40) as usize])))
+                }
+                46..=49 | 140..=141 | 148..=149 if at < start => Tag::new(tag.code, "0"),
                 44 if at < start => Tag::new(44, real(paper[0])),
                 45 if at < start => Tag::new(45, real(paper[1])),
                 70 | 73 if at < start => Tag::new(tag.code, "0"),

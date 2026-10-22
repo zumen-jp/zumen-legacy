@@ -1250,16 +1250,42 @@ fn draft(
         Err(_) => py.import("json")?.call_method1("dumps", (spec,))?.extract()?,
     };
     let options = zumen::DraftOptions { write: zumen::WriteOptions { version }, sheet };
-    let drafted = py.detach(|| zumen::draft(&text, &to, &options)).map_err(|error| {
-        let err = DraftError::new_err(error.to_string());
-        let value = err.value(py);
-        if let Err(failure) = value.setattr("code", error.code).and_then(|()| value.setattr("path", error.path.clone()))
-        {
-            return failure;
-        }
-        err
-    })?;
+    let drafted = py.detach(|| zumen::draft(&text, &to, &options)).map_err(|error| draft_error(py, &error))?;
     Ok(Converted { inner: drafted, format: to })
+}
+
+/// 図面の仕様を、受け取った DXF・DWG の図面（テンプレート）にその場で描く（zumen::draft_into）。元の図形・ハンドル・
+/// 拡張データは残り、形式と版も元のまま。sheet は描く用紙の名前、format は分かっている場合の図面の形式
+#[pyfunction]
+#[pyo3(signature = (spec, data, *, sheet = None, format = None, max_bytes = None))]
+fn draft_into(
+    py: Python<'_>,
+    spec: &Bound<'_, PyAny>,
+    data: &[u8],
+    sheet: Option<String>,
+    format: Option<String>,
+    max_bytes: Option<u64>,
+) -> PyResult<Converted> {
+    let text: String = match spec.extract::<String>() {
+        Ok(text) => text,
+        Err(_) => py.import("json")?.call_method1("dumps", (spec,))?.extract()?,
+    };
+    let mut read = ReadDrawingOptions { format, ..ReadDrawingOptions::default() };
+    read.limits.max_bytes = max_bytes;
+    let options = zumen::DraftIntoOptions { sheet, read };
+    let drafted = py.detach(|| zumen::draft_into(data, &text, &options)).map_err(|error| draft_error(py, &error))?;
+    let to = zumen::detect(&drafted.bytes).unwrap_or("dxf").to_string();
+    Ok(Converted { inner: drafted, format: to })
+}
+
+/// 仕様の誤りを、code と path のある DraftError にする
+fn draft_error(py: Python<'_>, error: &zumen::draft::DraftError) -> PyErr {
+    let err = DraftError::new_err(error.to_string());
+    let value = err.value(py);
+    if let Err(failure) = value.setattr("code", error.code).and_then(|()| value.setattr("path", error.path.clone())) {
+        return failure;
+    }
+    err
 }
 
 /// 図面の仕様の JSON Schema（JSON の文字列）
@@ -1288,6 +1314,7 @@ fn _zumen(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(edit, m)?)?;
     m.add_function(wrap_pyfunction!(create, m)?)?;
     m.add_function(wrap_pyfunction!(draft, m)?)?;
+    m.add_function(wrap_pyfunction!(draft_into, m)?)?;
     m.add_function(wrap_pyfunction!(draft_schema, m)?)?;
     Ok(())
 }

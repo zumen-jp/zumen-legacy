@@ -44,7 +44,7 @@ from numbers import Real
 from pathlib import Path
 from typing import Any, Literal, TypedDict, cast
 
-from . import DraftError, LimitError, ReadError, RenderError, Scene, compare, draft, read
+from . import DraftError, LimitError, ReadError, RenderError, Scene, compare, draft, draft_into, read
 
 #: Long edge of a rendered image when the caller does not ask for a size (pixels). Vision models see about this much
 #: detail; a larger image costs more and is often scaled down by the client.
@@ -1452,10 +1452,15 @@ def draft_drawing(
     *,
     version: str | None = None,
     sheet: str | None = None,
+    into: str | os.PathLike[str] | None = None,
 ) -> DraftInfo:
     """Draw a drawing from a drawing spec (docs/drafting.md) and write it to ``output``, in the format of its
     extension. A mistake in the spec is a ``DrawingError`` whose message starts with the place in the spec and ends
-    with the code, such as ``sheets[0].views[1].items[4]: ... (unknown-key)``."""
+    with the code, such as ``sheets[0].views[1].items[4]: ... (unknown-key)``.
+
+    With ``into``, the spec is drawn into that DXF or DWG drawing (a template) in place, keeping its entities and
+    format: sheets named after its layouts are drawn into them, and the ``fields`` of a sheet fill its title block.
+    ``output`` must then have the template's extension."""
     path = drawings.writable(output)
     to = path.suffix.lower().lstrip(".")
     if to not in DRAFT_FORMATS:
@@ -1464,8 +1469,17 @@ def draft_drawing(
         sheets = [str(item.get("name")) for item in spec.get("sheets", []) if isinstance(item, dict)]
     else:
         sheets = []
+    text = spec if isinstance(spec, dict) else str(spec)
     try:
-        drafted = draft(spec if isinstance(spec, dict) else str(spec), to, version=version, sheet=sheet)
+        if into is None:
+            drafted = draft(text, to, version=version, sheet=sheet)
+        else:
+            if version is not None:
+                raise DrawingError("drawing into a template keeps its version; leave out version")
+            template = drawings.resolve(into)
+            drafted = draft_into(text, template.read_bytes(), sheet=sheet, max_bytes=drawings.max_bytes)
+            if drafted.format != to:
+                raise DrawingError(f"{into} is {drafted.format.upper()}; write to a .{drafted.format} file")
     except DraftError as error:
         raise DrawingError(f"{error} ({error.code})") from error
     if sheet is not None:

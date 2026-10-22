@@ -252,7 +252,15 @@
       "required": ["name"],
       "properties": {
         "name": {
-          "type": "string"
+          "type": "string",
+          "description": "Layout name. With zumen::draft_into, a layout of the template with this name is drawn into"
+        },
+        "fields": {
+          "type": "object",
+          "description": "Attribute values by tag, filled into the block references (title blocks) on this sheet, including those of the template with zumen::draft_into",
+          "additionalProperties": {
+            "type": "string"
+          }
         },
         "paper": {
           "oneOf": [

@@ -460,7 +460,8 @@ stay, and an edit without operations gives the same bytes.
   `top-`, `middle-` and `bottom-` with `left`, `center` and `right`), `lineSpacing` (a factor from 0.25 to 4) and
   `multiline` (`true` writes MTEXT for one line). TEXT gets 72 and 73 with the alignment point 11 at `position`;
   MTEXT gets the attachment 71 (baseline justifications become the bottom row) and, from AutoCAD 2000 on, 73 = 1 and
-  44 (`edit-no-line-spacing` before). `lineSpacing` makes MTEXT.
+  44 (`edit-no-line-spacing` before). `lineSpacing` makes MTEXT. `widthFactor` (the width of the characters, 1 by
+  default) is 41 of TEXT; MTEXT has no width factor value, so it starts with the `\W<factor>;` code.
 - **Attributes**: `kind: "attribute-definition"` in a block (`container: "block:<name>"`, `invalid-value`
   elsewhere) with `tag` (no spaces, written in capitals, as AutoCAD keeps it), `prompt`, `text` (the default
   value), `position`, `height`, `rotation`, `textStyle` and `justification` writes an ATTDEF and sets bit 2 (has
@@ -476,7 +477,8 @@ stay, and an edit without operations gives the same bytes.
   there is one) with the new name, the next tab order, the paper size and name (`ISO_A3_(420.00_x_297.00_MM)` for the
   A sizes, else empty), limits and a new paper space block `*Paper_Space<n>` (its BLOCK_RECORD's 340 is the layout),
   adds it to the `ACAD_LAYOUT` dictionary, and puts the viewport of the whole sheet (69 = 1) in the block.
-  New layouts use millimeter paper coordinates at 1:1, with no rotation, plot offset or margins.
+  New layouts use millimeter paper coordinates at 1:1, with no rotation or plot offset. The printer margins default
+  to zero; `margins` (`[left, bottom, right, top]` in millimeters, 40 to 43) overrides them and moves the sheet's origin.
   `kind: "viewport"` in `container: "layout:<name>"` takes `center`, `width` and `height` on the sheet (mm),
   `viewCenter` in model coordinates and `scale`, the denominator of the scale (1:100 is `100`): the view height is
   `height × scale` converted from millimeters to the drawing's `$INSUNITS` (unitless counts as millimeters). Its id

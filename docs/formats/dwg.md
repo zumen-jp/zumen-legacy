@@ -705,17 +705,18 @@ drawing with `write_dwg` (`$INSUNITS` and `$MEASUREMENT` from the units), which 
   AcDb:Classes when the drawing lacks it), and R13, which has no HATCH, refuses it (`unsupported-kind`).
 - **Text placement**: `justification`, `lineSpacing` and `multiline` as in the DXF editor: TEXT gets its horizontal
   and vertical alignment and alignment point, MTEXT its attachment and line spacing factor (R13 and R14 have none,
-  `edit-no-line-spacing`).
+  `edit-no-line-spacing`). `widthFactor` is the width factor of TEXT, and a `\W` code at the start of MTEXT.
 - **Attributes**: `attribute-definition` and the `attributes` of `block-reference` as in the DXF editor. The ATTDEF
   sets the block header's has-attributes flag; the ATTRIBs copy their definition's values, are owned by the INSERT
   (entity mode 0), linked to each other in R13 to R2000 and listed by the INSERT from R2004 on, followed by a SEQEND.
 - **Layouts and viewports** (R2000 and later): `add-layout` copies a LAYOUT object (20.4.84) of the drawing with the
   new name, tab order, paper and limits, a new BLOCK_HEADER (named `*Paper_Space`, as every paper space is, with the
   layout's handle; its BLOCK is `*Paper_Space<n>`) and the viewport of the whole sheet, the first in the block, and
-  adds it to `ACAD_LAYOUT`. `viewport` writes a VIEWPORT (20.4.37) with the values of the DXF editor and joins the
+  adds it to `ACAD_LAYOUT`; `margins` sets the margins of the LAYOUT as in the DXF editor. `viewport` writes a VIEWPORT (20.4.37) with the values of the DXF editor and joins the
   layout's viewport list (R2004 and later). R2000 keeps a VIEWPORT ENTITY HEADER for the viewports of the active
   paper space, so a viewport can be added there only from R2004 on; layouts added by the edit take them in R2000 too.
-  New layouts use millimeter paper coordinates at 1:1, with no rotation, plot offset or margins.
+  New layouts use millimeter paper coordinates at 1:1, with no rotation or plot offset. Their margins default to
+  zero; an explicit `margins` value overrides that default.
 - **Leaders**: `leader` writes the annotation MTEXT and a LEADER (20.4.47) that points to it, with the values of the
   DXF editor; R13 and R14 also get DIMGAP × DIMSCALE and DIMASZ × DIMSCALE in the LEADER. Reading adds the hook vertex
   that AutoCAD writes to DXF (`entities.rs`, an inferred rule).

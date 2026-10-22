@@ -45,7 +45,7 @@ result, so an agent can draft, look and correct in a loop.
 | `layers` | `{name, color, lineType, lineWidth, plot, off, locked}`. Layers used by items but not listed are created with color 7 |
 | `lineTypes` | `{name, description, pattern}`: dash and gap lengths in turn, paper millimeters, 0 for a dot. Built in: `DASHED`, `HIDDEN`, `CENTER`, `PHANTOM`, `DOT` (and `Continuous`, `ByLayer`, `ByBlock`) |
 | `blocks` | `{name, basePoint, items, attributes}`. Items are in block units (paper millimeters when the block is placed at scale 1 on paper). `attributes` are attribute definitions `{tag, prompt, value, at, height, align, rotation, invisible}` |
-| `sheets` | One layout each: `{name, paper, orientation, frame, views, items}` |
+| `sheets` | One layout each: `{name, fields, paper, orientation, frame, views, items}` |
 
 A **sheet** has `paper` (`A0`–`A4`, `B1`–`B5` or `[width, height]`, A3 by default), `orientation` (`landscape` by
 default), and:
@@ -59,6 +59,8 @@ default), and:
   height}`: a numbered circle, the name and `S=1:<scale>` with a line under them, inside the bottom left of the viewport
   unless `at` is given.
 - `items`: items on paper.
+- `fields`: attribute values by tag, `{"DWGNO": "A-101"}`, written into the block references on the sheet (see
+  [Drawing into a template](#drawing-into-a-template)).
 
 ## Items
 
@@ -118,5 +120,38 @@ Text widths are estimated (full-width characters as wide as the text is high div
 that), so `fit`, wrapping and table cells leave room for fonts that differ from the estimate. Dimensions are drawn by
 zumen; AutoCAD draws a dimension again from its style when someone edits it.
 
-To draw into a drawing received from someone else, without rewriting it, use the edit operations of
-[decision 0017](decisions/0017-add-annotations-and-definitions.md); the drafting kit will also emit them.
+## Drawing into a template
+
+`zumen::draft_into` draws the spec into a DXF or DWG drawing received from someone else, a company template with its
+layouts and title block, without rewriting it. The drawing is drawn the same way as by `draft`, then turned into the
+edit operations of [decision 0017](decisions/0017-add-annotations-and-definitions.md) (`zumen_draft::plan`) and
+applied with `zumen::edit`: the template's entities keep their handles and bytes, extended data and objects that zumen
+does not read stay, and the format and version are the template's.
+
+```sh
+zumen draft plan.json --into template.dwg -o A-101.dwg
+```
+
+```python
+zumen.draft_into(spec, "template.dwg").save("A-101.dwg")      # template: bytes or a path
+```
+
+The MCP tool `draft_drawing` takes `into` for the same.
+
+- **Sheets**: a sheet named after a layout of the template is drawn into that layout, with that layout's paper size
+  unless the sheet gives `paper`. Its coordinates are the layout's own (AutoCAD places them from the corner of the
+  printable area, inside the printer margins). Other sheets become new layouts (`add-layout`, with no margins, as
+  `draft` writes them). Leave out `frame` when the template has its border.
+- **Title block**: `fields` (`{"TAG": "value"}`) of a sheet fill the attributes with those tags of every block
+  reference on the sheet, the template's and the spec's. A tag that no block reference has is reported
+  (`unused-field`). `draft` fills the spec's block references the same way.
+- **Names**: layers, line types, blocks and dimension styles that the template has are used as the template defines
+  them (a block of the same name is reported, `draft-into-block-exists`); a text style is reused when its font file,
+  TrueType family, bigfont, width, fixed height, oblique angle and flags match. Otherwise a style named after the
+  font is added, preserving its TrueType family. The others are added.
+- **Dimensions** become DIMENSION operations, and the editor draws their blocks from a dimension style added for each
+  scale and look. Dot and empty end marks have no dimension style variable and become arrowheads
+  (`draft-into-end-mark`); values with thousands separators are given as the dimension's text.
+- **Solids** (arrowheads, filled marks) become solid hatches.
+- The template must be in millimeters (`$INSUNITS` 4 or unitless), and layouts need AutoCAD 2000 or later. An
+  operation that the drawing refuses is reported with the place in the spec it came from.

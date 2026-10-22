@@ -14,6 +14,11 @@ All packages share one version during 0.x.
   as DXF R12 to 2018, DWG, JWW or SXF; a mistake in the spec names its place and a stable code.
   `zumen::draft`, the new crate `zumen-draft` with its JSON Schema, `zumen.draft` and `zumen.draft_schema` in
   Python, `zumen draft`, and the `draft_drawing` MCP tool.
+- Rust, Python, the command line and the MCP server: draw a drawing spec into a DXF or DWG template in place
+  (`zumen::draft_into`, `zumen.draft_into`, `zumen draft --into template.dwg`, `into` of `draft_drawing`). The drawing
+  becomes edit operations of decision 0017 (`zumen_draft::plan`), so the template's entities, handles and data stay;
+  sheets named after its layouts are drawn into them, and the new `fields` of a sheet fill the attributes of its
+  title block ([Drawing into a template](docs/drafting.md#drawing-into-a-template)).
 - Rust, Python and the command line: `edit` and `create` take `{"op": "add-block", "name": ..., "basePoint": [x, y]}`
   for DXF (R12 to 2018) and DWG (R13 to 2018), which creates an empty block definition; later operations of the same
   edit fill it with `"container": "block:<name>"` and place it with `block-reference`. SXF and JWW refuse it
@@ -26,11 +31,12 @@ All packages share one version during 0.x.
   to 2018): closed polyline boundaries with holes, `SOLID`, built-in patterns (`ANSI31`, `ANSI32`, `ANSI37`, `LINE`,
   `NET`, `DOTS`) or the lines of a PAT pattern.
 - Rust, Python and the command line: `text` takes `justification` (`top-left` … `bottom-right`, and `left`,
-  `center`, `right` on the baseline), `lineSpacing` and `multiline` in DXF and DWG, for text placed in table cells.
+  `center`, `right` on the baseline), `lineSpacing`, `multiline` and `widthFactor` in DXF and DWG, for text placed in
+  table cells.
 - Rust, Python and the command line: block attributes in DXF and DWG: `kind: "attribute-definition"` in a block and
   `attributes: {"TAG": "value"}` on `block-reference`, which writes the ATTRIBs, for title blocks.
 - Rust, Python and the command line: sheets in DXF and DWG (AutoCAD 2000 and later): `add-layout` with a paper size
-  and `kind: "viewport"` in it, showing model space at a scale such as 1:100.
+  and `kind: "viewport"` in it, showing model space at a scale such as 1:100. `margins` sets the printer margins.
 - Rust, Python and the command line: `kind: "leader"` in DXF and DWG, a LEADER with an MTEXT note sized from the
   dimension style.
 - Rust, Python and the command line: `kind: "image"` in DXF and DWG (R14 and later), an IMAGE with its IMAGEDEF in
