@@ -41,7 +41,7 @@ use zumen_dxf::attributes::{self, Definition, Placed};
 use zumen_dxf::dimension::{self, DimStyleValues, DimensionKind, Part, Role};
 
 /// 足せる図形の種類（DXF の編集と同じ）
-const ADDABLE: [&str; 12] = [
+const ADDABLE: [&str; 13] = [
     "line",
     "polyline",
     "arc",
@@ -54,6 +54,7 @@ const ADDABLE: [&str; 12] = [
     "dimension",
     "hatch",
     "attribute-definition",
+    "viewport",
 ];
 
 /// 図形・レイヤに共通する値のキー
@@ -105,6 +106,7 @@ mod kind {
     pub const DIMSTYLE: u16 = 69;
     pub const HATCH: u16 = 78;
     pub const SEQEND: u16 = 6;
+    pub const VIEWPORT: u16 = 34;
 }
 
 /// DWG を編集する。すべての操作を確かめてから書き、1 つでも通らなければエラーを返して何も書かない
@@ -131,6 +133,7 @@ pub fn edit_dwg(bytes: &[u8], operations: &[EditOperation]) -> Result<Edited, Ed
             EditOperation::UpdateLayer { name, set } => editor.update_layer(index, name, set)?,
             EditOperation::AddBlock { name, values } => editor.add_block(index, name, values)?,
             EditOperation::AddStyle { kind, name, values } => editor.add_style(index, *kind, name, values)?,
+            EditOperation::AddLayout { name, values } => editor.add_layout(index, name, values)?,
         }
     }
     Ok(editor.finish())
@@ -237,6 +240,9 @@ struct Editor {
     dimstyles: HashMap<String, u64>,
     /// レイアウトの名前（大文字）→ BLOCK_HEADER
     layouts: HashMap<String, u64>,
+    /// レイアウトの名前（大文字）→ LAYOUT と、ACAD_LAYOUT の辞書
+    layout_objects: HashMap<String, u64>,
+    layout_dictionary: u64,
     model: u64,
     paper: u64,
     deleted: HashSet<u64>,
@@ -311,6 +317,8 @@ impl Editor {
             blocks: HashMap::new(),
             dimstyles: HashMap::new(),
             layouts: HashMap::new(),
+            layout_objects: HashMap::new(),
+            layout_dictionary: 0,
             model: tables.model_space,
             paper: tables.paper_space,
             deleted: HashSet::new(),
@@ -518,12 +526,14 @@ impl Editor {
                 })
                 .unwrap_or(0)
         };
+        self.layout_dictionary = layouts;
         if let Some(dictionary) = self.read(layouts, |s, _| Dictionary::read(s, false)) {
             for (_, entry) in &dictionary.value.entries {
                 let handle = entry.resolve(layouts);
                 if let Some(layout) = self.read(handle, |s, _| Layout::read(s)) {
                     let name = self.text_of(&layout.value.name);
                     self.layouts.insert(upper(&name), layout.value.block_record.resolve(handle));
+                    self.layout_objects.insert(upper(&name), handle);
                 }
             }
         }
@@ -1061,6 +1071,19 @@ impl Editor {
                 };
                 (type_number, build::hatch(&input, self.raw_text(&input.pattern)))
             }
+            "viewport" => {
+                reader.allow(&keys(&["center", "width", "height", "viewCenter", "scale"]), "ビューポート")?;
+                self.viewport_place(index, place)?;
+                let center = reader.required("center", reader.point("center")?)?;
+                let width = reader.required("width", reader.positive("width")?)?;
+                let height = reader.required("height", reader.positive("height")?)?;
+                let view_center = reader.required("viewCenter", reader.point("viewCenter")?)?;
+                let scale = reader.positive("scale")?.unwrap_or(1.0);
+                let sheet = RawText::empty(self.version);
+                let view = zumen_dxf::view_height(height, scale, self.tables.insunits);
+                let body = build::viewport(self.version, center, width, height, view_center, view, sheet);
+                (kind::VIEWPORT, body)
+            }
             "attribute-definition" => {
                 let mut own = attributes::DEFINITION_KEYS.to_vec();
                 own.push("justification");
@@ -1136,9 +1159,170 @@ impl Editor {
                 self.add_attributes(index, handle, &common, insert, pending)?;
             }
         }
+        let is_viewport = matches!(body, Body::Viewport(_));
         let entity = Decoded { kind: type_number, eed: Vec::new(), value: Entity { common, body } };
         self.store_entity(handle, &entity);
+        if is_viewport {
+            self.add_layout_viewport(place.block, handle);
+        }
         self.created.push(format!("{handle:X}"));
+        Ok(())
+    }
+
+    /// ビューポートを足せる先か。R2000 以降の、モデルでないレイアウトの紙空間。R2000 の作業中の紙空間（*Paper_Space）は
+    /// VIEWPORT ENTITY HEADER を要るので受け付けない
+    fn viewport_place(&self, index: usize, place: Place) -> Result<(), EditError> {
+        if self.version < Version::R2000 {
+            return Err(EditError::at(
+                index,
+                "unsupported-kind",
+                "AutoCAD 2000 より前の DWG にはビューポートを足せません",
+            ));
+        }
+        if place.block == self.model || !self.layouts.values().any(|block| *block == place.block) {
+            return Err(EditError::at(
+                index,
+                "invalid-value",
+                "ビューポートは container の layout:<名前> でレイアウトに足してください",
+            ));
+        }
+        if self.version < Version::R2004 && place.block == self.paper {
+            return Err(EditError::at(
+                index,
+                "unsupported-kind",
+                "AutoCAD 2000 の DWG の作業中のレイアウトにはビューポートを足せません（add-layout で足したレイアウトには足せます）",
+            ));
+        }
+        Ok(())
+    }
+
+    /// レイアウト（LAYOUT）のビューポートの並び（R2004 以降）に足す。最初のビューポートは最後に使ったビューポートにもする
+    fn add_layout_viewport(&mut self, block: u64, viewport: u64) {
+        let Some(header) = self.read(block, |s, _| BlockHeader::read(s)) else { return };
+        let layout = header.value.layout.resolve(block);
+        let Some(mut decoded) = self.read(layout, |s, _| Layout::read(s)) else { return };
+        if decoded.value.last_viewport.value == 0 {
+            decoded.value.last_viewport = href(4, viewport);
+        }
+        if self.version >= Version::R2004 {
+            decoded.value.viewports.push(href(4, viewport));
+        }
+        let (kind, eed) = (decoded.kind, decoded.eed.clone());
+        self.store(layout, kind, &eed, |out| decoded.value.write(out));
+    }
+
+    /// レイアウトを足す（docs/decisions/0017。LAYOUT は 20.4.84）。図面のレイアウトを写して名前・用紙・紙空間のブロックを
+    /// 変え、ACAD_LAYOUT の辞書に足す。紙空間のブロック（BLOCK_HEADER の名前は *Paper_Space、BLOCK は
+    /// *Paper_Space<n>）と、用紙の全体を表すビューポートも作る。AutoCAD 2000 から
+    fn add_layout(&mut self, index: usize, name: &str, values: &EditValues) -> Result<(), EditError> {
+        if self.version < Version::R2000 {
+            return Err(EditError::at(
+                index,
+                "unsupported-kind",
+                "AutoCAD 2000 より前の DWG にはレイアウト（LAYOUT）を足せません",
+            ));
+        }
+        if !valid_name(name) || name.eq_ignore_ascii_case("model") {
+            return Err(EditError::at(index, "invalid-value", format!("レイアウトの名前 {name} は使えません")));
+        }
+        if self.layouts.contains_key(&upper(name)) {
+            return Err(EditError::at(index, "already-exists", format!("レイアウト {name} はすでにあります")));
+        }
+        let reader = ValueReader::new(values, index);
+        reader.allow(&["paperSize"], "レイアウト")?;
+        let paper = reader.required("paperSize", reader.numbers("paperSize", 2)?)?;
+        if paper[0] <= 0.0 || paper[1] <= 0.0 {
+            return Err(EditError::at(
+                index,
+                "invalid-value",
+                "paperSize は 0 より大きい [幅, 高さ]（mm）にしてください",
+            ));
+        }
+        let unreadable =
+            || EditError::at(index, "unreadable", "DWG のレイアウト（LAYOUT）と ACAD_LAYOUT の辞書が読めません");
+        let template = self
+            .layout_objects
+            .iter()
+            .max_by_key(|(name, _)| name.as_str() != "MODEL")
+            .map(|(_, handle)| *handle)
+            .ok_or_else(unreadable)?;
+        let template = self.read(template, |s, _| Layout::read(s)).ok_or_else(unreadable)?;
+        let mut dictionary =
+            self.read(self.layout_dictionary, |s, _| Dictionary::read(s, false)).ok_or_else(unreadable)?;
+        let tab = self
+            .layout_objects
+            .values()
+            .filter_map(|handle| self.read(*handle, |s, _| Layout::read(s)).map(|layout| layout.value.tab_order))
+            .max()
+            .unwrap_or(0)
+            + 1;
+        let suffix = self
+            .blocks
+            .keys()
+            .filter_map(|block| block.strip_prefix("*PAPER_SPACE").and_then(|number| number.parse::<u64>().ok()))
+            .max()
+            .map_or(0, |number| number + 1);
+        let block = self.create_block(index, &format!("*Paper_Space{suffix}"), [0.0; 3], false)?;
+        let layout_handle = self.next_handle(index)?;
+        // BLOCK_HEADER: 名前は *Paper_Space（どの紙空間も同じ。AutoCAD と同じ）、レイアウトはこのレイアウト
+        let mut header = self.read(block, |s, _| BlockHeader::read(s)).ok_or_else(unreadable)?;
+        header.value.name = EntryName::new(self.raw_text("*Paper_Space"));
+        header.value.layout = href(5, layout_handle);
+        let (kind, eed) = (header.kind, header.eed.clone());
+        self.store(block, kind, &eed, |out| header.value.write(out));
+        // 用紙の全体を表すビューポート（紙空間の最初のビューポート）
+        let place = Place { block, mode: 0 };
+        let none = EditValues::new();
+        let mut common = self.new_common(index, place, &ValueReader::new(&none, index))?;
+        let overall = self.next_handle(index)?;
+        self.append(index, place, overall, &mut common)?;
+        let middle = [paper[0] / 2.0, paper[1] / 2.0, 0.0];
+        let sheet = RawText::empty(self.version);
+        let body = build::viewport(self.version, middle, paper[0], paper[1], middle, paper[1], sheet);
+        let viewport = Decoded { kind: kind::VIEWPORT, eed: Vec::new(), value: Entity { common, body } };
+        self.store_entity(overall, &viewport);
+        let r2004 = self.version >= Version::R2004;
+        let mut layout = template.value;
+        layout.common = ObjectCommon {
+            owner: href(4, self.layout_dictionary),
+            reactors: vec![href(4, self.layout_dictionary)],
+            xdictionary: if r2004 { None } else { Some(href(3, 0)) },
+            ds_binary: false,
+        };
+        layout.name = self.raw_text(name);
+        layout.tab_order = tab;
+        // PLOTSETTINGS（20.4.84）: 用紙の座標は mm・等倍・回転なしで、左下を原点にする。
+        // 雛形の印刷設定を継ぐと、指定した大きさやビューポートの縮尺が変わる。
+        layout.plot_flags = 0;
+        layout.margins = [0.0; 4];
+        layout.plot_origin = [0.0; 2];
+        layout.paper_units = 1;
+        layout.plot_rotation = 0;
+        layout.plot_type = 5;
+        layout.window_min = [0.0; 2];
+        layout.window_max = [0.0; 2];
+        layout.real_units = 1.0;
+        layout.drawing_units = 1.0;
+        layout.scale_type = 16;
+        layout.scale_factor = 1.0;
+        layout.paper_image_origin = [0.0; 2];
+        layout.paper = [paper[0], paper[1]];
+        layout.paper_size = self.raw_text(&zumen_dxf::paper_name(paper[0], paper[1]));
+        layout.limmin = [0.0, 0.0];
+        layout.limmax = [paper[0], paper[1]];
+        layout.extmin = [1e20; 3];
+        layout.extmax = [-1e20; 3];
+        layout.block_record = href(4, block);
+        layout.last_viewport = href(4, overall);
+        layout.viewports = if r2004 { vec![href(4, overall)] } else { Vec::new() };
+        self.store(layout_handle, template.kind, &[], |out| layout.write(out));
+        dictionary.value.entries.push((self.raw_text(name), href(2, layout_handle)));
+        let (kind, eed) = (dictionary.kind, dictionary.eed.clone());
+        let handle = self.layout_dictionary;
+        self.store(handle, kind, &eed, |out| dictionary.value.write(out));
+        self.layouts.insert(upper(name), block);
+        self.layout_objects.insert(upper(name), layout_handle);
+        self.created.push(name.to_string());
         Ok(())
     }
 

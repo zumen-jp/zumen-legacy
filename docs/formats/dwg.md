@@ -708,6 +708,13 @@ drawing with `write_dwg` (`$INSUNITS` and `$MEASUREMENT` from the units), which 
 - **Attributes**: `attribute-definition` and the `attributes` of `block-reference` as in the DXF editor. The ATTDEF
   sets the block header's has-attributes flag; the ATTRIBs copy their definition's values, are owned by the INSERT
   (entity mode 0), linked to each other in R13 to R2000 and listed by the INSERT from R2004 on, followed by a SEQEND.
+- **Layouts and viewports** (R2000 and later): `add-layout` copies a LAYOUT object (20.4.84) of the drawing with the
+  new name, tab order, paper and limits, a new BLOCK_HEADER (named `*Paper_Space`, as every paper space is, with the
+  layout's handle; its BLOCK is `*Paper_Space<n>`) and the viewport of the whole sheet, the first in the block, and
+  adds it to `ACAD_LAYOUT`. `viewport` writes a VIEWPORT (20.4.37) with the values of the DXF editor and joins the
+  layout's viewport list (R2004 and later). R2000 keeps a VIEWPORT ENTITY HEADER for the viewports of the active
+  paper space, so a viewport can be added there only from R2004 on; layouts added by the edit take them in R2000 too.
+  New layouts use millimeter paper coordinates at 1:1, with no rotation, plot offset or margins.
 - **Values the version cannot hold** are written as the nearest one and reported: `edit-nearest-color` (no true color
   before AutoCAD 2004) and `edit-rounded-lineweight` (the line weights of DWG). R13 and R14 have no line weights and
   plot every layer, so a line weight other than BYLAYER (entities) or the default (layers) and `plot: false` are not

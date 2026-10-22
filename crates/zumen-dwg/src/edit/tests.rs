@@ -841,6 +841,68 @@ fn adds_attributes_in_every_version() {
     }
 }
 
+/// 新しい用紙の座標は、雛形のインチ・回転・印刷倍率・余白に依存しない。
+#[test]
+fn new_layout_uses_millimeters_at_full_size() {
+    let mut source = zumen_dxf::parse_dxf(&zumen_dxf::new_dxf("mm").unwrap());
+    for layout in source.layouts.iter_mut().filter(|layout| !layout.model) {
+        layout.paper_units = 0.0;
+        layout.plot_rotation = 1.0;
+        layout.plot_scale = [1.0, 4.0];
+        layout.plot_origin = [123.0, 456.0];
+        layout.margins = [7.0, 8.0, 9.0, 10.0];
+    }
+    let operations = r#"[
+        {"op":"add-layout","name":"NEW","paperSize":[420,297]},
+        {"op":"add","kind":"line","container":"layout:NEW","start":[0,0],"end":[420,297]}
+    ]"#;
+    let edited = edit(&crate::write_dwg(&source).bytes, operations).unwrap();
+    check_structure("new layout", &edited.bytes);
+    let doc = crate::read_dwg(&edited.bytes).unwrap();
+    let layout = doc.layouts.iter().find(|layout| layout.name == "NEW").unwrap();
+    assert_eq!((layout.paper_units, layout.plot_rotation, layout.plot_scale), (1.0, 0.0, [1.0, 1.0]));
+    assert_eq!((layout.margins, layout.plot_origin), ([0.0; 4], [0.0; 2]));
+    let scene = zumen_dxf::dxf_to_scene(&doc, Some("NEW"));
+    let sheet = scene.sheet.unwrap();
+    assert_eq!((sheet.width, sheet.height), (420.0, 297.0));
+    let line = scene.entities.iter().find(|entity| entity.id == edited.created[1]).unwrap();
+    assert_eq!((line.bbox.min_x, line.bbox.min_y, line.bbox.max_x, line.bbox.max_y), (0.0, 0.0, 420.0, 297.0));
+}
+
+/// レイアウトとビューポートを足す（docs/decisions/0017）。R2000 から
+#[test]
+fn adds_layouts_with_viewports_from_r2000_on() {
+    let operations = r#"[
+        {"op": "add", "kind": "line", "start": [0, 0], "end": [10000, 8000]},
+        {"op": "add-layout", "name": "A3-平面図", "paperSize": [420, 297]},
+        {"op": "add", "kind": "viewport", "container": "layout:A3-平面図", "center": [210, 148.5], "width": 380, "height": 257, "viewCenter": [5000, 4000], "scale": 100},
+        {"op": "add", "kind": "text", "container": "layout:A3-平面図", "position": [20, 10], "text": "1階平面図", "height": 5}
+    ]"#;
+    let mut versions: Vec<(String, Vec<u8>)> =
+        crate::DwgVersion::ALL.iter().map(|version| (version.name().to_string(), written_as(*version))).collect();
+    versions.push(("new".into(), new_dwg("mm").unwrap()));
+    for (name, bytes) in versions {
+        let edited = edit(&bytes, operations);
+        if matches!(name.as_str(), "R13" | "R14") {
+            assert_eq!(edited.unwrap_err().code, "unsupported-kind", "{name}");
+            continue;
+        }
+        let edited = edited.unwrap_or_else(|error| panic!("{name}: {error}"));
+        check_structure(&name, &edited.bytes);
+        let doc = crate::read_dwg(&edited.bytes).unwrap_or_else(|error| panic!("{name}: {error}"));
+        let layout = doc.layouts.iter().find(|layout| layout.name == "A3-平面図").unwrap_or_else(|| panic!("{name}"));
+        assert_eq!((layout.paper_width, layout.paper_height), (420.0, 297.0), "{name}");
+        let scene = zumen_dxf::dxf_to_scene(&doc, Some("A3-平面図"));
+        let kinds: Vec<&str> = scene.entities.iter().map(|entity| entity.kind.name()).collect();
+        assert!(kinds.contains(&"line") && kinds.contains(&"text"), "{name}: {kinds:?}");
+        let scales = scene.metadata.iter().find(|property| property.key == "viewportScales");
+        assert_eq!(scales.map(|property| property.value.as_str()), Some("1:100"), "{name}");
+        // 同じ編集で足したレイアウトにもう一度足すと already-exists
+        let again = edit(&edited.bytes, r#"[{"op": "add-layout", "name": "a3-平面図", "paperSize": [1, 1]}]"#);
+        assert_eq!(again.unwrap_err().code, "already-exists", "{name}");
+    }
+}
+
 /// DXF と同じく、別の編集で読んだ ATTDEF の見た目と非等方尺度を保つ。
 #[test]
 fn preserves_attribute_appearance_and_nonuniform_scaling_in_every_version() {

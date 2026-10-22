@@ -823,6 +823,75 @@ fn adds_attribute_definitions_and_fills_them_in_references() {
     }
 }
 
+/// 新しい用紙の座標は、雛形のインチ・回転・印刷倍率・余白に依存しない。
+#[test]
+fn new_layout_uses_millimeters_at_full_size() {
+    let mut source = crate::parse_dxf(&crate::new_dxf("mm").unwrap());
+    for layout in source.layouts.iter_mut().filter(|layout| !layout.model) {
+        layout.paper_units = 0.0;
+        layout.plot_rotation = 1.0;
+        layout.plot_scale = [1.0, 4.0];
+        layout.plot_origin = [123.0, 456.0];
+        layout.margins = [7.0, 8.0, 9.0, 10.0];
+    }
+    let operations = r#"[
+        {"op":"add-layout","name":"NEW","paperSize":[420,297]},
+        {"op":"add","kind":"line","container":"layout:NEW","start":[0,0],"end":[420,297]}
+    ]"#;
+    let edited = edit(&crate::write_dxf(&source).bytes, operations).unwrap();
+    let doc = crate::parse_dxf(&edited.bytes);
+    let layout = doc.layouts.iter().find(|layout| layout.name == "NEW").unwrap();
+    assert_eq!((layout.paper_units, layout.plot_rotation, layout.plot_scale), (1.0, 0.0, [1.0, 1.0]));
+    assert_eq!((layout.margins, layout.plot_origin), ([0.0; 4], [0.0; 2]));
+    let scene = crate::dxf_to_scene(&doc, Some("NEW"));
+    let sheet = scene.sheet.unwrap();
+    assert_eq!((sheet.width, sheet.height), (420.0, 297.0));
+    let line = scene.entities.iter().find(|entity| entity.id == edited.created[1]).unwrap();
+    assert_eq!((line.bbox.min_x, line.bbox.min_y, line.bbox.max_x, line.bbox.max_y), (0.0, 0.0, 420.0, 297.0));
+}
+
+#[test]
+fn adds_layouts_with_viewports_at_a_scale() {
+    let bytes = drawing("0\nLINE\n8\n0\n10\n0\n20\n0\n11\n10000\n21\n8000\n");
+    let edited = edit(
+        &bytes,
+        r#"[
+            {"op": "add-layout", "name": "A3-平面図", "paperSize": [420, 297]},
+            {"op": "add", "kind": "viewport", "container": "layout:A3-平面図", "center": [210, 148.5], "width": 380, "height": 257, "viewCenter": [5000, 4000], "scale": 100},
+            {"op": "add", "kind": "text", "container": "layout:A3-平面図", "position": [20, 10], "text": "1階平面図 S=1:100", "height": 5},
+            {"op": "add-layout", "name": "A1", "paperSize": [841, 594]}
+        ]"#,
+    )
+    .unwrap();
+    let doc = parse_dxf(&edited.bytes);
+    let layout = doc.layouts.iter().find(|layout| layout.name == "A3-平面図").unwrap();
+    assert_eq!(
+        (layout.paper_width, layout.paper_height, layout.paper_size.as_str()),
+        (420.0, 297.0, "ISO_A3_(420.00_x_297.00_MM)")
+    );
+    let second = doc.layouts.iter().find(|layout| layout.name == "A1").unwrap();
+    assert!(second.tab_order > layout.tab_order);
+    let scene = crate::dxf_to_scene(&doc, Some("A3-平面図"));
+    // ビューポートを通したモデルの線と、紙空間の文字
+    let kinds: Vec<&str> = scene.entities.iter().map(|entity| entity.kind.name()).collect();
+    assert!(kinds.contains(&"line") && kinds.contains(&"text"), "{kinds:?}");
+    let scales =
+        scene.metadata.iter().find(|property| property.key == "viewportScales").map(|property| property.value.clone());
+    assert_eq!(scales.as_deref(), Some("1:100"));
+    let sheet = scene.metadata.iter().find(|property| property.key == "sheet").unwrap();
+    assert!(sheet.value.contains("420×297"), "{}", sheet.value);
+    for (operations, code) in [
+        (r#"[{"op": "add-layout", "name": "Layout1", "paperSize": [420, 297]}]"#, "already-exists"),
+        (r#"[{"op": "add-layout", "name": "X"}]"#, "invalid-value"),
+        (
+            r#"[{"op": "add", "kind": "viewport", "center": [0, 0], "width": 1, "height": 1, "viewCenter": [0, 0]}]"#,
+            "invalid-value",
+        ),
+    ] {
+        assert_eq!(edit(&bytes, operations).unwrap_err().code, code, "{operations}");
+    }
+}
+
 /// ATTRIB は INSERT から独立した文字なので、定義の見た目を保ち、尺度を文字の両軸に掛ける。
 #[test]
 fn preserves_attribute_appearance_and_nonuniform_scaling() {
