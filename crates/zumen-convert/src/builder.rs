@@ -12,27 +12,29 @@ use zumen_dxf::{
 
 /// 図形を置く場所
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) enum Space {
+pub enum Space {
     Model,
     Paper,
+    /// 現在のレイアウトのほかの紙空間（*Paper_Space0 など。`layout_block` で作る）
+    Layout(String),
     Block(String),
 }
 
 /// 図形の色。ACI の番号と、トゥルーカラー（0xRRGGBB）
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct Color {
+pub struct Color {
     pub index: f64,
     pub true_color: Option<f64>,
 }
 
 /// ACI 7（前景色）。AutoCAD は背景が黒なら白、白なら黒で描く
-pub(crate) const FOREGROUND: Color = Color { index: 7.0, true_color: None };
-pub(crate) const BY_BLOCK: Color = Color { index: 0.0, true_color: None };
-pub(crate) const BY_LAYER: Color = Color { index: 256.0, true_color: None };
+pub const FOREGROUND: Color = Color { index: 7.0, true_color: None };
+pub const BY_BLOCK: Color = Color { index: 0.0, true_color: None };
+pub const BY_LAYER: Color = Color { index: 256.0, true_color: None };
 
 /// 線の太さ（370）の BYLAYER・BYBLOCK
-pub(crate) const LINEWEIGHT_BY_LAYER: f64 = -1.0;
-pub(crate) const LINEWEIGHT_BY_BLOCK: f64 = -2.0;
+pub const LINEWEIGHT_BY_LAYER: f64 = -1.0;
+pub const LINEWEIGHT_BY_BLOCK: f64 = -2.0;
 
 /// DXF で使える線の太さ（1/100 mm、DXF Reference「Common Group Codes for Entities」の 370）
 const LINEWEIGHTS: [f64; 24] = [
@@ -78,7 +80,7 @@ impl Color {
 
 /// 図形の共通の値
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct Look {
+pub struct Look {
     pub layer: String,
     pub color: Color,
     /// 線種の名前（Continuous・ByBlock・ByLayer か、線種の表の名前）
@@ -103,7 +105,7 @@ impl Look {
 
 /// DXF の名前（レイヤ・線種・文字スタイル・ブロック）に使えない文字（DXF Reference と ezdxf の
 /// INVALID_NAME_CHARACTERS、外部参照の区切りの |）と制御文字を _ にする。前後の空白は除く
-pub(crate) fn valid_name(name: &str) -> String {
+pub fn valid_name(name: &str) -> String {
     let name: String = name
         .trim()
         .chars()
@@ -153,7 +155,7 @@ fn font_file(family: &str) -> String {
     file.to_string()
 }
 
-pub(crate) struct Builder {
+pub struct Builder {
     pub doc: DxfDocument,
     next: u64,
     pub notices: NoticeList,
@@ -173,8 +175,8 @@ pub(crate) struct Builder {
 }
 
 /// 文字の既定のフォント（SXF 実装規約 1-3 の MS ゴシック）
-pub(crate) const DEFAULT_FONT: &str = "ＭＳ ゴシック";
-pub(crate) const VIEWPORT_LAYER: &str = "VIEWPORTS";
+pub const DEFAULT_FONT: &str = "ＭＳ ゴシック";
+pub const VIEWPORT_LAYER: &str = "VIEWPORTS";
 
 impl Builder {
     pub fn new() -> Self {
@@ -371,6 +373,31 @@ impl Builder {
         }
     }
 
+    /// 2 つ目からのレイアウトの紙空間のブロック（*Paper_Space0、*Paper_Space1 …）を加え、名前を返す
+    pub fn layout_block(&mut self) -> String {
+        let mut number = 0;
+        loop {
+            let name = format!("*Paper_Space{number}");
+            if !self.block_names.used.contains_key(&name.to_uppercase()) {
+                self.block_names.reserve(&name);
+                let (handle, record) = (self.handle(), self.handle());
+                self.doc.blocks.push(DxfBlock {
+                    handle,
+                    name: name.clone(),
+                    base_point: [0.0; 3],
+                    flags: 0.0,
+                    anonymous: false,
+                    layout: true,
+                    block_record_handle: Some(record),
+                    xref_path: None,
+                    description: None,
+                });
+                return name;
+            }
+            number += 1;
+        }
+    }
+
     fn push_block(&mut self, name: &str, anonymous: bool) {
         let (handle, record) = (self.handle(), self.handle());
         self.doc.blocks.push(DxfBlock {
@@ -404,6 +431,7 @@ impl Builder {
         let (space_kind, block) = match space {
             Space::Model => (DxfSpace::Model, None),
             Space::Paper => (DxfSpace::Paper, Some("*Paper_Space".to_string())),
+            Space::Layout(name) => (DxfSpace::Paper, Some(name.clone())),
             Space::Block(name) => (DxfSpace::Block, Some(name.clone())),
         };
         self.doc.entities.push(DxfEntity {
@@ -504,7 +532,7 @@ impl Builder {
 }
 
 /// 線の太さ（mm）を、DXF で使えるいちばん近い太さ（1/100 mm）にする。2 つ目の値は丸めたか
-pub(crate) fn lineweight(width: f64) -> (f64, bool) {
+pub fn lineweight(width: f64) -> (f64, bool) {
     if !width.is_finite() || width < 0.0 {
         return (0.0, true);
     }
@@ -517,12 +545,12 @@ pub(crate) fn lineweight(width: f64) -> (f64, bool) {
     (nearest, (nearest - hundredths).abs() > 1e-6)
 }
 
-pub(crate) fn xyz(point: Vec2) -> [f64; 3] {
+pub fn xyz(point: Vec2) -> [f64; 3] {
     [point[0], point[1], 0.0]
 }
 
 /// 開いた・閉じた LWPOLYLINE。bulges は頂点から次の頂点への弧の膨らみ
-pub(crate) fn lwpolyline(points: &[Vec2], bulges: Option<Vec<f64>>, closed: bool) -> DxfEntityData {
+pub fn lwpolyline(points: &[Vec2], bulges: Option<Vec<f64>>, closed: bool) -> DxfEntityData {
     DxfEntityData::LwPolyline(DxfLwPolyline {
         vertices: DxfVertexList {
             points: points.iter().map(|point| xyz(*point)).collect(),
@@ -537,7 +565,7 @@ pub(crate) fn lwpolyline(points: &[Vec2], bulges: Option<Vec<f64>>, closed: bool
 }
 
 /// ハッチングの多角形の境界（頂点と弧の膨らみ）。flags は 1 外側、0 中抜き
-pub(crate) fn polyline_path(points: &[Vec2], bulges: Option<Vec<f64>>, flags: f64) -> DxfHatchPath {
+pub fn polyline_path(points: &[Vec2], bulges: Option<Vec<f64>>, flags: f64) -> DxfHatchPath {
     DxfHatchPath {
         flags: flags + 2.0,
         closed: true,
@@ -547,7 +575,7 @@ pub(crate) fn polyline_path(points: &[Vec2], bulges: Option<Vec<f64>>, flags: f6
     }
 }
 
-pub(crate) fn solid_hatch(paths: Vec<DxfHatchPath>) -> DxfEntityData {
+pub fn solid_hatch(paths: Vec<DxfHatchPath>) -> DxfEntityData {
     DxfEntityData::Hatch(DxfHatch {
         pattern_name: "SOLID".into(),
         solid_fill: true,
@@ -571,7 +599,7 @@ pub(crate) fn solid_hatch(paths: Vec<DxfHatchPath>) -> DxfEntityData {
 
 /// 多角形を背景色で塗るワイプアウト（DXF Reference「WIPEOUT」）。画素の座標は ezdxf の
 /// Wipeout.set_masking_area と同じく、外接矩形を 1 画素とし、中心を原点、Y を下向きにする
-pub(crate) fn wipeout(points: &[Vec2]) -> DxfEntityData {
+pub fn wipeout(points: &[Vec2]) -> DxfEntityData {
     let (mut min, mut max) = ([f64::INFINITY; 2], [f64::NEG_INFINITY; 2]);
     for point in points {
         for axis in 0..2 {
@@ -596,13 +624,13 @@ pub(crate) fn wipeout(points: &[Vec2]) -> DxfEntityData {
 }
 
 /// 変換が長さを何倍にするか（0 や NaN なら 1）
-pub(crate) fn scale_of(m: &Matrix) -> f64 {
+pub fn scale_of(m: &Matrix) -> f64 {
     let scale = mean_scale(m);
     if scale.is_finite() && scale > 0.0 { scale } else { 1.0 }
 }
 
 /// 図面のモデルに、用紙のレイアウトを加える
-pub(crate) fn add_layouts(builder: &mut Builder, name: &str, size_name: &str, width: f64, height: f64) {
+pub fn add_layouts(builder: &mut Builder, name: &str, size_name: &str, width: f64, height: f64) {
     let model = builder.handle();
     let paper = builder.handle();
     let record = |builder: &Builder, block: &str| {

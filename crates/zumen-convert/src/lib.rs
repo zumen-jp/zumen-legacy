@@ -8,10 +8,12 @@
 //!   読み取りと同じ notices（種類ごとの件数）で返す。
 #![forbid(unsafe_code)]
 
-mod builder;
+/// モデルを組み立てる部品。作図キット（zumen-draft、決定 0018）も使う
+pub mod builder;
 mod jww;
 mod shapes;
-mod sheet;
+/// 用紙とビューポート（決定 0008）。作図キットも使う
+pub mod sheet;
 mod sxf;
 mod text;
 mod to_jww;
