@@ -68,3 +68,22 @@ pub fn read(reader: &ValueReader<'_>, index: usize) -> Result<Placement, EditErr
     let multiline = reader.bool("multiline")?.unwrap_or(false) || line_spacing.is_some();
     Ok(Placement { horizontal, vertical, attachment, line_spacing, multiline })
 }
+
+/// 幅の係数（widthFactor、TEXT の 41）。1 は省く
+pub fn width_factor(reader: &ValueReader<'_>) -> Result<Option<f64>, EditError> {
+    Ok(reader.positive("widthFactor")?.filter(|factor| *factor != 1.0))
+}
+
+/// MTEXT の内容の頭に幅の係数の書式（\W…;）を付ける。MTEXT には幅の係数の値がないため
+pub fn with_width_factor(content: String, factor: Option<f64>) -> String {
+    match factor {
+        Some(factor) => format!("\\W{};{content}", trim_number(factor)),
+        None => content,
+    }
+}
+
+fn trim_number(value: f64) -> String {
+    let text = format!("{value:.4}");
+    text.trim_end_matches('0').trim_end_matches('.').to_string()
+}
+

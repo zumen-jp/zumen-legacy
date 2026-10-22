@@ -722,7 +722,9 @@ fn places_text_by_justification_and_line_spacing() {
             {"op": "add", "kind": "text", "position": [100, 50], "text": "中央", "height": 5, "justification": "middle-center"},
             {"op": "add", "kind": "text", "position": [100, 50], "text": "右", "height": 5, "justification": "right"},
             {"op": "add", "kind": "text", "position": [10, 90], "text": "一行", "height": 3, "multiline": true, "justification": "top-left"},
-            {"op": "add", "kind": "text", "position": [10, 80], "text": "一\n二", "height": 3, "lineSpacing": 1.5}
+            {"op": "add", "kind": "text", "position": [10, 80], "text": "一\n二", "height": 3, "lineSpacing": 1.5},
+            {"op": "add", "kind": "text", "position": [10, 70], "text": "細い", "height": 3, "widthFactor": 0.8},
+            {"op": "add", "kind": "text", "position": [10, 60], "text": "細い\n二", "height": 3, "widthFactor": 0.75}
         ]"#,
     )
     .unwrap();
@@ -737,6 +739,11 @@ fn places_text_by_justification_and_line_spacing() {
     assert_eq!(top.attachment_point, 1.0);
     let DxfEntityData::MText(spaced) = get(3) else { panic!() };
     assert_eq!((spaced.attachment_point, spaced.line_spacing_factor), (7.0, 1.5));
+    // 幅の係数: TEXT は 41、MTEXT は内容の頭の \W
+    let DxfEntityData::Text(narrow) = get(4) else { panic!() };
+    assert_eq!(narrow.width, 0.8);
+    let DxfEntityData::MText(narrow) = get(5) else { panic!() };
+    assert!(narrow.raw_text.starts_with("\\W0.75;"), "{}", narrow.raw_text);
     // 中央に合わせた文字は、位置合わせの点をはさむ
     let scene = crate::dxf_to_scene(&doc, None);
     let centered = scene.entities.iter().find(|entity| entity.id == edited.created[0]).unwrap();

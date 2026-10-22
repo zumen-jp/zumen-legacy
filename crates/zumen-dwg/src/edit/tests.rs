@@ -777,7 +777,8 @@ fn adds_hatches_from_r14_on() {
 fn places_text_by_justification_in_every_version() {
     let operations = r#"[
         {"op": "add", "kind": "text", "position": [100, 50], "text": "中央", "height": 5, "justification": "middle-center"},
-        {"op": "add", "kind": "text", "position": [10, 90], "text": "一行", "height": 3, "multiline": true, "justification": "top-right", "lineSpacing": 1.5}
+        {"op": "add", "kind": "text", "position": [10, 90], "text": "一行", "height": 3, "multiline": true, "justification": "top-right", "lineSpacing": 1.5},
+        {"op": "add", "kind": "text", "position": [10, 70], "text": "細い", "height": 3, "widthFactor": 0.8}
     ]"#;
     let mut versions: Vec<(String, Vec<u8>)> =
         crate::DwgVersion::ALL.iter().map(|version| (version.name().to_string(), written_as(*version))).collect();
@@ -794,6 +795,8 @@ fn places_text_by_justification_in_every_version() {
         let old = matches!(name.as_str(), "R13" | "R14");
         assert_eq!((top.attachment_point, top.line_spacing_factor), (3.0, if old { 1.0 } else { 1.5 }), "{name}");
         assert_eq!(edited.notices.iter().any(|notice| notice.code == "edit-no-line-spacing"), old, "{name}");
+        let DxfEntityData::Text(narrow) = &entity(&doc, &edited.created[2]).unwrap().data else { panic!("{name}") };
+        assert_eq!(narrow.width, 0.8, "{name}");
     }
 }
 

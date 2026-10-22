@@ -1181,10 +1181,11 @@ impl<'a> Editor<'a> {
                 self.polyline_records(index, &place, &common, &vertices, &bulges, closed, width, &version)?
             }
             "text" => {
-                let mut own = vec!["position", "text", "height", "rotation", "textStyle", "wrapWidth"];
+                let mut own = vec!["position", "text", "height", "rotation", "textStyle", "wrapWidth", "widthFactor"];
                 own.extend(placement::KEYS);
                 reader.allow(&keys(&own), "文字")?;
                 let placement = placement::read(&reader, index)?;
+                let width_factor = placement::width_factor(&reader)?;
                 let position = reader.required("position", reader.point("position")?)?;
                 let text = reader.required("text", reader.text("text")?)?;
                 let height = reader.required("height", reader.positive("height")?)?;
@@ -1209,7 +1210,7 @@ impl<'a> Editor<'a> {
                         .real(41, wrap.unwrap_or(0.0))
                         .int(71, placement.attachment)
                         .int(72, 1);
-                    let content = mtext_content(text);
+                    let content = placement::with_width_factor(mtext_content(text), width_factor);
                     let chunks = chunks(&content, 250);
                     for chunk in &chunks[..chunks.len() - 1] {
                         record.tag(3, chunk.clone());
@@ -1238,6 +1239,9 @@ impl<'a> Editor<'a> {
                     record.point(10, position, true).real(40, height).tag(1, text.to_string());
                     if rotation != 0.0 {
                         record.real(50, rotation);
+                    }
+                    if let Some(factor) = width_factor {
+                        record.real(41, factor);
                     }
                     if let Some(style) = style {
                         record.tag(7, style);

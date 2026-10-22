@@ -1009,10 +1009,11 @@ impl Editor {
                 (self.lwpolyline_kind(index)?, build::lwpolyline(&vertices, &bulges, closed, width))
             }
             "text" => {
-                let mut own = vec!["position", "text", "height", "rotation", "textStyle", "wrapWidth"];
+                let mut own = vec!["position", "text", "height", "rotation", "textStyle", "wrapWidth", "widthFactor"];
                 own.extend(zumen_dxf::placement::KEYS);
                 reader.allow(&keys(&own), "文字")?;
                 let placement = zumen_dxf::placement::read(&reader, index)?;
+                let width_factor = zumen_dxf::placement::width_factor(&reader)?;
                 let position = reader.required("position", reader.point("position")?)?;
                 let text = reader.required("text", reader.text("text")?)?;
                 let height = reader.required("height", reader.positive("height")?)?;
@@ -1020,7 +1021,8 @@ impl Editor {
                 let style = self.text_style(index, reader.name("textStyle")?)?.unwrap_or_else(|| self.default_style());
                 let wrap = reader.number("wrapWidth")?;
                 if text.contains('\n') || wrap.is_some() || placement.multiline {
-                    let content = self.raw_text(&mtext_content(text));
+                    let content =
+                        self.raw_text(&zumen_dxf::placement::with_width_factor(mtext_content(text), width_factor));
                     let attachment = placement.attachment as i16;
                     let mut body =
                         build::mtext(self.version, position, content, height, rotation, wrap, style, attachment);
@@ -1039,6 +1041,9 @@ impl Editor {
                 } else {
                     let value = self.raw_text(text);
                     let mut body = build::text(position, value, height, rotation, style);
+                    if let Body::Text(text) = &mut body {
+                        text.width = width_factor;
+                    }
                     if let Body::Text(text) = &mut body
                         && placement.aligned()
                     {

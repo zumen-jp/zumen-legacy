@@ -455,7 +455,8 @@ stay, and an edit without operations gives the same bytes.
   `top-`, `middle-` and `bottom-` with `left`, `center` and `right`), `lineSpacing` (a factor from 0.25 to 4) and
   `multiline` (`true` writes MTEXT for one line). TEXT gets 72 and 73 with the alignment point 11 at `position`;
   MTEXT gets the attachment 71 (baseline justifications become the bottom row) and, from AutoCAD 2000 on, 73 = 1 and
-  44 (`edit-no-line-spacing` before). `lineSpacing` makes MTEXT.
+  44 (`edit-no-line-spacing` before). `lineSpacing` makes MTEXT. `widthFactor` (the width of the characters, 1 by
+  default) is 41 of TEXT; MTEXT has no width factor value, so it starts with the `\W<factor>;` code.
 - **Attributes**: `kind: "attribute-definition"` in a block (`container: "block:<name>"`, `invalid-value`
   elsewhere) with `tag` (no spaces, written in capitals, as AutoCAD keeps it), `prompt`, `text` (the default
   value), `position`, `height`, `rotation`, `textStyle` and `justification` writes an ATTDEF and sets bit 2 (has

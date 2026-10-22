@@ -26,7 +26,8 @@ All packages share one version during 0.x.
   to 2018): closed polyline boundaries with holes, `SOLID`, built-in patterns (`ANSI31`, `ANSI32`, `ANSI37`, `LINE`,
   `NET`, `DOTS`) or the lines of a PAT pattern.
 - Rust, Python and the command line: `text` takes `justification` (`top-left` … `bottom-right`, and `left`,
-  `center`, `right` on the baseline), `lineSpacing` and `multiline` in DXF and DWG, for text placed in table cells.
+  `center`, `right` on the baseline), `lineSpacing`, `multiline` and `widthFactor` in DXF and DWG, for text placed in
+  table cells.
 - Rust, Python and the command line: block attributes in DXF and DWG: `kind: "attribute-definition"` in a block and
   `attributes: {"TAG": "value"}` on `block-reference`, which writes the ATTRIBs, for title blocks.
 - Rust, Python and the command line: sheets in DXF and DWG (AutoCAD 2000 and later): `add-layout` with a paper size
