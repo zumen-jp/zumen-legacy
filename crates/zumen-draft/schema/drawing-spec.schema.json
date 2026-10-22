@@ -5,9 +5,7 @@
   "description": "A drawing for zumen::draft (decision 0018). View items are model coordinates in real millimeters; sheet items are paper millimeters; sizes (text heights, arrows, table widths, hatch spacing) are always paper millimeters.",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "sheets"
-  ],
+  "required": ["sheets"],
   "properties": {
     "units": {
       "const": "mm"
@@ -100,12 +98,7 @@
       ]
     },
     "endMark": {
-      "enum": [
-        "arrow",
-        "tick",
-        "dot",
-        "none"
-      ]
+      "enum": ["arrow", "tick", "dot", "none"]
     },
     "defaults": {
       "type": "object",
@@ -150,9 +143,7 @@
     "layer": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "name"
-      ],
+      "required": ["name"],
       "properties": {
         "name": {
           "type": "string"
@@ -182,10 +173,7 @@
     "lineType": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "name",
-        "pattern"
-      ],
+      "required": ["name", "pattern"],
       "properties": {
         "name": {
           "type": "string"
@@ -207,10 +195,7 @@
     "attribute": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "tag",
-        "at"
-      ],
+      "required": ["tag", "at"],
       "properties": {
         "tag": {
           "type": "string"
@@ -242,9 +227,7 @@
     "block": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "name"
-      ],
+      "required": ["name"],
       "properties": {
         "name": {
           "type": "string"
@@ -266,9 +249,7 @@
     "sheet": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "name"
-      ],
+      "required": ["name"],
       "properties": {
         "name": {
           "type": "string",
@@ -284,18 +265,7 @@
         "paper": {
           "oneOf": [
             {
-              "enum": [
-                "A0",
-                "A1",
-                "A2",
-                "A3",
-                "A4",
-                "B1",
-                "B2",
-                "B3",
-                "B4",
-                "B5"
-              ]
+              "enum": ["A0", "A1", "A2", "A3", "A4", "B1", "B2", "B3", "B4", "B5"]
             },
             {
               "type": "array",
@@ -309,10 +279,7 @@
           ]
         },
         "orientation": {
-          "enum": [
-            "landscape",
-            "portrait"
-          ]
+          "enum": ["landscape", "portrait"]
         },
         "frame": {
           "$ref": "#/$defs/frame"
@@ -345,15 +312,10 @@
         "titleBlock": {
           "type": "object",
           "additionalProperties": false,
-          "required": [
-            "rows"
-          ],
+          "required": ["rows"],
           "properties": {
             "placement": {
-              "enum": [
-                "right",
-                "bottom-right"
-              ]
+              "enum": ["right", "bottom-right"]
             },
             "width": {
               "type": "number",
@@ -396,9 +358,7 @@
     "viewTitle": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "text"
-      ],
+      "required": ["text"],
       "properties": {
         "number": {
           "type": "string"
@@ -421,10 +381,7 @@
     "view": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "scale",
-        "viewport"
-      ],
+      "required": ["scale", "viewport"],
       "properties": {
         "name": {
           "type": "string"
@@ -532,10 +489,7 @@
     "axis": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "label",
-        "at"
-      ],
+      "required": ["label", "at"],
       "properties": {
         "label": {
           "type": "string"
@@ -548,11 +502,7 @@
     "item.line": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "type",
-        "from",
-        "to"
-      ],
+      "required": ["type", "from", "to"],
       "properties": {
         "type": {
           "const": "line"
@@ -582,10 +532,7 @@
     "item.polyline": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "type",
-        "points"
-      ],
+      "required": ["type", "points"],
       "properties": {
         "type": {
           "const": "polyline"
@@ -625,11 +572,7 @@
     "item.rectangle": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "type",
-        "from",
-        "to"
-      ],
+      "required": ["type", "from", "to"],
       "properties": {
         "type": {
           "const": "rectangle"
@@ -662,11 +605,7 @@
     "item.circle": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "type",
-        "center",
-        "radius"
-      ],
+      "required": ["type", "center", "radius"],
       "properties": {
         "type": {
           "const": "circle"
@@ -699,13 +638,7 @@
     "item.arc": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "type",
-        "center",
-        "radius",
-        "start",
-        "end"
-      ],
+      "required": ["type", "center", "radius", "start", "end"],
       "properties": {
         "type": {
           "const": "arc"
@@ -741,12 +674,7 @@
     "item.ellipse": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "type",
-        "center",
-        "majorAxis",
-        "ratio"
-      ],
+      "required": ["type", "center", "majorAxis", "ratio"],
       "properties": {
         "type": {
           "const": "ellipse"
@@ -785,10 +713,7 @@
     "item.point": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "type",
-        "at"
-      ],
+      "required": ["type", "at"],
       "properties": {
         "type": {
           "const": "point"
@@ -815,11 +740,7 @@
     "item.text": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "type",
-        "at",
-        "text"
-      ],
+      "required": ["type", "at", "text"],
       "properties": {
         "type": {
           "const": "text"
@@ -875,10 +796,7 @@
     "item.hatch": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "type",
-        "boundaries"
-      ],
+      "required": ["type", "boundaries"],
       "properties": {
         "type": {
           "const": "hatch"
@@ -930,11 +848,7 @@
     "item.dimension": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "type",
-        "from",
-        "to"
-      ],
+      "required": ["type", "from", "to"],
       "properties": {
         "type": {
           "const": "dimension"
@@ -954,10 +868,7 @@
           "maximum": 2.11
         },
         "kind": {
-          "enum": [
-            "linear",
-            "aligned"
-          ]
+          "enum": ["linear", "aligned"]
         },
         "from": {
           "$ref": "#/$defs/point"
@@ -1006,10 +917,7 @@
     "item.dimensionChain": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "type",
-        "points"
-      ],
+      "required": ["type", "points"],
       "properties": {
         "type": {
           "const": "dimensionChain"
@@ -1075,11 +983,7 @@
     "item.insert": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "type",
-        "block",
-        "at"
-      ],
+      "required": ["type", "block", "at"],
       "properties": {
         "type": {
           "const": "insert"
@@ -1120,11 +1024,7 @@
         "attributes": {
           "type": "object",
           "additionalProperties": {
-            "type": [
-              "string",
-              "number",
-              "null"
-            ]
+            "type": ["string", "number", "null"]
           }
         }
       }
@@ -1132,12 +1032,7 @@
     "item.table": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "type",
-        "at",
-        "columns",
-        "cells"
-      ],
+      "required": ["type", "at", "columns", "cells"],
       "properties": {
         "type": {
           "const": "table"
@@ -1181,12 +1076,7 @@
             "items": {
               "oneOf": [
                 {
-                  "type": [
-                    "string",
-                    "number",
-                    "boolean",
-                    "null"
-                  ]
+                  "type": ["string", "number", "boolean", "null"]
                 },
                 {
                   "type": "object",
@@ -1241,11 +1131,7 @@
           }
         },
         "fit": {
-          "enum": [
-            "shrink",
-            "wrap",
-            "none"
-          ]
+          "enum": ["shrink", "wrap", "none"]
         },
         "outerWidth": {
           "type": "number"
@@ -1258,9 +1144,7 @@
     "item.grid": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "type"
-      ],
+      "required": ["type"],
       "properties": {
         "type": {
           "const": "grid"
@@ -1301,12 +1185,7 @@
           "type": "number"
         },
         "bubbles": {
-          "enum": [
-            "start",
-            "end",
-            "both",
-            "none"
-          ]
+          "enum": ["start", "end", "both", "none"]
         },
         "dimensions": {
           "type": "boolean"
@@ -1340,10 +1219,7 @@
     "item.northArrow": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "type",
-        "at"
-      ],
+      "required": ["type", "at"],
       "properties": {
         "type": {
           "const": "northArrow"
@@ -1379,11 +1255,7 @@
     "item.scaleBar": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "type",
-        "at",
-        "length"
-      ],
+      "required": ["type", "at", "length"],
       "properties": {
         "type": {
           "const": "scaleBar"
@@ -1413,10 +1285,7 @@
           "minimum": 1
         },
         "unit": {
-          "enum": [
-            "m",
-            "mm"
-          ]
+          "enum": ["m", "mm"]
         },
         "height": {
           "type": "number"
@@ -1426,11 +1295,7 @@
     "item.levelMark": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "type",
-        "at",
-        "text"
-      ],
+      "required": ["type", "at", "text"],
       "properties": {
         "type": {
           "const": "levelMark"
@@ -1469,11 +1334,7 @@
     "item.spotLevel": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "type",
-        "at",
-        "text"
-      ],
+      "required": ["type", "at", "text"],
       "properties": {
         "type": {
           "const": "spotLevel"
@@ -1506,11 +1367,7 @@
     "item.leader": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "type",
-        "points",
-        "text"
-      ],
+      "required": ["type", "points", "text"],
       "properties": {
         "type": {
           "const": "leader"
@@ -1549,10 +1406,7 @@
     "item.polygonLabel": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "type",
-        "points"
-      ],
+      "required": ["type", "points"],
       "properties": {
         "type": {
           "const": "polygonLabel"
@@ -1578,20 +1432,14 @@
           "type": "boolean"
         },
         "unit": {
-          "enum": [
-            "m",
-            "mm"
-          ]
+          "enum": ["m", "mm"]
         },
         "precision": {
           "type": "integer",
           "minimum": 0
         },
         "area": {
-          "type": [
-            "boolean",
-            "string"
-          ]
+          "type": ["boolean", "string"]
         },
         "areaPrecision": {
           "type": "integer",
@@ -1611,11 +1459,7 @@
     "item.viewTitle": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "type",
-        "text",
-        "at"
-      ],
+      "required": ["type", "text", "at"],
       "properties": {
         "type": {
           "const": "viewTitle"
@@ -1654,10 +1498,7 @@
     "item.group": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "type",
-        "items"
-      ],
+      "required": ["type", "items"],
       "properties": {
         "type": {
           "const": "group"
