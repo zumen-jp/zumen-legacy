@@ -626,3 +626,95 @@ fn adds_block_definitions_in_every_version() {
     assert!(crate::read_dwg(&edited.bytes).unwrap().blocks.iter().any(|block| block.name == "N"));
     assert_eq!(edit(&empty, r#"[{"op": "add-block", "name": "*D1"}]"#).unwrap_err().code, "invalid-value");
 }
+
+/// 寸法を足す（docs/decisions/0017）。どの版の図面でも、寸法とその表示のブロック（*D…）を読み直して描け、寸法値は
+/// 計測値
+#[test]
+fn adds_dimensions_in_every_version() {
+    let operations = r#"[
+        {"op": "add", "kind": "dimension", "start": [0, 0], "end": [50, 5], "position": [0, -20]},
+        {"op": "add", "kind": "dimension", "dimensionType": "aligned", "start": [0, 0], "end": [30, 40], "position": [-10, 10], "text": "A=<>"},
+        {"op": "add", "kind": "dimension", "start": [0, 0], "end": [0, 27], "position": [-9, 0], "rotation": 90, "container": "block:BOX"}
+    ]"#;
+    let mut versions: Vec<(String, Vec<u8>)> =
+        crate::DwgVersion::ALL.iter().map(|version| (version.name().to_string(), written_as(*version))).collect();
+    versions.push(("new".into(), new_dwg("mm").unwrap()));
+    for (name, bytes) in versions {
+        let operations =
+            if name == "new" { operations.replace(r#", "container": "block:BOX""#, "") } else { operations.into() };
+        let edited = edit(&bytes, &operations).unwrap_or_else(|error| panic!("{name}: {error}"));
+        check_structure(&name, &edited.bytes);
+        let doc = crate::read_dwg(&edited.bytes).unwrap_or_else(|error| panic!("{name}: {error}"));
+        let measurements: Vec<Option<f64>> = edited
+            .created
+            .iter()
+            .map(|handle| {
+                let DxfEntityData::Dimension(dimension) =
+                    &entity(&doc, handle).unwrap_or_else(|| panic!("{name}")).data
+                else {
+                    panic!("{name}: {handle} is not a dimension")
+                };
+                let block = doc
+                    .entities
+                    .iter()
+                    .filter(|entity| entity.base.block.as_deref() == Some(dimension.anonymous_block_name.as_str()));
+                assert!(block.count() >= 7, "{name}: {} has too few entities", dimension.anonymous_block_name);
+                dimension.actual_measurement
+            })
+            .collect();
+        // 計測値（42）は R2000 から
+        let expected =
+            if matches!(name.as_str(), "R13" | "R14") { [None; 3] } else { [Some(50.0), Some(50.0), Some(27.0)] };
+        assert_eq!(measurements, expected, "{name}");
+        let scene = zumen_dxf::dxf_to_scene(&doc, None);
+        for handle in &edited.created[..2] {
+            let drawn = scene.entities.iter().find(|entity| &entity.id == handle).unwrap_or_else(|| panic!("{name}"));
+            assert_eq!(drawn.kind.name(), "dimension", "{name}");
+            assert!(!drawn.primitives.is_empty(), "{name}: {handle} draws nothing");
+        }
+        let mtext = doc
+            .entities
+            .iter()
+            .find_map(|entity| match &entity.data {
+                DxfEntityData::MText(text)
+                    if entity.base.block.as_deref().is_some_and(|block| block.starts_with("*D")) =>
+                {
+                    Some(text.raw_text.clone())
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("{name}"));
+        assert!(mtext.starts_with("50"), "{name}: {mtext}");
+    }
+}
+
+#[test]
+fn reports_approximated_jis_dimension_text_position() {
+    let bytes = new_dwg("mm").unwrap();
+    let mut notices = NoticeList::new();
+    let source = Source::open(&bytes, &mut notices).unwrap();
+    let mut editor = Editor::new(source, notices).unwrap();
+    let handle = editor.dimstyles["STANDARD"];
+    let mut style = editor.read(handle, |s, _| DimStyle::read(s)).unwrap();
+    let value = style.value.values.iter_mut().find(|(key, _)| *key == "DIMTAD").unwrap();
+    value.1 = DimValue::Short(3);
+    let kind = style.kind;
+    editor.store(handle, kind, &style.eed, |out| style.value.write(out));
+    let bytes = editor.finish().bytes;
+    let edited =
+        edit(&bytes, r#"[{"op":"add","kind":"dimension","start":[0,0],"end":[1000,0],"position":[0,-100]}]"#).unwrap();
+    assert!(edited.notices.iter().any(|notice| notice.code == "edit-dimension-text-position" && notice.count == 1));
+}
+
+#[test]
+fn exhausted_dimension_block_names_fail_without_overflowing() {
+    let bytes = new_dwg("mm").unwrap();
+    let mut notices = NoticeList::new();
+    let source = Source::open(&bytes, &mut notices).unwrap();
+    let mut editor = Editor::new(source, notices).unwrap();
+    editor.create_block(0, "*D18446744073709551615", [0.0; 3], true).unwrap();
+    let bytes = editor.finish().bytes;
+    let error =
+        edit(&bytes, r#"[{"op":"add","kind":"dimension","start":[0,0],"end":[10,0],"position":[0,5]}]"#).unwrap_err();
+    assert_eq!((error.code, error.operation), ("name-exhausted", Some(0)));
+}

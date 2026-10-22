@@ -4,7 +4,7 @@
 use crate::bits::HandleRef;
 use crate::codec::RawText;
 use crate::codec::entities::{
-    Arc, Body, Circle, Ellipse, Insert, Line, LwPolyline, MText, MTextRedundant, Point, Text,
+    Arc, Body, Circle, Ellipse, Insert, Line, LwPolyline, MText, MTextRedundant, Point, Solid, Text,
 };
 use crate::file::Version;
 use crate::write::drawing::{rad, rad_pair};
@@ -175,7 +175,9 @@ pub(super) fn move_text(text: &mut Text, position: [f64; 3]) {
     text.elevation = (position[2] != 0.0).then_some(position[2]);
 }
 
-/// MTEXT（20.4.46）。左下に配置（7）、左から右へ（1）、行間は倍率 1（DXF の編集と同じ）
+/// MTEXT（20.4.46）。attachment は配置（文字は 7 の左下、寸法の文字は 5 の中央）、左から右へ（1）、行間は倍率 1
+/// （DXF の編集と同じ）
+#[allow(clippy::too_many_arguments)]
 pub(super) fn mtext(
     version: Version,
     position: [f64; 3],
@@ -184,6 +186,7 @@ pub(super) fn mtext(
     rotation: f64,
     wrap: Option<f64>,
     style: u64,
+    attachment: i16,
 ) -> Body {
     let (sin, cos) = rad(rotation).sin_cos();
     let direction = if rotation == 0.0 { [1.0, 0.0, 0.0] } else { [cos, sin, 0.0] };
@@ -195,7 +198,7 @@ pub(super) fn mtext(
         rect_width,
         rect_height: Some(0.0),
         char_height: height,
-        attachment: 7,
+        attachment,
         drawing_direction: 1,
         extents_height: 0.0,
         extents_width: 0.0,
@@ -215,7 +218,7 @@ pub(super) fn mtext(
             version: 4,
             default_flag: true,
             registered_app: href(5, 0),
-            attachment: 7,
+            attachment: i32::from(attachment),
             direction,
             insert: position,
             rect_width,
@@ -279,5 +282,16 @@ pub(super) fn insert(position: [f64; 3], scale: [f64; 3], rotation: f64, block: 
         attributes: Vec::new(),
         first_last: None,
         seqend: None,
+    })
+}
+
+/// SOLID（20.4.35）。三角形は 4 つ目の角を 3 つ目と同じにする（DXF の SOLID と同じ）
+pub(super) fn solid(corners: [[f64; 3]; 3]) -> Body {
+    let xy = |point: [f64; 3]| [point[0], point[1]];
+    Body::Solid(Solid {
+        thickness: 0.0,
+        elevation: corners[0][2],
+        corners: [xy(corners[0]), xy(corners[1]), xy(corners[2]), xy(corners[2])],
+        extrusion: Z,
     })
 }
