@@ -839,7 +839,7 @@ fn adds_layouts_with_viewports_at_a_scale() {
             {"op": "add-layout", "name": "A3-平面図", "paperSize": [420, 297]},
             {"op": "add", "kind": "viewport", "container": "layout:A3-平面図", "center": [210, 148.5], "width": 380, "height": 257, "viewCenter": [5000, 4000], "scale": 100},
             {"op": "add", "kind": "text", "container": "layout:A3-平面図", "position": [20, 10], "text": "1階平面図 S=1:100", "height": 5},
-            {"op": "add-layout", "name": "A1", "paperSize": [841, 594]}
+            {"op": "add-layout", "name": "A1", "paperSize": [841, 594], "margins": [1, 2, 3, 4]}
         ]"#,
     )
     .unwrap();
@@ -851,6 +851,7 @@ fn adds_layouts_with_viewports_at_a_scale() {
     );
     let second = doc.layouts.iter().find(|layout| layout.name == "A1").unwrap();
     assert!(second.tab_order > layout.tab_order);
+    assert_eq!(second.margins, [1.0, 2.0, 3.0, 4.0]);
     let scene = crate::dxf_to_scene(&doc, Some("A3-平面図"));
     // ビューポートを通したモデルの線と、紙空間の文字
     let kinds: Vec<&str> = scene.entities.iter().map(|entity| entity.kind.name()).collect();
@@ -863,6 +864,7 @@ fn adds_layouts_with_viewports_at_a_scale() {
     for (operations, code) in [
         (r#"[{"op": "add-layout", "name": "Layout1", "paperSize": [420, 297]}]"#, "already-exists"),
         (r#"[{"op": "add-layout", "name": "X"}]"#, "invalid-value"),
+        (r#"[{"op": "add-layout", "name": "X", "paperSize": [420, 297], "margins": [0, 0, -1, 0]}]"#, "invalid-value"),
         (
             r#"[{"op": "add", "kind": "viewport", "center": [0, 0], "width": 1, "height": 1, "viewCenter": [0, 0]}]"#,
             "invalid-value",

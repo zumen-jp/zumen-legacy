@@ -711,7 +711,7 @@ drawing with `write_dwg` (`$INSUNITS` and `$MEASUREMENT` from the units), which 
 - **Layouts and viewports** (R2000 and later): `add-layout` copies a LAYOUT object (20.4.84) of the drawing with the
   new name, tab order, paper and limits, a new BLOCK_HEADER (named `*Paper_Space`, as every paper space is, with the
   layout's handle; its BLOCK is `*Paper_Space<n>`) and the viewport of the whole sheet, the first in the block, and
-  adds it to `ACAD_LAYOUT`. `viewport` writes a VIEWPORT (20.4.37) with the values of the DXF editor and joins the
+  adds it to `ACAD_LAYOUT`; `margins` sets the margins of the LAYOUT as in the DXF editor. `viewport` writes a VIEWPORT (20.4.37) with the values of the DXF editor and joins the
   layout's viewport list (R2004 and later). R2000 keeps a VIEWPORT ENTITY HEADER for the viewports of the active
   paper space, so a viewport can be added there only from R2004 on; layouts added by the edit take them in R2000 too.
 - **Leaders**: `leader` writes the annotation MTEXT and a LEADER (20.4.47) that points to it, with the values of the

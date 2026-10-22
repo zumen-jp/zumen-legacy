@@ -151,7 +151,7 @@ def edit(
     ``add-line-type`` and ``add-dimension-style``, and ``"kind": "hatch"`` (``boundaries``, ``pattern``,
     ``patternScale``, ``patternAngle``, ``patternLines``); ``text`` takes ``justification``, ``lineSpacing``,
     ``multiline`` and ``widthFactor``; ``"kind": "attribute-definition"`` goes in a block and ``block-reference`` takes ``attributes``
-    (``{"TAG": "value"}``); ``add-layout`` (``paperSize`` in mm) and ``"kind": "viewport"`` in ``"container":
+    (``{"TAG": "value"}``); ``add-layout`` (``paperSize`` and ``margins`` in mm) and ``"kind": "viewport"`` in ``"container":
     "layout:<name>"`` (``center``, ``width``, ``height``, ``viewCenter``, ``scale``) make sheets; ``"kind": "leader"`` (``vertices``, ``text``, ``height``,
     ``dimensionStyle``) adds a leader with its note. Kinds and keys are the ones that ``Scene``
     reports (``kind`` and the property keys), and coordinates are the drawing's own (the ``raw`` of properties), not

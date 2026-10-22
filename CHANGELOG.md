@@ -31,7 +31,7 @@ All packages share one version during 0.x.
 - Rust, Python and the command line: block attributes in DXF and DWG: `kind: "attribute-definition"` in a block and
   `attributes: {"TAG": "value"}` on `block-reference`, which writes the ATTRIBs, for title blocks.
 - Rust, Python and the command line: sheets in DXF and DWG (AutoCAD 2000 and later): `add-layout` with a paper size
-  and `kind: "viewport"` in it, showing model space at a scale such as 1:100.
+  and `kind: "viewport"` in it, showing model space at a scale such as 1:100. `margins` sets the printer margins.
 - Rust, Python and the command line: `kind: "leader"` in DXF and DWG, a LEADER with an MTEXT note sized from the
   dimension style.
 

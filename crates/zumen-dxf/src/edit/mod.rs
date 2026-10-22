@@ -2452,13 +2452,22 @@ impl<'a> Editor<'a> {
             return Err(EditError::at(index, "already-exists", format!("レイアウト {name} はすでにあります")));
         }
         let reader = ValueReader::new(values, index);
-        reader.allow(&["paperSize"], "レイアウト")?;
+        reader.allow(&["paperSize", "margins"], "レイアウト")?;
         let paper = reader.required("paperSize", reader.numbers("paperSize", 2)?)?;
         if paper[0] <= 0.0 || paper[1] <= 0.0 {
             return Err(EditError::at(
                 index,
                 "invalid-value",
                 "paperSize は 0 より大きい [幅, 高さ]（mm）にしてください",
+            ));
+        }
+        // 用紙の余白（左・下・右・上、mm）。省略すると写したレイアウトのまま
+        let margins = reader.numbers("margins", 4)?;
+        if margins.as_ref().is_some_and(|margins| margins.iter().any(|margin| *margin < 0.0)) {
+            return Err(EditError::at(
+                index,
+                "invalid-value",
+                "margins は 0 以上の [左, 下, 右, 上]（mm）にしてください",
             ));
         }
         let unreadable = || EditError::at(index, "unreadable", "図面のレイアウト（LAYOUT）と OBJECTS の節が読めません");
@@ -2526,6 +2535,9 @@ impl<'a> Editor<'a> {
                 4 if at < start => Tag::new(4, paper_name(paper[0], paper[1])),
                 44 if at < start => Tag::new(44, real(paper[0])),
                 45 if at < start => Tag::new(45, real(paper[1])),
+                40..=43 if at < start && margins.is_some() => {
+                    Tag::new(tag.code, real(margins.as_ref().map_or(0.0, |margins| margins[(tag.code - 40) as usize])))
+                }
                 1 if at > start => Tag::new(1, name),
                 71 if at > start => Tag::new(71, (tab as i64).to_string()),
                 11 if at > start => Tag::new(11, real(paper[0])),

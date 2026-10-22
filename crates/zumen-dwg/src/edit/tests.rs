@@ -849,7 +849,7 @@ fn adds_attributes_in_every_version() {
 fn adds_layouts_with_viewports_from_r2000_on() {
     let operations = r#"[
         {"op": "add", "kind": "line", "start": [0, 0], "end": [10000, 8000]},
-        {"op": "add-layout", "name": "A3-平面図", "paperSize": [420, 297]},
+        {"op": "add-layout", "name": "A3-平面図", "paperSize": [420, 297], "margins": [0, 0, 0, 0]},
         {"op": "add", "kind": "viewport", "container": "layout:A3-平面図", "center": [210, 148.5], "width": 380, "height": 257, "viewCenter": [5000, 4000], "scale": 100},
         {"op": "add", "kind": "text", "container": "layout:A3-平面図", "position": [20, 10], "text": "1階平面図", "height": 5}
     ]"#;
@@ -867,6 +867,7 @@ fn adds_layouts_with_viewports_from_r2000_on() {
         let doc = crate::read_dwg(&edited.bytes).unwrap_or_else(|error| panic!("{name}: {error}"));
         let layout = doc.layouts.iter().find(|layout| layout.name == "A3-平面図").unwrap_or_else(|| panic!("{name}"));
         assert_eq!((layout.paper_width, layout.paper_height), (420.0, 297.0), "{name}");
+        assert_eq!(layout.margins, [0.0; 4], "{name}");
         let scene = zumen_dxf::dxf_to_scene(&doc, Some("A3-平面図"));
         let kinds: Vec<&str> = scene.entities.iter().map(|entity| entity.kind.name()).collect();
         assert!(kinds.contains(&"line") && kinds.contains(&"text"), "{name}: {kinds:?}");

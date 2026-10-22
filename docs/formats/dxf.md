@@ -470,6 +470,8 @@ stay, and an edit without operations gives the same bytes.
   there is one) with the new name, the next tab order, the paper size and name (`ISO_A3_(420.00_x_297.00_MM)` for the
   A sizes, else empty), limits and a new paper space block `*Paper_Space<n>` (its BLOCK_RECORD's 340 is the layout),
   adds it to the `ACAD_LAYOUT` dictionary, and puts the viewport of the whole sheet (69 = 1) in the block.
+  `margins` (`[left, bottom, right, top]` in millimeters, 40 to 43) sets the printer margins, which move the origin of
+  the sheet; without it the copied layout's margins stay.
   `kind: "viewport"` in `container: "layout:<name>"` takes `center`, `width` and `height` on the sheet (mm),
   `viewCenter` in model coordinates and `scale`, the denominator of the scale (1:100 is `100`): the view height is
   `height × scale` converted from millimeters to the drawing's `$INSUNITS` (unitless counts as millimeters). Its id

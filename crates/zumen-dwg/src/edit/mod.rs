@@ -1299,13 +1299,22 @@ impl Editor {
             return Err(EditError::at(index, "already-exists", format!("レイアウト {name} はすでにあります")));
         }
         let reader = ValueReader::new(values, index);
-        reader.allow(&["paperSize"], "レイアウト")?;
+        reader.allow(&["paperSize", "margins"], "レイアウト")?;
         let paper = reader.required("paperSize", reader.numbers("paperSize", 2)?)?;
         if paper[0] <= 0.0 || paper[1] <= 0.0 {
             return Err(EditError::at(
                 index,
                 "invalid-value",
                 "paperSize は 0 より大きい [幅, 高さ]（mm）にしてください",
+            ));
+        }
+        // 用紙の余白（左・下・右・上、mm）。省略すると写したレイアウトのまま
+        let margins = reader.numbers("margins", 4)?;
+        if margins.as_ref().is_some_and(|margins| margins.iter().any(|margin| *margin < 0.0)) {
+            return Err(EditError::at(
+                index,
+                "invalid-value",
+                "margins は 0 以上の [左, 下, 右, 上]（mm）にしてください",
             ));
         }
         let unreadable =
@@ -1363,6 +1372,9 @@ impl Editor {
         layout.tab_order = tab;
         layout.plot_flags = 0;
         layout.paper = [paper[0], paper[1]];
+        if let Some(margins) = &margins {
+            layout.margins = [margins[0], margins[1], margins[2], margins[3]];
+        }
         layout.paper_size = self.raw_text(&zumen_dxf::paper_name(paper[0], paper[1]));
         layout.limmin = [0.0, 0.0];
         layout.limmax = [paper[0], paper[1]];

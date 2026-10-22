@@ -86,4 +86,3 @@ fn trim_number(value: f64) -> String {
     let text = format!("{value:.4}");
     text.trim_end_matches('0').trim_end_matches('.').to_string()
 }
-
