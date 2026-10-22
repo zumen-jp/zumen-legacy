@@ -1301,7 +1301,11 @@ impl<'a> Editor<'a> {
             }
             "leader" => {
                 if !r13 {
-                    return Err(EditError::at(index, "unsupported-kind", "R12 の DXF には引出線（LEADER）がありません"));
+                    return Err(EditError::at(
+                        index,
+                        "unsupported-kind",
+                        "R12 の DXF には引出線（LEADER）がありません",
+                    ));
                 }
                 reader.allow(&keys(&leader::KEYS), "引出線")?;
                 let (vertices, height) = leader::read(&reader)?;

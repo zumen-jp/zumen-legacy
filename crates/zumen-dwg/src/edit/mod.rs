@@ -1120,7 +1120,7 @@ impl Editor {
                     unknown_short: 0,
                     unknown_bits: [false, false],
                     // R13・R14 は作ったときの DIMGAP・DIMASZ に DIMSCALE を掛けた値を持つ（モデルの書き出しと同じ）
-                    r14: (self.version < Version::R2000).then(|| LeaderR14 {
+                    r14: (self.version < Version::R2000).then_some(LeaderR14 {
                         dimgap: style.gap * factor,
                         arrowhead_type: 0,
                         dimasz: style.arrow_size * factor,

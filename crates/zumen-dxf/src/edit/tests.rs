@@ -887,7 +887,9 @@ fn adds_leaders_with_their_notes() {
         .entities
         .iter()
         .filter_map(|entity| match &entity.data {
-            DxfEntityData::MText(text) => Some((text.raw_text.clone(), text.attachment_point, text.insert, text.char_height)),
+            DxfEntityData::MText(text) => {
+                Some((text.raw_text.clone(), text.attachment_point, text.insert, text.char_height))
+            }
             _ => None,
         })
         .collect();

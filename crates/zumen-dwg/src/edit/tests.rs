@@ -898,6 +898,9 @@ fn adds_leaders_in_every_version() {
         let note = note.unwrap_or_else(|| panic!("{name}: no note"));
         assert_eq!((note.attachment_point, note.char_height), (4.0, 2.5), "{name}");
         let scene = zumen_dxf::dxf_to_scene(&doc, None);
-        assert!(scene.entities.iter().any(|entity| entity.id == edited.created[0] && entity.kind.name() == "leader"), "{name}");
+        assert!(
+            scene.entities.iter().any(|entity| entity.id == edited.created[0] && entity.kind.name() == "leader"),
+            "{name}"
+        );
     }
 }
