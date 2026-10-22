@@ -60,7 +60,14 @@
         }
       },
       "items": [
-        { "type": "text", "at": [190, 280], "text": "設 計 概 要 書", "height": 5, "align": "middle-center", "layer": "A-TEXT" },
+        {
+          "type": "text",
+          "at": [190, 280],
+          "text": "設 計 概 要 書",
+          "height": 5,
+          "align": "middle-center",
+          "layer": "A-TEXT"
+        },
         {
           "type": "table",
           "at": [25, 270],
@@ -74,13 +81,42 @@
             ["用途地域", { "text": "近隣商業地域・第2種住居地域", "colspan": 4 }],
             ["防火地域", { "text": "準防火地域", "colspan": 4 }],
             [{ "text": "■面積", "colspan": 5 }],
-            ["", "", { "text": "申請部分", "align": "middle-center" }, { "text": "申請以外", "align": "middle-center" }, { "text": "合計", "align": "middle-center" }],
+            [
+              "",
+              "",
+              { "text": "申請部分", "align": "middle-center" },
+              { "text": "申請以外", "align": "middle-center" },
+              { "text": "合計", "align": "middle-center" }
+            ],
             [{ "text": "敷地面積", "colspan": 2 }, { "text": "1,029.18 ㎡", "colspan": 3, "align": "middle-right" }],
-            [{ "text": "建築面積", "colspan": 2 }, { "text": "616.12 ㎡", "align": "middle-right" }, { "text": "0.00 ㎡", "align": "middle-right" }, { "text": "616.12 ㎡", "align": "middle-right" }],
-            [{ "text": "延べ面積", "colspan": 2 }, { "text": "1,755.37 ㎡", "align": "middle-right" }, { "text": "0.00 ㎡", "align": "middle-right" }, { "text": "1,755.37 ㎡", "align": "middle-right" }],
-            [{ "text": "建蔽率", "colspan": 2 }, { "text": "59.87% < 72.76%（指定建蔽率按分）", "colspan": 3, "align": "middle-right" }],
-            [{ "text": "容積率", "colspan": 2 }, { "text": "164.54% < 263.80%（指定容積率按分）", "colspan": 3, "align": "middle-right" }],
-            [{ "text": "備考", "rowspan": 2 }, { "text": "この表は作図キットの見本で、数値は架空のものです。長い文字はセルの幅に収まるよう縮めます。", "colspan": 4, "rowspan": 2 }],
+            [
+              { "text": "建築面積", "colspan": 2 },
+              { "text": "616.12 ㎡", "align": "middle-right" },
+              { "text": "0.00 ㎡", "align": "middle-right" },
+              { "text": "616.12 ㎡", "align": "middle-right" }
+            ],
+            [
+              { "text": "延べ面積", "colspan": 2 },
+              { "text": "1,755.37 ㎡", "align": "middle-right" },
+              { "text": "0.00 ㎡", "align": "middle-right" },
+              { "text": "1,755.37 ㎡", "align": "middle-right" }
+            ],
+            [
+              { "text": "建蔽率", "colspan": 2 },
+              { "text": "59.87% < 72.76%（指定建蔽率按分）", "colspan": 3, "align": "middle-right" }
+            ],
+            [
+              { "text": "容積率", "colspan": 2 },
+              { "text": "164.54% < 263.80%（指定容積率按分）", "colspan": 3, "align": "middle-right" }
+            ],
+            [
+              { "text": "備考", "rowspan": 2 },
+              {
+                "text": "この表は作図キットの見本で、数値は架空のものです。長い文字はセルの幅に収まるよう縮めます。",
+                "colspan": 4,
+                "rowspan": 2
+              }
+            ],
             []
           ]
         },
@@ -92,9 +128,17 @@
           "fit": "wrap",
           "cells": [
             [{ "text": "■外部仕上表", "colspan": 3 }],
-            [{ "text": "記号", "align": "middle-center" }, { "text": "部位", "align": "middle-center" }, { "text": "材料・規格・寸法", "align": "middle-center" }],
+            [
+              { "text": "記号", "align": "middle-center" },
+              { "text": "部位", "align": "middle-center" },
+              { "text": "材料・規格・寸法", "align": "middle-center" }
+            ],
             [{ "text": "01", "align": "middle-center" }, "笠木", "アルミ既製品"],
-            [{ "text": "02", "align": "middle-center" }, "屋根", "デッキコンクリート合成スラブ t80 改質アスファルトシート防水 断熱材 t50"],
+            [
+              { "text": "02", "align": "middle-center" },
+              "屋根",
+              "デッキコンクリート合成スラブ t80 改質アスファルトシート防水 断熱材 t50"
+            ],
             [{ "text": "03", "align": "middle-center" }, "外壁(A)", "ECP t60 + タイル貼"],
             [{ "text": "04", "align": "middle-center" }, "外壁(B)", "ALC t125 + シリコン系吹付タイル"],
             [{ "text": "05", "align": "middle-center" }, "庇", { "text": "", "diagonal": true }]
@@ -133,7 +177,13 @@
                 { "type": "line", "from": [-5000, -3900], "to": [70000, -3900] },
                 { "type": "line", "from": [-5000, 0], "to": [70000, 0] },
                 { "type": "line", "from": [-3000, -3900], "to": [-3000, 50000] },
-                { "type": "text", "at": [30000, -2500], "text": "道路 W=3.9m（法42条2項）", "align": "middle-center", "height": 2.5 }
+                {
+                  "type": "text",
+                  "at": [30000, -2500],
+                  "text": "道路 W=3.9m（法42条2項）",
+                  "align": "middle-center",
+                  "height": 2.5
+                }
               ]
             },
             {
@@ -152,10 +202,21 @@
               "outline": true,
               "layer": "A-BLDG"
             },
-            { "type": "text", "at": [24000, 17000], "text": "計画建物\nS造 地上4階", "height": 3.5, "align": "middle-center" },
+            {
+              "type": "text",
+              "at": [24000, 17000],
+              "text": "計画建物\nS造 地上4階",
+              "height": 3.5,
+              "align": "middle-center"
+            },
             { "type": "dimension", "from": [0, 6000], "to": [8000, 6000], "at": [0, 4000] },
             { "type": "dimension", "from": [40000, 28000], "to": [40000, 40000], "offset": -8 },
-            { "type": "dimensionChain", "points": [[0, 40000], [8000, 40000], [40000, 40000], [48000, 40000]], "offset": 8, "total": true },
+            {
+              "type": "dimensionChain",
+              "points": [[0, 40000], [8000, 40000], [40000, 40000], [48000, 40000]],
+              "offset": 8,
+              "total": true
+            },
             { "type": "spotLevel", "at": [2000, 2000], "text": "7.62" },
             { "type": "spotLevel", "at": [50000, 2000], "text": "7.70" },
             { "type": "spotLevel", "at": [46000, 37000], "text": "9.06" },
@@ -193,7 +254,12 @@
             {
               "type": "grid",
               "layer": "A-GRID",
-              "x": [{ "label": "X1", "at": 100000 }, { "label": "X2", "at": 107200 }, { "label": "X3", "at": 114400 }, { "label": "X4", "at": 121600 }],
+              "x": [
+                { "label": "X1", "at": 100000 },
+                { "label": "X2", "at": 107200 },
+                { "label": "X3", "at": 114400 },
+                { "label": "X4", "at": 121600 }
+              ],
               "y": [{ "label": "Y1", "at": 0 }, { "label": "Y2", "at": 7200 }, { "label": "Y3", "at": 14400 }],
               "arrow": "dot"
             },
@@ -201,8 +267,16 @@
               "type": "group",
               "layer": "A-WALL",
               "items": [
-                { "type": "polyline", "points": [[99900, -100], [121700, -100], [121700, 14500], [99900, 14500]], "closed": true },
-                { "type": "polyline", "points": [[100100, 100], [121500, 100], [121500, 14300], [100100, 14300]], "closed": true },
+                {
+                  "type": "polyline",
+                  "points": [[99900, -100], [121700, -100], [121700, 14500], [99900, 14500]],
+                  "closed": true
+                },
+                {
+                  "type": "polyline",
+                  "points": [[100100, 100], [121500, 100], [121500, 14300], [100100, 14300]],
+                  "closed": true
+                },
                 { "type": "line", "from": [107200, 100], "to": [107200, 14300] },
                 { "type": "line", "from": [100100, 7200], "to": [107200, 7200] }
               ]
@@ -215,15 +289,49 @@
                 [[106900, -300], [107500, -300], [107500, 300], [106900, 300]]
               ]
             },
-            { "type": "hatch", "layer": "A-WALL", "boundaries": [[[114100, -300], [114700, -300], [114700, 300], [114100, 300]]] },
-            { "type": "hatch", "layer": "A-WALL", "boundaries": [[[121300, -300], [121900, -300], [121900, 300], [121300, 300]]] },
-            { "type": "hatch", "layer": "A-WALL", "boundaries": [[[99700, 14100], [100300, 14100], [100300, 14700], [99700, 14700]]] },
-            { "type": "hatch", "layer": "A-WALL", "boundaries": [[[121300, 14100], [121900, 14100], [121900, 14700], [121300, 14700]]] },
+            {
+              "type": "hatch",
+              "layer": "A-WALL",
+              "boundaries": [[[114100, -300], [114700, -300], [114700, 300], [114100, 300]]]
+            },
+            {
+              "type": "hatch",
+              "layer": "A-WALL",
+              "boundaries": [[[121300, -300], [121900, -300], [121900, 300], [121300, 300]]]
+            },
+            {
+              "type": "hatch",
+              "layer": "A-WALL",
+              "boundaries": [[[99700, 14100], [100300, 14100], [100300, 14700], [99700, 14700]]]
+            },
+            {
+              "type": "hatch",
+              "layer": "A-WALL",
+              "boundaries": [[[121300, 14100], [121900, 14100], [121900, 14700], [121300, 14700]]]
+            },
             { "type": "insert", "block": "DOOR-800", "at": [103000, 7200], "layer": "A-DOOR" },
             { "type": "insert", "block": "DOOR-800", "at": [107200, 3000], "rotation": 90, "layer": "A-DOOR" },
-            { "type": "insert", "block": "ROOM-TAG", "at": [103600, 3600], "attributes": { "NAME": "事務室", "AREA": "24.5㎡" }, "layer": "A-TEXT" },
-            { "type": "insert", "block": "ROOM-TAG", "at": [103600, 10800], "attributes": { "NAME": "会議室", "AREA": "24.5㎡" }, "layer": "A-TEXT" },
-            { "type": "insert", "block": "ROOM-TAG", "at": [114400, 7200], "attributes": { "NAME": "店舗", "AREA": "205.9㎡" }, "layer": "A-TEXT" },
+            {
+              "type": "insert",
+              "block": "ROOM-TAG",
+              "at": [103600, 3600],
+              "attributes": { "NAME": "事務室", "AREA": "24.5㎡" },
+              "layer": "A-TEXT"
+            },
+            {
+              "type": "insert",
+              "block": "ROOM-TAG",
+              "at": [103600, 10800],
+              "attributes": { "NAME": "会議室", "AREA": "24.5㎡" },
+              "layer": "A-TEXT"
+            },
+            {
+              "type": "insert",
+              "block": "ROOM-TAG",
+              "at": [114400, 7200],
+              "attributes": { "NAME": "店舗", "AREA": "205.9㎡" },
+              "layer": "A-TEXT"
+            },
             { "type": "northArrow", "at": [127000, 12000], "size": 12 }
           ]
         }
@@ -253,7 +361,12 @@
           "center": [211000, 8000],
           "title": { "number": "1", "text": "南立面図", "at": [30, 45] },
           "items": [
-            { "type": "hatch", "boundaries": [[[194000, -1500], [228000, -1500], [228000, 0], [194000, 0]]], "pattern": "GROUND", "scale": 1 },
+            {
+              "type": "hatch",
+              "boundaries": [[[194000, -1500], [228000, -1500], [228000, 0], [194000, 0]]],
+              "pattern": "GROUND",
+              "scale": 1
+            },
             { "type": "line", "from": [194000, 0], "to": [228000, 0], "layer": "A-BLDG", "lineWidth": 0.7 },
             { "type": "rectangle", "from": [200000, 0], "to": [222000, 16600], "layer": "A-BLDG" },
             {
@@ -275,8 +388,19 @@
             { "type": "levelMark", "at": [224000, 8300], "text": "3FL", "line": 12 },
             { "type": "levelMark", "at": [224000, 12400], "text": "4FL", "line": 12 },
             { "type": "levelMark", "at": [224000, 16600], "text": "最高高さ 16,600", "line": 12 },
-            { "type": "dimensionChain", "points": [[198000, 0], [198000, 4200], [198000, 8300], [198000, 12400], [198000, 16600]], "angle": 90, "at": [196000, 0], "total": true, "arrow": "tick" },
-            { "type": "leader", "points": [[221000, 6000], [226000, 10000]], "text": "外壁: ALC t125\nシリコン系吹付タイル" }
+            {
+              "type": "dimensionChain",
+              "points": [[198000, 0], [198000, 4200], [198000, 8300], [198000, 12400], [198000, 16600]],
+              "angle": 90,
+              "at": [196000, 0],
+              "total": true,
+              "arrow": "tick"
+            },
+            {
+              "type": "leader",
+              "points": [[221000, 6000], [226000, 10000]],
+              "text": "外壁: ALC t125\nシリコン系吹付タイル"
+            }
           ]
         }
       ]
