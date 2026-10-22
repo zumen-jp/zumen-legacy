@@ -830,6 +830,36 @@ fn adds_attribute_definitions_and_fills_them_in_references() {
     }
 }
 
+/// 新しい用紙の座標は、雛形のインチ・回転・印刷倍率・余白に依存しない。
+#[test]
+fn new_layout_uses_millimeters_at_full_size() {
+    let mut source = crate::parse_dxf(&crate::new_dxf("mm").unwrap());
+    for layout in source.layouts.iter_mut().filter(|layout| !layout.model) {
+        layout.paper_units = 0.0;
+        layout.plot_rotation = 1.0;
+        layout.plot_scale = [1.0, 4.0];
+        layout.plot_origin = [123.0, 456.0];
+        layout.margins = [7.0, 8.0, 9.0, 10.0];
+    }
+    let operations = r#"[
+        {"op":"add-layout","name":"NEW","paperSize":[420,297]},
+        {"op":"add","kind":"line","container":"layout:NEW","start":[0,0],"end":[420,297]},
+        {"op":"add-layout","name":"CUSTOM","paperSize":[420,297],"margins":[1,2,3,4]}
+    ]"#;
+    let edited = edit(&crate::write_dxf(&source).bytes, operations).unwrap();
+    let doc = crate::parse_dxf(&edited.bytes);
+    let layout = doc.layouts.iter().find(|layout| layout.name == "NEW").unwrap();
+    assert_eq!((layout.paper_units, layout.plot_rotation, layout.plot_scale), (1.0, 0.0, [1.0, 1.0]));
+    assert_eq!((layout.margins, layout.plot_origin), ([0.0; 4], [0.0; 2]));
+    let custom = doc.layouts.iter().find(|layout| layout.name == "CUSTOM").unwrap();
+    assert_eq!(custom.margins, [1.0, 2.0, 3.0, 4.0]);
+    let scene = crate::dxf_to_scene(&doc, Some("NEW"));
+    let sheet = scene.sheet.unwrap();
+    assert_eq!((sheet.width, sheet.height), (420.0, 297.0));
+    let line = scene.entities.iter().find(|entity| entity.id == edited.created[1]).unwrap();
+    assert_eq!((line.bbox.min_x, line.bbox.min_y, line.bbox.max_x, line.bbox.max_y), (0.0, 0.0, 420.0, 297.0));
+}
+
 #[test]
 fn adds_layouts_with_viewports_at_a_scale() {
     let bytes = drawing("0\nLINE\n8\n0\n10\n0\n20\n0\n11\n10000\n21\n8000\n");
@@ -962,31 +992,20 @@ fn adds_images_with_their_definitions() {
     assert_eq!(error.unwrap_err().code, "invalid-value");
 }
 
-/// 新しい用紙の座標は、雛形のインチ・回転・印刷倍率・余白に依存しない。
 #[test]
-fn new_layout_uses_millimeters_at_full_size() {
-    let mut source = crate::parse_dxf(&crate::new_dxf("mm").unwrap());
-    for layout in source.layouts.iter_mut().filter(|layout| !layout.model) {
-        layout.paper_units = 0.0;
-        layout.plot_rotation = 1.0;
-        layout.plot_scale = [1.0, 4.0];
-        layout.plot_origin = [123.0, 456.0];
-        layout.margins = [7.0, 8.0, 9.0, 10.0];
-    }
-    let operations = r#"[
-        {"op":"add-layout","name":"NEW","paperSize":[420,297]},
-        {"op":"add","kind":"line","container":"layout:NEW","start":[0,0],"end":[420,297]}
-    ]"#;
-    let edited = edit(&crate::write_dxf(&source).bytes, operations).unwrap();
-    let doc = crate::parse_dxf(&edited.bytes);
-    let layout = doc.layouts.iter().find(|layout| layout.name == "NEW").unwrap();
-    assert_eq!((layout.paper_units, layout.plot_rotation, layout.plot_scale), (1.0, 0.0, [1.0, 1.0]));
-    assert_eq!((layout.margins, layout.plot_origin), ([0.0; 4], [0.0; 2]));
-    let scene = crate::dxf_to_scene(&doc, Some("NEW"));
-    let sheet = scene.sheet.unwrap();
-    assert_eq!((sheet.width, sheet.height), (420.0, 297.0));
-    let line = scene.entities.iter().find(|entity| entity.id == edited.created[1]).unwrap();
-    assert_eq!((line.bbox.min_x, line.bbox.min_y, line.bbox.max_x, line.bbox.max_y), (0.0, 0.0, 420.0, 297.0));
+fn reports_approximated_jis_dimension_text_position() {
+    let bytes = b"0\nSECTION\n2\nHEADER\n9\n$DIMTAD\n70\n3\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n";
+    let edited =
+        edit(bytes, r#"[{"op":"add","kind":"dimension","start":[0,0],"end":[1000,0],"position":[0,-100]}]"#).unwrap();
+    assert!(edited.notices.iter().any(|notice| notice.code == "edit-dimension-text-position" && notice.count == 1));
+}
+
+#[test]
+fn exhausted_dimension_block_names_fail_without_overflowing() {
+    let bytes = b"0\nSECTION\n2\nBLOCKS\n0\nBLOCK\n2\n*D18446744073709551615\n70\n1\n10\n0\n20\n0\n0\nENDBLK\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n";
+    let error =
+        edit(bytes, r#"[{"op":"add","kind":"dimension","start":[0,0],"end":[10,0],"position":[0,5]}]"#).unwrap_err();
+    assert_eq!((error.code, error.operation), ("name-exhausted", Some(0)));
 }
 
 /// ATTRIB は INSERT から独立した文字なので、定義の見た目を保ち、尺度を文字の両軸に掛ける。
@@ -1024,20 +1043,4 @@ fn preserves_attribute_appearance_and_nonuniform_scaling() {
     let DxfEntityData::Attrib { text, .. } = &get(&edited.created[1]).attribs[0].data else { panic!() };
     assert_eq!(text.text_generation_flag, 4.0);
     assert!((text.rotation.abs() - 180.0).abs() < 1e-9);
-}
-
-#[test]
-fn reports_approximated_jis_dimension_text_position() {
-    let bytes = b"0\nSECTION\n2\nHEADER\n9\n$DIMTAD\n70\n3\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n";
-    let edited =
-        edit(bytes, r#"[{"op":"add","kind":"dimension","start":[0,0],"end":[1000,0],"position":[0,-100]}]"#).unwrap();
-    assert!(edited.notices.iter().any(|notice| notice.code == "edit-dimension-text-position" && notice.count == 1));
-}
-
-#[test]
-fn exhausted_dimension_block_names_fail_without_overflowing() {
-    let bytes = b"0\nSECTION\n2\nBLOCKS\n0\nBLOCK\n2\n*D18446744073709551615\n70\n1\n10\n0\n20\n0\n0\nENDBLK\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n";
-    let error =
-        edit(bytes, r#"[{"op":"add","kind":"dimension","start":[0,0],"end":[10,0],"position":[0,5]}]"#).unwrap_err();
-    assert_eq!((error.code, error.operation), ("name-exhausted", Some(0)));
 }
