@@ -688,6 +688,86 @@ fn adds_dimensions_in_every_version() {
     }
 }
 
+/// 文字スタイル・線種・寸法スタイルを足し、同じ編集の図形が使う（docs/decisions/0017）
+#[test]
+fn adds_styles_in_every_version() {
+    let operations = r#"[
+        {"op": "add-text-style", "name": "JP", "font": "MS Gothic", "widthFactor": 0.8},
+        {"op": "add-line-type", "name": "DASH2", "description": "__ __", "pattern": [6, -3]},
+        {"op": "add-dimension-style", "name": "DIM-100", "scale": 100, "textHeight": 2.5, "arrowSize": 2.5,
+         "textAbove": true, "decimals": 0, "suppressTrailingZeros": true, "textStyle": "JP"},
+        {"op": "add", "kind": "line", "lineType": "DASH2", "start": [0, 0], "end": [10, 0]},
+        {"op": "add", "kind": "text", "textStyle": "JP", "position": [0, 0], "text": "案内", "height": 3},
+        {"op": "add", "kind": "dimension", "dimensionStyle": "DIM-100", "start": [0, 0], "end": [5000, 0], "position": [0, -800]}
+    ]"#;
+    let mut versions: Vec<(String, Vec<u8>)> =
+        crate::DwgVersion::ALL.iter().map(|version| (version.name().to_string(), written_as(*version))).collect();
+    versions.push(("new".into(), new_dwg("mm").unwrap()));
+    for (name, bytes) in versions {
+        let edited = edit(&bytes, operations).unwrap_or_else(|error| panic!("{name}: {error}"));
+        assert_eq!(&edited.created[..3], ["JP", "DASH2", "DIM-100"], "{name}");
+        check_structure(&name, &edited.bytes);
+        let doc = crate::read_dwg(&edited.bytes).unwrap_or_else(|error| panic!("{name}: {error}"));
+        let style = doc.styles.iter().find(|style| style.name == "JP").unwrap_or_else(|| panic!("{name}"));
+        assert_eq!(
+            (style.font.as_str(), style.font_family.as_deref(), style.width),
+            ("msgothic.ttc", Some("MS Gothic"), 0.8),
+            "{name}"
+        );
+        let linetype =
+            doc.linetypes.iter().find(|linetype| linetype.name == "DASH2").unwrap_or_else(|| panic!("{name}"));
+        assert_eq!(linetype.dashes, [6.0, -3.0], "{name}");
+        assert_eq!(entity(&doc, &edited.created[3]).unwrap().base.linetype, "DASH2", "{name}");
+        let dimstyle = doc.dimstyles.iter().find(|style| style.name == "DIM-100").unwrap_or_else(|| panic!("{name}"));
+        assert_eq!((dimstyle.dimscale, dimstyle.dimtxt), (100.0, 2.5), "{name}");
+        let label = doc
+            .entities
+            .iter()
+            .find_map(|entity| match &entity.data {
+                DxfEntityData::MText(text)
+                    if entity.base.block.as_deref().is_some_and(|block| block.starts_with("*D")) =>
+                {
+                    Some(text.clone())
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("{name}"));
+        assert_eq!((label.raw_text.as_str(), label.char_height, label.style.as_str()), ("5000", 250.0, "JP"), "{name}");
+    }
+}
+
+/// DWG 2.13: DIMSTYLE の参照が相対ハンドルでも、写したスタイルは元と同じ文字スタイルを指す。
+#[test]
+fn cloned_dimension_style_keeps_relative_references() {
+    for version in crate::DwgVersion::ALL {
+        let name = version.name();
+        let bytes = written_as(version);
+        let mut notices = NoticeList::new();
+        let source = Source::open(&bytes, &mut notices).unwrap();
+        let mut editor = Editor::new(source, notices).unwrap();
+        let template = editor.dimstyles["STANDARD"];
+        let mut style = editor.read(template, |s, _| DimStyle::read(s)).unwrap();
+        let expected: Vec<_> = style.value.handles.iter().map(|handle| handle.resolve(template)).collect();
+        let text_style = expected[0];
+        style.value.handles[0] = if text_style < template {
+            HandleRef { code: 0xC, value: template - text_style }
+        } else {
+            HandleRef { code: 0xA, value: text_style - template }
+        };
+        let kind = style.kind;
+        editor.store(template, kind, &style.eed, |out| style.value.write(out));
+        let relative = editor.finish().bytes;
+        let edited = edit(&relative, r#"[{"op":"add-dimension-style","name":"CLONE"}]"#).unwrap();
+        let mut notices = NoticeList::new();
+        let source = Source::open(&edited.bytes, &mut notices).unwrap();
+        let editor = Editor::new(source, notices).unwrap();
+        let cloned = editor.dimstyles["CLONE"];
+        let style = editor.read(cloned, |s, _| DimStyle::read(s)).unwrap();
+        let actual: Vec<_> = style.value.handles.iter().map(|handle| handle.resolve(cloned)).collect();
+        assert_eq!(actual, expected, "{name}: cloned DIMSTYLE references");
+    }
+}
+
 #[test]
 fn reports_approximated_jis_dimension_text_position() {
     let bytes = new_dwg("mm").unwrap();

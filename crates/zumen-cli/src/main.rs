@@ -63,7 +63,7 @@ sheet as a layout with a viewport for each scale. SXF is written from that model
 viewport a sub-figure at its scale and each block a drawing part. JWW is written from it the same way: the layout is
 the sheet and the model space in each viewport is a layer group at the viewport's scale.
 edit changes a drawing in place: it applies the operations (a JSON array of add, update, delete, add-layer,
-update-layer and add-block) and keeps everything else as it was, in the same format and version (DXF, DWG, JWW and SXF). create
+update-layer, add-block, add-text-style, add-line-type and add-dimension-style) and keeps everything else as it was, in the same format and version (DXF, DWG, JWW and SXF). create
 starts a new drawing in the format of the output and applies the operations (JWW and SXF lengths are in mm). Both write the ids of what they added and the notices as
 JSON, and on an error write the number of the operation that failed.";
 

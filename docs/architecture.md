@@ -441,7 +441,8 @@ that adds entities is the same for new and existing drawings.
 
 ```text
 bytes ─▶ editor of the format (tags, objects, instances, records) ─▶ bytes: what no operation names, byte for byte
-            ▲ operations (zumen_core::edit): add, update, delete, add-layer, update-layer, add-block
+            ▲ operations (zumen_core::edit): add, update, delete, add-layer, update-layer, add-block,
+              add-text-style, add-line-type, add-dimension-style
 ```
 
 `crates/zumen/tests/edit.rs` is the conformance test of every editor: without operations the bytes stay the same, and
