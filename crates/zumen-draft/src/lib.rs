@@ -87,9 +87,15 @@ pub fn select_sheet(value: &mut Value, name: &str) -> Result<(), DraftError> {
     };
     let names: Vec<String> =
         sheets.iter().filter_map(|sheet| sheet.get("name").and_then(Value::as_str).map(str::to_string)).collect();
-    sheets.retain(|sheet| sheet.get("name").and_then(Value::as_str).is_some_and(|sheet| sheet.eq_ignore_ascii_case(name)));
+    sheets.retain(|sheet| {
+        sheet.get("name").and_then(Value::as_str).is_some_and(|sheet| sheet.eq_ignore_ascii_case(name))
+    });
     if sheets.is_empty() {
-        return Err(DraftError::new("invalid-value", "sheets", format!("用紙 {name} がありません（{}）", names.join("・"))));
+        return Err(DraftError::new(
+            "invalid-value",
+            "sheets",
+            format!("用紙 {name} がありません（{}）", names.join("・")),
+        ));
     }
     Ok(())
 }
@@ -308,7 +314,13 @@ impl Drafter {
     }
 
     /// 図形の見た目。layer がなければ default_layer、それもなければ defaults.layer か 0
-    pub fn look(&mut self, ctx: &Ctx, style: &StyleSpec, default_layer: Option<&str>, path: &str) -> Result<Look, DraftError> {
+    pub fn look(
+        &mut self,
+        ctx: &Ctx,
+        style: &StyleSpec,
+        default_layer: Option<&str>,
+        path: &str,
+    ) -> Result<Look, DraftError> {
         let layer = style
             .layer
             .clone()
@@ -387,7 +399,7 @@ impl Drafter {
                 let (a, b) = (point(rectangle.from, path)?, point(rectangle.to, path)?);
                 let corners = vec![a, [b[0], a[1]], b, [a[0], b[1]]];
                 if rectangle.fill {
-                    hatch::solid(self, ctx, &look, &[corners.clone()], path);
+                    hatch::solid(self, ctx, &look, std::slice::from_ref(&corners), path);
                 }
                 self.add(&ctx.space, &look, "LWPOLYLINE", lwpolyline(&corners, None, true), path);
                 Ok(())
@@ -441,7 +453,13 @@ impl Drafter {
             Shape::Point(spec) => {
                 let look = self.look(ctx, style, None, path)?;
                 let at = point(spec.at, path)?;
-                self.add(&ctx.space, &look, "POINT", DxfEntityData::Point { location: xyz(at), x_axis_angle: 0.0 }, path);
+                self.add(
+                    &ctx.space,
+                    &look,
+                    "POINT",
+                    DxfEntityData::Point { location: xyz(at), x_axis_angle: 0.0 },
+                    path,
+                );
                 Ok(())
             }
             Shape::Text(spec) => text::draw(self, ctx, style, spec, path),
@@ -469,7 +487,9 @@ impl Drafter {
 
 /// 色の指定: ACI の番号（1〜255）、#rrggbb、bylayer、byblock
 fn color(value: &Value, path: &str) -> Result<Color, DraftError> {
-    let invalid = || DraftError::new("invalid-value", path, "color は 1〜255 の番号、#rrggbb、bylayer、byblock で指定してください");
+    let invalid = || {
+        DraftError::new("invalid-value", path, "color は 1〜255 の番号、#rrggbb、bylayer、byblock で指定してください")
+    };
     match value {
         Value::Number(number) => {
             let index = number.as_f64().ok_or_else(invalid)?;

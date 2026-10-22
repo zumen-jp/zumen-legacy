@@ -266,7 +266,8 @@ pub(crate) fn draw(
     }
     let line_spacing = positive(spec.line_spacing.unwrap_or(1.0), "lineSpacing", path)?;
     let text_style = drafter.text_style(spec.font.as_deref());
-    let placed = Placed { at, lines: &lines, height, align, rotation, width_factor: factor, line_spacing, style: text_style };
+    let placed =
+        Placed { at, lines: &lines, height, align, rotation, width_factor: factor, line_spacing, style: text_style };
     put(drafter, &ctx.space, &look, placed, path);
     Ok(())
 }

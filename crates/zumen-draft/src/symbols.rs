@@ -1,7 +1,7 @@
 //! 図面の記号: 通り芯、方位、縮尺の目盛り、高さの記号（▽）、測点の高さ、引出線、境界の辺の長さと面積、
 //! ビューの見出し。どれも線・円・塗り・文字の図形で描く（記号の形は zumen で決めたもので、CAD の記号の写しではない）。
 
-use crate::dimension::{self, Arrow, chain, end_mark, format_number};
+use crate::dimension::{self, EndMark, chain, end_mark, format_number};
 use crate::spec::{
     GridSpec, LeaderSpec, LevelMarkSpec, NorthArrowSpec, Point, PolygonLabelSpec, ScaleBarSpec, SpotLevelSpec,
     StyleSpec, ViewTitleSpec,
@@ -91,7 +91,12 @@ pub(crate) fn grid(
     let [x0, y0, x1, y1] = match spec.extent {
         Some(extent) => {
             let [a, b, c, d] = extent;
-            [number(a, "extent", path)?, number(b, "extent", path)?, number(c, "extent", path)?, number(d, "extent", path)?]
+            [
+                number(a, "extent", path)?,
+                number(b, "extent", path)?,
+                number(c, "extent", path)?,
+                number(d, "extent", path)?,
+            ]
         }
         None => match (range(&xs), range(&ys)) {
             (Some((x0, x1)), Some((y0, y1))) => [x0, y0, x1, y1],
@@ -200,7 +205,13 @@ pub(crate) fn north_arrow(
     let right = at([r * 0.38, -r * 0.7]);
     drafter.add(&ctx.space, &look, "LWPOLYLINE", lwpolyline(&[tip, left, notch, right], None, true), path);
     // 右の半分を塗る
-    let data = DxfEntityData::Solid { vtx0: xyz(tip), vtx1: xyz(notch), vtx2: xyz(right), vtx3: xyz(right), invisible_edges: None };
+    let data = DxfEntityData::Solid {
+        vtx0: xyz(tip),
+        vtx1: xyz(notch),
+        vtx2: xyz(right),
+        vtx3: xyz(right),
+        invisible_edges: None,
+    };
     drafter.add(&ctx.space, &look, "SOLID", data, path);
     let content = spec.label.clone().unwrap_or_else(|| "N".into());
     if !content.is_empty() {
@@ -256,7 +267,7 @@ pub(crate) fn scale_bar(
         let x = at[0] + step * index as f64;
         let corners = vec![[x, at[1]], [x + step, at[1]], [x + step, at[1] + height], [x, at[1] + height]];
         if index % 2 == 0 {
-            crate::hatch::solid(drafter, ctx, &look, &[corners.clone()], path);
+            crate::hatch::solid(drafter, ctx, &look, std::slice::from_ref(&corners), path);
         }
         drafter.add(&ctx.space, &look, "LWPOLYLINE", lwpolyline(&corners, None, true), path);
     }
@@ -325,9 +336,8 @@ pub(crate) fn leader(
     let points = points(&spec.points, 2, path)?;
     let s = ctx.scale;
     let height = positive(spec.text_height.unwrap_or_else(|| drafter.text_height()), "textHeight", path)? * s;
-    let arrow = Arrow::parse(spec.arrow.as_deref().or(drafter.defaults.arrow.as_deref()), path)?;
-    let arrow_size =
-        positive(spec.arrow_size.or(drafter.defaults.arrow_size).unwrap_or(2.5), "arrowSize", path)? * s;
+    let arrow = EndMark::parse(spec.arrow.as_deref().or(drafter.defaults.arrow.as_deref()), path)?;
+    let arrow_size = positive(spec.arrow_size.or(drafter.defaults.arrow_size).unwrap_or(2.5), "arrowSize", path)? * s;
     let last = points[points.len() - 1];
     let previous = points[points.len() - 2];
     let rightward = last[0] >= previous[0];
@@ -348,7 +358,16 @@ pub(crate) fn leader(
     let align = Align { h: if rightward { 0 } else { 2 }, v: 1 };
     let at = [last[0] + if rightward { 0.5 * s } else { -0.5 * s }, last[1] + 0.6 * s];
     let text_style = drafter.text_style(None);
-    let placed = Placed { at, lines: &lines, height, align, rotation: 0.0, width_factor: 1.0, line_spacing: 1.0, style: text_style };
+    let placed = Placed {
+        at,
+        lines: &lines,
+        height,
+        align,
+        rotation: 0.0,
+        width_factor: 1.0,
+        line_spacing: 1.0,
+        style: text_style,
+    };
     text::put(drafter, &ctx.space, &text_look, placed, path);
     Ok(())
 }
@@ -408,7 +427,8 @@ pub(crate) fn polygon_label(
                 reading += 180.0;
             }
             let up = rotate([1.0, 0.0], reading + 90.0);
-            let align = if outward[0] * up[0] + outward[1] * up[1] >= 0.0 { BOTTOM_CENTER } else { Align { h: 1, v: 3 } };
+            let align =
+                if outward[0] * up[0] + outward[1] * up[1] >= 0.0 { BOTTOM_CENTER } else { Align { h: 1, v: 3 } };
             let at = add(mul(add(*a, b), 0.5), mul(outward, 0.8 * s));
             let content = length_text(length, unit, spec.precision);
             label(drafter, ctx, &text_look, at, &content, height, align, reading, path);
@@ -418,7 +438,9 @@ pub(crate) fn polygon_label(
         None | Some(Value::Bool(false)) | Some(Value::Null) => None,
         Some(Value::Bool(true)) => Some("{}㎡".to_string()),
         Some(Value::String(format)) => Some(format.clone()),
-        Some(_) => return Err(DraftError::new("invalid-value", path, "area は true か、{} を含む文字列で指定してください")),
+        Some(_) => {
+            return Err(DraftError::new("invalid-value", path, "area は true か、{} を含む文字列で指定してください"));
+        }
     };
     if let Some(format) = format {
         let value = format_number(area.abs() / 1_000_000.0, spec.area_precision.unwrap_or(2), true);
@@ -462,13 +484,21 @@ pub(crate) fn view_title(
     let title_start = x;
     label(drafter, ctx, &text_look, [x, baseline], &spec.text, height, BOTTOM_LEFT, 0.0, path);
     x += text::width(&spec.text, height, 1.0) + 3.0 * s;
-    let scale_text = spec.scale_text.clone().or_else(|| scale.map(|scale| format!("S=1:{}", format_number(scale, 0, false))));
+    let scale_text =
+        spec.scale_text.clone().or_else(|| scale.map(|scale| format!("S=1:{}", format_number(scale, 0, false))));
     if let Some(scale_text) = scale_text.filter(|text| !text.is_empty()) {
         let small = height * 0.7;
         label(drafter, ctx, &text_look, [x, baseline], &scale_text, small, BOTTOM_LEFT, 0.0, path);
         x += text::width(&scale_text, small, 1.0);
     }
-    line(drafter, &ctx.space, &look, [title_start - 1.0 * s, baseline - 1.2 * s], [x + 1.0 * s, baseline - 1.2 * s], path);
+    line(
+        drafter,
+        &ctx.space,
+        &look,
+        [title_start - 1.0 * s, baseline - 1.2 * s],
+        [x + 1.0 * s, baseline - 1.2 * s],
+        path,
+    );
     Ok(())
 }
 

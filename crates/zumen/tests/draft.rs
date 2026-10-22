@@ -7,10 +7,8 @@ use zumen::{DraftOptions, ReadDrawingOptions, Scene, WriteOptions};
 const SPEC: &str = include_str!("../../zumen-draft/examples/sheets.json");
 
 fn draft(to: &str, version: Option<&str>, sheet: Option<&str>) -> zumen::Converted {
-    let options = DraftOptions {
-        write: WriteOptions { version: version.map(str::to_string) },
-        sheet: sheet.map(str::to_string),
-    };
+    let options =
+        DraftOptions { write: WriteOptions { version: version.map(str::to_string) }, sheet: sheet.map(str::to_string) };
     zumen::draft(SPEC, to, &options).unwrap_or_else(|error| panic!("{to}: {error}"))
 }
 
@@ -88,7 +86,8 @@ fn drafts_every_sheet_as_dxf_and_dwg_with_layouts() {
         let scene = read(&drafted.bytes, None);
         let views: Vec<&str> = scene.views.iter().flatten().map(|view| view.id.as_str()).collect();
         assert_eq!(views, ["Model", "A01-1", "A05-1", "A10-1", "A20-1"], "{label}");
-        let scenes: Vec<(&str, Scene)> = SHEETS.iter().map(|sheet| (*sheet, read(&drafted.bytes, Some(sheet)))).collect();
+        let scenes: Vec<(&str, Scene)> =
+            SHEETS.iter().map(|sheet| (*sheet, read(&drafted.bytes, Some(sheet)))).collect();
         check_sheets(&scenes, &label);
         assert!(drafted.notices.is_empty(), "{label}: {:?}", drafted.notices);
         // 寸法は DIMENSION のまま（通り芯の間の 3 + 1 と 2 + 1）
@@ -139,7 +138,8 @@ fn names_the_place_and_code_of_mistakes() {
     assert_eq!(line_type.code, "missing-definition");
     let pattern = error(&sheet(r#"{"type": "hatch", "boundaries": [[[0, 0], [1, 0], [1, 1]]], "pattern": "BRICKS"}"#));
     assert_eq!(pattern.code, "missing-definition");
-    let span = error(&sheet(r#"{"type": "table", "at": [0, 0], "columns": [10], "cells": [[{"text": "a", "colspan": 2}]]}"#));
+    let span =
+        error(&sheet(r#"{"type": "table", "at": [0, 0], "columns": [10], "cells": [[{"text": "a", "colspan": 2}]]}"#));
     assert_eq!((span.code, span.path.as_str()), ("invalid-value", "sheets[0].items[0].cells[0][0]"));
     let nested = error(&sheet(r#"{"type": "group", "items": [{"type": "circle", "center": [0, 0], "radius": -1}]}"#));
     assert_eq!((nested.code, nested.path.as_str()), ("invalid-value", "sheets[0].items[0].items[0]"));

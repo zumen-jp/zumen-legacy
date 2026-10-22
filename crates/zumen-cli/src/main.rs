@@ -537,7 +537,8 @@ fn run(args: Args) -> Result<(), String> {
             write: zumen::WriteOptions { version: args.target_version.clone() },
             sheet: args.sheet.clone(),
         };
-        let drafted = zumen::draft(&spec, &extension(output), &options).map_err(|error| format!("{error} ({})", error.code))?;
+        let drafted =
+            zumen::draft(&spec, &extension(output), &options).map_err(|error| format!("{error} ({})", error.code))?;
         std::fs::write(output, &drafted.bytes).map_err(|error| format!("{output}: {error}"))?;
         print_notices(&drafted.notices);
         return Ok(());

@@ -178,6 +178,12 @@ pub struct Builder {
 pub const DEFAULT_FONT: &str = "ＭＳ ゴシック";
 pub const VIEWPORT_LAYER: &str = "VIEWPORTS";
 
+impl Default for Builder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Builder {
     pub fn new() -> Self {
         let mut builder = Builder {

@@ -13,20 +13,20 @@ use zumen_dxf::{DxfDimStyle, DxfDimension, DxfEntityData};
 
 /// 端の記号
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) enum Arrow {
+pub(crate) enum EndMark {
     Arrow,
     Tick,
     Dot,
     None,
 }
 
-impl Arrow {
-    pub fn parse(name: Option<&str>, path: &str) -> Result<Arrow, DraftError> {
+impl EndMark {
+    pub fn parse(name: Option<&str>, path: &str) -> Result<EndMark, DraftError> {
         Ok(match name.unwrap_or("arrow") {
-            "arrow" => Arrow::Arrow,
-            "tick" => Arrow::Tick,
-            "dot" => Arrow::Dot,
-            "none" => Arrow::None,
+            "arrow" => EndMark::Arrow,
+            "tick" => EndMark::Tick,
+            "dot" => EndMark::Dot,
+            "none" => EndMark::None,
             other => {
                 return Err(DraftError::new(
                     "invalid-value",
@@ -41,7 +41,7 @@ impl Arrow {
 /// 寸法の見た目（用紙の mm）
 #[derive(Debug, Clone)]
 pub(crate) struct DimStyle {
-    pub arrow: Arrow,
+    pub arrow: EndMark,
     pub arrow_size: f64,
     pub text_height: f64,
     pub precision: u32,
@@ -64,7 +64,7 @@ pub(crate) fn style(drafter: &Drafter, look: &DimensionLook, path: &str) -> Resu
     };
     let text_height = size(look.text_height, d.dimension_text_height, drafter.text_height(), "textHeight")?;
     Ok(DimStyle {
-        arrow: Arrow::parse(look.arrow.as_deref().or(d.arrow.as_deref()), path)?,
+        arrow: EndMark::parse(look.arrow.as_deref().or(d.arrow.as_deref()), path)?,
         arrow_size: size(look.arrow_size, d.arrow_size, 2.5, "arrowSize")?,
         text_height,
         precision: look.precision.or(d.precision).unwrap_or(0).min(8),
@@ -84,7 +84,7 @@ pub(crate) fn format_number(value: f64, precision: u32, thousands: bool) -> Stri
     }
     let digits: Vec<char> = whole.chars().collect();
     for (index, c) in digits.iter().enumerate() {
-        if thousands && index > 0 && (digits.len() - index) % 3 == 0 {
+        if thousands && index > 0 && (digits.len() - index).is_multiple_of(3) {
             out.push(',');
         }
         out.push(*c);
@@ -137,11 +137,12 @@ fn dimension_style(drafter: &mut Drafter, scale: f64, style: &DimStyle) -> Strin
 }
 
 /// 端の記号を描く。tip は寸法線の端、inward は寸法線の内側への向き（単位ベクトル）
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn end_mark(
     drafter: &mut Drafter,
     space: &Space,
     look: &Look,
-    arrow: Arrow,
+    arrow: EndMark,
     size: f64,
     tip: Point,
     inward: Point,
@@ -149,14 +150,19 @@ pub(crate) fn end_mark(
 ) {
     let normal = [-inward[1], inward[0]];
     match arrow {
-        Arrow::Arrow => {
+        EndMark::Arrow => {
             let base = add(tip, mul(inward, size));
             let (left, right) = (add(base, mul(normal, size / 6.0)), add(base, mul(normal, -size / 6.0)));
-            let data =
-                DxfEntityData::Solid { vtx0: xyz(tip), vtx1: xyz(left), vtx2: xyz(right), vtx3: xyz(right), invisible_edges: None };
+            let data = DxfEntityData::Solid {
+                vtx0: xyz(tip),
+                vtx1: xyz(left),
+                vtx2: xyz(right),
+                vtx3: xyz(right),
+                invisible_edges: None,
+            };
             drafter.add(space, look, "SOLID", data, path);
         }
-        Arrow::Tick => {
+        EndMark::Tick => {
             let (sin, cos) = std::f64::consts::FRAC_PI_4.sin_cos();
             let slash = [inward[0] * cos - inward[1] * sin, inward[0] * sin + inward[1] * cos];
             let half = mul(slash, size / 2.0);
@@ -164,8 +170,8 @@ pub(crate) fn end_mark(
             let data = DxfEntityData::Line { start: xyz(sub(tip, half)), end: xyz(add(tip, half)) };
             drafter.add(space, &look, "LINE", data, path);
         }
-        Arrow::Dot => crate::symbols::dot(drafter, space, look, tip, size * 0.4, path),
-        Arrow::None => {}
+        EndMark::Dot => crate::symbols::dot(drafter, space, look, tip, size * 0.4, path),
+        EndMark::None => {}
     }
 }
 
@@ -182,14 +188,7 @@ struct Linear<'a> {
 }
 
 /// 寸法を描き、DIMENSION のハンドルを返す
-fn linear(
-    drafter: &mut Drafter,
-    ctx: &Ctx,
-    look: &Look,
-    style: &DimStyle,
-    dim: Linear<'_>,
-    path: &str,
-) -> String {
+fn linear(drafter: &mut Drafter, ctx: &Ctx, look: &Look, style: &DimStyle, dim: Linear<'_>, path: &str) -> String {
     let u = unit(dim.angle);
     let n = [-u[1], u[0]];
     let project = |p: Point| add(p, mul(n, dot(sub(dim.through, p), n)));
@@ -282,7 +281,15 @@ fn axis_angle(from: Point, to: Point) -> f64 {
 }
 
 /// 寸法線が通る点。at か、from から offset（用紙の mm、from → to の左が正）
-fn through(ctx: &Ctx, from: Point, to: Point, angle: f64, at: Option<Point>, offset: Option<f64>, path: &str) -> Result<Point, DraftError> {
+fn through(
+    ctx: &Ctx,
+    from: Point,
+    to: Point,
+    angle: f64,
+    at: Option<Point>,
+    offset: Option<f64>,
+    path: &str,
+) -> Result<Point, DraftError> {
     if let Some(at) = at {
         return point(at, path);
     }
@@ -334,6 +341,7 @@ pub(crate) fn draw(
 }
 
 /// 寸法の並びを描く。points は順に測る点で、隣り合う 2 点ごとに寸法を描く
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn chain(
     drafter: &mut Drafter,
     ctx: &Ctx,

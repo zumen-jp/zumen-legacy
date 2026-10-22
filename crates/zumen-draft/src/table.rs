@@ -37,10 +37,13 @@ fn sizes(values: &[f64], key: &str, path: &str) -> Result<Vec<f64>, DraftError> 
     values.iter().map(|value| positive(*value, key, path)).collect()
 }
 
+/// 格子の各位置に置いたセルの番号（空きは None）
+type Owners = Vec<Vec<Option<usize>>>;
+
 /// セルを格子に置く。owner[行][列] は置いたセルの番号（空きは None）
-fn place(spec: &TableSpec, columns: usize, path: &str) -> Result<(Vec<Placement>, Vec<Vec<Option<usize>>>), DraftError> {
+fn place(spec: &TableSpec, columns: usize, path: &str) -> Result<(Vec<Placement>, Owners), DraftError> {
     let rows = spec.cells.len();
-    let mut owner: Vec<Vec<Option<usize>>> = vec![vec![None; columns]; rows];
+    let mut owner: Owners = vec![vec![None; columns]; rows];
     let mut placements = Vec::new();
     for (row, cells) in spec.cells.iter().enumerate() {
         let mut column = 0;
@@ -61,22 +64,15 @@ fn place(spec: &TableSpec, columns: usize, path: &str) -> Result<(Vec<Placement>
             if row + span_rows > rows {
                 return Err(DraftError::new("invalid-value", &cell_path, format!("セルが行の数（{rows}）を超えます")));
             }
-            for r in row..row + span_rows {
-                for c in column..column + span_columns {
-                    if owner[r][c].is_some() {
+            for cells in owner.iter_mut().skip(row).take(span_rows) {
+                for slot in cells.iter_mut().skip(column).take(span_columns) {
+                    if slot.is_some() {
                         return Err(DraftError::new("invalid-value", &cell_path, "結合したセルが重なります"));
                     }
-                    owner[r][c] = Some(placements.len());
+                    *slot = Some(placements.len());
                 }
             }
-            placements.push(Placement {
-                row,
-                column,
-                rows: span_rows,
-                columns: span_columns,
-                cell,
-                path: cell_path,
-            });
+            placements.push(Placement { row, column, rows: span_rows, columns: span_columns, cell, path: cell_path });
             column += span_columns;
         }
     }
@@ -138,7 +134,8 @@ pub(crate) fn draw(
     let base = drafter.look(ctx, style, None, path)?;
     let outer_width = spec.outer_width.map_or(Ok(0.35), |w| number(w, "outerWidth", path))?;
     let inner_width = spec.inner_width.map_or(Ok(0.13), |w| number(w, "innerWidth", path))?;
-    let with_width = |look: &Look, width: f64| Look { lineweight: lineweight(width.clamp(0.0, 2.11)).0, ..look.clone() };
+    let with_width =
+        |look: &Look, width: f64| Look { lineweight: lineweight(width.clamp(0.0, 2.11)).0, ..look.clone() };
     let (outer, inner) = if style.line_width.is_some() || ctx.style.line_width.is_some() {
         (base.clone(), base.clone())
     } else {
@@ -171,7 +168,11 @@ pub(crate) fn draw(
         "wrap" => Fit::Wrap,
         "none" => Fit::None,
         other => {
-            return Err(DraftError::new("invalid-value", path, format!("fit の {other} はありません（shrink・wrap・none）")));
+            return Err(DraftError::new(
+                "invalid-value",
+                path,
+                format!("fit の {other} はありません（shrink・wrap・none）"),
+            ));
         }
     };
     let padding = number(spec.padding.unwrap_or(1.0), "padding", path)?.max(0.0) * s;

@@ -6,15 +6,12 @@
 //! - 表題欄は、枠の右端の縦の帯（right）か右下の表（bottom-right）。
 
 use crate::spec::{
-    AttributeSpec, InsertSpec, Point, SheetSpec, Spec, StyleSpec, TableSpec, TitleBlockSpec, ViewTitleSpec,
-    parse_items,
+    AttributeSpec, InsertSpec, Point, SheetSpec, Spec, StyleSpec, TableSpec, TitleBlockSpec, ViewTitleSpec, parse_items,
 };
 use crate::text::{self, Align, BOTTOM_LEFT, MIDDLE_CENTER, Placed};
 use crate::{BlockInfo, Ctx, DraftError, Drafter, number, point, positive, symbols};
 use serde_json::Value;
-use zumen_convert::builder::{
-    BY_LAYER, LINEWEIGHT_BY_LAYER, Look, Space, VIEWPORT_LAYER, lineweight, lwpolyline, xyz,
-};
+use zumen_convert::builder::{BY_LAYER, LINEWEIGHT_BY_LAYER, Look, Space, VIEWPORT_LAYER, lineweight, lwpolyline, xyz};
 use zumen_convert::sheet::{View, region, viewport};
 use zumen_core::BBox;
 use zumen_dxf::{DxfEntity, DxfEntityBase, DxfEntityData, DxfInsert, DxfLayout, DxfSpace, DxfTextBase, DxfViewport};
@@ -55,7 +52,13 @@ fn paper(sheet: &SheetSpec, path: &str) -> Result<(String, f64, f64), DraftError
             let (w, h) = (positive(w, "paper", path)?, positive(h, "paper", path)?);
             (format!("{w}x{h}"), w.max(h), w.min(h))
         }
-        Some(_) => return Err(DraftError::new("invalid-value", path, "paper は A3 などの名前か [幅, 高さ] で指定してください")),
+        Some(_) => {
+            return Err(DraftError::new(
+                "invalid-value",
+                path,
+                "paper は A3 などの名前か [幅, 高さ] で指定してください",
+            ));
+        }
     };
     match sheet.orientation.as_deref().unwrap_or("landscape") {
         "landscape" => Ok((name, width, height)),
@@ -68,7 +71,14 @@ fn paper(sheet: &SheetSpec, path: &str) -> Result<(String, f64, f64), DraftError
     }
 }
 
-fn layout(drafter: &mut Drafter, name: &str, block: &str, model: bool, order: usize, size: (&str, f64, f64)) -> DxfLayout {
+fn layout(
+    drafter: &mut Drafter,
+    name: &str,
+    block: &str,
+    model: bool,
+    order: usize,
+    size: (&str, f64, f64),
+) -> DxfLayout {
     let record = drafter
         .builder
         .doc
@@ -139,7 +149,13 @@ pub(crate) fn draw(drafter: &mut Drafter, spec: &Spec) -> Result<(), DraftError>
 }
 
 /// ビューポートの id（ID 1 は用紙ごとの全体のビューポート）
-fn draw_sheet(drafter: &mut Drafter, sheet: &SheetSpec, space: &Space, size: (f64, f64), path: &str) -> Result<(), DraftError> {
+fn draw_sheet(
+    drafter: &mut Drafter,
+    sheet: &SheetSpec,
+    space: &Space,
+    size: (f64, f64),
+    path: &str,
+) -> Result<(), DraftError> {
     let (width, height) = size;
     let paper_ctx = Ctx { space: space.clone(), scale: 1.0, style: StyleSpec::default() };
     // 全体のビューポート（AutoCAD はレイアウトごとに ID 1 を持つ）
@@ -191,7 +207,7 @@ fn draw_sheet(drafter: &mut Drafter, sheet: &SheetSpec, space: &Space, size: (f6
             scale: 1.0 / scale,
             angle: 0.0,
             origin: [paper_center[0] - center[0] / scale, paper_center[1] - center[1] / scale],
-            rect: rect.clone(),
+            rect,
         };
         let model_region = region(&view_model, [0.0, 0.0]);
         for (other, other_region) in &regions {
@@ -217,16 +233,25 @@ fn draw_sheet(drafter: &mut Drafter, sheet: &SheetSpec, space: &Space, size: (f6
         drafter.builder.add(space, &viewport_look(), "VIEWPORT", data, &view_path);
         if view.border {
             let look = drafter.look(&paper_ctx, &StyleSpec::default(), None, &view_path)?;
-            let corners =
-                vec![[rect.min_x, rect.min_y], [rect.max_x, rect.min_y], [rect.max_x, rect.max_y], [rect.min_x, rect.max_y]];
+            let corners = vec![
+                [rect.min_x, rect.min_y],
+                [rect.max_x, rect.min_y],
+                [rect.max_x, rect.max_y],
+                [rect.min_x, rect.max_y],
+            ];
             drafter.add(space, &look, "LWPOLYLINE", lwpolyline(&corners, None, true), &view_path);
         }
         if let Some(title) = &view.title {
-            let title = ViewTitleSpec {
-                at: Some(title.at.unwrap_or([rect.min_x + 5.0, rect.min_y + 7.0])),
-                ..title.clone()
-            };
-            symbols::view_title(drafter, &paper_ctx, &StyleSpec::default(), &title, Some(scale), &format!("{view_path}.title"))?;
+            let title =
+                ViewTitleSpec { at: Some(title.at.unwrap_or([rect.min_x + 5.0, rect.min_y + 7.0])), ..title.clone() };
+            symbols::view_title(
+                drafter,
+                &paper_ctx,
+                &StyleSpec::default(),
+                &title,
+                Some(scale),
+                &format!("{view_path}.title"),
+            )?;
         }
     }
     let items = parse_items(&sheet.items, &format!("{path}.items"))?;
@@ -316,7 +341,13 @@ fn title(
             let base = drafter.look(ctx, style, None, path)?;
             let thin = Look { lineweight: lineweight(0.13).0, ..base.clone() };
             let thick = Look { lineweight: lineweight(0.35).0, ..base };
-            drafter.add(&ctx.space, &thick, "LINE", DxfEntityData::Line { start: xyz([left, y0]), end: xyz([left, y1]) }, path);
+            drafter.add(
+                &ctx.space,
+                &thick,
+                "LINE",
+                DxfEntityData::Line { start: xyz([left, y0]), end: xyz([left, y1]) },
+                path,
+            );
             let text_layer = drafter.defaults.text_layer.clone();
             let text_look = drafter.look(ctx, style, text_layer.as_deref(), path)?;
             let text_style = drafter.text_style(None);
@@ -402,7 +433,11 @@ fn blocks(drafter: &mut Drafter, spec: &Spec) -> Result<(), DraftError> {
         let path = format!("blocks[{index}]");
         let key = block.name.to_uppercase();
         if block.name.trim().is_empty() || block.name.starts_with('*') {
-            return Err(DraftError::new("invalid-value", &path, "ブロックの名前は空でなく、* で始まらない名前にしてください"));
+            return Err(DraftError::new(
+                "invalid-value",
+                &path,
+                "ブロックの名前は空でなく、* で始まらない名前にしてください",
+            ));
         }
         if drafter.blocks.contains_key(&key) {
             return Err(DraftError::new("invalid-spec", &path, format!("ブロック {} が 2 度あります", block.name)));
@@ -425,14 +460,26 @@ fn blocks(drafter: &mut Drafter, spec: &Spec) -> Result<(), DraftError> {
         let path = format!("blocks[{index}]");
         let items = parse_items(&block.items, &format!("{path}.items"))?;
         if refers_to(&items, &block.name) {
-            return Err(DraftError::new("invalid-spec", &path, format!("ブロック {} が自身を置いています", block.name)));
+            return Err(DraftError::new(
+                "invalid-spec",
+                &path,
+                format!("ブロック {} が自身を置いています", block.name),
+            ));
         }
         let ctx = Ctx { space: Space::Block(name.clone()), scale: 1.0, style: StyleSpec::default() };
         drafter.items(&items, &ctx)?;
         for (attribute_index, attribute) in block.attributes.iter().enumerate() {
             let attribute_path = format!("{path}.attributes[{attribute_index}]");
             let look = drafter.look(&ctx, &StyleSpec::default(), None, &attribute_path)?;
-            let text = attribute_text(drafter, attribute, attribute.value.as_deref().unwrap_or(""), [0.0, 0.0], [1.0, 1.0], 0.0, &attribute_path)?;
+            let text = attribute_text(
+                drafter,
+                attribute,
+                attribute.value.as_deref().unwrap_or(""),
+                [0.0, 0.0],
+                [1.0, 1.0],
+                0.0,
+                &attribute_path,
+            )?;
             let data = DxfEntityData::Attdef {
                 text,
                 tag: attribute.tag.clone(),
@@ -521,7 +568,9 @@ pub(crate) fn insert(
     }
     let rotation = number(spec.rotation.unwrap_or(0.0), "rotation", path)?;
     let values = spec.attributes.clone().unwrap_or_default();
-    if let Some(tag) = values.keys().find(|tag| !attributes.iter().any(|attribute| attribute.tag.eq_ignore_ascii_case(tag))) {
+    if let Some(tag) =
+        values.keys().find(|tag| !attributes.iter().any(|attribute| attribute.tag.eq_ignore_ascii_case(tag)))
+    {
         let known: Vec<&str> = attributes.iter().map(|attribute| attribute.tag.as_str()).collect();
         return Err(DraftError::new(
             "invalid-value",
@@ -542,7 +591,8 @@ pub(crate) fn insert(
             .or_else(|| attribute.value.clone())
             .unwrap_or_default();
         // 属性の位置は、ブロックの基点からの位置を配置の座標系に写したもの
-        let relative = AttributeSpec { at: [attribute.at[0] - base[0], attribute.at[1] - base[1]], ..attribute.clone() };
+        let relative =
+            AttributeSpec { at: [attribute.at[0] - base[0], attribute.at[1] - base[1]], ..attribute.clone() };
         let text = attribute_text(drafter, &relative, &value, at, scale, rotation, path)?;
         let data = DxfEntityData::Attrib {
             text,
