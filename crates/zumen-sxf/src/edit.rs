@@ -74,6 +74,19 @@ pub fn edit_sxf(bytes: &[u8], format: &str, operations: &[EditOperation]) -> Res
             EditOperation::Delete { id } => editor.delete(index, id)?,
             EditOperation::AddLayer { name, values } => editor.add_layer(index, name, values)?,
             EditOperation::UpdateLayer { name, set } => editor.update_layer(index, name, set)?,
+            EditOperation::AddBlock { .. } => {
+                return Err(EditError::at(index, "unsupported-kind", "SXF の編集ではブロックの定義をまだ足せません"));
+            }
+            EditOperation::AddLayout { .. } => {
+                return Err(EditError::at(index, "unsupported-kind", "SXF の編集ではレイアウトをまだ足せません"));
+            }
+            EditOperation::AddStyle { kind, .. } => {
+                return Err(EditError::at(
+                    index,
+                    "unsupported-kind",
+                    format!("SXF の編集では {} をまだ使えません", kind.op()),
+                ));
+            }
         }
     }
     let written =

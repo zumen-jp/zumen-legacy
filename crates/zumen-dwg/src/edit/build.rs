@@ -4,7 +4,8 @@
 use crate::bits::HandleRef;
 use crate::codec::RawText;
 use crate::codec::entities::{
-    Arc, Body, Circle, Ellipse, Insert, Line, LwPolyline, MText, MTextRedundant, Point, Text,
+    Arc, Body, Circle, Ellipse, Hatch, HatchBoundary, HatchPath, HatchPattern, Insert, Line, LwPolyline, MText,
+    MTextRedundant, PatternLine, Point, Solid, Text, Viewport,
 };
 use crate::file::Version;
 use crate::write::drawing::{rad, rad_pair};
@@ -175,7 +176,9 @@ pub(super) fn move_text(text: &mut Text, position: [f64; 3]) {
     text.elevation = (position[2] != 0.0).then_some(position[2]);
 }
 
-/// MTEXT（20.4.46）。左下に配置（7）、左から右へ（1）、行間は倍率 1（DXF の編集と同じ）
+/// MTEXT（20.4.46）。attachment は配置（文字は 7 の左下、寸法の文字は 5 の中央）、左から右へ（1）、行間は倍率 1
+/// （DXF の編集と同じ）
+#[allow(clippy::too_many_arguments)]
 pub(super) fn mtext(
     version: Version,
     position: [f64; 3],
@@ -184,6 +187,7 @@ pub(super) fn mtext(
     rotation: f64,
     wrap: Option<f64>,
     style: u64,
+    attachment: i16,
 ) -> Body {
     let (sin, cos) = rad(rotation).sin_cos();
     let direction = if rotation == 0.0 { [1.0, 0.0, 0.0] } else { [cos, sin, 0.0] };
@@ -195,7 +199,7 @@ pub(super) fn mtext(
         rect_width,
         rect_height: Some(0.0),
         char_height: height,
-        attachment: 7,
+        attachment,
         drawing_direction: 1,
         extents_height: 0.0,
         extents_width: 0.0,
@@ -215,7 +219,7 @@ pub(super) fn mtext(
             version: 4,
             default_flag: true,
             registered_app: href(5, 0),
-            attachment: 7,
+            attachment: i32::from(attachment),
             direction,
             insert: position,
             rect_width,
@@ -280,4 +284,116 @@ pub(super) fn insert(position: [f64; 3], scale: [f64; 3], rotation: f64, block: 
         first_last: None,
         seqend: None,
     })
+}
+
+/// SOLID（20.4.35）。三角形は 4 つ目の角を 3 つ目と同じにする（DXF の SOLID と同じ）
+pub(super) fn solid(corners: [[f64; 3]; 3]) -> Body {
+    let xy = |point: [f64; 3]| [point[0], point[1]];
+    Body::Solid(Solid {
+        thickness: 0.0,
+        elevation: corners[0][2],
+        corners: [xy(corners[0]), xy(corners[1]), xy(corners[2]), xy(corners[2])],
+        extrusion: Z,
+    })
+}
+
+/// HATCH（20.4.75）。境界は閉じた折線（外側は 1 も立てる）、関連づけない（DXF の編集と同じ）。角度はラジアン
+pub(super) fn hatch(input: &zumen_dxf::hatch::HatchInput, name: RawText) -> Body {
+    let paths = input
+        .boundaries
+        .iter()
+        .enumerate()
+        .map(|(number, boundary)| HatchPath {
+            flags: if number == 0 { 3 } else { 2 },
+            boundary: HatchBoundary::Polyline {
+                has_bulges: false,
+                closed: true,
+                points: boundary.iter().map(|point| ([point[0], point[1]], 0.0)).collect(),
+            },
+            objects: Vec::new(),
+        })
+        .collect();
+    let pattern = (!input.solid).then(|| HatchPattern {
+        angle: rad(input.angle),
+        scale: input.scale,
+        double: false,
+        lines: input
+            .lines
+            .iter()
+            .map(|line| PatternLine {
+                angle: rad(line.angle),
+                base: line.base,
+                offset: line.offset,
+                dashes: line.dashes.clone(),
+            })
+            .collect(),
+    });
+    Body::Hatch(Box::new(Hatch {
+        gradient: None,
+        elevation: input.boundaries[0][0][2],
+        extrusion: Z,
+        name,
+        solid_fill: input.solid,
+        associative: false,
+        paths,
+        style: 0,
+        pattern_type: input.pattern_type as i16,
+        pattern,
+        pixel_size: None,
+        seeds: Vec::new(),
+    }))
+}
+
+/// VIEWPORT（20.4.37）。center・width・height は用紙の座標、view_center・view_height はモデルの座標。値はモデルの
+/// 書き出しと同じ既定（UCS は世界座標、状態 0x8060）。R2000 の VIEWPORT ENTITY HEADER は 0（作業中でない紙空間と同じ）
+pub(super) fn viewport(
+    version: Version,
+    center: [f64; 3],
+    width: f64,
+    height: f64,
+    view_center: [f64; 3],
+    view_height: f64,
+    style_sheet: RawText,
+) -> Body {
+    Body::Viewport(Box::new(Viewport {
+        center,
+        width,
+        height,
+        view_target: [0.0; 3],
+        view_direction: Z,
+        twist: 0.0,
+        view_height,
+        lens: 50.0,
+        front_clip: 0.0,
+        back_clip: 0.0,
+        snap_angle: 0.0,
+        view_center: [view_center[0], view_center[1]],
+        snap_base: [0.0, 0.0],
+        snap_spacing: [10.0, 10.0],
+        grid_spacing: [10.0, 10.0],
+        circle_zoom: 1000,
+        grid_major: 5,
+        status_flags: 32864,
+        style_sheet,
+        render_mode: 0,
+        ucs_at_origin: true,
+        ucs_per_viewport: true,
+        ucs_origin: [0.0; 3],
+        ucs_x: [1.0, 0.0, 0.0],
+        ucs_y: [0.0, 1.0, 0.0],
+        ucs_elevation: 0.0,
+        ucs_ortho: 0,
+        shade_plot_mode: 0,
+        default_lights: true,
+        lighting_type: 1,
+        brightness: 0.0,
+        contrast: 0.0,
+        ambient: Some(crate::codec::CmColor { index: 0, rgb: 0xc233_3333, name: None, book: None }),
+        frozen_layers: Vec::new(),
+        clip_boundary: href(5, 0),
+        vp_header: (version < Version::R2004).then(|| href(5, 0)),
+        named_ucs: href(5, 0),
+        base_ucs: href(5, 0),
+        r2007_handles: Some([href(4, 0), href(5, 0), href(5, 0), href(3, 0)]),
+    }))
 }

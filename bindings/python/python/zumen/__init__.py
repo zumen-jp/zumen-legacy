@@ -144,7 +144,17 @@ def edit(
 
     ``operations`` is a list of dicts (or the same as a JSON string): ``{"op": "add", "kind": "line", ...}``,
     ``{"op": "update", "id": ..., "set": {...}}``, ``{"op": "delete", "id": ...}``, ``{"op": "add-layer", "name":
-    ...}`` and ``{"op": "update-layer", "name": ..., "set": {...}}``. Kinds and keys are the ones that ``Scene``
+    ...}``, ``{"op": "update-layer", "name": ..., "set": {...}}`` and ``{"op": "add-block", "name": ...,
+    "basePoint": [x, y]}`` (an empty block definition that later operations fill with ``"container":
+    "block:<name>"``; DXF and DWG only). DXF and DWG also take ``"kind": "dimension"`` (``dimensionType``
+    ``"linear"`` or ``"aligned"``, ``start``, ``end``, ``position``, ``rotation``, ``text``, ``dimensionStyle``) and the ops ``add-text-style``,
+    ``add-line-type`` and ``add-dimension-style``, and ``"kind": "hatch"`` (``boundaries``, ``pattern``,
+    ``patternScale``, ``patternAngle``, ``patternLines``); ``text`` takes ``justification``, ``lineSpacing`` and
+    ``multiline``; ``"kind": "attribute-definition"`` goes in a block and ``block-reference`` takes ``attributes``
+    (``{"TAG": "value"}``); ``add-layout`` (``paperSize`` in mm) and ``"kind": "viewport"`` in ``"container":
+    "layout:<name>"`` (``center``, ``width``, ``height``, ``viewCenter``, ``scale``) make sheets; ``"kind": "leader"`` (``vertices``, ``text``, ``height``,
+    ``dimensionStyle``) adds a leader with its note; ``"kind": "image"`` (``path``, ``pixels``,
+    ``position``, ``width``, ``rotation``) adds a raster image that refers to ``path``. Kinds and keys are the ones that ``Scene``
     reports (``kind`` and the property keys), and coordinates are the drawing's own (the ``raw`` of properties), not
     paper millimeters. The format, its version, its text encoding and everything that no operation names stay as they
     were, including what zumen cannot read. DXF, DWG, JWW and SXF can be edited.
