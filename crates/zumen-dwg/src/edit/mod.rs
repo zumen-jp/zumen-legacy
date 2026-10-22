@@ -16,7 +16,7 @@ mod build;
 
 use crate::bits::{HandleRef, Read};
 use crate::codec::entities::{Body, Entity, fixed_name};
-use crate::codec::entities::{Dimension, DimensionKind as DwgDimensionKind};
+use crate::codec::entities::{Attribute, Dimension, DimensionKind as DwgDimensionKind, Text};
 use crate::codec::header::{HeaderVars, Value, read_header_vars, write_header_vars};
 use crate::codec::object::{EntityColor, EntityCommon, ObjectCommon, open_raw, writer};
 use crate::codec::objects::{Dictionary, Group, Layout, SortEntsTable};
@@ -37,10 +37,11 @@ use zumen_core::edit::{
     ValueReader,
 };
 use zumen_core::{NoticeLevel, NoticeList};
+use zumen_dxf::attributes::{self, Definition, Placed};
 use zumen_dxf::dimension::{self, DimStyleValues, DimensionKind, Part, Role};
 
 /// 足せる図形の種類（DXF の編集と同じ）
-const ADDABLE: [&str; 11] = [
+const ADDABLE: [&str; 12] = [
     "line",
     "polyline",
     "arc",
@@ -52,6 +53,7 @@ const ADDABLE: [&str; 11] = [
     BLOCK_REFERENCE,
     "dimension",
     "hatch",
+    "attribute-definition",
 ];
 
 /// 図形・レイヤに共通する値のキー
@@ -102,6 +104,7 @@ mod kind {
     pub const DIMSTYLE_CONTROL: u16 = 68;
     pub const DIMSTYLE: u16 = 69;
     pub const HATCH: u16 = 78;
+    pub const SEQEND: u16 = 6;
 }
 
 /// DWG を編集する。すべての操作を確かめてから書き、1 つでも通らなければエラーを返して何も書かない
@@ -925,6 +928,8 @@ impl Editor {
         let reader = ValueReader::new(values, index);
         let keys = |own: &[&'static str]| -> Vec<&'static str> { COMMON.iter().chain(own).copied().collect() };
         let place = self.place(index, container)?;
+        // ブロック参照に書く属性と、その属性の定義の値
+        let mut pending: Vec<(Placed, Attribute)> = Vec::new();
         let (type_number, body) = match kind {
             "line" => {
                 reader.allow(&keys(&["start", "end"]), "線分")?;
@@ -1056,8 +1061,48 @@ impl Editor {
                 };
                 (type_number, build::hatch(&input, self.raw_text(&input.pattern)))
             }
+            "attribute-definition" => {
+                let mut own = attributes::DEFINITION_KEYS.to_vec();
+                own.push("justification");
+                reader.allow(&keys(&own), "属性の定義")?;
+                if !container.is_some_and(|name| name.trim().starts_with("block:")) || place.mode != 0 {
+                    return Err(EditError::at(
+                        index,
+                        "invalid-value",
+                        "属性の定義（attribute-definition）は container の block:<名前> でブロックに足してください",
+                    ));
+                }
+                let (tag, prompt, default) = attributes::read_definition(&reader, index)?;
+                let position = reader.required("position", reader.point("position")?)?;
+                let height = reader.required("height", reader.positive("height")?)?;
+                let rotation = reader.number("rotation")?.unwrap_or(0.0);
+                let style = self.text_style(index, reader.name("textStyle")?)?.unwrap_or_else(|| self.default_style());
+                let justification = zumen_dxf::placement::read(&reader, index)?;
+                let mut text = build::text(position, self.raw_text(&default), height, rotation, style);
+                if let Body::Text(text) = &mut text
+                    && justification.aligned()
+                {
+                    text.halign = Some(justification.horizontal as i16);
+                    text.valign = Some(justification.vertical as i16);
+                    text.align = Some([position[0], position[1]]);
+                }
+                let Body::Text(text) = text else { unreachable!() };
+                let body = Attribute {
+                    text,
+                    version: 0,
+                    attribute_type: 1,
+                    embedded: None,
+                    tag: self.raw_text(&tag),
+                    field_length: 0,
+                    flags: 0,
+                    lock: false,
+                    prompt: Some((0, self.raw_text(&prompt))),
+                };
+                self.mark_attributes(place.block);
+                (kind::ATTDEF, Body::Attdef(body))
+            }
             _ => {
-                reader.allow(&keys(&["block", "position", "rotation", "scale"]), "ブロック参照")?;
+                reader.allow(&keys(&["block", "position", "rotation", "scale", "attributes"]), "ブロック参照")?;
                 let name = reader.required("block", reader.name("block")?)?;
                 let block = self
                     .blocks
@@ -1070,19 +1115,142 @@ impl Editor {
                 let position = reader.required("position", reader.point("position")?)?;
                 let rotation = reader.number("rotation")?.unwrap_or(0.0);
                 let scale = scale(index, &reader)?.unwrap_or([1.0; 3]);
+                if let Some(values) = reader.strings("attributes")? {
+                    let (definitions, bodies, base) = self.attribute_definitions(block);
+                    let placed = attributes::place(&definitions, values, base, position, scale, rotation, index)?;
+                    for attribute in placed {
+                        let Some(body) = bodies.iter().find(|body| self.text_of(&body.tag) == attribute.definition.tag)
+                        else {
+                            continue;
+                        };
+                        pending.push((attribute, body.clone()));
+                    }
+                }
                 (kind::INSERT, build::insert(position, scale, rotation, block))
             }
         };
         let mut common = self.new_common(index, place, &reader)?;
         let handle = self.next_handle(index)?;
         self.append(index, place, handle, &mut common)?;
-        if let Body::Insert(insert) = &body {
+        let mut body = body;
+        if let Body::Insert(insert) = &mut body {
             self.add_insert(insert.block.value, handle);
+            if !pending.is_empty() {
+                self.add_attributes(index, handle, &common, insert, pending)?;
+            }
         }
         let entity = Decoded { kind: type_number, eed: Vec::new(), value: Entity { common, body } };
         self.store_entity(handle, &entity);
         self.created.push(format!("{handle:X}"));
         Ok(())
+    }
+
+    /// ブロック参照の属性（ATTRIB）と SEQEND を書き、参照の属性の並び（R2004 以降）か最初と最後の属性（R2000 まで）に
+    /// する。ATTRIB は属性の定義の値を写し、位置・高さ・回転・値を参照に合わせる（モデルの書き出しと同じ形）
+    fn add_attributes(
+        &mut self,
+        index: usize,
+        insert_handle: u64,
+        insert_common: &EntityCommon,
+        insert: &mut crate::codec::entities::Insert,
+        pending: Vec<(Placed, Attribute)>,
+    ) -> Result<(), EditError> {
+        let mut handles = Vec::with_capacity(pending.len());
+        for _ in &pending {
+            handles.push(self.next_handle(index)?);
+        }
+        let seqend = self.next_handle(index)?;
+        let follower = |links: Option<(HandleRef, HandleRef)>| {
+            let mut common = insert_common.clone();
+            common.mode = 0;
+            common.owner = Some(href(4, insert_handle));
+            common.reactors = Vec::new();
+            common.links = links;
+            common
+        };
+        let r2004 = self.version >= Version::R2004;
+        for (at, (placed, mut body)) in pending.into_iter().enumerate() {
+            // R2000 までは属性どうしをつなぐ（前の属性と次の属性、端は 0）
+            let links = (!r2004).then(|| {
+                let previous = at.checked_sub(1).map_or(0, |before| handles[before]);
+                let next = handles.get(at + 1).copied().unwrap_or(0);
+                (href(4, previous), href(4, next))
+            });
+            body.text.insert = [placed.position[0], placed.position[1]];
+            body.text.elevation = (placed.position[2] != 0.0).then_some(placed.position[2]);
+            body.text.align = placed.align.map(|align| [align[0], align[1]]);
+            body.text.height = placed.height;
+            body.text.rotation = (placed.rotation != 0.0).then(|| placed.rotation.to_radians());
+            body.text.value = self.raw_text(&placed.value);
+            body.prompt = None;
+            body.version = 0;
+            let entity = Decoded {
+                kind: kind::ATTRIB,
+                eed: Vec::new(),
+                value: Entity { common: follower(links), body: Body::Attrib(body) },
+            };
+            self.store_entity(handles[at], &entity);
+        }
+        let end = Decoded { kind: kind::SEQEND, eed: Vec::new(), value: Entity { common: follower(None), body: Body::Empty } };
+        self.store_entity(seqend, &end);
+        insert.has_attributes = true;
+        insert.seqend = Some(href(3, seqend));
+        if r2004 {
+            insert.attributes = handles.iter().map(|handle| href(3, *handle)).collect();
+        } else {
+            insert.first_last = Some((href(4, handles[0]), href(4, handles[handles.len() - 1])));
+        }
+        Ok(())
+    }
+
+    /// ブロックの属性の定義（ATTDEF）の値と、その図形の値、ブロックの基点
+    fn attribute_definitions(&self, block: u64) -> (Vec<Definition>, Vec<Attribute>, [f64; 3]) {
+        let Some(header) = self.read(block, |s, _| BlockHeader::read(s)) else { return (Vec::new(), Vec::new(), [0.0; 3]) };
+        let members: Vec<u64> = if self.version >= Version::R2004 {
+            header.value.entities.iter().map(|entity| entity.resolve(block)).collect()
+        } else {
+            header
+                .value
+                .first_last
+                .and_then(|(first, last)| self.chain(first.resolve(block), last.resolve(block)))
+                .unwrap_or_default()
+        };
+        let mut definitions = Vec::new();
+        let mut bodies = Vec::new();
+        for member in members {
+            let Some((entity, _)) = self.read_entity(member) else { continue };
+            let Body::Attdef(body) = entity.value.body else { continue };
+            let text: &Text = &body.text;
+            let z = text.elevation.unwrap_or(0.0);
+            let (horizontal, vertical) = (i64::from(text.halign.unwrap_or(0)), i64::from(text.valign.unwrap_or(0)));
+            definitions.push(Definition {
+                tag: self.text_of(&body.tag),
+                prompt: body.prompt.as_ref().map(|(_, prompt)| self.text_of(prompt)).unwrap_or_default(),
+                default: self.text_of(&text.value),
+                position: [text.insert[0], text.insert[1], z],
+                align: text.align.filter(|_| horizontal != 0 || vertical != 0).map(|align| [align[0], align[1], z]),
+                height: text.height,
+                rotation: text.rotation.unwrap_or(0.0).to_degrees(),
+                width: text.width.unwrap_or(1.0),
+                horizontal,
+                vertical,
+                flags: i64::from(body.flags),
+                style: None,
+            });
+            bodies.push(body);
+        }
+        (definitions, bodies, header.value.base)
+    }
+
+    /// ブロック（BLOCK_HEADER）に「属性を持つ」を立てる
+    fn mark_attributes(&mut self, block: u64) {
+        if let Some(mut header) = self.read(block, |s, _| BlockHeader::read(s))
+            && !header.value.has_attributes
+        {
+            header.value.has_attributes = true;
+            let (kind, eed) = (header.kind, header.eed.clone());
+            self.store(block, kind, &eed, |out| header.value.write(out));
+        }
     }
 
     /// ブロックの配置の並び（BLOCK_HEADER の inserts）に INSERT を足す

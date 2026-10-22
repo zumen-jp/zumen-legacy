@@ -796,3 +796,41 @@ fn places_text_by_justification_in_every_version() {
         assert_eq!(edited.notices.iter().any(|notice| notice.code == "edit-no-line-spacing"), old, "{name}");
     }
 }
+
+/// 属性の定義を足し、ブロック参照に属性の値を書く（docs/decisions/0017）
+#[test]
+fn adds_attributes_in_every_version() {
+    let operations = r#"[
+        {"op": "add-block", "name": "TITLE"},
+        {"op": "add", "kind": "line", "container": "block:TITLE", "start": [0, 0], "end": [170, 0]},
+        {"op": "add", "kind": "attribute-definition", "container": "block:TITLE", "tag": "DRAWING", "prompt": "図面名", "text": "未定", "position": [85, 25], "height": 5, "justification": "middle-center"},
+        {"op": "add", "kind": "attribute-definition", "container": "block:TITLE", "tag": "SCALE", "position": [5, 5], "height": 3, "text": "1:100"},
+        {"op": "add", "kind": "block-reference", "block": "TITLE", "position": [250, 10], "scale": 2, "attributes": {"DRAWING": "1階平面図"}}
+    ]"#;
+    let mut versions: Vec<(String, Vec<u8>)> =
+        crate::DwgVersion::ALL.iter().map(|version| (version.name().to_string(), written_as(*version))).collect();
+    versions.push(("new".into(), new_dwg("mm").unwrap()));
+    for (name, bytes) in versions {
+        let edited = edit(&bytes, operations).unwrap_or_else(|error| panic!("{name}: {error}"));
+        check_structure(&name, &edited.bytes);
+        let doc = crate::read_dwg(&edited.bytes).unwrap_or_else(|error| panic!("{name}: {error}"));
+        assert!(doc.blocks.iter().any(|block| block.name == "TITLE" && block.flags == 2.0), "{name}");
+        let DxfEntityData::Insert(insert) = &entity(&doc, &edited.created[4]).unwrap().data else { panic!("{name}") };
+        let values: Vec<(String, String)> = insert
+            .attribs
+            .iter()
+            .map(|attrib| match &attrib.data {
+                DxfEntityData::Attrib { text, tag, .. } => (tag.clone(), text.text.clone()),
+                other => panic!("{name}: {other:?}"),
+            })
+            .collect();
+        assert_eq!(values, [("DRAWING".into(), "1階平面図".into()), ("SCALE".into(), "1:100".into())], "{name}");
+        let DxfEntityData::Attrib { text, .. } = &insert.attribs[0].data else { panic!() };
+        assert_eq!((text.align_point.map(|point| [point[0], point[1]]), text.height), (Some([420.0, 60.0]), 10.0), "{name}");
+        let scene = zumen_dxf::dxf_to_scene(&doc, None);
+        let reference = &edited.created[4];
+        let attributes =
+            scene.entities.iter().filter(|entity| entity.id.starts_with(&format!("{reference}>")) && entity.kind.name() == "attribute");
+        assert_eq!(attributes.count(), 2, "{name}");
+    }
+}

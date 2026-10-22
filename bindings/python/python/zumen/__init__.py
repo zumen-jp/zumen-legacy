@@ -142,7 +142,8 @@ def edit(
     ``"linear"`` or ``"aligned"``, ``start``, ``end``, ``position``, ``rotation``, ``text``, ``dimensionStyle``) and the ops ``add-text-style``,
     ``add-line-type`` and ``add-dimension-style``, and ``"kind": "hatch"`` (``boundaries``, ``pattern``,
     ``patternScale``, ``patternAngle``, ``patternLines``); ``text`` takes ``justification``, ``lineSpacing`` and
-    ``multiline``. Kinds and keys are the ones that ``Scene``
+    ``multiline``; ``"kind": "attribute-definition"`` goes in a block and ``block-reference`` takes ``attributes``
+    (``{"TAG": "value"}``). Kinds and keys are the ones that ``Scene``
     reports (``kind`` and the property keys), and coordinates are the drawing's own (the ``raw`` of properties), not
     paper millimeters. The format, its version, its text encoding and everything that no operation names stay as they
     were, including what zumen cannot read. DXF, DWG, JWW and SXF can be edited.

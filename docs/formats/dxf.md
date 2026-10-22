@@ -456,6 +456,14 @@ stay, and an edit without operations gives the same bytes.
   `multiline` (`true` writes MTEXT for one line). TEXT gets 72 and 73 with the alignment point 11 at `position`;
   MTEXT gets the attachment 71 (baseline justifications become the bottom row) and, from AutoCAD 2000 on, 73 = 1 and
   44 (`edit-no-line-spacing` before). `lineSpacing` makes MTEXT.
+- **Attributes**: `kind: "attribute-definition"` in a block (`container: "block:<name>"`, `invalid-value`
+  elsewhere) with `tag` (no spaces, written in capitals, as AutoCAD keeps it), `prompt`, `text` (the default
+  value), `position`, `height`, `rotation`, `textStyle` and `justification` writes an ATTDEF and sets bit 2 (has
+  attributes) of the BLOCK. `block-reference` takes `attributes`, an object from tag to value: the INSERT gets 66 = 1
+  and, for each non-constant attribute definition of the block (those the drawing has and those added earlier in the
+  edit), an ATTRIB owned by it, placed as AutoCAD places it (the definition's point less the base point, scaled,
+  rotated and moved to the reference; height times the Y scale), with the given value or the default, then a SEQEND.
+  A tag that the block does not define is `invalid-value`. Without `attributes`, no ATTRIB is written.
 - **Values the version cannot hold** are written as the nearest one and reported: `edit-nearest-color` (no true color
   before AutoCAD 2004), `edit-rounded-lineweight` (the line weights of the DXF Reference), `edit-no-lineweight` (no
   line weights before AutoCAD 2000).
