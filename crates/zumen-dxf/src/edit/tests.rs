@@ -891,3 +891,56 @@ fn adds_layouts_with_viewports_at_a_scale() {
         assert_eq!(edit(&bytes, operations).unwrap_err().code, code, "{operations}");
     }
 }
+
+/// ATTRIB は INSERT から独立した文字なので、定義の見た目を保ち、尺度を文字の両軸に掛ける。
+#[test]
+fn preserves_attribute_appearance_and_nonuniform_scaling() {
+    let definitions = edit(&drawing(""), r#"[
+        {"op":"add-block","name":"REVIEW"},
+        {"op":"add","kind":"attribute-definition","container":"block:REVIEW","tag":"A","text":"hello","position":[1,2],"height":1,"layer":"WALL","color":2,"lineType":"DASHED","lineWidth":0.35},
+        {"op":"add","kind":"attribute-definition","container":"block:REVIEW","tag":"B","text":"rotated","position":[0,0],"height":1,"rotation":90,"color":3}
+    ]"#).unwrap();
+    let edited = edit(&definitions.bytes, r#"[
+        {"op":"add","kind":"block-reference","block":"REVIEW","position":[10,20],"scale":[2,1],"attributes":{},"color":4},
+        {"op":"add","kind":"block-reference","block":"REVIEW","position":[0,0],"scale":[-2,1],"attributes":{}}
+    ]"#).unwrap();
+    let doc = parse_dxf(&edited.bytes);
+    let get = |handle: &str| {
+        let DxfEntityData::Insert(insert) =
+            &doc.entities.iter().find(|entity| entity.base.handle == handle).unwrap().data
+        else {
+            panic!()
+        };
+        insert
+    };
+    let insert = get(&edited.created[0]);
+    let base = &insert.attribs[0].base;
+    assert_eq!(
+        (base.layer.as_str(), base.color_index, base.linetype.as_str(), base.lineweight),
+        ("WALL", 2.0, "DASHED", 35.0)
+    );
+    let DxfEntityData::Attrib { text, .. } = &insert.attribs[0].data else { panic!() };
+    assert_eq!((text.insert, text.height, text.width), ([12.0, 22.0, 0.0], 1.0, 2.0));
+    let DxfEntityData::Attrib { text, .. } = &insert.attribs[1].data else { panic!() };
+    assert!((text.height - 2.0).abs() < 1e-9 && (text.width - 0.5).abs() < 1e-9 && (text.rotation - 90.0).abs() < 1e-9);
+    assert_eq!(insert.attribs[1].base.color_index, 3.0);
+    let DxfEntityData::Attrib { text, .. } = &get(&edited.created[1]).attribs[0].data else { panic!() };
+    assert_eq!(text.text_generation_flag, 4.0);
+    assert!((text.rotation.abs() - 180.0).abs() < 1e-9);
+}
+
+#[test]
+fn reports_approximated_jis_dimension_text_position() {
+    let bytes = b"0\nSECTION\n2\nHEADER\n9\n$DIMTAD\n70\n3\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n";
+    let edited =
+        edit(bytes, r#"[{"op":"add","kind":"dimension","start":[0,0],"end":[1000,0],"position":[0,-100]}]"#).unwrap();
+    assert!(edited.notices.iter().any(|notice| notice.code == "edit-dimension-text-position" && notice.count == 1));
+}
+
+#[test]
+fn exhausted_dimension_block_names_fail_without_overflowing() {
+    let bytes = b"0\nSECTION\n2\nBLOCKS\n0\nBLOCK\n2\n*D18446744073709551615\n70\n1\n10\n0\n20\n0\n0\nENDBLK\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n";
+    let error =
+        edit(bytes, r#"[{"op":"add","kind":"dimension","start":[0,0],"end":[10,0],"position":[0,5]}]"#).unwrap_err();
+    assert_eq!((error.code, error.operation), ("name-exhausted", Some(0)));
+}
