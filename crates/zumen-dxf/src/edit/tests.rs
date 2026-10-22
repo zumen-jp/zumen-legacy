@@ -892,6 +892,46 @@ fn adds_layouts_with_viewports_at_a_scale() {
     }
 }
 
+#[test]
+fn adds_leaders_with_their_notes() {
+    let bytes = drawing("");
+    let edited = edit(
+        &bytes,
+        r#"[
+            {"op": "add", "kind": "leader", "vertices": [[0, 0], [10, 10], [30, 10]], "text": "化粧ケイカル板 t=6"},
+            {"op": "add", "kind": "leader", "vertices": [[0, 0], [-10, 5]], "text": "左", "height": 3}
+        ]"#,
+    )
+    .unwrap();
+    let doc = parse_dxf(&edited.bytes);
+    let leader = |handle: &str| match &doc.entities.iter().find(|entity| entity.base.handle == handle).unwrap().data {
+        DxfEntityData::Leader(leader) => leader.clone(),
+        other => panic!("{other:?}"),
+    };
+    let first = leader(&edited.created[0]);
+    assert!(first.has_arrowhead && first.points.len() == 3 && first.annotation_type == 0.0);
+    let notes: Vec<(String, f64, [f64; 3], f64)> = doc
+        .entities
+        .iter()
+        .filter_map(|entity| match &entity.data {
+            DxfEntityData::MText(text) => {
+                Some((text.raw_text.clone(), text.attachment_point, text.insert, text.char_height))
+            }
+            _ => None,
+        })
+        .collect();
+    // Standard（DIMGAP は既定の 0.09、DIMTXT は 2.5）
+    assert_eq!(notes[0], ("化粧ケイカル板 t=6".to_string(), 4.0, [30.09, 10.0, 0.0], 2.5));
+    assert_eq!(notes[1], ("左".to_string(), 6.0, [-10.09, 5.0, 0.0], 3.0));
+    let scene = crate::dxf_to_scene(&doc, None);
+    let drawn = scene.entities.iter().find(|entity| entity.id == edited.created[0]).unwrap();
+    assert_eq!(drawn.kind.name(), "leader");
+    assert!(drawn.primitives.len() >= 2, "the arrowhead and the line");
+    let r12 = "0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n";
+    let error = edit(r12.as_bytes(), r#"[{"op": "add", "kind": "leader", "vertices": [[0, 0], [1, 1]]}]"#);
+    assert_eq!(error.unwrap_err().code, "unsupported-kind");
+}
+
 /// ATTRIB は INSERT から独立した文字なので、定義の見た目を保ち、尺度を文字の両軸に掛ける。
 #[test]
 fn preserves_attribute_appearance_and_nonuniform_scaling() {

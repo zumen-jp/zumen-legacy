@@ -164,6 +164,7 @@ def test_edited_dxf_passes_the_audit_of_ezdxf(tmp_path):
                 "height": 2,
                 "justification": "middle-center",
             },
+            {"op": "add", "kind": "leader", "vertices": [[0, 0], [5, 5], [9, 5]], "text": "注記"},
             {"op": "add-layout", "name": "CHECK-SHEET", "paperSize": [420, 297]},
             {
                 "op": "add",
@@ -183,7 +184,7 @@ def test_edited_dxf_passes_the_audit_of_ezdxf(tmp_path):
         auditor = doc.audit()
         found = [(entry.code, entry.message) for entry in [*auditor.errors, *auditor.fixes]]
         assert found == [], (name, found)
-        added = [doc.entitydb[handle] for handle in edited.created[1:-12]]
+        added = [doc.entitydb[handle] for handle in edited.created[1:-13]]
         assert [entity.dxftype() for entity in added[:9]] == [
             "LINE",
             "CIRCLE",
@@ -200,14 +201,16 @@ def test_edited_dxf_passes_the_audit_of_ezdxf(tmp_path):
         assert doc.layers.get("CHECK").dxf.lineweight == 35
         block = doc.blocks.get("CHECK-BLOCK")
         assert [entity.dxftype() for entity in block] == ["CIRCLE", "ATTDEF"], name
-        reference = doc.entitydb[edited.created[-9]]
+        reference = doc.entitydb[edited.created[-10]]
         assert reference.dxf.name == "CHECK-BLOCK" and reference.get_attrib_text("NAME") == "確認", name
         assert doc.styles.get("CHECK-JP").get_extended_font_data()[0] == "MS Gothic", name
         assert doc.linetypes.get("CHECK-DASH").simplified_line_pattern() == (2, 1), name
         assert doc.dimstyles.get("CHECK-DIM").dxf.dimscale == 2, name
-        dimension = doc.entitydb[edited.created[-5]]
-        hatch = doc.entitydb[edited.created[-4]]
-        centered = doc.entitydb[edited.created[-3]]
+        dimension = doc.entitydb[edited.created[-6]]
+        hatch = doc.entitydb[edited.created[-5]]
+        centered = doc.entitydb[edited.created[-4]]
+        leader = doc.entitydb[edited.created[-3]]
+        assert leader.dxftype() == "LEADER" and leader.dxf.annotation_handle in doc.entitydb, name
         sheet = doc.layouts.get("CHECK-SHEET")
         assert [entity.dxftype() for entity in sheet] == ["VIEWPORT", "VIEWPORT"], name
         assert sheet.viewports()[1].dxf.view_height > 0, name

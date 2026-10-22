@@ -903,6 +903,65 @@ fn adds_layouts_with_viewports_from_r2000_on() {
     }
 }
 
+/// 引出線と注釈の文字を足す（docs/decisions/0017）
+#[test]
+fn adds_leaders_in_every_version() {
+    let operations = r#"[
+        {"op": "add", "kind": "leader", "vertices": [[0, 0], [10, 10], [30, 10]], "text": "注記", "height": 2.5}
+    ]"#;
+    let mut versions: Vec<(String, Vec<u8>)> =
+        crate::DwgVersion::ALL.iter().map(|version| (version.name().to_string(), written_as(*version))).collect();
+    versions.push(("new".into(), new_dwg("mm").unwrap()));
+    for (name, bytes) in versions {
+        let edited = edit(&bytes, operations).unwrap_or_else(|error| panic!("{name}: {error}"));
+        check_structure(&name, &edited.bytes);
+        let doc = crate::read_dwg(&edited.bytes).unwrap_or_else(|error| panic!("{name}: {error}"));
+        let DxfEntityData::Leader(leader) = &entity(&doc, &edited.created[0]).unwrap().data else { panic!("{name}") };
+        // 注釈のある引出線のフックは、DWG の読み取りが頂点を足す（entities.rs）
+        assert!(leader.has_arrowhead && leader.points.len() >= 3, "{name}: {leader:?}");
+        let note = doc.entities.iter().find_map(|entity| match &entity.data {
+            DxfEntityData::MText(text) if text.raw_text == "注記" => Some(text.clone()),
+            _ => None,
+        });
+        let note = note.unwrap_or_else(|| panic!("{name}: no note"));
+        assert_eq!((note.attachment_point, note.char_height), (4.0, 2.5), "{name}");
+        let scene = zumen_dxf::dxf_to_scene(&doc, None);
+        assert!(
+            scene.entities.iter().any(|entity| entity.id == edited.created[0] && entity.kind.name() == "leader"),
+            "{name}"
+        );
+    }
+}
+
+/// 注釈が左にある場合もフックは最後の線分へ戻す。線分に収まらない補助線は種類と数で知らせる。
+#[test]
+fn leader_hooks_follow_the_annotation_and_report_changed_paths() {
+    let operations = r#"[
+        {"op":"add","kind":"leader","vertices":[[0,0],[-10,10],[-30,10]],"text":"left"},
+        {"op":"add","kind":"leader","vertices":[[0,0],[10,10],[30,10]],"text":"right"},
+        {"op":"add","kind":"leader","vertices":[[0,0],[-10,5]],"text":"diagonal"},
+        {"op":"add","kind":"leader","vertices":[[0,0],[1,0]],"text":"short"},
+        {"op":"add","kind":"leader","vertices":[[0,0],[-10,5]]}
+    ]"#;
+    for version in crate::DwgVersion::ALL {
+        let empty = zumen_dxf::parse_dxf(&zumen_dxf::new_dxf("mm").unwrap());
+        let source = crate::write_dwg_as(&empty, version).bytes;
+        let edited = edit(&source, operations).unwrap();
+        check_structure(version.name(), &edited.bytes);
+        let notices: Vec<_> = edited.notices.iter().filter(|notice| notice.code == "edit-leader-hook").collect();
+        assert_eq!(notices.len(), 1, "{}", version.name());
+        assert_eq!(notices[0].count, 2, "{}", version.name());
+        let doc = crate::read_dwg(&edited.bytes).unwrap();
+        let points = |number: usize| match &entity(&doc, &edited.created[number]).unwrap().data {
+            DxfEntityData::Leader(leader) => leader.points.clone(),
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(points(0), [[0.0, 0.0, 0.0], [-10.0, 10.0, 0.0], [-27.5, 10.0, 0.0], [-30.0, 10.0, 0.0]]);
+        assert_eq!(points(1), [[0.0, 0.0, 0.0], [10.0, 10.0, 0.0], [27.5, 10.0, 0.0], [30.0, 10.0, 0.0]]);
+        assert_eq!(points(4), [[0.0, 0.0, 0.0], [-10.0, 5.0, 0.0]]);
+    }
+}
+
 /// DXF と同じく、別の編集で読んだ ATTDEF の見た目と非等方尺度を保つ。
 #[test]
 fn preserves_attribute_appearance_and_nonuniform_scaling_in_every_version() {

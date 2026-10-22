@@ -478,6 +478,11 @@ stay, and an edit without operations gives the same bytes.
   `viewCenter` in model coordinates and `scale`, the denominator of the scale (1:100 is `100`): the view height is
   `height × scale` converted from millimeters to the drawing's `$INSUNITS` (unitless counts as millimeters). Its id
   (69) follows the largest of the layout.
+- **Leaders**: `kind: "leader"` with `vertices` (the first is the arrowhead's tip), `text`, `height` (by default
+  DIMTXT × DIMSCALE), `dimensionStyle` and `textStyle` writes a LEADER (arrowhead on, straight, 73 = 0 with text and
+  3 without) and, for the text, an MTEXT that the LEADER points to (340), DIMGAP × DIMSCALE beyond the last vertex,
+  middle left when the last segment goes right and middle right when it goes left. No hook line is added. R12 has no
+  LEADER (`unsupported-kind`). `created` gives the LEADER.
 - **Values the version cannot hold** are written as the nearest one and reported: `edit-nearest-color` (no true color
   before AutoCAD 2004), `edit-rounded-lineweight` (the line weights of the DXF Reference), `edit-no-lineweight` (no
   line weights before AutoCAD 2000).
