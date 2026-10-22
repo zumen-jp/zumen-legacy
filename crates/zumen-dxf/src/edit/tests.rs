@@ -714,6 +714,44 @@ fn adds_solid_and_patterned_hatches() {
 }
 
 #[test]
+fn places_text_by_justification_and_line_spacing() {
+    let bytes = drawing("");
+    let edited = edit(
+        &bytes,
+        r#"[
+            {"op": "add", "kind": "text", "position": [100, 50], "text": "中央", "height": 5, "justification": "middle-center"},
+            {"op": "add", "kind": "text", "position": [100, 50], "text": "右", "height": 5, "justification": "right"},
+            {"op": "add", "kind": "text", "position": [10, 90], "text": "一行", "height": 3, "multiline": true, "justification": "top-left"},
+            {"op": "add", "kind": "text", "position": [10, 80], "text": "一\n二", "height": 3, "lineSpacing": 1.5}
+        ]"#,
+    )
+    .unwrap();
+    let doc = parse_dxf(&edited.bytes);
+    let get =
+        |index: usize| &doc.entities.iter().find(|entity| entity.base.handle == edited.created[index]).unwrap().data;
+    let DxfEntityData::Text(middle) = get(0) else { panic!() };
+    assert_eq!((middle.halign, middle.valign, middle.align_point), (1.0, 2.0, Some([100.0, 50.0, 0.0])));
+    let DxfEntityData::Text(right) = get(1) else { panic!() };
+    assert_eq!((right.halign, right.valign), (2.0, 0.0));
+    let DxfEntityData::MText(top) = get(2) else { panic!() };
+    assert_eq!(top.attachment_point, 1.0);
+    let DxfEntityData::MText(spaced) = get(3) else { panic!() };
+    assert_eq!((spaced.attachment_point, spaced.line_spacing_factor), (7.0, 1.5));
+    // 中央に合わせた文字は、位置合わせの点をはさむ
+    let scene = crate::dxf_to_scene(&doc, None);
+    let centered = scene.entities.iter().find(|entity| entity.id == edited.created[0]).unwrap();
+    let center = (centered.bbox.min_x + centered.bbox.max_x) / 2.0;
+    // 右に合わせた文字は、同じ位置合わせの点で終わる
+    let right = scene.entities.iter().find(|entity| entity.id == edited.created[1]).unwrap();
+    assert!((right.bbox.max_x - center).abs() < 0.5, "{} {center}", right.bbox.max_x);
+    let error = edit(
+        &bytes,
+        r#"[{"op": "add", "kind": "text", "position": [0, 0], "text": "x", "height": 1, "justification": "upper"}]"#,
+    );
+    assert_eq!(error.unwrap_err().code, "invalid-value");
+}
+
+#[test]
 fn reports_approximated_jis_dimension_text_position() {
     let bytes = b"0\nSECTION\n2\nHEADER\n9\n$DIMTAD\n70\n3\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n";
     let edited =

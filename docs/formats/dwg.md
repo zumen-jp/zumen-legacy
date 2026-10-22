@@ -702,6 +702,9 @@ drawing with `write_dwg` (`$INSUNITS` and `$MEASUREMENT` from the units), which 
 - **Hatches**: `kind: "hatch"` takes the keys of the DXF editor and writes a HATCH (20.4.75) with polyline paths and
   the pattern lines of `zumen_dxf::hatch`; from R2000 on it is the fixed type 78, in R14 the class `HATCH` (added to
   AcDb:Classes when the drawing lacks it), and R13, which has no HATCH, refuses it (`unsupported-kind`).
+- **Text placement**: `justification`, `lineSpacing` and `multiline` as in the DXF editor: TEXT gets its horizontal
+  and vertical alignment and alignment point, MTEXT its attachment and line spacing factor (R13 and R14 have none,
+  `edit-no-line-spacing`).
 - **Values the version cannot hold** are written as the nearest one and reported: `edit-nearest-color` (no true color
   before AutoCAD 2004) and `edit-rounded-lineweight` (the line weights of DWG). R13 and R14 have no line weights and
   plot every layer, so a line weight other than BYLAYER (entities) or the default (layers) and `plot: false` are not
