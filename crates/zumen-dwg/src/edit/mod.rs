@@ -16,10 +16,11 @@ mod build;
 
 use crate::bits::{HandleRef, Read};
 use crate::codec::entities::{Body, Entity, fixed_name};
+use crate::codec::entities::{Dimension, DimensionKind as DwgDimensionKind};
 use crate::codec::header::{HeaderVars, Value, read_header_vars, write_header_vars};
 use crate::codec::object::{EntityColor, EntityCommon, ObjectCommon, open_raw, writer};
 use crate::codec::objects::{Dictionary, Group, Layout, SortEntsTable};
-use crate::codec::tables::{BlockHeader, Control, EntryName, Layer, Linetype, TextStyle};
+use crate::codec::tables::{BlockHeader, Control, DimStyle, DimValue, EntryName, Layer, Linetype, TextStyle};
 use crate::codec::{CmColor, In, RawText};
 use crate::file::Version;
 use crate::write::classes::{classes_bits, classes_data, read_class_defs};
@@ -33,10 +34,11 @@ use zumen_core::edit::{
     BLOCK_REFERENCE, EditColor, EditError, EditLineWidth, EditOperation, EditValue, EditValues, Edited, ValueReader,
 };
 use zumen_core::{NoticeLevel, NoticeList};
+use zumen_dxf::dimension::{self, DimStyleValues, DimensionKind, Part, Role};
 
 /// 足せる図形の種類（DXF の編集と同じ）
-const ADDABLE: [&str; 9] =
-    ["line", "polyline", "arc", "circle", "ellipse", "ellipse-arc", "point", "text", BLOCK_REFERENCE];
+const ADDABLE: [&str; 10] =
+    ["line", "polyline", "arc", "circle", "ellipse", "ellipse-arc", "point", "text", BLOCK_REFERENCE, "dimension"];
 
 /// 図形・レイヤに共通する値のキー
 const COMMON: [&str; 4] = ["layer", "color", "lineType", "lineWidth"];
@@ -76,6 +78,9 @@ mod kind {
     pub const ENDBLK: u16 = 5;
     pub const BLOCK_CONTROL: u16 = 48;
     pub const BLOCK_HEADER: u16 = 49;
+    pub const SOLID: u16 = 31;
+    pub const DIMENSION_LINEAR: u16 = 21;
+    pub const DIMENSION_ALIGNED: u16 = 22;
 }
 
 /// DWG を編集する。すべての操作を確かめてから書き、1 つでも通らなければエラーを返して何も書かない
@@ -203,6 +208,8 @@ struct Editor {
     styles: HashMap<String, u64>,
     /// ブロックの名前（大文字）→ BLOCK_HEADER
     blocks: HashMap<String, u64>,
+    /// 寸法スタイルの名前（大文字）→ DIMSTYLE
+    dimstyles: HashMap<String, u64>,
     /// レイアウトの名前（大文字）→ BLOCK_HEADER
     layouts: HashMap<String, u64>,
     model: u64,
@@ -277,6 +284,7 @@ impl Editor {
             linetypes: HashMap::new(),
             styles: HashMap::new(),
             blocks: HashMap::new(),
+            dimstyles: HashMap::new(),
             layouts: HashMap::new(),
             model: tables.model_space,
             paper: tables.paper_space,
@@ -448,6 +456,12 @@ impl Editor {
                 if !name.trim().is_empty() && !style.value.shape {
                     self.styles.entry(upper(&name)).or_insert(handle);
                 }
+            }
+        }
+        for handle in self.control(self.tables.dimstyle_control) {
+            if let Some(style) = self.read(handle, |s, _| DimStyle::read(s)) {
+                let name = self.text_of(&style.value.name.name);
+                self.dimstyles.entry(upper(&name)).or_insert(handle);
             }
         }
         // ブロックの名前は BLOCK の図形のもの（BLOCK_HEADER の名前は、紙空間はどれも *Paper_Space、無名のブロックは
@@ -965,12 +979,19 @@ impl Editor {
                 let wrap = reader.number("wrapWidth")?;
                 if text.contains('\n') || wrap.is_some() {
                     let content = self.raw_text(&mtext_content(text));
-                    let body = build::mtext(self.version, position, content, height, rotation, wrap, style);
+                    let body = build::mtext(self.version, position, content, height, rotation, wrap, style, 7);
                     (kind::MTEXT, body)
                 } else {
                     let value = self.raw_text(text);
                     (kind::TEXT, build::text(position, value, height, rotation, style))
                 }
+            }
+            "dimension" => {
+                reader.allow(
+                    &keys(&["dimensionType", "start", "end", "position", "rotation", "dimensionStyle", "text"]),
+                    "寸法",
+                )?;
+                self.dimension(index, &reader)?
             }
             _ => {
                 reader.allow(&keys(&["block", "position", "rotation", "scale"]), "ブロック参照")?;
@@ -1534,6 +1555,13 @@ impl Editor {
         let reader = ValueReader::new(values, index);
         reader.allow(&["basePoint"], "ブロックの定義")?;
         let base = reader.point("basePoint")?.unwrap_or([0.0; 3]);
+        self.create_block(index, name, base, false)?;
+        self.created.push(name.to_string());
+        Ok(())
+    }
+
+    /// ブロックの定義（BLOCK_HEADER と BLOCK・ENDBLK）を作り、BLOCK_HEADER のハンドルを返す
+    fn create_block(&mut self, index: usize, name: &str, base: [f64; 3], anonymous: bool) -> Result<u64, EditError> {
         let control = self.tables.block_control;
         let mut table = self
             .read(control, Control::read)
@@ -1549,8 +1577,9 @@ impl Editor {
                 xdictionary: if r2004 { None } else { Some(href(3, 0)) },
                 ds_binary: false,
             },
-            name: EntryName::new(self.raw_text(name)),
-            anonymous: false,
+            // 名前のないブロックの BLOCK_HEADER の名前は頭（*D）だけ（読み取りが BLOCK の名前を使うのと同じ）
+            name: EntryName::new(self.raw_text(if anonymous { &name[..2] } else { name })),
+            anonymous,
             has_attributes: false,
             xref: false,
             overlaid: false,
@@ -1588,8 +1617,176 @@ impl Editor {
         let (kind, eed) = (table.kind, table.eed.clone());
         self.store(control, kind, &eed, |out| table.value.write(out, kind::BLOCK_CONTROL));
         self.blocks.insert(upper(name), header_handle);
-        self.created.push(name.to_string());
-        Ok(())
+        Ok(header_handle)
+    }
+
+    /// 寸法スタイルのハンドルと値、文字スタイル。名前の省略は見出しの $DIMSTYLE、読めなければ Standard
+    fn dimension_style(&mut self, index: usize, name: Option<&str>) -> Result<(u64, DimStyleValues, u64), EditError> {
+        let handle = match name {
+            Some(name) => self.dimstyles.get(&upper(name)).copied().ok_or_else(|| {
+                EditError::at(index, "missing-definition", format!("寸法スタイル {name} は図面にありません"))
+            })?,
+            None => {
+                let current = match &self.header {
+                    HeaderForm::Codec { vars, .. } => handle_var(vars, "$DIMSTYLE"),
+                    HeaderForm::Patch { .. } => 0,
+                };
+                if self.dimstyles.values().any(|handle| *handle == current) {
+                    current
+                } else {
+                    self.dimstyles.get("STANDARD").copied().ok_or_else(|| {
+                        EditError::at(index, "missing-definition", "寸法スタイル Standard は図面にありません")
+                    })?
+                }
+            }
+        };
+        let style = self
+            .read(handle, |s, _| DimStyle::read(s))
+            .ok_or_else(|| EditError::at(index, "unreadable", "寸法スタイル（DIMSTYLE）が読めません"))?
+            .value;
+        let mut values = DimStyleValues::default();
+        let number = |value: &DimValue| match value {
+            DimValue::Bit(bit) => Some(f64::from(u8::from(*bit))),
+            DimValue::Short(value) => Some(f64::from(*value)),
+            DimValue::Double(value) => Some(*value),
+            DimValue::Color(color) => Some(f64::from(color.index)),
+            DimValue::Text(_) => None,
+        };
+        for (_, variable) in DimStyleValues::CODES {
+            if let Some(value) = style.get(variable).and_then(number) {
+                values.set(variable, value);
+            }
+        }
+        // 描かない変数（矢印のブロック・許容差・換算単位・寸法補助線の省略）
+        let flags = ["DIMSAH", "DIMTOL", "DIMALT", "DIMSE1", "DIMSE2", "DIMSD1", "DIMSD2"]
+            .iter()
+            .any(|variable| style.get(variable).and_then(number).is_some_and(|value| value != 0.0));
+        let blocks = style.handles.iter().skip(1).take(4).any(|block| block.value != 0);
+        if flags || blocks {
+            self.notices.add(
+                NoticeLevel::Info,
+                "edit-dimension-style",
+                "寸法スタイルの矢印のブロック・許容差・換算単位・寸法補助線の省略は描かず、塗りつぶしの閉じた矢印で描きました",
+            );
+        }
+        let text_style = style
+            .handles
+            .first()
+            .map(|style| style.resolve(handle))
+            .filter(|style| self.styles.values().any(|known| known == style))
+            .unwrap_or_else(|| self.default_style());
+        Ok((handle, values, text_style))
+    }
+
+    /// 寸法（20.4.22・20.4.23 の回転寸法・平行寸法）と、その表示の名前のないブロック（*D…）
+    fn dimension(&mut self, index: usize, reader: &ValueReader<'_>) -> Result<(u16, Body), EditError> {
+        let kind = match reader.text("dimensionType")?.unwrap_or("linear") {
+            "linear" => DimensionKind::Linear(reader.number("rotation")?.unwrap_or(0.0)),
+            "aligned" if reader.has("rotation") => {
+                return Err(EditError::at(index, "invalid-value", "平行寸法（aligned）に rotation は指定できません"));
+            }
+            "aligned" => DimensionKind::Aligned,
+            other => {
+                return Err(EditError::at(
+                    index,
+                    "unsupported-kind",
+                    format!("寸法の種類 {other} はまだ足せません（足せるのは linear、aligned）"),
+                ));
+            }
+        };
+        let start = reader.required("start", reader.point("start")?)?;
+        let end = reader.required("end", reader.point("end")?)?;
+        let position = reader.required("position", reader.point("position")?)?;
+        let text = reader.text("text")?.unwrap_or("<>");
+        let (style_handle, style, text_style) = self.dimension_style(index, reader.name("dimensionStyle")?)?;
+        let layout = dimension::layout(kind, start, end, position, text, &style).ok_or_else(|| {
+            EditError::at(index, "invalid-value", "start と end は寸法の向きで離れた点にしてください")
+        })?;
+        let next = self
+            .blocks
+            .keys()
+            .filter_map(|name| name.strip_prefix("*D").and_then(|number| number.parse::<u64>().ok()))
+            .max()
+            .unwrap_or(0)
+            + 1;
+        let block_name = format!("*D{next}");
+        let block = self.create_block(index, &block_name, [0.0; 3], true)?;
+        let place = Place { block, mode: 0 };
+        for (part, role) in &layout.parts {
+            let aci = style.colors[match role {
+                Role::DimensionLine => 0,
+                Role::ExtensionLine => 1,
+                Role::Text => 2,
+            }];
+            let color = match aci {
+                0 => EditValue::Text("byblock".into()),
+                256 => EditValue::Text("bylayer".into()),
+                value => EditValue::Number(value.clamp(1, 255) as f64),
+            };
+            let values = EditValues::from([("color".to_string(), color)]);
+            let mut common = self.new_common(index, place, &ValueReader::new(&values, index))?;
+            let (type_number, body) = match part {
+                Part::Line(from, to) => (kind::LINE, build::line(*from, *to)),
+                Part::Solid(corners) => (kind::SOLID, build::solid(*corners)),
+                Part::Text { position, height, rotation, text } => {
+                    let content = self.raw_text(&mtext_content(text));
+                    let body = build::mtext(self.version, *position, content, *height, *rotation, None, text_style, 5);
+                    (kind::MTEXT, body)
+                }
+            };
+            let handle = self.next_handle(index)?;
+            self.append(index, place, handle, &mut common)?;
+            let entity = Decoded { kind: type_number, eed: Vec::new(), value: Entity { common, body } };
+            self.store_entity(handle, &entity);
+        }
+        let point = |p: [f64; 3]| p;
+        let (type_number, dimension_kind) = match kind {
+            DimensionKind::Linear(angle) => (
+                kind::DIMENSION_LINEAR,
+                DwgDimensionKind::Linear {
+                    p13: point(start),
+                    p14: point(end),
+                    p10: layout.definition,
+                    oblique: 0.0,
+                    rotation: Some(angle.to_radians()),
+                },
+            ),
+            DimensionKind::Aligned => (
+                kind::DIMENSION_ALIGNED,
+                DwgDimensionKind::Linear {
+                    p13: point(start),
+                    p14: point(end),
+                    p10: layout.definition,
+                    oblique: 0.0,
+                    rotation: None,
+                },
+            ),
+        };
+        let shown = if text == "<>" { "" } else { text };
+        let body = Dimension {
+            version: 0,
+            extrusion: [0.0, 0.0, 1.0],
+            text_midpoint: [layout.text_midpoint[0], layout.text_midpoint[1]],
+            elevation: layout.text_midpoint[2],
+            // 1 は 70 の 128 が立っていない、2 はこの寸法だけが表示のブロックを使う（70 の 32）、8 は AutoCAD が
+            // どの寸法にも立てる（モデルの書き出しと同じ）
+            flags1: 8 | 1 | 2,
+            text: self.raw_text(shown),
+            text_rotation: 0.0,
+            horizontal_direction: 0.0,
+            insert_scale: [1.0; 3],
+            insert_rotation: 0.0,
+            attachment: 5,
+            line_spacing_style: 1,
+            line_spacing_factor: 1.0,
+            measurement: layout.measurement,
+            flips: [false; 3],
+            insert: [0.0, 0.0],
+            kind: dimension_kind,
+            dimstyle: href(5, style_handle),
+            block: href(5, block),
+        };
+        Ok((type_number, Body::Dimension(body)))
     }
 
     fn update_layer(&mut self, index: usize, name: &str, values: &EditValues) -> Result<(), EditError> {

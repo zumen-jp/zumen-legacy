@@ -8,6 +8,8 @@ All packages share one version during 0.x.
   for DXF (R12 to 2018) and DWG (R13 to 2018), which creates an empty block definition; later operations of the same
   edit fill it with `"container": "block:<name>"` and place it with `block-reference`. SXF and JWW refuse it
   (`unsupported-kind`). First step of [decision 0017](docs/decisions/0017-add-annotations-and-definitions.md).
+- Rust, Python and the command line: `add` takes `kind: "dimension"` (linear and aligned) for DXF and DWG, written as
+  a DIMENSION with its `*D` block computed from the dimension style, so that zumen and other readers draw it.
 
 ## 0.1.1 — 2026-10-21
 

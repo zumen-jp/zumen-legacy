@@ -501,3 +501,96 @@ fn adds_block_definitions_to_drawings_without_blocks() {
     assert_eq!(ids, ["#7", "#8>#3"]);
     assert_eq!(edited.created, ["MARK", "#3", "#8"]);
 }
+
+#[test]
+fn adds_linear_and_aligned_dimensions_with_their_blocks() {
+    let bytes = drawing("");
+    let edited = edit(
+        &bytes,
+        r#"[
+            {"op": "add", "kind": "dimension", "layer": "WALL", "start": [0, 0], "end": [5000, 200], "position": [0, -800]},
+            {"op": "add", "kind": "dimension", "dimensionType": "aligned", "start": [0, 0], "end": [3000, 4000], "position": [-500, 500], "text": "斜め <>"},
+            {"op": "add", "kind": "dimension", "start": [0, 0], "end": [0, 2700], "position": [-900, 0], "rotation": 90, "dimensionStyle": "standard"}
+        ]"#,
+    )
+    .unwrap();
+    let doc = parse_dxf(&edited.bytes);
+    let scene = crate::dxf_to_scene(&doc, None);
+    let values: Vec<(String, Option<zumen_core::PropertyRaw>)> = edited
+        .created
+        .iter()
+        .map(|id| {
+            let entity = scene.entities.iter().find(|entity| &entity.id == id).unwrap_or_else(|| panic!("{id}"));
+            assert_eq!(entity.kind.name(), "dimension");
+            assert!(!entity.primitives.is_empty(), "{id} draws nothing");
+            let text = entity.properties.iter().find(|property| property.key == "dimensionText").unwrap();
+            (text.value.clone(), text.raw.clone())
+        })
+        .collect();
+    // 寸法値の property は計測値（文字の <> は計測値の文字になる）
+    let measured = |text: &str, value: f64| (text.to_string(), Some(zumen_core::PropertyRaw::Number(value)));
+    assert_eq!(values, [measured("5,000", 5000.0), measured("5,000", 5000.0), measured("2,700", 2700.0)]);
+    let label = doc
+        .entities
+        .iter()
+        .find_map(|entity| match &entity.data {
+            DxfEntityData::MText(text) if entity.base.block.as_deref() == Some("*D2") => Some(text.raw_text.clone()),
+            _ => None,
+        })
+        .unwrap();
+    // zumen が書いた Standard は DIMDEC を持たないので、AutoCAD の既定の 4 桁
+    assert_eq!(label, "斜め 5000.0000");
+    let dimensions: Vec<_> = doc
+        .entities
+        .iter()
+        .filter_map(|entity| match &entity.data {
+            DxfEntityData::Dimension(dimension) if entity.base.block.is_none() => Some((entity, dimension)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(dimensions.len(), 3);
+    let (first, dimension) = dimensions[0];
+    assert_eq!(first.base.layer, "WALL");
+    assert_eq!((dimension.dimtype, dimension.defpoint), (32.0, [5000.0, -800.0, 0.0]));
+    assert_eq!(dimension.dimstyle, "Standard");
+    let names: Vec<&str> = dimensions.iter().map(|(_, dimension)| dimension.anonymous_block_name.as_str()).collect();
+    assert_eq!(names, ["*D1", "*D2", "*D3"]);
+    assert_eq!(dimensions[1].1.dimtype, 33.0);
+    let errors = [
+        (
+            r#"[{"op": "add", "kind": "dimension", "start": [0, 0], "end": [0, 10], "position": [5, 5]}]"#,
+            "invalid-value",
+        ),
+        (
+            r#"[{"op": "add", "kind": "dimension", "dimensionType": "radius", "start": [0, 0], "end": [1, 0], "position": [0, 1]}]"#,
+            "unsupported-kind",
+        ),
+        (
+            r#"[{"op": "add", "kind": "dimension", "dimensionStyle": "NONE", "start": [0, 0], "end": [1, 0], "position": [0, 1]}]"#,
+            "missing-definition",
+        ),
+    ];
+    for (operations, code) in errors {
+        assert_eq!(edit(&bytes, operations).unwrap_err().code, code, "{operations}");
+    }
+}
+
+#[test]
+fn adds_dimensions_to_r12_drawings_with_text_and_header_variables() {
+    let text = "0\nSECTION\n2\nHEADER\n9\n$DIMTXT\n40\n250\n9\n$DIMASZ\n40\n200\n0\nENDSEC\n\
+                0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n";
+    let edited = edit(
+        text.as_bytes(),
+        r#"[{"op": "add", "kind": "dimension", "start": [0, 0], "end": [1000, 0], "position": [0, 500]}]"#,
+    )
+    .unwrap();
+    let doc = parse_dxf(&edited.bytes);
+    let block = doc.entities.iter().filter(|entity| entity.base.block.as_deref() == Some("*D1")).collect::<Vec<_>>();
+    let DxfEntityData::Text(label) = &block.iter().find(|entity| entity.base.kind == "TEXT").expect("TEXT").data else {
+        panic!()
+    };
+    assert_eq!((label.text.as_str(), label.height), ("1000.0000", 250.0));
+    let scene = crate::dxf_to_scene(&doc, None);
+    assert_eq!(scene.entities.len(), 1);
+    assert_eq!(scene.entities[0].kind.name(), "dimension");
+}

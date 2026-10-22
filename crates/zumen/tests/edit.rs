@@ -300,8 +300,8 @@ fn refuses_formats_it_cannot_edit_yet() {
     assert_eq!(error.code, "unsupported-format");
 }
 
-/// ブロックの定義を足し、中に図形を足して配置する（docs/decisions/0017）。DXF・DWG のすべての fixtures で、配置を
-/// 通して足した図形が描け、ほかの図形の数は変わらない。SXF・JWW はまだ受け付けない
+/// ブロックの定義を足し、中に図形を足して配置し、寸法を足す（docs/decisions/0017）。DXF・DWG のすべての fixtures で、
+/// 配置を通して足した図形と寸法が描け、ほかの図形の数は変わらない。SXF・JWW はまだ受け付けない
 #[test]
 fn adds_block_definitions_to_every_dxf_and_dwg() {
     let operations = parse_operations(
@@ -309,7 +309,8 @@ fn adds_block_definitions_to_every_dxf_and_dwg() {
             {"op": "add-block", "name": "ZUMEN-EDIT-BLOCK", "basePoint": [0, 0]},
             {"op": "add", "kind": "line", "container": "block:ZUMEN-EDIT-BLOCK", "start": [0, 0], "end": [100, 0]},
             {"op": "add", "kind": "circle", "container": "block:ZUMEN-EDIT-BLOCK", "center": [50, 0], "radius": 10},
-            {"op": "add", "kind": "block-reference", "block": "ZUMEN-EDIT-BLOCK", "position": [10, 20], "rotation": 30}
+            {"op": "add", "kind": "block-reference", "block": "ZUMEN-EDIT-BLOCK", "position": [10, 20], "rotation": 30},
+            {"op": "add", "kind": "dimension", "start": [0, 0], "end": [100, 0], "position": [0, -30]}
         ]"#,
     )
     .unwrap();
@@ -319,7 +320,16 @@ fn adds_block_definitions_to_every_dxf_and_dwg() {
         for file in drawings(&fixtures().join(folder), &[extension]) {
             let name = file.file_name().unwrap().to_string_lossy().to_string();
             let bytes = fs::read(&file).unwrap();
+            // テストの書き手が書いた DWG（r2000.dwg など）は寸法スタイルを持たないので、寸法を足せない
+            let mut operations = operations.clone();
             let edited = match zumen::edit(&bytes, &operations, &options) {
+                Err(error) if error.code == "missing-definition" && error.operation == Some(4) && folder == "dwg" => {
+                    operations.pop();
+                    zumen::edit(&bytes, &operations, &options)
+                }
+                result => result,
+            };
+            let edited = match edited {
                 Ok(edited) => edited,
                 // R12 以前の DWG はまだ編集できない
                 Err(error) if error.code == "unreadable" && folder == "dwg" => continue,
@@ -338,7 +348,14 @@ fn adds_block_definitions_to_every_dxf_and_dwg() {
             if inside != 2 {
                 problems.push(format!("{name}: {inside} entities drawn through the new reference"));
             }
-            if after.entities.len() != before.entities.len() + 2 {
+            let dimension = edited.created.get(4).map(|id| after.entities.iter().find(|entity| &entity.id == id));
+            if dimension.is_some_and(|dimension| {
+                !dimension
+                    .is_some_and(|dimension| dimension.kind.name() == "dimension" && !dimension.primitives.is_empty())
+            }) {
+                problems.push(format!("{name}: the dimension is not drawn"));
+            }
+            if after.entities.len() != before.entities.len() + operations.len() - 2 {
                 problems.push(format!(
                     "{name}: {} entities before, {} after",
                     before.entities.len(),

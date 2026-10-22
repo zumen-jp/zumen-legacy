@@ -421,6 +421,18 @@ stay, and an edit without operations gives the same bytes.
   edit add entities with `"container": "block:<name>"` and place the block with `block-reference`. Names that exist
   are `already-exists`; names starting with `*` (anonymous blocks) are `invalid-value`. `created` gives the name, and
   the entities added to the new block their handles (or, without handles, their places in the file).
+- **Dimensions**: `kind: "dimension"` with `dimensionType` `linear` (the default; `rotation` is the angle of the
+  dimension line in degrees) or `aligned`, `start` and `end` (13 and 14, the origins of the extension lines),
+  `position` (a point on the dimension line), `text` (`<>` is the measured value, the default) and `dimensionStyle`
+  (by default `$DIMSTYLE`, else `Standard`; a drawing without DIMSTYLE records uses the header's `$DIM…` variables).
+  The editor writes a DIMENSION (70 = 32 or 33, 10 where the dimension line meets the second extension line, 11 the
+  middle of the text, 42 the measurement from R13 on) and an anonymous block `*D<n>` (70 = 1, a BLOCK_RECORD from R13
+  on) with the extension lines, the dimension line, closed filled arrowheads as SOLIDs (ticks when DIMTSZ > 0) and the
+  text as MTEXT (TEXT in R12), middle centered, from DIMSCALE, DIMASZ, DIMEXO, DIMEXE, DIMTXT, DIMGAP, DIMTAD, DIMDEC,
+  DIMZIN, DIMLFAC, DIMTSZ, DIMCLRD/E/T and the text style DIMTXSTY. Variables that a style records but the editor does
+  not draw (arrow blocks, tolerances, alternate units, suppressed extension lines) are reported (`edit-dimension-style`).
+  Variables missing from a DIMSTYLE record take AutoCAD's defaults, as AutoCAD reads them; the `Standard` that zumen
+  writes holds only DIMSCALE, DIMASZ and DIMTXT, so its values print with four decimals.
 - **Values the version cannot hold** are written as the nearest one and reported: `edit-nearest-color` (no true color
   before AutoCAD 2004), `edit-rounded-lineweight` (the line weights of the DXF Reference), `edit-no-lineweight` (no
   line weights before AutoCAD 2000).
