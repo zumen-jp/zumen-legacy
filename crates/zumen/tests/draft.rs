@@ -267,4 +267,11 @@ fn refuses_formats_without_layouts_and_names_the_spec_place_of_edit_errors() {
     let jww = zumen::create("jww", "mm", &[]).unwrap().bytes;
     let error = zumen::draft_into(&jww, SPEC, &zumen::DraftIntoOptions::default()).unwrap_err();
     assert_eq!(error.code, "unsupported-format");
+    // テンプレートにある同じ名前のブロックを使うので、その定義にない属性は編集が断り、仕様の場所で返す
+    let spec = r#"{
+        "blocks": [{"name": "TITLE", "items": [], "attributes": [{"tag": "OTHER", "at": [0, 0]}]}],
+        "sheets": [{"name": "A3", "items": [{"type": "insert", "block": "TITLE", "at": [0, 0], "attributes": {"OTHER": "x"}}]}]
+    }"#;
+    let error = zumen::draft_into(&template("dxf"), spec, &zumen::DraftIntoOptions::default()).unwrap_err();
+    assert_eq!((error.code, error.path.as_str()), ("invalid-value", "sheets[0].items[0]"), "{error}");
 }
