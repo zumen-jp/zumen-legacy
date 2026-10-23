@@ -7,7 +7,7 @@
 
 ## Context
 
-- [Decision 0013](0013-st-bridge-out-of-zumen.md) moved ST-Bridge to the private `zumenjs/stb` and did not add IFC
+- [Decision 0013](0013-st-bridge-out-of-zumen.md) kept ST-Bridge outside zumen and did not add IFC
   through ifc-lite (MPL-2.0). Either "may come back later as our own implementation, or with a permission, through a new
   decision". [#109](https://github.com/zumenjs/zumen/issues/109) asks for that decision.
 - Building confirmation in Japan has started to take BIM:
@@ -51,8 +51,8 @@
   file that is not SFC for SXF P21, so an IFC file reads as an empty drawing with the `no-sheet` notice
   ([#124](https://github.com/zumenjs/zumen/issues/124)).
 - A building model is 3D, in model units with Z up; `Scene` is 2D in paper millimeters, as
-  [decision 0001](0001-st-bridge-in-zumen.md) found for ST-Bridge. `zumenjs/stb` has a 3D engine for structural models,
-  `StructureViewer` on three.js, on the contract of `DrawingViewer`.
+  [decision 0001](0001-st-bridge-in-zumen.md) found for ST-Bridge. A 3D engine for building models needs its own
+  contract, while following the embedding conventions of `DrawingViewer`.
 
 ## Options
 
