@@ -94,7 +94,7 @@ __all__ = [
 ]
 
 INSTRUCTIONS = """\
-Reads 2D construction drawings (SXF SFC/P21, Jw_cad JWW, DXF, DWG) from local files.
+Reads 2D construction drawings (SXF SFC/P21, Jw_cad JWW, DXF, DWG, and PDF drawings page by page) from local files.
 Start with open_drawing to see the sheet, views, layers, entity types and the placements drawn at a scale.
 render_drawing shows a region as an image; use its region and scale to turn pixels into paper millimeters.
 find_texts and find_entities search the contents, get_entity shows the properties and the geometry of one entity
@@ -136,11 +136,14 @@ def create_server(drawings: Drawings | None = None) -> Any:
     )
 
     DrawingPath = Annotated[
-        str, Field(description="Absolute path of the drawing file (.sfc, .p21, .jww, .dxf, .dwg); ~ is expanded")
+        str, Field(description="Absolute path of the drawing file (.sfc, .p21, .jww, .dxf, .dwg, .pdf); ~ is expanded")
     ]
     View = Annotated[
         str | None,
-        Field(description="View id from open_drawing, such as a DXF or DWG layout name; omit for the default"),
+        Field(
+            description="View id from open_drawing, such as a DXF or DWG layout name or a PDF page number; "
+            "omit for the default"
+        ),
     ]
     Region = Annotated[
         list[float] | None,

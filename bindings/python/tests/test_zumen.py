@@ -65,6 +65,25 @@ def test_reads_a_dxf_layout_as_a_view():
     assert same_scene(golden, json.loads(scene.to_json()))
 
 
+def test_reads_a_pdf_page_as_a_view_with_texts_that_are_not_drawn():
+    pdf = (FIXTURES / "pdf" / "drawing.pdf").read_bytes()
+    assert zumen.detect(pdf) == "pdf"
+    scene = zumen.read(pdf, view="2")
+    assert (scene.format, scene.unit, scene.view, scene.views) == (
+        "pdf",
+        "millimeter",
+        "2",
+        [("1", "1"), ("2", "詳細-1")],
+    )
+    golden = json.loads((FIXTURES / "pdf" / "drawing@2.scene.json").read_text(encoding="utf-8"))
+    assert same_scene(golden, json.loads(scene.to_json()))
+    first = zumen.read(pdf)
+    texts = [entity["text"] for entity in first.entities() if entity["kind"] == "text"]
+    assert texts == ["PLAN 1:100", "図面"]
+    with pytest.raises(zumen.ReadError):
+        zumen.convert(pdf, "dxf")
+
+
 def test_renders_png_and_reports_unreadable_input():
     scene = zumen.read((FIXTURES / "jww" / "minimal-v600.jww").read_bytes())
     png = scene.render_png(dpi=50)

@@ -57,4 +57,5 @@ Choices made before this folder existed are described in [the architecture notes
 - [0026: Let JWW and SXF edits add dimension styles, text styles and line types, named for the edit and written into what each format stores](0026-styles-in-jww-and-sxf-edits.md) (2026-10-23, Proposed)
 - [0028: Read IFC building models with our own reader in Rust, on the ISO 10303-21 syntax shared with SXF, and keep ST-Bridge out until buildingSMART Japan agrees](0028-ifc-in-rust.md) (2026-10-23, Proposed)
 - [0029: Let the application own pdf.js, and draw the pdf.js documents it opens](0029-pdf-js-owned-by-the-application.md) (2026-10-23, Proposed)
+- [0030: Read PDF in browsers with a WebAssembly module of its own, loaded only for PDF drawings](0030-pdf-in-a-webassembly-module-of-its-own.md) (2026-10-23, Proposed)
 - [0031: Measure images whose drawing records no pixel count in hundredths of a sheet millimeter](0031-image-units-without-a-pixel-count.md) (2026-10-23, Proposed)
