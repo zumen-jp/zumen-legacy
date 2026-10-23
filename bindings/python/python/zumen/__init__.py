@@ -85,8 +85,10 @@ def read(
 ) -> Scene:
     """Read a drawing from bytes or a file path into a ``Scene``.
 
-    ``format`` forces a format (``"sfc"``, ``"p21"``, ``"p2z"``, ``"sfz"``, ``"jww"``, ``"jwc"``, ``"jws"``, ``"dxf"``
-    or ``"dwg"``) instead of detecting it from the contents. ``view`` chooses a view such as a DXF layout (see ``Scene.views``).
+    ``format`` forces a format (``"sfc"``, ``"p21"``, ``"p2z"``, ``"sfz"``, ``"jww"``, ``"jwc"``, ``"jws"``, ``"dxf"``,
+    ``"dwg"`` or ``"pdf"``) instead of detecting it from the contents. ``view`` chooses a view such as a DXF layout or a
+    PDF page (``"1"``, ``"2"`` …; see ``Scene.views``). The paths, texts and images of a PDF page are entities that are
+    not drawn (``drawn`` is false): the page itself is the underlay that shows them.
     Raises ``ReadError`` when the drawing cannot be read.
 
     For drawings received from others, ``max_bytes`` (the size after unpacking P2Z and SFZ), ``max_entities`` and
