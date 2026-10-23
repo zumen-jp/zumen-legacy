@@ -12,8 +12,10 @@
   Tests build the smallest drawing that pins a rule, in the format package's `tests/`.
 - Before adding a runtime dependency, check its license (no GPL or AGPL) and that it works in browsers,
   and record the reason in `docs/architecture.md`.
-- Dependency directions: `@zumenjs/react` → `@zumenjs/viewer` → `@zumenjs/core`, and each format package →
-  `@zumenjs/core` only. Keep format knowledge and the DOM out of `@zumenjs/core` (its build has no DOM types), and keep
+- Dependency directions: `@zumenjs/react` → `@zumenjs/viewer` → `@zumenjs/core`, `@zumenjs/pdf` →
+  `@zumenjs/viewer` → `@zumenjs/core`, and each format package → `@zumenjs/core` only. `@zumenjs/pdf` draws PDF
+  pages and reads nothing: it uses pdf.js (`pdfjs-dist`, a peer dependency) for its types only and calls the documents
+  that the application opens, and never depends on `@zumenjs/reader`. Keep format knowledge and the DOM out of `@zumenjs/core` (its build has no DOM types), and keep
   format packages from importing each other. What `zumen-core` also has goes to `@zumenjs/core`, and what only browsers
   need (drawing, input, hit testing) to `@zumenjs/viewer`.
   DWG has no TypeScript reader: `zumen-dwg` reads it in Rust into the AutoCAD drawing model of `zumen-dxf` and draws it

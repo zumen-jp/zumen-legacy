@@ -1,0 +1,55 @@
+{
+  "name": "@zumenjs/pdf",
+  "version": "0.1.1",
+  "description": "Draw the pages of PDF drawings and PDF underlays under a zumen drawing with pdf.js: an UnderlayRenderer for @zumenjs/viewer",
+  "keywords": [
+    "cad",
+    "drawing",
+    "pdf",
+    "pdf.js",
+    "viewer",
+    "aec"
+  ],
+  "homepage": "https://github.com/zumenjs/zumen/tree/main/packages/pdf#readme",
+  "bugs": {
+    "url": "https://github.com/zumenjs/zumen/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zumenjs/zumen.git",
+    "directory": "packages/pdf"
+  },
+  "type": "module",
+  "license": "MIT",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "src"
+  ],
+  "exports": {
+    ".": {
+      "@zumenjs/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./package.json": "./package.json"
+    }
+  },
+  "dependencies": {
+    "@zumenjs/core": "workspace:*",
+    "@zumenjs/viewer": "workspace:*"
+  },
+  "peerDependencies": {
+    "pdfjs-dist": "^5.0.0 || ^6.0.0"
+  }
+}
