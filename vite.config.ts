@@ -39,7 +39,10 @@ function pdfjsFiles(): Plugin {
   const root = dirname(createRequire(import.meta.url).resolve("pdfjs-dist/package.json"));
   const folders = ["cmaps", "wasm"];
   const served = (folder: string, name: string) =>
-    folders.includes(folder) && !name.startsWith("quickjs") && existsSync(join(root, folder, name));
+    folders.includes(folder) &&
+    !name.startsWith("quickjs") &&
+    existsSync(join(root, folder, name)) &&
+    statSync(join(root, folder, name)).isFile();
   const types: Record<string, string> = { ".wasm": "application/wasm", ".js": "text/javascript" };
   return {
     name: "zumen-pdfjs-files",
