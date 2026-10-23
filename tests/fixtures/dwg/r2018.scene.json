@@ -154,6 +154,7 @@
           "color": "#ffff00",
           "fontFamily": "\"MS Gothic\", \"Hiragino Kaku Gothic ProN\", \"Hiragino Sans\", \"Yu Gothic\", \"Noto Sans JP\", \"Noto Sans CJK JP\", sans-serif",
           "height": 0.2840909090909091,
+          "characterHeight": 0.25,
           "scaleX": 1,
           "cells": [
             {
@@ -274,6 +275,7 @@
           "color": "#ffff00",
           "fontFamily": "\"MS Gothic\", \"Hiragino Kaku Gothic ProN\", \"Hiragino Sans\", \"Yu Gothic\", \"Noto Sans JP\", \"Noto Sans CJK JP\", sans-serif",
           "height": 0.2840909090909091,
+          "characterHeight": 0.25,
           "scaleX": 1,
           "cells": [
             {
@@ -309,6 +311,7 @@
           "color": "#ffff00",
           "fontFamily": "\"MS Gothic\", \"Hiragino Kaku Gothic ProN\", \"Hiragino Sans\", \"Yu Gothic\", \"Noto Sans JP\", \"Noto Sans CJK JP\", sans-serif",
           "height": 0.2840909090909091,
+          "characterHeight": 0.25,
           "scaleX": 1,
           "cells": [
             {

@@ -694,3 +694,28 @@ Generated R13 and R14 drawings match the equivalent R2000 model after excluding 
 Tests cover eight-byte EED layer handles, frozen layers in MVIEW and conversion of imperial paper limits to millimeters.
 The external DWG sample tests pass in release mode. In the `pnpm dev` playground, `sample_AC1014.dwg` displays 208 model
 entities on 9 layers and 15 entities in Layout1, with no browser console errors. Native R13 files remain unverified.
+
+## Library review regressions (2026-10-23)
+
+Ten reproduced issues have regression coverage: block attributes following INSERT placement edits; escaped Unicode
+names in older DXF editing; literal multiline drafting text; empty and reserved sheet names; explicit sizes of
+existing template layouts; narrow ruled-table cells; dimension-only text-height checks; resetting a React file and
+view together; pinch anchors; and visible stroke widths at the screen edge.
+
+- `pnpm run check` passes on macOS: the Rust workspace tests and 64 Python tests, with external sample tests
+  opt-in and one optional Python test skipped. After adopting the three-browser test configuration, the 266
+  JavaScript tests pass in Node, Chromium, Firefox and WebKit. Firefox uses a temporary
+  `CFFIXED_USER_HOME` to avoid macOS denying access to its existing application-data directory; the user's browser
+  data is not changed. The full check also passes with `ZUMEN_BROWSERS=chromium,webkit`.
+- `pnpm run golden` regenerates the expected scenes from the TypeScript readers and the DWG WebAssembly reader.
+  The Rust golden and stable-id tests pass; no drawing fixture bytes or recorded ids change.
+- Additional cases cover reflected and nonuniform attribute transforms, unknown-tag and extended-data retention,
+  layout resizing in inches with plot scaling and rotation, resizing a layout added in the same edit, and nearby
+  table edges without overlapping cell spans.
+- In `pnpm dev`, real DWG, SXF and JWW drawings from `ZUMEN_SAMPLES` display after zoom, rotation, pan and fit;
+  DWG layout switching works, with no page errors. Drawings and screenshots stay outside the repository.
+- The original seven native reproductions pass through Python for DXF and DWG where applicable. Chromium confirms
+  file reset produces a null scene, a symmetric 2x pinch keeps the same center pixel, and edge strokes are drawn.
+
+Placement edits with tilted OCS or embedded MTEXT attributes are explicitly refused instead of saving detached
+attributes. See [DXF editing](formats/dxf.md) and [DWG editing](formats/dwg.md).

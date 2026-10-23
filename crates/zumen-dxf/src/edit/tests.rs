@@ -54,6 +54,127 @@ fn handle_seed(bytes: &[u8]) -> u64 {
 }
 
 #[test]
+fn escaped_unicode_names_are_resolved_without_duplicate_definitions() {
+    let created = edit(
+        &new_dxf("mm").unwrap(),
+        r#"[
+        {"op":"add-layer","name":"層😀"},
+        {"op":"add-block","name":"部品😀"},
+        {"op":"add","kind":"line","container":"block:部品😀","start":[0,0],"end":[1,0]},
+        {"op":"add-text-style","name":"文字😀","font":"txt"}
+    ]"#,
+    )
+    .unwrap();
+    let old = crate::write_dxf_as(&parse_dxf(&created.bytes), crate::DxfVersion::R2000).bytes;
+    assert!(text(&old).contains("\\U+D83D\\U+DE00"));
+    let edited = edit(
+        &old,
+        r#"[
+        {"op":"update-layer","name":"層😀","set":{"color":3}},
+        {"op":"add","kind":"line","layer":"層😀","start":[0,0],"end":[2,0]},
+        {"op":"add","kind":"block-reference","block":"部品😀","position":[10,0]},
+        {"op":"add","kind":"text","textStyle":"文字😀","text":"ok","height":1,"position":[0,0]}
+    ]"#,
+    )
+    .unwrap();
+    let doc = parse_dxf(&edited.bytes);
+    assert_eq!(doc.layers.iter().filter(|layer| layer.name == "層😀").count(), 1);
+    assert_eq!(doc.layers.iter().find(|layer| layer.name == "層😀").unwrap().color_index, 3.0);
+    assert!(
+        doc.entities
+            .iter()
+            .any(|entity| matches!(&entity.data, DxfEntityData::Insert(insert) if insert.name == "部品😀"))
+    );
+    assert!(
+        doc.entities.iter().any(|entity| matches!(&entity.data, DxfEntityData::Text(text) if text.style == "文字😀"))
+    );
+}
+
+fn attribute_axes(text: &crate::DxfTextBase) -> [[f64; 3]; 2] {
+    let (sin, cos) = text.rotation.to_radians().sin_cos();
+    let mx = if text.text_generation_flag as i64 & 2 != 0 { -1.0 } else { 1.0 };
+    let my = if text.text_generation_flag as i64 & 4 != 0 { -1.0 } else { 1.0 };
+    let shear = text.height * text.oblique.to_radians().tan() * mx;
+    [
+        [cos * text.height * text.width * mx, sin * text.height * text.width * mx, 0.0],
+        [cos * shear - sin * text.height * my, sin * shear + cos * text.height * my, 0.0],
+    ]
+}
+
+#[test]
+fn changing_insert_placement_transforms_existing_attributes_and_keeps_raw_data() {
+    let source = edit(&new_dxf("mm").unwrap(), r#"[
+        {"op":"add-block","name":"B","basePoint":[2,3]},
+        {"op":"add","kind":"attribute-definition","container":"block:B","tag":"T","position":[4,5,6],"height":2,"rotation":30,"justification":"middle-center"},
+        {"op":"add","kind":"block-reference","block":"B","position":[10,20,30],"scale":[-2,3,4],"rotation":37,"attributes":{"T":"kept"}},
+        {"op":"add","kind":"block-reference","block":"B","position":[100,200,300],"scale":[4,1,2],"rotation":73,"attributes":{"T":"kept"}}
+    ]"#).unwrap();
+    let bytes = text(&source.bytes)
+        .replace("  0\r\nSEQEND", "1001\r\nPRIVATE\r\n1000\r\nuntouched\r\n  0\r\nSEQEND")
+        .into_bytes();
+    let edited = edit(
+        &bytes,
+        &format!(
+            r#"[{{"op":"update","id":"{}","set":{{"position":[100,200,300],"scale":[4,1,2],"rotation":73}}}}]"#,
+            source.created[2]
+        ),
+    )
+    .unwrap();
+    let doc = parse_dxf(&edited.bytes);
+    let attribute = |handle: &str| {
+        let DxfEntityData::Insert(insert) =
+            &doc.entities.iter().find(|entity| entity.base.handle == handle).unwrap().data
+        else {
+            panic!()
+        };
+        let DxfEntityData::Attrib { text, .. } = &insert.attribs[0].data else { panic!() };
+        (insert.attribs[0].base.handle.clone(), text.clone())
+    };
+    let (handle, moved) = attribute(&source.created[2]);
+    let (_, expected) = attribute(&source.created[3]);
+    for (actual, expected) in moved
+        .insert
+        .iter()
+        .chain(moved.align_point.as_ref().unwrap())
+        .chain(attribute_axes(&moved).iter().flatten())
+        .zip(
+            expected
+                .insert
+                .iter()
+                .chain(expected.align_point.as_ref().unwrap())
+                .chain(attribute_axes(&expected).iter().flatten()),
+        )
+    {
+        assert!((actual - expected).abs() < 1e-9, "{actual} != {expected}");
+    }
+    assert_eq!(moved.text, "kept");
+    assert!(entity_tags(&edited.bytes, &handle).contains(&(1000, "untouched".into())));
+    // 平面や埋め込み MTEXT を未対応のまま置き去りにせず、全操作を失敗させる。
+    let unsupported = text(&bytes).replace("1001\r\nPRIVATE", "210\r\n0\r\n220\r\n1\r\n230\r\n0\r\n1001\r\nPRIVATE");
+    let error = edit(
+        unsupported.as_bytes(),
+        &format!(r#"[{{"op":"update","id":"{}","set":{{"position":[1,2]}}}}]"#, source.created[2]),
+    )
+    .unwrap_err();
+    assert_eq!(error.code, "unsupported-kind");
+}
+
+#[test]
+fn update_layout_validates_paper_size() {
+    let bytes = new_dxf("mm").unwrap();
+    for json in [
+        r#"[{"op":"update-layout","name":"Layout1","set":{"paperSize":[0,210]}}]"#,
+        r#"[{"op":"update-layout","name":"Layout1","set":{"paperSize":[297]}}]"#,
+    ] {
+        assert_eq!(edit(&bytes, json).unwrap_err().code, "invalid-value");
+    }
+    assert_eq!(
+        edit(&bytes, r#"[{"op":"update-layout","name":"missing","set":{"paperSize":[297,210]}}]"#).unwrap_err().code,
+        "not-found"
+    );
+}
+
+#[test]
 fn keeps_every_byte_without_operations() {
     let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/dxf");
     for entry in std::fs::read_dir(fixtures).unwrap() {

@@ -156,7 +156,9 @@ def edit(
     ``patternScale``, ``patternAngle``, ``patternLines``); ``text`` takes ``justification``, ``lineSpacing``,
     ``multiline`` and ``widthFactor``; ``"kind": "attribute-definition"`` goes in a block and ``block-reference`` takes ``attributes``
     (``{"TAG": "value"}``); ``add-layout`` (``paperSize`` and ``margins`` in mm) and ``"kind": "viewport"`` in ``"container":
-    "layout:<name>"`` (``center``, ``width``, ``height``, ``viewCenter``, ``scale``) make sheets; ``"kind": "leader"`` (``vertices``, ``text``, ``height``,
+    "layout:<name>"`` (``center``, ``width``, ``height``, ``viewCenter``, ``scale``) make sheets;
+    ``update-layout`` (``name``, ``set: {"paperSize": [width, height]}`` in mm) resizes an existing sheet.
+    ``"kind": "leader"`` (``vertices``, ``text``, ``height``,
     ``dimensionStyle``) adds a leader with its note; ``"kind": "image"`` (``path``, ``pixels``,
     ``position``, ``width``, ``rotation``) adds a raster image that refers to ``path``. Kinds and keys are the ones that ``Scene``
     reports (``kind`` and the property keys), and coordinates are the drawing's own (the ``raw`` of properties), not

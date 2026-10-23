@@ -68,7 +68,9 @@ pub fn edit_dxf(bytes: &[u8], operations: &[EditOperation]) -> Result<Edited, Ed
             | EditOperation::AddBlock { values, .. }
             | EditOperation::AddStyle { values, .. }
             | EditOperation::AddLayout { values, .. } => Some(values),
-            EditOperation::Update { set, .. } | EditOperation::UpdateLayer { set, .. } => Some(set),
+            EditOperation::Update { set, .. }
+            | EditOperation::UpdateLayer { set, .. }
+            | EditOperation::UpdateLayout { set, .. } => Some(set),
             EditOperation::Delete { .. } => None,
         };
         if source.binary
@@ -87,6 +89,7 @@ pub fn edit_dxf(bytes: &[u8], operations: &[EditOperation]) -> Result<Edited, Ed
             EditOperation::AddBlock { name, values } => editor.add_block(index, name, values)?,
             EditOperation::AddStyle { kind, name, values } => editor.add_style(index, *kind, name, values)?,
             EditOperation::AddLayout { name, values } => editor.add_layout(index, name, values)?,
+            EditOperation::UpdateLayout { name, set } => editor.update_layout(index, name, set)?,
         }
     }
     editor.finish_handles();
@@ -251,6 +254,12 @@ fn find_from(tags: &[Tag], code: i32, from: usize) -> Option<usize> {
 
 fn value(tags: &[Tag], code: i32) -> Option<&str> {
     find(tags, code).map(|index| tags[index].text())
+}
+
+/// DXF Reference「Storage of String Values」: 表・ブロックの名前にも Unicode の CIF 表記を使える。
+/// 生のタグは書き戻すために残し、参照を引く名前だけ読み取りと同じように復号する。
+fn name_value(tags: &[Tag], code: i32) -> Option<String> {
+    value(tags, code).map(crate::decode_escapes)
 }
 
 fn number(tags: &[Tag], code: i32) -> Option<f64> {
@@ -590,7 +599,7 @@ impl<'a> Editor<'a> {
                     }
                     _ => {
                         *self.table_counts.entry(table.clone()).or_default() += 1;
-                        let name = value(tags, 2).unwrap_or("").to_string();
+                        let name = name_value(tags, 2).unwrap_or_default();
                         match kind.as_str() {
                             "LAYER" => {
                                 self.layers.insert(upper(&name), LayerRef::Record(record));
@@ -622,7 +631,7 @@ impl<'a> Editor<'a> {
                 },
                 _ if section == "BLOCKS" => match kind.as_str() {
                     "BLOCK" => {
-                        let name = value(tags, 2).unwrap_or("").to_string();
+                        let name = name_value(tags, 2).unwrap_or_default();
                         self.blocks.insert(
                             upper(&name),
                             BlockInfo { name: name.clone(), begin: Some(record), end: None, new: None },
@@ -670,7 +679,7 @@ impl<'a> Editor<'a> {
                     }
                 }
                 "$HANDLING" if next.is_some_and(|tag| tag.number() == 1.0) => self.handles = true,
-                "$DIMSTYLE" => self.header_dimstyle = next.map(|tag| tag.text().to_string()),
+                "$DIMSTYLE" => self.header_dimstyle = next.map(|tag| crate::decode_escapes(tag.text())),
                 "$INSUNITS" => self.insunits = next.map_or(0.0, Tag::number),
                 name if name.starts_with("$DIM") => {
                     if let Some(value) = next.map(Tag::number).filter(|value| value.is_finite()) {
@@ -730,7 +739,7 @@ impl<'a> Editor<'a> {
         if kind == "LAYOUT"
             && let Some(start) = tags.iter().position(|tag| tag.code == 100 && tag.text() == "AcDbLayout")
         {
-            let name = find_from(tags, 1, start).map(|index| tags[index].text().to_string());
+            let name = find_from(tags, 1, start).map(|index| crate::decode_escapes(tags[index].text()));
             let block_record = find_from(tags, 330, start).map(|index| upper(tags[index].text()));
             if let (Some(name), Some(block_record)) = (name, block_record) {
                 self.layouts.insert(upper(&name), block_record);
@@ -904,7 +913,7 @@ impl<'a> Editor<'a> {
     }
 
     fn layer_name(&self, layer: &LayerRef) -> Option<String> {
-        value(self.record_tags(layer)?, 2).map(str::to_string)
+        name_value(self.record_tags(layer)?, 2)
     }
 
     /// 表の項目（元のレコードか、足したレコード）のタグ
@@ -1549,7 +1558,7 @@ impl<'a> Editor<'a> {
                 "寸法スタイルの矢印のブロック・許容差・換算単位・寸法補助線の省略は描かず、塗りつぶしの閉じた矢印で描きました",
             );
         }
-        let name = value(&tags, 2).unwrap_or(&wanted).to_string();
+        let name = name_value(&tags, 2).unwrap_or(wanted);
         Ok((name, values, style))
     }
 
@@ -1633,7 +1642,7 @@ impl<'a> Editor<'a> {
                     let (mut record, _) = self.entity_record(index, "MTEXT", &inside, &part_common)?;
                     self.subclass(&mut record, "AcDbMText");
                     record.point(10, *position, true).real(40, *height).real(41, 0.0).int(71, 5).int(72, 1);
-                    record.tag(1, mtext_content(text));
+                    record.tag(1, dimension_content(text));
                     if let Some(style) = &text_style {
                         record.tag(7, style.clone());
                     }
@@ -1777,9 +1786,9 @@ impl<'a> Editor<'a> {
                 let horizontal = number(tags, 72).unwrap_or(0.0) as i64;
                 let vertical = number(tags, 74).unwrap_or(0.0) as i64;
                 let definition = attributes::Definition {
-                    tag: value(tags, 2)?.to_string(),
-                    prompt: value(tags, 3).unwrap_or("").to_string(),
-                    default: value(tags, 1).unwrap_or("").to_string(),
+                    tag: name_value(tags, 2)?,
+                    prompt: name_value(tags, 3).unwrap_or_default(),
+                    default: name_value(tags, 1).unwrap_or_default(),
                     position: get_point(tags, 10)?,
                     align: if horizontal != 0 || vertical != 0 { get_point(tags, 11) } else { None },
                     height: number(tags, 40).unwrap_or(1.0),
@@ -1790,14 +1799,14 @@ impl<'a> Editor<'a> {
                     horizontal,
                     vertical,
                     flags: number(tags, 70).unwrap_or(0.0) as i64,
-                    style: value(tags, 7).map(str::to_string),
+                    style: name_value(tags, 7),
                 };
                 let appearance = Common {
-                    layer: value(tags, 8).unwrap_or("0").to_string(),
+                    layer: name_value(tags, 8).unwrap_or_else(|| "0".into()),
                     color: number(tags, 420)
                         .map(|rgb| EditColor::Rgb(rgb as u32))
                         .or_else(|| number(tags, 62).map(|aci| EditColor::Index(aci as u32))),
-                    line_type: value(tags, 6).map(str::to_string),
+                    line_type: name_value(tags, 6),
                     line_width: number(tags, 370).map(|width| match width as i64 {
                         -1 => EditLineWidth::ByLayer,
                         -2 => EditLineWidth::ByBlock,
@@ -2102,6 +2111,22 @@ impl<'a> Editor<'a> {
             "INSERT" => {
                 let position = reader.point("position")?;
                 let rotation = reader.number("rotation")?;
+                let tags = self.tags(record);
+                let before = attributes::Insertion {
+                    position: get_point(tags, 10).unwrap_or([0.0; 3]),
+                    scale: [
+                        number(tags, 41).unwrap_or(1.0),
+                        number(tags, 42).unwrap_or(1.0),
+                        number(tags, 43).unwrap_or(1.0),
+                    ],
+                    rotation: number(tags, 50).unwrap_or(0.0),
+                };
+                let after = attributes::Insertion {
+                    position: position.unwrap_or(before.position),
+                    scale: scale.unwrap_or(before.scale),
+                    rotation: rotation.unwrap_or(before.rotation),
+                };
+                self.remap_attributes(index, &target, before, after)?;
                 let tags = self.tags_mut(record);
                 if let Some(block) = block {
                     set(tags, 2, block, &[100, 66]);
@@ -2119,6 +2144,63 @@ impl<'a> Editor<'a> {
                 }
             }
             _ => {}
+        }
+        Ok(())
+    }
+
+    /// INSERT に従う ATTRIB の位置は OCS の絶対座標（DXF Reference「ATTRIB」）。未知のタグ・値・見た目は保つ。
+    fn remap_attributes(
+        &mut self,
+        index: usize,
+        target: &EntityInfo,
+        before: attributes::Insertion,
+        after: attributes::Insertion,
+    ) -> Result<(), EditError> {
+        if before == after {
+            return Ok(());
+        }
+        let standard = |tags: &[Tag]| get_point(tags, 210).is_none_or(|normal| normal == [0.0, 0.0, 1.0]);
+        for record in target.record + 1..target.end {
+            if self.kind(record) != "ATTRIB" {
+                continue;
+            }
+            let tags = self.tags(record);
+            if !standard(self.tags(target.record)) || !standard(tags) || find(tags, 101).is_some() {
+                return Err(EditError::at(
+                    index,
+                    "unsupported-kind",
+                    "傾いた平面・複数行の属性を持つブロック参照の配置は変えられません",
+                ));
+            }
+            let definition = attributes::Definition {
+                tag: String::new(),
+                prompt: String::new(),
+                default: String::new(),
+                position: get_point(tags, 10).unwrap_or([0.0; 3]),
+                align: get_point(tags, 11),
+                height: number(tags, 40).unwrap_or(1.0),
+                rotation: number(tags, 50).unwrap_or(0.0),
+                width: number(tags, 41).unwrap_or(1.0),
+                oblique: number(tags, 51).unwrap_or(0.0),
+                generation: number(tags, 71).unwrap_or(0.0) as i64,
+                horizontal: 0,
+                vertical: 0,
+                flags: 0,
+                style: None,
+            };
+            let moved = attributes::remap(&definition, before, after, index)?;
+            let tags = self.tags_mut(record);
+            set_point(tags, 10, moved.position, &[100]);
+            if let Some(align) = moved.align {
+                set_point(tags, 11, align, &[72, 51, 41, 7, 50, 1]);
+            }
+            if before.scale != after.scale || before.rotation != after.rotation {
+                for (code, number) in [(40, moved.height), (41, moved.width), (50, moved.rotation), (51, moved.oblique)]
+                {
+                    set(tags, code, real(number), &[40]);
+                }
+                set(tags, 71, moved.generation.to_string(), &[51, 50, 41]);
+            }
         }
         Ok(())
     }
@@ -2665,6 +2747,96 @@ impl<'a> Editor<'a> {
         Ok(())
     }
 
+    /// DXF Reference「PLOTSETTINGS」44・45 は mm、「LAYOUT」11 は用紙空間の限界。
+    /// 既存の所有関係・印刷設定を保ち、用紙全体の VIEWPORT（69 = 1）だけ大きさに追従させる。
+    fn update_layout(&mut self, index: usize, name: &str, values: &EditValues) -> Result<(), EditError> {
+        let reader = ValueReader::new(values, index);
+        reader.allow(&["paperSize"], "レイアウトの変更")?;
+        let paper = reader.required("paperSize", reader.numbers("paperSize", 2)?)?;
+        if paper.iter().any(|number| *number <= 0.0) {
+            return Err(EditError::at(
+                index,
+                "invalid-value",
+                "paperSize は 0 より大きい [幅, 高さ]（mm）にしてください",
+            ));
+        }
+        let owner = self
+            .layouts
+            .get(&upper(name))
+            .cloned()
+            .filter(|_| !name.eq_ignore_ascii_case("model"))
+            .ok_or_else(|| EditError::at(index, "not-found", format!("レイアウト {name} は図面にありません")))?;
+        let matches = |tags: &[Tag]| {
+            if tags.first().is_none_or(|tag| tag.text() != "LAYOUT") {
+                return false;
+            }
+            let start = tags.iter().position(|tag| tag.code == 100 && tag.text() == "AcDbLayout").unwrap_or(0);
+            find_from(tags, 1, start).is_some_and(|at| upper(&crate::decode_escapes(tags[at].text())) == upper(name))
+        };
+        let target = self
+            .layout_records
+            .iter()
+            .copied()
+            .find(|record| matches(self.tags(*record)))
+            .map(LayerRef::Record)
+            .or_else(|| {
+                self.inserted.iter().find_map(|(at, records)| {
+                    records.iter().position(|tags| matches(tags)).map(|position| LayerRef::Added(*at, position))
+                })
+            })
+            .ok_or_else(|| EditError::at(index, "unreadable", "図面のレイアウト（LAYOUT）が読めません"))?;
+        let mut tags = self.record_tags(&target).expect("indexed layout").to_vec();
+        let scale = match (number(&tags, 142), number(&tags, 143)) {
+            (Some(real), Some(drawing)) if real > 0.0 && drawing > 0.0 => real / drawing,
+            _ => 1.0,
+        };
+        let unit = (if number(&tags, 72) == Some(0.0) { 25.4 } else { 1.0 }) * scale;
+        let mut size = [paper[0] / unit, paper[1] / unit];
+        if matches!(number(&tags, 73), Some(1.0 | 3.0)) {
+            size.swap(0, 1);
+        }
+        let min = get_point(&tags, 10).unwrap_or([0.0; 3]);
+        set(&mut tags, 4, paper_name(paper[0], paper[1]), &[100]);
+        set(&mut tags, 44, real(paper[0]), &[43]);
+        set(&mut tags, 45, real(paper[1]), &[44]);
+        set_point(&mut tags, 11, [min[0] + size[0], min[1] + size[1], 0.0], &[10, 20]);
+        match target {
+            LayerRef::Record(record) => *self.tags_mut(record) = tags,
+            LayerRef::Added(at, position) => self.inserted.get_mut(&at).expect("indexed layout")[position] = tags,
+        }
+        let resize = |tags: &mut Vec<Tag>| {
+            set_point(tags, 10, [min[0] + size[0] / 2.0, min[1] + size[1] / 2.0, 0.0], &[100]);
+            set(tags, 40, real(size[0]), &[30, 20]);
+            set(tags, 41, real(size[1]), &[40]);
+            set_point(tags, 12, [min[0] + size[0] / 2.0, min[1] + size[1] / 2.0, 0.0], &[69]);
+            set(tags, 45, real(size[1]), &[44]);
+        };
+        let viewports: Vec<_> = self
+            .entities
+            .values()
+            .filter(|info| info.kind == "VIEWPORT")
+            .map(|info| info.record)
+            .filter(|record| {
+                let tags = self.tags(*record);
+                value(tags, 330).is_some_and(|handle| upper(handle) == upper(&owner)) && number(tags, 69) == Some(1.0)
+            })
+            .collect();
+        for record in viewports {
+            resize(self.tags_mut(record));
+        }
+        for tags in
+            self.inserted.values_mut().flatten().chain(self.new_blocks.iter_mut().flat_map(|block| &mut block.entities))
+        {
+            if tags.first().is_some_and(|tag| tag.text() == "VIEWPORT")
+                && value(tags, 330).is_some_and(|handle| upper(handle) == upper(&owner))
+                && number(tags, 69) == Some(1.0)
+            {
+                resize(tags);
+            }
+        }
+        Ok(())
+    }
+
     /// 画像の定義（IMAGEDEF）とリアクタ（IMAGEDEF_REACTOR）を OBJECTS に足し、定義を ACAD_IMAGE_DICT に載せる。
     /// 画像のクラスがなければ CLASSES に足す。定義とリアクタのハンドルを返す
     fn image_objects(
@@ -3074,6 +3246,12 @@ fn move_text(tags: &mut Vec<Tag>, position: [f64; 3], vertical: i32) {
 
 /// MTEXT の文字列にする（\ { } を書式コードから区別し、改行は \P）
 fn mtext_content(text: &str) -> String {
+    // 生の編集タグは write_tag がキャレットをエスケープする。
+    crate::escape_mtext(text).replace("^ ", "^")
+}
+
+/// 寸法の表示が作った %%d・%%c は DXF Reference「Control Codes and Special Characters」の制御コード。
+fn dimension_content(text: &str) -> String {
     let mut out = String::with_capacity(text.len() + 8);
     for c in text.chars() {
         match c {

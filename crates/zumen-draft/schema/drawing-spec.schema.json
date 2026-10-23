@@ -253,7 +253,10 @@
       "properties": {
         "name": {
           "type": "string",
-          "description": "Layout name. With zumen::draft_into, a layout of the template with this name is drawn into"
+          "minLength": 1,
+          "pattern": "\\S",
+          "not": { "pattern": "^\\s*[Mm][Oo][Dd][Ee][Ll]\\s*$" },
+          "description": "Nonempty layout name other than Model (case insensitive). With zumen::draft_into, a layout of the template with this name is drawn into"
         },
         "fields": {
           "type": "object",

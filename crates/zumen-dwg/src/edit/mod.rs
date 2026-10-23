@@ -141,6 +141,7 @@ pub fn edit_dwg(bytes: &[u8], operations: &[EditOperation]) -> Result<Edited, Ed
             EditOperation::AddBlock { name, values } => editor.add_block(index, name, values)?,
             EditOperation::AddStyle { kind, name, values } => editor.add_style(index, *kind, name, values)?,
             EditOperation::AddLayout { name, values } => editor.add_layout(index, name, values)?,
+            EditOperation::UpdateLayout { name, set } => editor.update_layout(index, name, set)?,
         }
     }
     Ok(editor.finish())
@@ -1534,6 +1535,70 @@ impl Editor {
         Ok(())
     }
 
+    /// ODA「LAYOUT / PLOTSETTINGS」: 用紙幅・高さは mm。所有関係・余白・印刷設定を保って用紙と全体表示を変える。
+    fn update_layout(&mut self, index: usize, name: &str, values: &EditValues) -> Result<(), EditError> {
+        let reader = ValueReader::new(values, index);
+        reader.allow(&["paperSize"], "レイアウトの変更")?;
+        let paper = reader.required("paperSize", reader.numbers("paperSize", 2)?)?;
+        if paper.iter().any(|number| *number <= 0.0) {
+            return Err(EditError::at(
+                index,
+                "invalid-value",
+                "paperSize は 0 より大きい [幅, 高さ]（mm）にしてください",
+            ));
+        }
+        let handle = self
+            .layout_objects
+            .get(&upper(name))
+            .copied()
+            .filter(|_| !name.eq_ignore_ascii_case("model"))
+            .ok_or_else(|| EditError::at(index, "not-found", format!("レイアウト {name} は図面にありません")))?;
+        let mut decoded = self
+            .read(handle, |s, _| Layout::read(s))
+            .ok_or_else(|| EditError::at(index, "unreadable", "DWG のレイアウト（LAYOUT）が読めません"))?;
+        decoded.value.paper = [paper[0], paper[1]];
+        decoded.value.paper_size = self.raw_text(&zumen_dxf::paper_name(paper[0], paper[1]));
+        let scale = if decoded.value.real_units > 0.0 && decoded.value.drawing_units > 0.0 {
+            decoded.value.real_units / decoded.value.drawing_units
+        } else {
+            1.0
+        };
+        let unit = (if decoded.value.paper_units == 0 { 25.4 } else { 1.0 }) * scale;
+        let mut size = [paper[0] / unit, paper[1] / unit];
+        if matches!(decoded.value.plot_rotation, 1 | 3) {
+            size.swap(0, 1);
+        }
+        let min = decoded.value.limmin;
+        decoded.value.limmax = [min[0] + size[0], min[1] + size[1]];
+        let block = decoded.value.block_record.resolve(handle);
+        let header = self
+            .read(block, |s, _| BlockHeader::read(s))
+            .ok_or_else(|| EditError::at(index, "unreadable", "DWG のレイアウトのブロックが読めません"))?;
+        let members: Vec<_> = if self.version >= Version::R2004 {
+            header.value.entities.iter().map(|entity| entity.resolve(block)).collect()
+        } else {
+            header
+                .value
+                .first_last
+                .and_then(|(first, last)| self.chain(first.resolve(block), last.resolve(block)))
+                .unwrap_or_default()
+        };
+        // DWG はビューポート番号を持たない。DXF の番号 1 は紙空間の最初の VIEWPORT（document.rs と同じ）。
+        for member in members {
+            let Some((mut entity, _)) = self.read_entity(member) else { continue };
+            let Body::Viewport(viewport) = &mut entity.value.body else { continue };
+            viewport.center = [min[0] + size[0] / 2.0, min[1] + size[1] / 2.0, 0.0];
+            viewport.width = size[0];
+            viewport.height = size[1];
+            viewport.view_center = [min[0] + size[0] / 2.0, min[1] + size[1] / 2.0];
+            viewport.view_height = size[1];
+            self.store_entity(member, &entity);
+            break;
+        }
+        self.store(handle, decoded.kind, &decoded.eed, |out| decoded.value.write(out));
+        Ok(())
+    }
+
     /// ブロック参照の属性（ATTRIB）と SEQEND を書き、参照の属性の並び（R2004 以降）か最初と最後の属性（R2000 まで）に
     /// する。ATTRIB は属性の定義の値を写し、位置・高さ・回転・値を参照に合わせる（モデルの書き出しと同じ形）
     fn add_attributes(
@@ -1730,6 +1795,18 @@ impl Editor {
 
     fn update(&mut self, index: usize, id: &str, set: &EditValues) -> Result<(), EditError> {
         let Target { handle, entity: mut decoded, name } = self.target(index, id)?;
+        let insertion_before = match &decoded.value.body {
+            Body::Insert(insert) => Some((
+                zumen_dxf::attributes::Insertion {
+                    position: insert.point,
+                    scale: insert.scale,
+                    rotation: insert.rotation.to_degrees(),
+                },
+                insert.extrusion,
+                self.followers(handle, &decoded.value),
+            )),
+            _ => None,
+        };
         let reader = ValueReader::new(set, index);
         // R14 の LWPOLYLINE はクラスの型
         let fixed = if name == "LWPOLYLINE" { kind::LWPOLYLINE } else { decoded.kind };
@@ -1873,6 +1950,16 @@ impl Editor {
             }
             _ => {}
         }
+        if let Some((before, extrusion, followers)) = insertion_before
+            && let Body::Insert(insert) = &decoded.value.body
+        {
+            let after = zumen_dxf::attributes::Insertion {
+                position: insert.point,
+                scale: insert.scale,
+                rotation: insert.rotation.to_degrees(),
+            };
+            self.remap_attributes(index, &followers, extrusion, before, after)?;
+        }
         // POLYLINE のレイヤは頂点と SEQEND にも当てる（DXF の編集と同じ）
         let polyline =
             matches!(decoded.kind, kind::POLYLINE_2D | kind::POLYLINE_3D | kind::POLYLINE_PFACE | kind::POLYLINE_MESH);
@@ -1885,6 +1972,64 @@ impl Editor {
             }
         }
         self.store_entity(handle, &decoded);
+        Ok(())
+    }
+
+    /// ODA「ATTRIB / TEXT」: 属性は INSERT のローカル座標ではなく、属性自身の OCS に整列点を持つ。
+    fn remap_attributes(
+        &mut self,
+        index: usize,
+        followers: &[u64],
+        extrusion: [f64; 3],
+        before: zumen_dxf::attributes::Insertion,
+        after: zumen_dxf::attributes::Insertion,
+    ) -> Result<(), EditError> {
+        if before == after {
+            return Ok(());
+        }
+        for &handle in followers {
+            let Some((mut decoded, _)) = self.read_entity(handle) else {
+                return Err(EditError::at(index, "unsupported-kind", "ブロック参照の属性が読めません"));
+            };
+            let Body::Attrib(attribute) = &mut decoded.value.body else { continue };
+            let text = &mut attribute.text;
+            if extrusion != [0.0, 0.0, 1.0] || text.extrusion != [0.0, 0.0, 1.0] || attribute.embedded.is_some() {
+                return Err(EditError::at(
+                    index,
+                    "unsupported-kind",
+                    "傾いた平面・複数行の属性を持つブロック参照の配置は変えられません",
+                ));
+            }
+            let z = text.elevation.unwrap_or(0.0);
+            let definition = Definition {
+                tag: String::new(),
+                prompt: String::new(),
+                default: String::new(),
+                position: [text.insert[0], text.insert[1], z],
+                align: text.align.map(|point| [point[0], point[1], z]),
+                height: text.height,
+                rotation: text.rotation.unwrap_or(0.0).to_degrees(),
+                width: text.width.unwrap_or(1.0),
+                oblique: text.oblique.unwrap_or(0.0).to_degrees(),
+                generation: i64::from(text.generation.unwrap_or(0)),
+                horizontal: 0,
+                vertical: 0,
+                flags: 0,
+                style: None,
+            };
+            let moved = zumen_dxf::attributes::remap(&definition, before, after, index)?;
+            text.insert = [moved.position[0], moved.position[1]];
+            text.elevation = (moved.position[2] != 0.0).then_some(moved.position[2]);
+            text.align = moved.align.map(|point| [point[0], point[1]]);
+            if before.scale != after.scale || before.rotation != after.rotation {
+                text.height = moved.height;
+                text.width = Some(moved.width);
+                text.rotation = Some(moved.rotation.to_radians());
+                text.oblique = Some(moved.oblique.to_radians());
+                text.generation = Some(moved.generation as i16);
+            }
+            self.store_entity(handle, &decoded);
+        }
         Ok(())
     }
 
@@ -2402,7 +2547,7 @@ impl Editor {
                 Part::Arc { center, radius, angle } => (kind::ARC, build::arc(*center, *radius, *angle)),
                 Part::Solid(corners) => (kind::SOLID, build::solid(*corners)),
                 Part::Text { position, height, rotation, text } => {
-                    let content = self.raw_text(&mtext_content(text));
+                    let content = self.raw_text(&dimension_content(text));
                     let body = build::mtext(self.version, *position, content, *height, *rotation, None, text_style, 5);
                     (kind::MTEXT, body)
                 }
@@ -2855,6 +3000,12 @@ fn nearest_aci(rgb: u32) -> u16 {
 
 /// MTEXT の文字列にする（\ { } を書式コードから区別し、改行は \P。DXF の編集と同じ）
 fn mtext_content(text: &str) -> String {
+    // raw_text はモデルの正規形ではなく、元の文字列を受け取る。
+    zumen_dxf::escape_mtext(text).replace("^ ", "^")
+}
+
+/// 寸法の表示が作った %%d・%%c は DXF Reference「Control Codes and Special Characters」の制御コード。
+fn dimension_content(text: &str) -> String {
     let mut out = String::with_capacity(text.len() + 8);
     for c in text.chars() {
         match c {

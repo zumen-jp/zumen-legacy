@@ -206,12 +206,21 @@ class Painter {
     return mapped;
   }
 
-  intersects(box: Box): boolean {
+  intersectsEntity(entity: SceneEntity, boost = 1): boolean {
+    // bbox は線の中心までの範囲。丸い線端・角も含め、描く太さの半分だけ広げて画面と比べる。
+    let padding = 0;
+    for (const primitive of entity.primitives) {
+      if (primitive.kind === "stroke") padding = Math.max(padding, this.lineWidth(primitive.width, boost) / 2);
+    }
+    return this.intersects(entity.bbox, padding);
+  }
+
+  private intersects(box: Box, padding = 0): boolean {
     return !(
-      box.maxX < this.visible.minX ||
-      box.minX > this.visible.maxX ||
-      box.maxY < this.visible.minY ||
-      box.minY > this.visible.maxY
+      box.maxX + padding < this.visible.minX ||
+      box.minX - padding > this.visible.maxX ||
+      box.maxY + padding < this.visible.minY ||
+      box.minY - padding > this.visible.maxY
     );
   }
 
@@ -404,7 +413,7 @@ class Painter {
     for (const layer of layers) {
       const override = { color: layer.color, boost: 3 };
       for (const entity of layer.entities) {
-        if (!this.intersects(entity.bbox)) continue;
+        if (!this.intersectsEntity(entity, override.boost)) continue;
         for (const primitive of entity.primitives) if (primitive.kind !== "fill") this.primitive(primitive, override);
       }
       this.finish();
@@ -447,7 +456,7 @@ export function renderScene(
   }
   if (options.sheetFrame) painter.sheet(scene);
   for (const entity of scene.entities) {
-    if (!painter.intersects(entity.bbox) || !isEntityVisible(entity, options.hiddenLayers)) continue;
+    if (!painter.intersectsEntity(entity) || !isEntityVisible(entity, options.hiddenLayers)) continue;
     for (const primitive of entity.primitives) painter.primitive(primitive);
   }
   painter.finish();

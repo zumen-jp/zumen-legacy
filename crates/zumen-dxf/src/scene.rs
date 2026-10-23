@@ -1444,7 +1444,9 @@ impl<'a> Builder<'a> {
                     },
                     &multiply(transform, &multiply(&translate(x, 0.0), &[0.0, 1.0, -1.0, 0.0, width, -DESCENT * em])),
                 );
-                if let Some(primitive) = primitive {
+                if let Some(mut primitive) = primitive {
+                    // DXF Reference「TEXT」40: 規定の文字高を、描画用の字形の em と別に保つ。
+                    primitive.character_height = Some(run.height);
                     out.push(Primitive::Text(primitive));
                 }
             } else if !js::trim(&text).is_empty() {
@@ -1465,7 +1467,8 @@ impl<'a> Builder<'a> {
                     },
                     &multiply(transform, &translate(x, -DESCENT * em)),
                 );
-                if let Some(primitive) = primitive {
+                if let Some(mut primitive) = primitive {
+                    primitive.character_height = Some(run.height);
                     out.push(Primitive::Text(primitive));
                 }
             }
@@ -1537,7 +1540,8 @@ impl<'a> Builder<'a> {
                 },
                 &multiply(transform, &translate(px, baseline - DESCENT * em)),
             );
-            if let Some(primitive) = primitive {
+            if let Some(mut primitive) = primitive {
+                primitive.character_height = Some(h);
                 out.push(Primitive::Text(primitive));
             }
         };

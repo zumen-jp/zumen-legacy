@@ -9,7 +9,6 @@
 use crate::extract::layer_names;
 use crate::geometry::apply_vector;
 use crate::js;
-use crate::text::em_for;
 use crate::types::{Primitive, PropertyRaw, Scene, SceneEntity, TextPrimitive};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -546,7 +545,7 @@ fn check_line_widths(scene: &Scene, rule: &Rule, result: &mut RuleResult, findin
 /// 文字の部分の、用紙の上での高さ（mm）
 fn paper_height(text: &TextPrimitive) -> f64 {
     let (x, y) = apply_vector(&text.matrix, 0.0, 1.0);
-    text.height * js::hypot2(x, y)
+    text.character_height.unwrap_or(text.height) * js::hypot2(x, y)
 }
 
 fn text_parts(entity: &SceneEntity) -> impl Iterator<Item = &TextPrimitive> {
@@ -559,10 +558,6 @@ fn text_parts(entity: &SceneEntity) -> impl Iterator<Item = &TextPrimitive> {
 fn check_text_heights(scene: &Scene, rule: &Rule, result: &mut RuleResult, findings: &mut Findings) {
     let heights = rule.heights.as_deref().unwrap_or_default();
     let tolerance = rule.tolerance.unwrap_or(HEIGHT_TOLERANCE);
-    // 文字の高さを大文字の高さで示す形式（DXF・DWG）は、文字の図形に height の属性を持たせ、字形の em を文字の高さより
-    // 大きく描く。その図面では、height のない寸法などの文字も含めて、em から文字の高さに戻す
-    let cap_heights =
-        scene.entities.iter().any(|entity| entity.properties.iter().any(|property| property.key == "height"));
     for entity in entities(scene, rule) {
         let mut parts = text_parts(entity).peekable();
         if parts.peek().is_none() {
@@ -576,7 +571,7 @@ fn check_text_heights(scene: &Scene, rule: &Rule, result: &mut RuleResult, findi
         result.checked += 1;
         let mut seen: Vec<String> = Vec::new();
         for part in parts {
-            let height = if cap_heights { paper_height(part) / em_for(&part.text) } else { paper_height(part) };
+            let height = paper_height(part);
             if heights.iter().any(|allowed| (allowed - height).abs() <= tolerance) {
                 continue;
             }
@@ -896,6 +891,7 @@ mod tests {
                 color: "#000000".into(),
                 font_family: "sans-serif".into(),
                 height,
+                character_height: None,
                 scale_x: 1.0,
                 cells: Vec::new(),
                 box_width: height * content.chars().count() as f64,
@@ -1027,9 +1023,13 @@ mod tests {
         assert_eq!(values(characters), ["㎡", "ｶ", "ﾅ", "①"]);
         assert_eq!(characters.checked, 5);
 
-        // 文字の高さを大文字の高さで示す図面（DXF）では、字形の em から文字の高さに戻す
+        // 描画用の em と別に規定の高さがあれば、各文字のその高さを調べる。
         let mut drawn = entities.clone();
-        drawn[0].properties.push(Property::new("height", "高さ", "2.5").raw(2.5));
+        for entity in &mut drawn {
+            if let Primitive::Text(part) = &mut entity.primitives[0] {
+                part.character_height = Some(part.height / crate::text::em_for(&part.text));
+            }
+        }
         let report = check_scene(&scene(&["D-STR"], drawn, Some((420.0, 297.0))), &mlit());
         assert_eq!(values(result(&report, "text-height")), ["2.2", "2.64"]);
 
@@ -1037,6 +1037,23 @@ mod tests {
         let report = check_scene(&scene(&["D-STR"], entities, None), &mlit());
         let heights = result(&report, "text-height");
         assert_eq!((heights.checked, heights.unchecked), (0, 4));
+    }
+
+    #[test]
+    fn checks_each_text_height_without_inference_from_other_entities() {
+        let mut dimension = text("dimension", 0, "100", 2.5 * crate::text::EM_LATIN, 1.0);
+        dimension.kind = EntityKind::Dimension;
+        let Primitive::Text(part) = &mut dimension.primitives[0] else { unreachable!() };
+        part.character_height = Some(2.5);
+        let frame = text("frame", 0, "注記", 2.5, 1.0);
+        for entities in [vec![dimension.clone()], vec![dimension.clone(), frame.clone()]] {
+            let report = check_scene(&scene(&["D-STR"], entities, Some((420.0, 297.0))), &mlit());
+            assert!(result(&report, "text-height").findings.is_empty());
+        }
+        // 別の図形に height の属性があっても、規定の高さを省略した文字は height を使う。
+        dimension.properties.push(Property::new("height", "高さ", "2.5").raw(2.5));
+        let report = check_scene(&scene(&["D-STR"], vec![dimension, frame], Some((420.0, 297.0))), &mlit());
+        assert!(result(&report, "text-height").findings.is_empty());
     }
 
     #[test]

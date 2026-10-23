@@ -73,6 +73,87 @@ pub struct Placed {
     pub generation: i64,
 }
 
+/// INSERT の位置・尺度・回転（DXF Reference「INSERT」の 10・41〜43・50）。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Insertion {
+    pub position: [f64; 3],
+    pub scale: [f64; 3],
+    pub rotation: f64,
+}
+
+/// 既存の ATTRIB を、古い INSERT の配置から新しい配置へ移す。ATTRIB の整列点はブロック内の点ではなく
+/// OCS の点（DXF Reference「ATTRIB」「TEXT」）なので、新しい配置 × 古い配置の逆変換を当てる。
+/// 文字の基線と縦軸にも同じ変換を当て、非等方尺度・反転を高さ・幅・斜体・生成フラグへ分解する。
+pub fn remap(definition: &Definition, before: Insertion, after: Insertion, index: usize) -> Result<Placed, EditError> {
+    if before.scale == after.scale && before.rotation == after.rotation {
+        let shift =
+            |point: [f64; 3]| std::array::from_fn(|axis| point[axis] + after.position[axis] - before.position[axis]);
+        return Ok(Placed {
+            source: 0,
+            definition: definition.clone(),
+            value: definition.default.clone(),
+            position: shift(definition.position),
+            align: definition.align.map(shift),
+            height: definition.height,
+            rotation: definition.rotation,
+            width: definition.width,
+            oblique: definition.oblique,
+            generation: definition.generation,
+        });
+    }
+    if before.scale.contains(&0.0) {
+        return Err(EditError::at(index, "unsupported-kind", "尺度が 0 のブロック参照の属性は移せません"));
+    }
+    let (old_sin, old_cos) = before.rotation.to_radians().sin_cos();
+    let (sin, cos) = after.rotation.to_radians().sin_cos();
+    let vector = |point: [f64; 2]| {
+        let local = [
+            (old_cos * point[0] + old_sin * point[1]) / before.scale[0] * after.scale[0],
+            (-old_sin * point[0] + old_cos * point[1]) / before.scale[1] * after.scale[1],
+        ];
+        [cos * local[0] - sin * local[1], sin * local[0] + cos * local[1]]
+    };
+    let point = |point: [f64; 3]| {
+        let xy = vector([point[0] - before.position[0], point[1] - before.position[1]]);
+        [
+            after.position[0] + xy[0],
+            after.position[1] + xy[1],
+            after.position[2] + (point[2] - before.position[2]) / before.scale[2] * after.scale[2],
+        ]
+    };
+    let (text_sin, text_cos) = definition.rotation.to_radians().sin_cos();
+    let mx = if definition.generation & 2 != 0 { -1.0 } else { 1.0 };
+    let my = if definition.generation & 4 != 0 { -1.0 } else { 1.0 };
+    let baseline = vector([
+        text_cos * definition.height * definition.width * mx,
+        text_sin * definition.height * definition.width * mx,
+    ]);
+    let shear = definition.height * definition.oblique.to_radians().tan() * mx;
+    let up = vector([
+        text_cos * shear - text_sin * definition.height * my,
+        text_sin * shear + text_cos * definition.height * my,
+    ]);
+    let length = baseline[0].hypot(baseline[1]);
+    let axis = [baseline[0] * mx / length, baseline[1] * mx / length];
+    let vertical = -axis[1] * up[0] + axis[0] * up[1];
+    let height = vertical.abs();
+    if !length.is_finite() || !height.is_finite() || length <= 0.0 || height <= 0.0 {
+        return Err(EditError::at(index, "unsupported-kind", "属性の文字の高さ・幅を変換できません"));
+    }
+    Ok(Placed {
+        source: 0,
+        definition: definition.clone(),
+        value: definition.default.clone(),
+        position: point(definition.position),
+        align: definition.align.map(point),
+        height,
+        rotation: axis[1].atan2(axis[0]).to_degrees(),
+        width: length / height,
+        oblique: ((axis[0] * up[0] + axis[1] * up[1]) / (height * mx)).atan().to_degrees(),
+        generation: (definition.generation & !4) | if vertical < 0.0 { 4 } else { 0 },
+    })
+}
+
 /// 参照の attributes（タグ → 値）を、ブロックの属性の定義ごとの属性にする。定義にないタグはエラー、値のない定義は
 /// 既定の値。定数の属性（70 の 2）は ATTRIB を持たない
 pub fn place(

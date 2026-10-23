@@ -66,13 +66,24 @@ pub fn plan(value: &Value, template: &DxfDocument) -> Result<Planned, DraftError
     let mut sheet_layouts: Vec<Option<String>> = Vec::new();
     let mut paper: Vec<&zumen_dxf::DxfLayout> = doc.layouts.iter().filter(|layout| !layout.model).collect();
     paper.sort_by(|a, b| a.tab_order.total_cmp(&b.tab_order));
-    for layout in &paper {
+    for (index, layout) in paper.iter().enumerate() {
         let existing = template
             .layouts
             .iter()
             .find(|candidate| !candidate.model && candidate.name.eq_ignore_ascii_case(&layout.name));
         let name = match existing {
-            Some(existing) => existing.name.clone(),
+            Some(existing) => {
+                if spec.sheets[index].paper.is_some() {
+                    planner.push(
+                        json!({
+                            "op": "update-layout", "name": existing.name,
+                            "set": {"paperSize": [layout.paper_width, layout.paper_height]},
+                        }),
+                        &format!("sheets[{index}].paper"),
+                    );
+                }
+                existing.name.clone()
+            }
             None => {
                 planner.push(
                     json!({
@@ -664,6 +675,9 @@ impl Planner {
                 } else {
                     attrib.base.handle.clone()
                 };
+                // 編集の TEXT・ATTRIB は %% の制御コードを受け取る。仕様の値は文字のまま表示する。
+                // キャレット表記は編集が書くときに付けるので、ここでは戻して渡す。
+                let value = unescape(&crate::text::escape_text(value));
                 self.push(json!({"op": "update", "id": id, "set": {"text": value}}), path);
                 filled.insert(key.to_uppercase());
             }

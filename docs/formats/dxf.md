@@ -489,6 +489,10 @@ stay, and an edit without operations gives the same bytes.
   rotation, oblique angle and text generation flags for unequal or negative scales), with the given value or the
   default, then a SEQEND. The ATTRIB keeps its definition's layer, color, line type and line width.
   A tag that the block does not define is `invalid-value`. Without `attributes`, no ATTRIB is written.
+  Updating a block reference's position, rotation or scale transforms its existing ATTRIB positions, alignment
+  points and glyph axes by the change of placement, preserving values, handles and unrelated tags. References with
+  tilted OCS or embedded MTEXT attributes refuse placement changes (`unsupported-kind`) rather than leave their
+  attributes behind. Names escaped as `\U+XXXX` are decoded for editing lookups without rewriting untouched tags.
 - **Layouts and viewports** (AutoCAD 2000 and later; older drawings refuse them with `unsupported-kind`):
   `add-layout` (`name`, `paperSize: [width, height]` in millimeters) copies a LAYOUT of the drawing (a paper one if
   there is one) with the new name, the next tab order, the paper size and name (`ISO_A3_(420.00_x_297.00_MM)` for the
@@ -496,6 +500,9 @@ stay, and an edit without operations gives the same bytes.
   adds it to the `ACAD_LAYOUT` dictionary, and puts the viewport of the whole sheet (69 = 1) in the block.
   New layouts use millimeter paper coordinates at 1:1, with no rotation or plot offset. The printer margins default
   to zero; `margins` (`[left, bottom, right, top]` in millimeters, 40 to 43) overrides them and moves the sheet's origin.
+  `update-layout` (`name`, `set: {"paperSize": [width, height]}`) changes an existing paper layout's dimensions,
+  paper name and limits and resizes its whole-sheet viewport, preserving its handle, printer margins and other plot
+  settings.
   `kind: "viewport"` in `container: "layout:<name>"` takes `center`, `width` and `height` on the sheet (mm),
   `viewCenter` in model coordinates and `scale`, the denominator of the scale (1:100 is `100`): the view height is
   `height × scale` converted from millimeters to the drawing's `$INSUNITS` (unitless counts as millimeters). Its id
