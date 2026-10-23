@@ -380,7 +380,10 @@ fn creates_drawings_with_styles_dimensions_and_hatches() {
             {"op": "add-dimension-style", "name": "DIM-100", "scale": 100, "textHeight": 2.5, "arrowSize": 2.5, "decimals": 0, "textStyle": "JP"},
             {"op": "add", "kind": "polyline", "vertices": [[0, 0], [5000, 0], [5000, 3600], [0, 3600]], "closed": true},
             {"op": "add", "kind": "hatch", "pattern": "ANSI31", "patternScale": 30, "boundaries": [[[0, 0], [5000, 0], [5000, 150], [0, 150]]]},
-            {"op": "add", "kind": "dimension", "dimensionStyle": "DIM-100", "start": [0, 0], "end": [5000, 0], "position": [0, -800]}
+            {"op": "add", "kind": "dimension", "dimensionStyle": "DIM-100", "start": [0, 0], "end": [5000, 0], "position": [0, -800]},
+            {"op": "add", "kind": "dimension", "dimensionType": "angular-3-point", "dimensionStyle": "DIM-100", "center": [0, 0], "start": [5000, 0], "end": [0, 3600], "position": [1500, 1500]},
+            {"op": "add", "kind": "dimension", "dimensionType": "radius", "dimensionStyle": "DIM-100", "center": [2500, 1800], "point": [3100, 1800]},
+            {"op": "add", "kind": "dimension", "dimensionType": "diameter", "dimensionStyle": "DIM-100", "center": [2500, 1800], "point": [2500, 2400]}
         ]"#,
     )
     .unwrap();
@@ -388,7 +391,7 @@ fn creates_drawings_with_styles_dimensions_and_hatches() {
         let created = zumen::create(format, "mm", &operations).unwrap_or_else(|error| panic!("{format}: {error}"));
         let scene = read(&created.bytes);
         let kinds: Vec<&str> = scene.entities.iter().map(|entity| entity.kind.name()).collect();
-        assert_eq!(kinds, ["polyline", "hatch", "dimension"], "{format}");
+        assert_eq!(kinds, ["polyline", "hatch", "dimension", "dimension", "dimension", "dimension"], "{format}");
         assert!(scene.entities.iter().all(|entity| !entity.primitives.is_empty()), "{format}");
     }
 }

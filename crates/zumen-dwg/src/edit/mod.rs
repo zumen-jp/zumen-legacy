@@ -39,7 +39,7 @@ use zumen_core::edit::{
 };
 use zumen_core::{NoticeLevel, NoticeList};
 use zumen_dxf::attributes::{self, Definition, Placed};
-use zumen_dxf::dimension::{self, DimStyleValues, DimensionKind, Part, Role};
+use zumen_dxf::dimension::{self, DimStyleValues, DimensionInput, DimensionKind, Part, Role};
 
 /// 足せる図形の種類（DXF の編集と同じ）
 const ADDABLE: [&str; 15] = [
@@ -101,6 +101,9 @@ mod kind {
     pub const SOLID: u16 = 31;
     pub const DIMENSION_LINEAR: u16 = 21;
     pub const DIMENSION_ALIGNED: u16 = 22;
+    pub const DIMENSION_ANG3PT: u16 = 23;
+    pub const DIMENSION_RADIUS: u16 = 25;
+    pub const DIMENSION_DIAMETER: u16 = 26;
     pub const STYLE_CONTROL: u16 = 52;
     pub const STYLE: u16 = 53;
     pub const LTYPE_CONTROL: u16 = 56;
@@ -1059,10 +1062,7 @@ impl Editor {
                 }
             }
             "dimension" => {
-                reader.allow(
-                    &keys(&["dimensionType", "start", "end", "position", "rotation", "dimensionStyle", "text"]),
-                    "寸法",
-                )?;
+                reader.allow(&keys(&dimension::KEYS), "寸法")?;
                 self.dimension(index, &reader)?
             }
             "hatch" => {
@@ -2350,25 +2350,10 @@ impl Editor {
         Ok((handle, values, text_style))
     }
 
-    /// 寸法（20.4.22・20.4.23 の回転寸法・平行寸法）と、その表示の名前のないブロック（*D…）
+    /// 寸法（20.4.22〜20.4.26 の回転寸法・平行寸法・3 点角度寸法・半径寸法・直径寸法）と、その表示の名前のない
+    /// ブロック（*D…）
     fn dimension(&mut self, index: usize, reader: &ValueReader<'_>) -> Result<(u16, Body), EditError> {
-        let kind = match reader.text("dimensionType")?.unwrap_or("linear") {
-            "linear" => DimensionKind::Linear(reader.number("rotation")?.unwrap_or(0.0)),
-            "aligned" if reader.has("rotation") => {
-                return Err(EditError::at(index, "invalid-value", "平行寸法（aligned）に rotation は指定できません"));
-            }
-            "aligned" => DimensionKind::Aligned,
-            other => {
-                return Err(EditError::at(
-                    index,
-                    "unsupported-kind",
-                    format!("寸法の種類 {other} はまだ足せません（足せるのは linear、aligned）"),
-                ));
-            }
-        };
-        let start = reader.required("start", reader.point("start")?)?;
-        let end = reader.required("end", reader.point("end")?)?;
-        let position = reader.required("position", reader.point("position")?)?;
+        let input = DimensionInput::read(reader, index)?;
         let text = reader.text("text")?.unwrap_or("<>");
         let (style_handle, style, text_style) = self.dimension_style(index, reader.name("dimensionStyle")?)?;
         if style.text_above == 3 {
@@ -2378,9 +2363,14 @@ impl Editor {
                 "寸法文字の JIS 配置（DIMTAD=3）は寸法線の上に置いて近似しました",
             );
         }
-        let layout = dimension::layout(kind, start, end, position, text, &style).ok_or_else(|| {
-            EditError::at(index, "invalid-value", "start と end は寸法の向きで離れた点にしてください")
-        })?;
+        if matches!(input, DimensionInput::Angular { .. }) && style.angle_unit != 0 {
+            self.notices.add(
+                NoticeLevel::Info,
+                "edit-dimension-angle-unit",
+                "角度寸法の単位（DIMAUNIT）が 10 進の度でないため、10 進の度で描きました",
+            );
+        }
+        let layout = input.layout(text, &style).map_err(|message| EditError::at(index, "invalid-value", message))?;
         let next = self
             .blocks
             .keys()
@@ -2409,6 +2399,7 @@ impl Editor {
             let mut common = self.new_common(index, place, &ValueReader::new(&values, index))?;
             let (type_number, body) = match part {
                 Part::Line(from, to) => (kind::LINE, build::line(*from, *to)),
+                Part::Arc { center, radius, angle } => (kind::ARC, build::arc(*center, *radius, *angle)),
                 Part::Solid(corners) => (kind::SOLID, build::solid(*corners)),
                 Part::Text { position, height, rotation, text } => {
                     let content = self.raw_text(&mtext_content(text));
@@ -2421,27 +2412,31 @@ impl Editor {
             let entity = Decoded { kind: type_number, eed: Vec::new(), value: Entity { common, body } };
             self.store_entity(handle, &entity);
         }
-        let point = |p: [f64; 3]| p;
-        let (type_number, dimension_kind) = match kind {
-            DimensionKind::Linear(angle) => (
+        let (type_number, dimension_kind) = match input {
+            DimensionInput::Linear { kind: DimensionKind::Linear(angle), start, end, .. } => (
                 kind::DIMENSION_LINEAR,
                 DwgDimensionKind::Linear {
-                    p13: point(start),
-                    p14: point(end),
+                    p13: start,
+                    p14: end,
                     p10: layout.definition,
                     oblique: 0.0,
                     rotation: Some(angle.to_radians()),
                 },
             ),
-            DimensionKind::Aligned => (
+            DimensionInput::Linear { kind: DimensionKind::Aligned, start, end, .. } => (
                 kind::DIMENSION_ALIGNED,
-                DwgDimensionKind::Linear {
-                    p13: point(start),
-                    p14: point(end),
-                    p10: layout.definition,
-                    oblique: 0.0,
-                    rotation: None,
-                },
+                DwgDimensionKind::Linear { p13: start, p14: end, p10: layout.definition, oblique: 0.0, rotation: None },
+            ),
+            DimensionInput::Angular { center, start, end, .. } => (
+                kind::DIMENSION_ANG3PT,
+                DwgDimensionKind::Angular3 { p10: layout.definition, p13: start, p14: end, p15: center },
+            ),
+            DimensionInput::Radius { point, .. } => {
+                (kind::DIMENSION_RADIUS, DwgDimensionKind::Radius { p10: layout.definition, p15: point, leader: 0.0 })
+            }
+            DimensionInput::Diameter { point, .. } => (
+                kind::DIMENSION_DIAMETER,
+                DwgDimensionKind::Diameter { p15: point, p10: layout.definition, leader: 0.0 },
             ),
         };
         let shown = if text == "<>" { "" } else { text };

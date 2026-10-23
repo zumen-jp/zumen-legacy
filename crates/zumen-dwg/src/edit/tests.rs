@@ -688,6 +688,48 @@ fn adds_dimensions_in_every_version() {
     }
 }
 
+/// 3 点角度寸法・半径寸法・直径寸法を足す（20.4.24〜20.4.26）。どの版の図面でも読み直して描け、種類と定義点が残る
+#[test]
+fn adds_angular_radius_and_diameter_dimensions_in_every_version() {
+    let operations = r#"[
+        {"op": "add", "kind": "dimension", "dimensionType": "angular-3-point", "center": [0, 0], "start": [40, 0], "end": [0, 40], "position": [-30, -30]},
+        {"op": "add", "kind": "dimension", "dimensionType": "radius", "center": [10, 10], "point": [10, 35]},
+        {"op": "add", "kind": "dimension", "dimensionType": "diameter", "center": [0, 0], "point": [30, 40]}
+    ]"#;
+    let mut versions: Vec<(String, Vec<u8>)> =
+        crate::DwgVersion::ALL.iter().map(|version| (version.name().to_string(), written_as(*version))).collect();
+    versions.push(("new".into(), new_dwg("mm").unwrap()));
+    for (name, bytes) in versions {
+        let edited = edit(&bytes, operations).unwrap_or_else(|error| panic!("{name}: {error}"));
+        check_structure(&name, &edited.bytes);
+        let doc = crate::read_dwg(&edited.bytes).unwrap_or_else(|error| panic!("{name}: {error}"));
+        let dimensions: Vec<_> = edited
+            .created
+            .iter()
+            .map(|handle| match &entity(&doc, handle).unwrap_or_else(|| panic!("{name}")).data {
+                DxfEntityData::Dimension(dimension) => dimension.clone(),
+                _ => panic!("{name}: {handle} is not a dimension"),
+            })
+            .collect();
+        let types: Vec<i64> = dimensions.iter().map(|dimension| dimension.dimtype as i64 & 7).collect();
+        assert_eq!(types, [5, 4, 3], "{name}");
+        assert_eq!(dimensions[0].defpoint4, Some([0.0; 3]), "{name}");
+        assert_eq!((dimensions[1].defpoint, dimensions[1].defpoint4), ([10.0, 10.0, 0.0], Some([10.0, 35.0, 0.0])));
+        assert_eq!(dimensions[2].defpoint, [-30.0, -40.0, 0.0], "{name}");
+        let scene = zumen_dxf::dxf_to_scene(&doc, None);
+        for handle in &edited.created {
+            let drawn = scene.entities.iter().find(|entity| &entity.id == handle).unwrap_or_else(|| panic!("{name}"));
+            assert_eq!(drawn.kind.name(), "dimension", "{name}");
+            assert!(!drawn.primitives.is_empty(), "{name}: {handle} draws nothing");
+        }
+        let arcs = doc.entities.iter().filter(|entity| {
+            entity.base.kind == "ARC"
+                && entity.base.block.as_deref() == Some(dimensions[0].anonymous_block_name.as_str())
+        });
+        assert!(arcs.count() >= 1, "{name}");
+    }
+}
+
 /// 文字スタイル・線種・寸法スタイルを足し、同じ編集の図形が使う（docs/decisions/0017）
 #[test]
 fn adds_styles_in_every_version() {

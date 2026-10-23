@@ -438,6 +438,17 @@ stay, and an edit without operations gives the same bytes.
   writes holds only DIMSCALE, DIMASZ and DIMTXT, so its values print with four decimals.
   DIMTAD 2 places text away from the first definition point, and 4 below the dimension line; JIS placement (3) is
   approximated above the line and reported (`edit-dimension-text-position`).
+  `dimensionType` `angular-3-point` takes `center` (15, the vertex), `start` and `end` (13 and 14) and `position`
+  (10, a point on the dimension arc, whose distance from `center` is the arc's radius), and measures the angle
+  between the two rays that holds `position`: 70 = 37, 42 the angle in radians, and in the block an ARC (cut around
+  the text when DIMTAD is 0), extension lines only from origins inside the arc (an origin outside it already has its
+  line reaching the arc), arrowheads along the arc's tangents, and the angle in degrees with `%%d`, rounded to
+  DIMADEC (−1 is DIMDEC) and trimmed by DIMAZIN; another DIMAUNIT is drawn in decimal degrees and reported
+  (`edit-dimension-angle-unit`). `radius` and `diameter` take `center` and `point` (on the circle): 70 = 36 with 10
+  the center, or 70 = 35 with 10 the point opposite `point`, 15 `point` and the leader length 40 = 0, and a block
+  with the dimension line from 10 to 15, an arrowhead on the circle (both ends for a diameter) and the text `R<value>`
+  or `%%c<value>` in the middle. Keys of another type (`rotation` of a radius) are `invalid-value`; `angular`,
+  `ordinate` and the rest are `unsupported-kind`.
 - **Styles**: `add-text-style` (`font`, `bigFont`, `height`, `widthFactor`, `oblique` in degrees), `add-line-type`
   (`description`, `pattern`: up to 12 dashes (positive), gaps (negative) and dots (0) in drawing units) and
   `add-dimension-style` (`from`, by default `Standard`, whose record is copied; `scale` DIMSCALE, `textHeight` DIMTXT,
