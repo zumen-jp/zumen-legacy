@@ -2,10 +2,9 @@
 //! 線・塗り・切り取りは PNG と同じ規則で描き、文字は検索や選択ができる `<text>` にする（字形は表示する側の
 //! フォント。1 文字ずつ、セルの中心に置く）。線は 100% の表示で 1 px（0.2646 mm）より細くしない。
 
-use crate::vector::{DOT_MM, PX_MM, Page, dash_lengths};
-use crate::{
-    RenderError, RenderOptions, RenderReport, background_rgb, markup_entities_for, resolve_color, underlay_notices,
-};
+use crate::underlay::Underlays;
+use crate::vector::{DOT_MM, PX_MM, Page, dash_lengths, page_image};
+use crate::{RenderError, RenderOptions, RenderReport, background_rgb, markup_entities_for, resolve_color, visible_underlays};
 use std::fmt::Write;
 use zumen_core::{BBox, Primitive, Scene, StrokePrimitive, TextPrimitive};
 
@@ -29,6 +28,40 @@ pub fn render_svg(
         w = num(w),
         h = num(h),
     );
+    // 背景の上、用紙の枠と図形の下に underlay の画像（PNG）。y を反転した中なので、画像はその中央で反転し直す
+    let mut underlays = Underlays::new(&options.underlays);
+    for underlay in visible_underlays(scene, page.region, options) {
+        let Some(placed) = page_image(underlay, &page, options.underlay_dpi, &mut underlays) else { continue };
+        let Ok(png) = placed.image.encode_png() else { continue };
+        let clip = underlay.clip.as_deref().map(|rings| writer.rings(rings));
+        if let Some(d) = &clip {
+            writer.clips += 1;
+            let id = writer.clips;
+            let _ = writeln!(
+                writer.out,
+                "<clipPath id=\"c{id}\"><path d=\"{d}\" clip-rule=\"evenodd\"/></clipPath>\n<g clip-path=\"url(#c{id})\">"
+            );
+        }
+        let rect = placed.rect;
+        let opacity = underlay
+            .opacity
+            .filter(|opacity| *opacity < 1.0)
+            .map(|opacity| format!(" opacity=\"{}\"", num(opacity.max(0.0))));
+        let _ = writeln!(
+            writer.out,
+            "<image x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" transform=\"matrix(1 0 0 -1 0 {})\" preserveAspectRatio=\"none\"{} href=\"data:image/png;base64,{}\"/>",
+            num(rect.min_x),
+            num(rect.min_y),
+            num(rect.max_x - rect.min_x),
+            num(rect.max_y - rect.min_y),
+            num(rect.min_y + rect.max_y),
+            opacity.unwrap_or_default(),
+            base64(&png)
+        );
+        if clip.is_some() {
+            writer.out.push_str("</g>\n");
+        }
+    }
     if page.frame
         && let Some(corners) = page.sheet_corners(scene)
     {
@@ -57,8 +90,27 @@ pub fn render_svg(
     }
     writer.flush();
     writer.out.push_str("</g>\n</svg>\n");
-    let report = RenderReport { notices: underlay_notices(scene, page.region, options), ..RenderReport::default() };
+    let report = RenderReport { notices: underlays.notices(), ..RenderReport::default() };
     Ok((writer.out, report))
+}
+
+/// RFC 4648 の base64（data URL の画像）
+fn base64(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let value = u32::from(chunk[0]) << 16
+            | u32::from(chunk.get(1).copied().unwrap_or(0)) << 8
+            | u32::from(chunk.get(2).copied().unwrap_or(0));
+        for index in 0..4 {
+            if index <= chunk.len() {
+                out.push(char::from(ALPHABET[(value >> (18 - 6 * index) & 63) as usize]));
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
 }
 
 /// 数を短く書く（0.001 mm まで。末尾の 0 と小数点は省く）
