@@ -15,6 +15,17 @@ All packages share one version during 0.x.
   in two places: SXF takes `"kind": "viewport"`, which adds an empty sub-figure placed on the sheet (`name`,
   `center`, `viewCenter`, `scale`), and a JWW layer name belongs to its layer group, as in Jw_cad (`add-layer` and a
   rename take a name another group has, and a name in an `add` to `group:<g>` is looked up in that group).
+- Browsers, Rust, Python and the command line: files that start with `ISO-10303-21` but whose `FILE_SCHEMA` does not
+  begin with SXF's schema `ASSOCIATIVE_DRAUGHTING`, such as IFC (`IFC2X3`, `IFC4`, `IFC4X3_ADD2`) and STEP AP203, AP214
+  and AP242 files, are no longer detected as SXF P21. Reading them gives the error for a format no reader knows instead
+  of an empty drawing with the `no-sheet` notice. SXF files without `FILE_SCHEMA` are still detected
+  ([How SXF is handled](docs/formats/sxf.md#reading)).
+- Rust, Python and the command line: SXF user-defined line types written by `edit` and by converting to SFC hold at
+  most 8 dash and gap lengths, as SXF holds 2, 4, 6 or 8 (the rule ezsxf checks). The dashes of a hatch pattern line
+  keep the first 8, unless they are the lengths of a predefined line type, and the base point moves by whole periods
+  of those (`edit-hatch-dash-count`); a longer DXF or DWG line type converted to SFC keeps the first 8
+  (`linetype-long`). `zumen_core::edit::style::cut_pitches` cuts lengths by pairs for `line_type_pitches` and the SXF
+  hatches.
 - Browsers: drawing markup, kept in a JSON document beside the drawing in paper millimeters of a view
   ([decision 0021](docs/decisions/0021-drawing-markup.md), [Drawing markup](docs/markup.md)). `@zumenjs/core` has the
   model (`MarkupDocument`, `MarkupItem` and its kinds `redline`, `cloud`, `text`, `finding` and `photo`),
@@ -44,6 +55,18 @@ All packages share one version during 0.x.
   built-in hatch patterns move to `zumen_core::edit::dimension` and `zumen_core::edit::hatch` (re-exported by
   zumen-dxf; `HatchInput::pattern_type` becomes `custom`, and a dimension's DXF flags and display block are the
   `DxfDimension` trait), and `JwwDimension` keeps its SXF mode (`sxf_mode`).
+- Rust, Python and the command line: JWW and SXF edits take `add-dimension-style`, `add-text-style` and
+  `add-line-type` too ([decision 0026](docs/decisions/0026-styles-in-jww-and-sxf-edits.md)). Neither format has named
+  dimension or text styles, so their names last for the edit: a dimension style sizes and formats each dimension that
+  names it (the value's height and font, its gap from the line, the extension lines, decimals, trailing zeros and the
+  linear factor; in SXF also the arrows, or slashes for `tickSize`), with lengths in paper millimeters or, with
+  `scale`, times `scale` in the drawing's own coordinates, as DIMSCALE in DXF. A text style is a font (an SXF font,
+  a JWW font name; JWW `text` gains `textStyle`), and a line type becomes an SXF user-defined line type or a free
+  JWW SXF line type (47–62), with its pattern in paper millimeters. What a format cannot hold is written the nearest
+  way and reported (`edit-dimension-decimals`, `edit-dimension-text-position`, `edit-dimension-end`,
+  `edit-style-values`, `edit-line-type-pattern`). Every editor reads the values of the three ops with
+  `zumen_core::edit::style`, which also holds the conversion of dashes to SXF line lengths; DXF, DWG and SXF hatch
+  output is unchanged.
 - Browsers, Rust and Python: entities can be kept for interaction only, with `drawn: false` (`SceneEntity.drawn` in
   `zumen-core`), for the content that an underlay already shows such as the paths and texts of a PDF page
   ([decision 0022](docs/decisions/0022-underlays-drawn-by-a-region-renderer.md)). `renderScene` and `zumen-render`

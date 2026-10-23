@@ -670,7 +670,8 @@ Checked on 2026-10-20 on macOS 27 (Apple Silicon) with Rust 1.99.0 and Python 3.
   finds no other difference (`ZUMEN_SAMPLES=… cargo test -p zumen --release --test convert_to_sxf -- --ignored`).
 - Small drawings in the same test pin the rules: model space as a 1:1 sub-figure on a sheet the size of the drawing,
   block references as drawing parts with a copy for each inherited BYBLOCK color, layer 0 inheriting the reference's
-  layer, viewports as sub-figures at their scale and twist, CP932 and the codes of colors and widths. Each SXF and P21
+  layer, viewports as sub-figures at their scale and twist, CP932, the codes of colors and widths, and a line type of
+  10 dashes and gaps written as a user-defined line type of the first 8 that reads back drawn. Each SXF and P21
   fixture written as SFC and read again draws the same scene (`crates/zumen-sxf/tests/write.rs`).
 - Time with the release build of the `zumen` command, including reading and writing (mean of five runs):
   `farmhouse.dwg` (25,873 entities) 332 ms as SFC (155 ms as DXF), the Yokosuka survey plan (9,260 entities) 103 ms,

@@ -330,10 +330,11 @@ only. Measurements are from [Verification records](verification.md#the-readers-i
   `WebAssembly.instantiateStreaming` compiles it while it downloads. `initSync` needs the bytes at hand and compiles
   on the calling thread, so it is not used.
 - **Formats are detected without WebAssembly.** `detectDrawing` (the reader's `detect`) repeats in TypeScript the
-  rules of `zumen::detect`: the SXF header and its comments, the central directory of a P2Z or SFZ archive, the JWW
-  signature, the first tags of ASCII and binary DXF, and the DWG version string. A test compares the two on every
-  fixture and on edge cases. Before the module is loaded, `readDrawing` still gives the usual error for files no
-  reader knows, and an application can load the module only when a drawing is opened, as `useDrawing` does.
+  rules of `zumen::detect`: the SXF header (its `FILE_SCHEMA`, so that IFC and other STEP files are not SXF, and the
+  `feature_mode` description) and its comments, the central directory of a P2Z or SFZ archive, the JWW signature, the
+  first tags of ASCII and binary DXF, and the DWG version string. A test compares the two on every fixture and on edge
+  cases. Before the module is loaded, `readDrawing` still gives the usual error for files no reader knows, and an
+  application can load the module only when a drawing is opened, as `useDrawing` does.
 - **Limits.** `createReader({ limits })` and `readScene(bytes, { limits })` pass `maxBytes` and `maxEntities` to
   `zumen::read`, which stops as soon as one is exceeded. The binding throws a `ReadFailure` with the message and the
   name of the limit, and the package turns it into a `LimitError` (`limit` is `bytes` or `entities`) or an `Error`.
@@ -509,8 +510,9 @@ and every DXF and DWG fixture converted to SFC, draw the scene of the drawing th
 
 Editing does not go through the model, which would lose what it does not hold
 ([decision 0012](decisions/0012-edit-in-place-and-write-every-format.md)). `zumen_core::edit` has the operations, the
-same for every format (`parse_operations` reads them from JSON, `ValueReader` checks their keys and values, and
-`dimension` and `hatch` read the values of dimensions and hatches, with the built-in hatch patterns), and each
+same for every format (`parse_operations` reads them from JSON, `ValueReader` checks their keys and values,
+`dimension` and `hatch` read the values of dimensions and hatches, with the built-in hatch patterns, and `style` the
+values of text styles, line types and dimension styles), and each
 format edits its own file: `zumen_dxf::edit_dxf` keeps the tags of a DXF with their bytes and changes, adds and removes
 only what the operations name ([How DXF is handled: Editing](formats/dxf.md#editing-edit_dxf)), and `edit_dwg`,
 `edit_jww` and `edit_sxf` do the same for the objects of a DWG, the records of a JWW and the instances of an SXF.

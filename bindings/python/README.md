@@ -138,6 +138,11 @@ edited.save("plan.dxf")
   `scale`, `rotation`), `dimension` (`dimensionType`: `linear`, `aligned`, `angular-3-point` (not in JWW), `radius`,
   `diameter`) and `hatch` (`boundaries`, `pattern`; JWW writes solids and hatch lines). Every kind takes `layer`,
   `color` (a color number, `"#rrggbb"`, `"bylayer"` or `"byblock"`), `lineType` and `lineWidth` (millimeters).
+- `add-text-style`, `add-line-type` and `add-dimension-style` add styles that later operations name (`textStyle`,
+  `lineType`, `dimensionStyle`). JWW and SXF have no named dimension or text styles, so those names last for the edit:
+  a dimension style sizes and formats each dimension that names it (its lengths are paper millimeters, or times
+  `scale` in the drawing's coordinates), a text style is a font, and a line type is written with its name (an SXF
+  user-defined line type, a free SXF line type of JWW).
 - If any operation cannot be applied, nothing is written and `zumen.EditError` is raised with `code` (such as
   `"not-found"`, `"unknown-key"` or `"inside-block"`) and `operation`, the number of the operation from 0.
 - Values that the format cannot hold exactly, such as a true color in an old DXF, are written as the nearest one and
