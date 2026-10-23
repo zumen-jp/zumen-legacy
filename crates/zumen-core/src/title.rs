@@ -443,6 +443,7 @@ mod tests {
             bounds: BBox { min_x: 0.0, min_y: 0.0, max_x: 841.0, max_y: 594.0 },
             layers: vec![SceneLayer { id: 0, name: "D-TTL-TXT".into(), visible: true, group: None }],
             entities,
+            underlays: Vec::new(),
             notices: Vec::new(),
             metadata: Vec::new(),
             background: Background::Light,

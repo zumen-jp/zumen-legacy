@@ -864,6 +864,7 @@ mod tests {
                 SceneLayer { id: 1, name: "家具".into(), visible: true, group: None },
             ],
             entities,
+            underlays: Vec::new(),
             notices: Vec::new(),
             metadata: Vec::new(),
             background: Background::Light,

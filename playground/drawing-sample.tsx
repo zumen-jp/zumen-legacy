@@ -1,6 +1,6 @@
-import type { Scene, SceneEntity } from "@zumenjs/core";
+import type { Scene, SceneEntity, Underlay } from "@zumenjs/core";
 import { useDrawingViewer, useViewerEvent, useViewerState } from "@zumenjs/react";
-import type { DrawingViewer } from "@zumenjs/viewer";
+import type { DrawingViewer, UnderlayRenderer } from "@zumenjs/viewer";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { LayerList } from "./layer-list.js";
 import "./drawing-sample.css";
@@ -11,6 +11,8 @@ export interface DrawingSampleProps {
   label?: string;
   /** 表示（DXF のモデル空間・レイアウトなど）を選んだとき。選べる表示が 2 つ以上ある図面で選ぶ欄を出す */
   onViewChange?: (view: string) => void;
+  /** 図面の underlay（下敷きの画像・PDF のページ）を描く処理。省略すると underlay は描かない */
+  underlayRenderer?: UnderlayRenderer | undefined;
 }
 
 const NO_ENTITIES: readonly SceneEntity[] = [];
@@ -32,7 +34,7 @@ function formatZoom(zoom: number): string {
  * 2D の図面の画面のサンプル。@zumenjs/react のフックと @zumenjs/viewer の公開された API だけで、操作盤・レイヤの一覧・
  * 属性・状態の欄を作る。文言と CSS（drawing-sample.css）はこちらが持ち、図面の表示と操作はエンジンが受け持つ
  */
-export function DrawingSample({ scene, label, onViewChange }: DrawingSampleProps) {
+export function DrawingSample({ scene, label, onViewChange, underlayRenderer }: DrawingSampleProps) {
   const rootRef = useRef<HTMLElement>(null);
   const titleId = useId();
   const viewId = useId();
@@ -53,6 +55,16 @@ export function DrawingSample({ scene, label, onViewChange }: DrawingSampleProps
   const selection = useViewerState(viewer, (state) => state.selection) ?? NO_ENTITIES;
   // 属性の欄は、最後に選んだ図形を示す
   const selected = selection[selection.length - 1] ?? null;
+  // 描き手が描けなかった underlay。描き手を替えたら数え直す
+  const [failed, setFailed] = useState<ReadonlySet<Underlay>>(new Set());
+  useEffect(() => {
+    viewer?.setUnderlayRenderer(underlayRenderer ?? null);
+    setFailed(new Set());
+  }, [viewer, underlayRenderer]);
+  useViewerEvent(viewer, "underlay", ({ underlay, error }) => {
+    if (error !== null) setFailed((underlays) => new Set(underlays).add(underlay));
+  });
+  const failedCount = current.underlays?.filter((underlay) => failed.has(underlay)).length ?? 0;
 
   const layerCounts = useMemo(() => {
     const counts = new Map<number, number>();
@@ -223,6 +235,18 @@ export function DrawingSample({ scene, label, onViewChange }: DrawingSampleProps
                   />
                 ))}
                 <PropertyRow label="要素" value={`${current.entities.length.toLocaleString("ja-JP")} 件`} />
+                {current.underlays?.length ? (
+                  <PropertyRow
+                    label="下敷き"
+                    value={`${current.underlays.length.toLocaleString("ja-JP")} 件${
+                      !underlayRenderer
+                        ? "（描いていません）"
+                        : failedCount > 0
+                          ? `（描けないもの ${failedCount.toLocaleString("ja-JP")} 件）`
+                          : ""
+                    }`}
+                  />
+                ) : null}
               </dl>
               <p className="sample-hint">図形を選ぶと属性を表示します。</p>
             </>

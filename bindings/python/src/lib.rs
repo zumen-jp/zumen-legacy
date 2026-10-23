@@ -116,14 +116,19 @@ fn parse_theme(theme: Option<&str>) -> PyResult<Option<Background>> {
     }
 }
 
-/// 同梱のフォントに字形がなかった文字を、Python の警告にする
-fn warn_missing_glyphs(py: Python<'_>, report: &zumen_render::RenderReport) -> PyResult<()> {
-    if report.missing_glyphs.is_empty() {
-        return Ok(());
+/// 同梱のフォントに字形がなかった文字と、描かなかった内容（underlay など）を、Python の警告にする
+fn warn_report(py: Python<'_>, report: &zumen_render::RenderReport) -> PyResult<()> {
+    let warn = |message: String| -> PyResult<()> {
+        PyErr::warn(py, &py.get_type::<PyUserWarning>(), &std::ffi::CString::new(message)?, 1)
+    };
+    if !report.missing_glyphs.is_empty() {
+        let characters: String = report.missing_glyphs.iter().collect();
+        warn(format!("同梱のフォントに字形がない文字を描いていません: {characters}"))?;
     }
-    let characters: String = report.missing_glyphs.iter().collect();
-    let message = format!("同梱のフォントに字形がない文字を描いていません: {characters}");
-    PyErr::warn(py, &py.get_type::<PyUserWarning>(), &std::ffi::CString::new(message)?, 1)
+    for notice in &report.notices {
+        warn(format!("{}（{}、{} 件）", notice.message, notice.code, notice.count))?;
+    }
+    Ok(())
 }
 
 fn pairs(points: &[f64]) -> Vec<(f64, f64)> {
@@ -526,7 +531,7 @@ impl Scene {
         let (png, report) = py
             .detach(move || zumen_render::render_png(&scene, region, dpi, &options))
             .map_err(|error| RenderError::new_err(error.message().to_string()))?;
-        warn_missing_glyphs(py, &report)?;
+        warn_report(py, &report)?;
         Ok(PyBytes::new(py, &png))
     }
 
@@ -551,8 +556,11 @@ impl Scene {
         };
         let scene = self.inner.clone();
         let region = region.map(to_bbox);
-        py.detach(move || zumen_render::render_svg(&scene, region, &options))
-            .map_err(|error| RenderError::new_err(error.message().to_string()))
+        let (svg, report) = py
+            .detach(move || zumen_render::render_svg(&scene, region, &options))
+            .map_err(|error| RenderError::new_err(error.message().to_string()))?;
+        warn_report(py, &report)?;
+        Ok(svg)
     }
 
     /// 図面を 1 ページの PDF にする。ページは用紙の大きさ（region を指定すればその範囲）で、線の太さは図面のとおり。
@@ -579,7 +587,7 @@ impl Scene {
         let (pdf, report) = py
             .detach(move || zumen_render::render_pdf(&scene, region, &options))
             .map_err(|error| RenderError::new_err(error.message().to_string()))?;
-        warn_missing_glyphs(py, &report)?;
+        warn_report(py, &report)?;
         Ok(PyBytes::new(py, &pdf))
     }
 
@@ -617,7 +625,7 @@ impl Scene {
         let image = py
             .detach(move || zumen_render::render_image(&scene, region, image_size, &render_options))
             .map_err(|error| RenderError::new_err(error.message().to_string()))?;
-        warn_missing_glyphs(py, &image.report)?;
+        warn_report(py, &image.report)?;
         Ok(Rendering {
             scene: self.inner.clone(),
             png: image.png,

@@ -16,6 +16,9 @@ const scene = readDrawing(bytes, [sxf, jww]);
 Drawings with several views (DXF and DWG model space and layouts) list them in `scene.views`; pick one with
 `readDrawing(bytes, readers, { view })`. A reader that needs to load first, such as the WebAssembly reader of DWG, has
 `load()`; wait for it before reading (`useDrawing` of `@zumenjs/react` does).
+Raster content (images, PDF pages) is described in `scene.underlays`, with its place on the sheet and what it is, and
+`UnderlayRequest` is the shape of a request to draw a region of it; [`@zumenjs/viewer`](../viewer) asks a renderer that
+the application passes in to draw it.
 Geometry helpers for format authors are exported from `@zumenjs/core/geometry`, and text layout from `@zumenjs/core/text`.
 See the [main README](https://github.com/zumenjs/zumen#readme) and the
 [architecture notes](https://github.com/zumenjs/zumen/blob/main/docs/architecture.md).

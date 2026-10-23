@@ -3,12 +3,17 @@
 //! フォント。1 文字ずつ、セルの中心に置く）。線は 100% の表示で 1 px（0.2646 mm）より細くしない。
 
 use crate::vector::{DOT_MM, PX_MM, Page, dash_lengths};
-use crate::{RenderError, RenderOptions, background_rgb, resolve_color};
+use crate::{RenderError, RenderOptions, RenderReport, background_rgb, resolve_color, underlay_notices};
 use std::fmt::Write;
 use zumen_core::{BBox, Primitive, Scene, StrokePrimitive, TextPrimitive};
 
-/// 図面の範囲 region（用紙の mm、None なら用紙、用紙がなければ図面全体）を SVG にする
-pub fn render_svg(scene: &Scene, region: Option<BBox>, options: &RenderOptions) -> Result<String, RenderError> {
+/// 図面の範囲 region（用紙の mm、None なら用紙、用紙がなければ図面全体）を SVG にする。文字は字形を埋め込まないので、
+/// 報告（`RenderReport`）には描かなかった内容の notices だけが入る
+pub fn render_svg(
+    scene: &Scene,
+    region: Option<BBox>,
+    options: &RenderOptions,
+) -> Result<(String, RenderReport), RenderError> {
     let page = Page::new(scene, region, options)?;
     let theme = options.theme.unwrap_or(scene.background);
     let (w, h) = (page.width(), page.height());
@@ -45,7 +50,8 @@ pub fn render_svg(scene: &Scene, region: Option<BBox>, options: &RenderOptions) 
     }
     writer.flush();
     writer.out.push_str("</g>\n</svg>\n");
-    Ok(writer.out)
+    let report = RenderReport { notices: underlay_notices(scene, page.region, options), ..RenderReport::default() };
+    Ok((writer.out, report))
 }
 
 /// 数を短く書く（0.001 mm まで。末尾の 0 と小数点は省く）

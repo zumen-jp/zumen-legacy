@@ -1,4 +1,4 @@
-import type { Box, Primitive, Scene, StrokePrimitive } from "./types.js";
+import type { Box, Primitive, Scene, StrokePrimitive, Underlay } from "./types.js";
 
 /**
  * Scene を JSON の文字列にする。点列（Float64Array）は数の配列にし、空の外接矩形の無限大は null になる。
@@ -10,16 +10,18 @@ export function sceneToJson(scene: Scene, space?: number): string {
 
 type Json<T> = T extends Float64Array
   ? number[]
-  : T extends readonly (infer U)[]
-    ? Json<U>[]
-    : T extends object
-      ? { [K in keyof T]: Json<T[K]> }
-      : T;
+  : T extends readonly number[]
+    ? T
+    : T extends readonly (infer U)[]
+      ? Json<U>[]
+      : T extends object
+        ? { [K in keyof T]: Json<T[K]> }
+        : T;
 
 /** sceneToJson の結果（または Rust の読み取りの JSON）を Scene に戻す */
 export function sceneFromJson(json: string): Scene {
   const data = JSON.parse(json) as Json<Scene>;
-  return {
+  const scene = {
     ...data,
     bounds: box(data.bounds),
     entities: data.entities.map((entity) => ({
@@ -28,6 +30,14 @@ export function sceneFromJson(json: string): Scene {
       primitives: entity.primitives.map(primitive),
     })),
   } as Scene;
+  if (data.underlays) scene.underlays = data.underlays.map(underlay);
+  return scene;
+}
+
+function underlay({ clip, matrix, bbox, ...rest }: Json<Underlay>): Underlay {
+  const result: Underlay = { ...rest, matrix, bbox: box(bbox) };
+  if (clip) result.clip = clip.map((ring) => Float64Array.from(ring));
+  return result;
 }
 
 /** JSON で null になった無限大を、空の外接矩形の値に戻す */

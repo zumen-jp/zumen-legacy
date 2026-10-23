@@ -57,6 +57,11 @@ bytes ─▶ format reader ─▶ native model ─▶ toScene ─▶ Scene
 - Each entity has drawing primitives (`stroke`, `fill`, `clipped`, `dot`, `text`), a bounding box, its layers
   (its own and those of the placements it sits in), a list of properties to show, and, inside a scaled placement,
   a `Placement` with the scale and the transform back to the original (real-world) coordinates.
+- `Scene.underlays` lists raster content (images, PDF pages) drawn in order under every entity. The scene describes
+  where it sits (a matrix from the content's pixels or points to paper millimeters, clip rings, layers) and what it is
+  (`kind`, the `file` named in the drawing, the PDF `page`), not its bytes: a renderer that the application passes to
+  `DrawingViewer` draws regions of it on request ([decision 0022](decisions/0022-underlays-drawn-by-a-region-renderer.md)).
+  Scenes without underlays leave the field out.
 - `notices` list what was not drawn or was drawn differently, by kind and count. Nothing is dropped silently.
 - Colors are `#rrggbb`, or `#rrggbbaa` with opacity. On a light background, near-white colors are drawn black,
   and on a dark background near-black colors are drawn white.
@@ -210,6 +215,12 @@ the state, the input handlers and the tools are separate, and each can be used o
 - **Queries.** `entitiesAt(x, y)`, `entitiesIn(box)` and `snapAt(x, y)` for applications that handle input
   themselves.
 - **Overlays.** `addOverlay(painter)` draws on top of the drawing whatever the tool; `invalidate()` redraws it.
+- **Underlays.** An `UnderlayRenderer` (`underlayRenderer` in the options, `setUnderlayRenderer`) draws a region of an
+  underlay's content at a scale into a canvas, and stops when the request's `AbortSignal` is aborted. The engine asks
+  for the whole content coarsely and for the visible region sharply once the view settles, stretches what it has while
+  the view moves, and aborts the requests the view no longer needs. `refreshUnderlays(ids)` asks again, the `underlay`
+  event tells which requests finished or failed, and `imageUnderlayRenderer(load)` draws images that the application
+  loads ([decision 0022](decisions/0022-underlays-drawn-by-a-region-renderer.md)).
 - **Readers that load.** A `DrawingReader` may have `load()`, as the WebAssembly reader of `@zumenjs/reader` does; `useDrawing` waits
   for the one that recognizes the file.
 - **React.** `useDrawingViewer`, `useViewerState(viewer, selector)`, `useViewerEvent(viewer, type, listener)` and
@@ -541,7 +552,9 @@ its cell. A page that is the sheet itself has no sheet frame.
 
 `zumen-render` bundles BIZ UDGothic Regular (SIL Open Font License 1.1, `crates/zumen-render/fonts/OFL.txt`),
 a Japanese gothic close to the MS Gothic that SXF and Jw_cad drawings assume. Characters without a glyph are reported
-(`RenderReport.missing_glyphs`, a Python warning).
+(`RenderReport.missing_glyphs`, a Python warning). It does not draw underlays, whose content it does not receive, and
+reports them as `underlay-not-drawn` in `RenderReport.notices` with their number
+([decision 0022](decisions/0022-underlays-drawn-by-a-region-renderer.md)).
 
 Release packages include source files for source maps. `scripts/notices.mjs` records the license texts of normal Rust
 dependencies linked into the Python extension and WebAssembly reader; `pnpm run check` verifies these files against
