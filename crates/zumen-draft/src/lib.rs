@@ -5,6 +5,8 @@
 //! - モデル空間は実寸（決定 0008）。用紙ごとにレイアウトを作り、ビューごとにその縮尺のビューポートを置く。
 //! - 大きさ（文字の高さ、矢印、記号、表の幅、模様の間隔）は用紙の mm で受け取り、ビューの縮尺を掛けて描く。
 //! - 描いた図形のハンドルから、仕様の図形の場所（`sheets[0].views[0].items[3]`）を引ける（`Drafted::sources`）。
+//! - 受け取った図面には、描いたモデルを編集の操作にして描き込む（DXF・DWG は `plan`、JWW は `plan_jww`、SXF は
+//!   `plan_sxf`。決定 0027）。
 #![forbid(unsafe_code)]
 
 mod dimension;
@@ -26,7 +28,7 @@ use zumen_convert::builder::{
 use zumen_core::{Notice, NoticeLevel};
 use zumen_dxf::{DxfDocument, DxfEntityData};
 
-pub use into::{Planned, plan};
+pub use into::{Planned, plan, plan_jww, plan_sxf};
 pub use spec::TYPES;
 
 /// 仕様の JSON Schema（draft 2020-12）。エージェントやエディタが仕様を組み立て、確かめるのに使う
@@ -78,16 +80,57 @@ pub fn draft(value: &Value) -> Result<Drafted, DraftError> {
     Ok(draft_on(value, None)?.0)
 }
 
-/// 仕様から描く。template は描き込む先の図面（draft_into）で、用紙の名前と同じレイアウトがあれば、その用紙の
-/// 大きさを使う。描いたものと、寸法スタイルの値（操作に写すのに使う）を返す
-pub(crate) fn draft_on(value: &Value, template: Option<&DxfDocument>) -> Result<(Drafted, Drafter), DraftError> {
+/// 描き込む先の図面（draft_into）の、描くのに使う値
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Target {
+    /// レイアウト（大文字の名前 → 用紙の幅・高さ）。用紙の名前と同じレイアウトがあれば、その用紙の大きさに描く
+    pub layouts: HashMap<String, (f64, f64)>,
+    /// 用紙を 1 枚だけ持ち、その大きさを変えられない図面（JWW・SXF）の用紙の幅・高さ。どの用紙もこの大きさに描く
+    pub sheet: Option<(f64, f64)>,
+}
+
+impl Target {
+    /// DXF・DWG の図面のレイアウト
+    pub fn of(template: &DxfDocument) -> Self {
+        let layouts = template
+            .layouts
+            .iter()
+            .filter(|layout| !layout.model)
+            .map(|layout| (layout.name.to_uppercase(), (layout.paper_width, layout.paper_height)))
+            .collect();
+        Target { layouts, sheet: None }
+    }
+}
+
+/// 描いたビュー（draft_into で、ビューごとに JWW のレイヤグループ・SXF の部分図に分けるのに使う）
+#[derive(Debug, Clone)]
+pub(crate) struct DraftedView {
+    /// 用紙の番号
+    pub sheet: usize,
+    /// 仕様の場所（sheets[0].views[1]）
+    pub path: String,
+    pub name: Option<String>,
+    /// 縮尺の分母
+    pub scale: f64,
+    /// ビューポートの中心に映すモデルの点
+    pub center: Point,
+    /// 用紙の上のビューポート
+    pub rect: zumen_core::BBox,
+    /// 描いた図形の範囲（モデルの座標。文字の幅などは含まない）
+    pub extent: Option<[f64; 4]>,
+    /// このビューに描いたモデル空間の図形のハンドル
+    pub handles: std::collections::HashSet<String>,
+}
+
+/// 仕様から描く。target は描き込む先の図面（draft_into）。描いたものと、寸法スタイルの値やビュー（操作に写すのに
+/// 使う）を返す
+pub(crate) fn draft_on(value: &Value, target: Option<&Target>) -> Result<(Drafted, Drafter), DraftError> {
     let spec = spec::parse(value)?;
     let mut drafter = Drafter::new(&spec)?;
-    if let Some(template) = template {
+    if let Some(target) = target {
         drafter.into = true;
-        for layout in template.layouts.iter().filter(|layout| !layout.model) {
-            drafter.existing_layouts.insert(layout.name.to_uppercase(), (layout.paper_width, layout.paper_height));
-        }
+        drafter.existing_layouts = target.layouts.clone();
+        drafter.sheet_paper = target.sheet;
     }
     sheet::draw(&mut drafter, &spec)?;
     drafter.builder.report_renamed();
@@ -195,10 +238,14 @@ pub(crate) struct Drafter {
     pub dimension_looks: HashMap<String, (f64, dimension::DimStyle)>,
     /// 描き込む先の図面のレイアウト（大文字の名前 → 用紙の幅・高さ）
     pub existing_layouts: HashMap<String, (f64, f64)>,
+    /// 描き込む先の、大きさを変えられない用紙（JWW・SXF）の幅・高さ
+    pub sheet_paper: Option<(f64, f64)>,
     /// 描き込む先がある（draft_into）。用紙の fields の使われなかったタグは、描き込む先と合わせて確かめる
     pub into: bool,
     /// 用紙ごとの、ブロック参照の属性に埋めた fields のタグ（大文字）
     pub filled: Vec<std::collections::BTreeSet<String>>,
+    /// 描いたビュー（用紙・ビューの順）
+    pub views: Vec<DraftedView>,
 }
 
 impl Drafter {
@@ -221,8 +268,10 @@ impl Drafter {
             extent: None,
             dimension_looks: HashMap::new(),
             existing_layouts: HashMap::new(),
+            sheet_paper: None,
             into: false,
             filled: Vec::new(),
+            views: Vec::new(),
         };
         drafter.layers.insert("0".into(), "0".into());
         for (name, description, pattern) in builtin_line_types() {

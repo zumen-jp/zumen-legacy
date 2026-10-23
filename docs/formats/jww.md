@@ -361,7 +361,9 @@ all layer groups 1/1, lengths in millimeters).
 - **Values**:
   - `layer`: a layer number `0-A` (the group and the layer in hexadecimal, as the scene names layers, followed by
     anything), the name of one layer, or the scene's raw layer number (group × 16 + layer + 1). A name the drawing lacks
-    is added as `add-layer` does (`edit-added-layer`).
+    is added as `add-layer` does (`edit-added-layer`). With `"container": "group:<g>"`, a name is the layer of that name
+    in group `g`, added there when the group lacks it; without one, a name that several groups have is
+    `invalid-value` (give the number).
   - `color`: pen colors 1–9, the SXF colors 100–356 (version 4.20 and later), or `#rrggbb`: a pen color of that screen
     color, else an SXF user color (117–355) that has no name and that no entity uses, set to that color, else the
     nearest pen color (`edit-nearest-color`, for example before version 4.20). A solid takes `#rrggbb` as its custom
@@ -378,12 +380,14 @@ all layer groups 1/1, lengths in millimeters).
   dimension).
 - **What `delete` removes**: the record. Block definitions stay, even when no placement uses them any more.
 - **Layers**: JWW has 16 layer groups of 16 layers, so a layer cannot be created. `add-layer` names the first layer
-  (0 to F) of a layer group that has no name and no entities — of the write layer group, or of the group in `group` (a
-  number or a name) — and gives `0-3 name` in `created`. `visible: false` hides a layer (state 0) and `locked: true`
-  makes it display-only (state 1); the write layer of a group cannot be hidden or display-only, so a layer added that
-  way takes another one. `scale` sets the scale of the layer group while the group has no entities. `update-layer`
-  takes the same values and `name`, which renames the layer. JWW layers have no color, line type, line width, frozen or
-  plot setting (`edit-layer-attributes`).
+  (0 to F) of a layer group that has no name (or its number as its name, as Jw_cad saves layers it has not named) and
+  no entities — of the write layer group, or of the group in `group` (a number or a name) — and gives `0-3 name` in
+  `created`. A name belongs to its layer group, as in Jw_cad: it has to be unique within the group (`already-exists`),
+  and other groups can have it too ([decision 0027](../decisions/0027-draft-into-jww-and-sxf.md)). `visible: false`
+  hides a layer (state 0) and `locked: true` makes it display-only (state 1); the write layer of a group cannot be
+  hidden or display-only, so a layer added that way takes another one. `scale` sets the scale of the layer group while
+  the group has no entities. `update-layer` takes the same values and `name`, which renames the layer. JWW layers have
+  no color, line type, line width, frozen or plot setting (`edit-layer-attributes`).
 - **Notices of the writer** come with the prefix `edit-`: `edit-text-encoding` for characters that Shift_JIS cannot
   hold, in a file that writes Shift_JIS (versions before 7.00, and version 700 from Jw_cad before 10.01), and
   `edit-dimension-parts` for the extension lines and points of dimensions before version 4.20.

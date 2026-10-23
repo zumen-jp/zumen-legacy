@@ -1,8 +1,9 @@
 //! zumen: 建築・土木の 2D 図面を読み、形式に依存しない表示用モデル（`Scene`）にする。
 //!
-//! 形式は拡張子ではなく中身で判定する。読める形式は SXF（SFC・P21、圧縮した P2Z・SFZ）・JWW（JWC・JWS も）・DXF・DWG。
+//! 形式は拡張子ではなく中身で判定する。読める形式は SXF（SFC・P21、圧縮した P2Z・SFZ）・JWW（JWC・JWS も）・DXF・DWG・
+//! PDF（読むだけ。ページがビューで、図形はページの下敷きが描く）。
 //! 受け取った図面を信用できないときは、`ReadDrawingOptions::limits` でバイト数・図形の数・時間の上限を指定する。
-//! どの図面も AutoCAD の図面のモデルを経て、DXF・DWG・JWW・SXF に書き直せる（`convert`）。
+//! PDF 以外の図面は AutoCAD の図面のモデルを経て、DXF・DWG・JWW・SXF に書き直せる（`convert`）。
 //! 図面をその場で編集し（`edit`）、新しい図面を作れる（`create`）。操作は形式によらない（`edit::parse_operations`）。
 //! 図面の仕様（JSON）から、用紙・ビュー・寸法・表のそろった図面を描ける（`draft`、決定 0018）。
 //!
@@ -23,18 +24,29 @@ pub use zumen_draft as draft;
 pub use zumen_dwg as dwg;
 pub use zumen_dxf as dxf;
 pub use zumen_jww as jww;
+#[cfg(feature = "pdf")]
+pub use zumen_pdf as pdf;
 pub use zumen_sxf as sxf;
 
-/// 組み込みの読み取り（判定する順）
+/// 組み込みの読み取り（判定する順）。PDF は機能 pdf のとき
 pub fn readers() -> Vec<&'static dyn DrawingReader> {
-    vec![&zumen_sxf::SXF, &zumen_jww::JWW, &zumen_jww::JWC, &zumen_jww::JWS, &zumen_dxf::DXF, &zumen_dwg::DWG]
+    vec![
+        &zumen_sxf::SXF,
+        &zumen_jww::JWW,
+        &zumen_jww::JWC,
+        &zumen_jww::JWS,
+        &zumen_dxf::DXF,
+        &zumen_dwg::DWG,
+        #[cfg(feature = "pdf")]
+        &zumen_pdf::PDF,
+    ]
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ReadDrawingOptions {
-    /// 分かっている場合の形式（sfc・p21・p2z・sfz・jww・jwc・jws・dxf・dwg）。省略すると中身から判定する
+    /// 分かっている場合の形式（sfc・p21・p2z・sfz・jww・jwc・jws・dxf・dwg・pdf）。省略すると中身から判定する
     pub format: Option<String>,
-    /// 描く表示（Scene.views の id）。省略すると形式ごとの既定の表示
+    /// 描く表示（Scene.views の id。DXF・DWG のレイアウト、PDF のページの番号）。省略すると形式ごとの既定の表示
     pub view: Option<String>,
     /// 読み取りの上限。超えたら途中でやめ、`ReadError::exceeded` で上限の種類が分かるエラーを返す
     pub limits: ReadLimits,
@@ -44,6 +56,10 @@ pub struct ReadDrawingOptions {
 pub fn detect(bytes: &[u8]) -> Option<&'static str> {
     detect_format(bytes, &readers())
 }
+
+/// PDF は読むだけ（決定 0020）。図面は zumen-render の render_pdf で PDF に書ける
+const READ_ONLY_PDF: &str =
+    "PDF の図面は読むだけで、書き直し・編集・描き込みはできません（図面を PDF にするには描画の PDF 出力を使います）";
 
 /// 書き出した図面と、書けなかった・形を変えて書いた内容（読み取りの notices と同じ形）
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -145,6 +161,7 @@ pub fn convert_with(
                 notices = NoticeList::from_notices(&mapped.notices);
                 return Ok(mapped.document);
             }
+            "pdf" => return Err(ReadError::new(READ_ONLY_PDF)),
             other => return Err(ReadError::new(format!("{} の図面は書き直せません", other.to_uppercase()))),
         };
         let mapped = mapping::jww_to_dxf(&jww);
@@ -223,16 +240,27 @@ pub fn draft(spec: &str, to: &str, options: &DraftOptions) -> Result<Converted, 
 /// 受け取った図面に描く指定
 #[derive(Debug, Clone, Default)]
 pub struct DraftIntoOptions {
-    /// 描く用紙の名前。省略するとすべての用紙
+    /// 描く用紙の名前。省略するとすべての用紙（JWW・SXF は用紙を 1 枚しか持たないので、1 枚目だけ）
     pub sheet: Option<String>,
-    /// 描き込む図面の形式（dxf・dwg）と、読み取りの上限
+    /// 描き込む図面の形式（dxf・dwg・jww・sfc・p21・sfz・p2z）と、読み取りの上限
     pub read: ReadDrawingOptions,
 }
 
-/// 図面の仕様（決定 0018）を、受け取った DXF・DWG の図面（テンプレート）にその場で描く。描いたものは決定 0017 の
-/// 編集の操作（`draft::plan`）にして `edit` で当てるので、元の図形・ハンドル・拡張データ・zumen が読まない内容は
-/// 残る。用紙の名前と同じレイアウトがあればそこに描き（用紙の大きさもそのレイアウトのもの）、なければレイアウトを
-/// 足す。用紙の `fields` は、その用紙のブロック参照（表題欄）の属性を埋める。図面の版と形式は元のまま
+/// 描き込む先の図面
+enum Template {
+    Dxf(Box<dxf::DxfDocument>),
+    Jww(Box<jww::JwwDocument>),
+    Sxf(Box<sxf::SxfDrawing>),
+}
+
+/// 図面の仕様（決定 0018）を、受け取った図面（テンプレート）にその場で描く。描いたものは決定 0017 の編集の操作
+/// （`draft::plan`、JWW は `draft::plan_jww`、SXF は `draft::plan_sxf`）にして `edit` で当てるので、元の図形・
+/// ハンドル・拡張データ・zumen が読まない内容は残る。図面の版と形式は元のまま。
+///
+/// - DXF・DWG: 用紙の名前と同じレイアウトがあればそこに描き（用紙の大きさもそのレイアウトのもの）、なければ
+///   レイアウトを足す。用紙の `fields` は、その用紙のブロック参照（表題欄）の属性を埋める。
+/// - JWW・SXF（決定 0027）: 図面の 1 枚の用紙に、1 枚目（か `sheet`）の用紙を描く。ビューは JWW ではその縮尺の
+///   レイヤグループ、SXF ではビューごとの部分図に描く
 pub fn draft_into(bytes: &[u8], spec: &str, options: &DraftIntoOptions) -> Result<Converted, draft::DraftError> {
     let error = |code: &'static str, message: String| draft::DraftError::new(code, "", message);
     let limits = &options.read.limits;
@@ -243,10 +271,14 @@ pub fn draft_into(bytes: &[u8], spec: &str, options: &DraftIntoOptions) -> Resul
         Some(format) => format,
         None => detect(bytes).ok_or_else(|| error("unreadable", "対応していない形式のファイルです".into()))?,
     };
-    if format != "dxf" && format != "dwg" {
+    if format == "pdf" {
+        return Err(error("unsupported-format", READ_ONLY_PDF.into()));
+    }
+    // 編集できる形式なら描き込める
+    if !EDITABLE_FORMATS.contains(&format) {
         return Err(error(
             "unsupported-format",
-            format!("{} の図面には描き込めません（描き込めるのは DXF・DWG）", format.to_uppercase()),
+            format!("{} の図面には描き込めません（描き込めるのは DXF・DWG・JWW・SXF）", format.to_uppercase()),
         ));
     }
     let mut value: serde_json::Value = serde_json::from_str(spec)
@@ -254,15 +286,23 @@ pub fn draft_into(bytes: &[u8], spec: &str, options: &DraftIntoOptions) -> Resul
     if let Some(sheet) = &options.sheet {
         draft::select_sheet(&mut value, sheet)?;
     }
-    let (template, exceeded) = zumen_core::limits::with_limits(limits, || match format {
-        "dxf" => Ok(dxf::parse_dxf(bytes)),
-        _ => dwg::read_dwg(bytes),
+    let (template, exceeded) = zumen_core::limits::with_limits(limits, || -> Result<Template, String> {
+        Ok(match format {
+            "dxf" => Template::Dxf(Box::new(dxf::parse_dxf(bytes))),
+            "dwg" => Template::Dxf(Box::new(dwg::read_dwg(bytes)?)),
+            "jww" => Template::Jww(Box::new(jww::read_jww(bytes).map_err(|error| error.to_string())?)),
+            _ => Template::Sxf(Box::new(sxf::parse_sxf(bytes, format).map_err(|error| error.to_string())?)),
+        })
     });
     if let Some(limit) = exceeded {
         return Err(error("too-large", limit_error(limit, limits).to_string()));
     }
     let template = template.map_err(|message| error("unreadable", message.to_string()))?;
-    let planned = draft::plan(&value, &template)?;
+    let planned = match &template {
+        Template::Dxf(template) => draft::plan(&value, template)?,
+        Template::Jww(template) => draft::plan_jww(&value, template)?,
+        Template::Sxf(template) => draft::plan_sxf(&value, template)?,
+    };
     let operations = edit::operations_from_json(&planned.operations)
         .map_err(|e| error("unwritable", format!("描き込む操作を作れませんでした: {e}")))?;
     let edit_options = ReadDrawingOptions { format: Some(format.to_string()), ..options.read.clone() };
@@ -303,6 +343,7 @@ pub fn edit(
         "dwg" => dwg::edit_dwg(bytes, operations),
         "jww" => jww::edit_jww(bytes, operations),
         "sfc" | "p21" | "sfz" | "p2z" => sxf::edit_sxf(bytes, format, operations),
+        "pdf" => Err(edit::EditError::new("unsupported-format", READ_ONLY_PDF)),
         other => Err(unsupported_edit(other)),
     }
 }
@@ -483,36 +524,8 @@ pub fn carry_markup(
 
 /// 図面のバイト列を読み、表示用の図面にする。上限（`options.limits`）を超えたら、途中でやめて上限のエラーを返す
 pub fn read(bytes: &[u8], options: &ReadDrawingOptions) -> Result<Scene, ReadError> {
-    let limits = &options.limits;
-    if limits.max_bytes.is_some_and(|max| bytes.len() as u64 > max) {
-        return Err(limit_error(Limit::Bytes, limits));
-    }
     let read_options = ReadOptions { view: options.view.clone() };
-    let (result, exceeded) = zumen_core::limits::with_limits(limits, || {
-        read_drawing(bytes, &readers(), options.format.as_deref(), &read_options)
-    });
-    // 上限を超えたときは、途中までの結果や、途中でやめたために起きた読み取りのエラーより上限のエラーを返す
-    match (exceeded, result) {
-        (Some(_), Err(error)) if error.exceeded().is_some() => Err(error),
-        (Some(limit), _) => Err(limit_error(limit, limits)),
-        (None, result) => result,
-    }
-}
-
-/// 上限を超えたときのエラー（利用者に見せる文）
-pub fn limit_error(limit: Limit, limits: &ReadLimits) -> ReadError {
-    let count = |value: Option<u64>| value.map_or_else(String::new, |value| js::format_ja(value as f64, 0));
-    let message = match limit {
-        Limit::Bytes => format!("図面が上限の {} バイトより大きいため、読みませんでした", count(limits.max_bytes)),
-        Limit::Entities => {
-            format!("図形が上限の {} 個を超えたため、読むのを途中でやめました", count(limits.max_entities))
-        }
-        Limit::Time => {
-            let seconds = limits.max_duration.map_or(0.0, |duration| duration.as_secs_f64());
-            format!("読み取りが上限の {} 秒を超えたため、途中でやめました", js::number_to_string(seconds))
-        }
-    };
-    ReadError::limit(limit, message)
+    read_drawing_with_limits(bytes, &readers(), options.format.as_deref(), &read_options, &options.limits)
 }
 
 #[cfg(test)]
@@ -562,9 +575,7 @@ mod tests {
             DATA;\n#1=IFCPROJECT('0YvctVUKr0kugbFTf53O9L',$,'Project',$,$,$,$,$,$);\nENDSEC;\nEND-ISO-10303-21;\n";
         assert_eq!(detect(ifc), None);
         let error = read(ifc, &ReadDrawingOptions::default()).unwrap_err();
-        assert_eq!(
-            error.message(),
-            "対応していない形式のファイルです（読める形式: SFC・P21・SFZ・P2Z・JWW・JWC・JWS・DXF・DWG）"
-        );
+        // The supported formats differ between the CAD-only module and the facade with its PDF feature.
+        assert!(error.message().starts_with("対応していない形式のファイルです（読める形式:"));
     }
 }

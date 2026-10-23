@@ -4,6 +4,17 @@ All packages share one version during 0.x.
 
 ## Unreleased
 
+- Rust, Python, the command line and the MCP server: draw a drawing spec into JWW and SXF (SFC, P21, SFZ, P2Z)
+  templates too (`zumen::draft_into`, `zumen.draft_into`, `zumen draft --into template.jww`, `into` of
+  `draft_drawing`), through their edits ([decision 0027](docs/decisions/0027-draft-into-jww-and-sxf.md),
+  [Drawing into a template](docs/drafting.md#drawing-into-a-template)). One sheet is drawn on the template's paper
+  (others and a different `paper` are reported). JWW views go into the layer group of their scale, or a group without
+  entities set to it, and SXF views into sub-figures placed at their scales; dimensions, hatches and blocks become the
+  format's own, texts are placed by their boxes, line types become the drawing's nearest ones, and attribute values
+  become text, each reported. `zumen_draft::plan_jww` and `zumen_draft::plan_sxf` make the operations. Edits change
+  in two places: SXF takes `"kind": "viewport"`, which adds an empty sub-figure placed on the sheet (`name`,
+  `center`, `viewCenter`, `scale`), and a JWW layer name belongs to its layer group, as in Jw_cad (`add-layer` and a
+  rename take a name another group has, and a name in an `add` to `group:<g>` is looked up in that group).
 - Rust, Python, the command line and the MCP server: drawing markup on servers
   ([decision 0021](docs/decisions/0021-drawing-markup.md), [Drawing markup](docs/markup.md)). `zumen_core::markup`
   reads and writes the documents with the same checks and JSON as `@zumenjs/core` (unknown keys kept) and gives the
@@ -26,6 +37,23 @@ All packages share one version during 0.x.
   of those (`edit-hatch-dash-count`); a longer DXF or DWG line type converted to SFC keeps the first 8
   (`linetype-long`). `zumen_core::edit::style::cut_pitches` cuts lengths by pairs for `line_type_pitches` and the SXF
   hatches.
+- Rust, Python, the command line, the MCP server and browsers: PDF drawings are read
+  ([decision 0020](docs/decisions/0020-pdf-drawings-in-rust.md), [How PDF is handled](docs/formats/pdf.md)). The new
+  crate `zumen-pdf` (`read_pdf`, the `PDF` reader of `zumen::read` and `zumen::detect`, on hayro-interpret 0.8.0)
+  reads each page as a view (id `"1"`, `"2"` …, named by its page label) in paper millimeters of the crop box with
+  `Rotate` and `UserUnit` applied, with the page as its underlay (`kind: "pdf"`) and the painted paths (`line`,
+  `polyline`, `spline`, `solid`), glyph runs (`text`, with Unicode, position, height, rotation and font) and images
+  (`image` frames) as entities that are not drawn (`drawn: false`), numbered `#n` in paint order. Viewports with a
+  rectilinear measure dictionary give the entities inside them a placement with the scale. Shadings, tiling patterns,
+  content outside the clip, annotations, optional content and glyphs without Unicode are reported in `notices`.
+  `convert`, `edit` and `draft_into` refuse PDF. The `zumen` crate reads PDF with its default feature `pdf`.
+- Browsers: `@zumenjs/reader` reads PDF with a WebAssembly module of its own, `zumen_wasm_pdf_bg.wasm`, loaded only
+  for PDF drawings ([decision 0030](docs/decisions/0030-pdf-in-a-webassembly-module-of-its-own.md)): `initPdfReader`
+  and `isPdfReaderReady`, `reader.load("pdf")`, `ReaderWorkerOptions.pdfWasm`, `isPdf`, and `detectDrawing` returns
+  `pdf`. `DrawingReader.load` receives the detected format, which `useDrawing` passes, so `useDrawing(file, [reader])`
+  loads the PDF module only when a PDF is opened. The CAD module does not change.
+- `pnpm run parity` compares the texts of PDF files with pdf.js page by page and reports the differences, and
+  `THIRD_PARTY_LICENSES.txt` also carries the licenses of the data that crates embed (the fonts and CMaps of hayro).
 - Browsers: drawing markup, kept in a JSON document beside the drawing in paper millimeters of a view
   ([decision 0021](docs/decisions/0021-drawing-markup.md), [Drawing markup](docs/markup.md)). `@zumenjs/core` has the
   model (`MarkupDocument`, `MarkupItem` and its kinds `redline`, `cloud`, `text`, `finding` and `photo`),

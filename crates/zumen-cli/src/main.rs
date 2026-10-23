@@ -43,14 +43,17 @@ Usage:
   zumen edit <file> <operations.json> -o <out> [--format <name>]
   zumen create <operations.json> -o <out.dxf|.dwg|.jww|.sfc|.p21|.sfz|.p2z> [--units mm|cm|m|inch|foot|unitless]
   zumen draft <spec.json> -o <out.dxf|.dwg|.jww|.sfc|.p21|.sfz|.p2z> [--target-version <version>] [--sheet <name>]
-              [--into <template.dxf|.dwg>]
+              [--into <template.dxf|.dwg|.jww|.sfc|.p21|.sfz|.p2z>]
   zumen markup carry <markup.json> <before> <after> [-o <out.json>] [--view-map <before view>=<after view>]...
                      [--tolerance <mm>] [--style] [--no-align] [--ignore-hash]
 
 Every command that reads takes --max-bytes <n>, --max-entities <n> and --timeout <seconds>, to stop
 reading an untrusted drawing that is too large (P2Z and SFZ after unpacking), too complex or too slow.
 
-Reads SXF, JWW (also JWC and JWS), DXF and DWG drawings into zumen's scene model.
+Reads SXF, JWW (also JWC and JWS), DXF, DWG and PDF drawings into zumen's scene model. A PDF page is a view
+(--view 2 for the second page) whose paths, texts and images are read for texts, entities, regions, tables, title,
+check and compare, but not drawn: the page shows them, and render reports it as underlay-not-drawn. convert, edit
+and draft do not take PDF.
 texts and entities write one JSON object per line, in paper millimeters (Y up) rounded to 0.001.
 --geometry adds the shapes drawn to each entity (polylines, segments, fills, hatches, points and text
 parts; curves as the polyline drawn), with real for the same coordinates in real-world millimeters
@@ -96,10 +99,11 @@ JSON, and on an error write the number of the operation that failed.
 draft draws a drawing from a drawing spec (JSON: layers, blocks, sheets with a frame and title block, views at
 scales, and items such as text, dimensions, hatches, tables and grid lines, decision 0018) and writes it in the
 format of the output (JWW and SXF hold one sheet: --sheet chooses it, else the first); an error names the place in the spec (sheets[0].views[1].items[4]) and a code.
---into draws the spec into a DXF or DWG template in place, through the operations of edit, so that the template's
-entities, handles and data stay: a sheet named after a layout of the template is drawn into it, other sheets become
-new layouts, and the fields of a sheet fill the attributes of its title block. The output keeps the template's
-format and version.
+--into draws the spec into a DXF, DWG, JWW or SXF template in place, through the operations of edit, so that the
+template's entities, handles and data stay: in DXF and DWG a sheet named after a layout of the template is drawn into
+it, other sheets become new layouts, and the fields of a sheet fill the attributes of its title block; JWW and SXF
+take one sheet (--sheet, else the first) on their paper, with views in layer groups of their scales (JWW) or
+sub-figures (SXF). The output keeps the template's format and version.
 markup carry moves a markup document made on <before> to the revision <after> (decision 0021): for each view
 with items it compares the two revisions (every layer, like compare with --all-layers), moves the items by the
 offset of the revision, points their entities at the matching entities and marks each item unchanged, changed or

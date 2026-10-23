@@ -130,7 +130,9 @@ edited.save("plan.dxf")
 - `add` takes `container`: `"model"` (the default), `"layout:<name>"` or `"block:<name>"` in DXF and DWG,
   `"group:<0-F or name>"` (a layer group) or `"block:<name>"` in JWW, and `"sheet"` (the default), `"figure:<name>"`
   or `"block:<name>"` in SXF. `{"op": "add-block", "name": ..., "basePoint": [x, y]}` adds an empty block definition
-  (a drawing part in SXF) to fill with `"container": "block:<name>"`.
+  (a drawing part in SXF) to fill with `"container": "block:<name>"`. In SXF, `"kind": "viewport"` (`name`, `center`,
+  `viewCenter`, `scale`) adds an empty sub-figure placed on the sheet at that scale, to fill with
+  `"container": "figure:<name>"` at real size. JWW layer names belong to their layer group, as in Jw_cad.
 - Kinds that can be added: `line`, `polyline` (`vertices`, `bulges`, `closed`; not in JWW), `arc`, `circle`,
   `ellipse`, `ellipse-arc`, `point`, `text` (MTEXT when it has line breaks), `block-reference` (`block`, `position`,
   `scale`, `rotation`), `dimension` (`dimensionType`: `linear`, `aligned`, `angular-3-point` (not in JWW), `radius`,

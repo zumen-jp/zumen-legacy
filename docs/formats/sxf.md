@@ -266,6 +266,7 @@ writes an empty drawing (an A3 landscape sheet) for `create`.
 | `block-reference` | `block` (composite figure), `position`, `rotation`, `scale` (a number or `[x, y]`) | sfig_locate_feature |
 | `dimension` | `dimensionType` (`linear`, `aligned`, `angular-3-point`, `radius`, `diameter`), `start`, `end`, `position`, `rotation`, `center`, `point`, `text` (`<>` is the value, one line), `dimensionStyle` (a dimension style added in the edit; other names are reported) | linear_dim_feature, angular_dim_feature, radius_dim_feature, diameter_dim_feature |
 | `hatch` | `boundaries`, `pattern`, `patternScale`, `patternAngle`, `patternLines` | composite_curve_org_feature (one invisible composite curve per boundary) with fill_area_style_colour_feature or fill_area_style_hatching_feature |
+| `viewport` | `name`, `center`, `viewCenter`, `scale`, `width`, `height` (on the sheet only) | an empty sfig_org_feature of kind 1 (sub-figure, mathematical coordinates) and its sfig_locate_feature |
 
 - Every kind takes `layer` (a name; a missing layer is added, `edit-added-layer`), `color` (an SXF color code, or `"#rrggbb"`:
   a predefined color when equal, else an existing or new user-defined color), `lineType` (a predefined SXF name such as
@@ -280,6 +281,14 @@ writes an empty drawing (an A3 landscape sheet) for `create`.
   part with its base point at `position`. A name the drawing has is `already-exists`; empty names, control characters
   and names starting with `$$` (the attribute mechanism and the P21 prefixes) are `invalid-value`. A placement that
   would put a composite figure inside itself, directly or through others, is `invalid-value`. `created` gives the name.
+- **Viewports** ([decision 0027](../decisions/0027-draft-into-jww-and-sxf.md)): a sub-figure is what a viewport is to
+  model space, so `viewport` takes the keys of a DXF viewport and adds an empty sub-figure named `name` (`部分図 <n>`,
+  the first number not taken, when left out), placed on the sheet so that the point `viewCenter` of the sub-figure is
+  at `center` on the sheet at 1:`scale` (the placement's ratio is 1/`scale`, its angle 0 and its layer the operation's,
+  none by default). Elements are added into it with `"container": "figure:<name>"` at real size. Sub-figures are not
+  clipped, so `width` and `height` are checked and reported unused (`edit-viewport-clip`). A viewport goes on the sheet
+  (`invalid-value` in a composite figure); a name the drawing has is `already-exists`, and names are checked as for
+  `add-block`. `created` gives the id of the placement.
 - **Dimensions** are the dimension features with the style of the operation (`layer`, `color`, `lineType`,
   `lineWidth`). SXF has no dimension styles, so the sizes are those of AutoCAD's metric dimensions (ISO-25), in sheet
   millimeters: extension lines start 0.625 beyond their origin and pass the dimension line by 1.25, the arrows are

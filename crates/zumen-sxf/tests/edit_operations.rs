@@ -548,6 +548,76 @@ fn sizes_dimensions_in_sub_figures_by_their_placement() {
     assert!((arrow1.as_ref().unwrap().scale - 1.0 / 3.0).abs() < 1e-12);
 }
 
+/// ビューポートは、DXF のビューポートと同じ値で、空の部分図（数学座標系）とその配置を足す（決定 0027）。中に足した
+/// 要素は実寸で、配置を通して用紙に映る。部分図は枠で切り取らないので、width・height は使わずに知らせる
+#[test]
+fn adds_viewports_as_sub_figures_placed_on_the_sheet() {
+    for (format, fixture) in [("sfc", "sample"), ("p21", "sample")] {
+        let bytes = read_fixture(format, fixture);
+        let edited = edit_sxf(
+            &bytes,
+            format,
+            &operations(json!([
+                {"op": "add", "kind": "viewport", "name": "1階平面図", "center": [210, 148.5], "width": 380, "height": 257,
+                 "viewCenter": [5000, 4000], "scale": 100},
+                {"op": "add", "kind": "line", "container": "figure:1階平面図", "start": [0, 0], "end": [10000, 0]},
+                {"op": "add", "kind": "dimension", "container": "figure:1階平面図", "start": [0, 0], "end": [10000, 0],
+                 "position": [0, -1000]},
+                {"op": "add", "kind": "viewport", "center": [100, 100], "viewCenter": [0, 0]}
+            ])),
+        )
+        .unwrap_or_else(|error| panic!("{format}: {error}"));
+        assert_eq!(
+            edited.notices.iter().map(|notice| notice.code.as_str()).collect::<Vec<_>>(),
+            ["edit-viewport-clip"]
+        );
+        let drawing = parse_sxf(&edited.bytes, format).unwrap();
+        let doc = &drawing.document;
+        let figure = doc.sub_figures.get("1階平面図").expect("部分図");
+        assert_eq!((figure.feature.flag, figure.members.len()), (1.0, 2), "{format}");
+        assert_eq!(doc.sub_figures.get("部分図 1").map(|figure| figure.feature.flag), Some(1.0), "{format}");
+        let placement = doc
+            .sheet_members
+            .iter()
+            .find_map(|feature| match feature {
+                SxfFeature::SfigLocate { name, x, y, ratio_x, ratio_y, .. } if name == "1階平面図" => {
+                    Some((*x, *y, *ratio_x, *ratio_y))
+                }
+                _ => None,
+            })
+            .expect("配置");
+        assert_eq!(placement, (160.0, 108.5, 0.01, 0.01), "{format}");
+        // 部分図の中の線は、配置を通して用紙の (160, 108.5) から 100 mm（実寸 10 m）
+        let scene = read(&edited.bytes, format);
+        let line = scene
+            .entities
+            .iter()
+            .filter(|entity| entity.kind.name() == "line")
+            .find(|entity| (entity.bbox.max_x - entity.bbox.min_x - 100.0).abs() < 1e-6 && entity.bbox.min_y > 108.0)
+            .unwrap_or_else(|| panic!("{format}: 部分図の線がありません"));
+        assert!((line.bbox.min_x - 160.0).abs() < 1e-6 && (line.bbox.min_y - 108.5).abs() < 1e-6, "{format}");
+        // 部分図の中の寸法の値は、用紙の上で 2.5 mm
+        let SxfFeature::LinearDim { text, .. } =
+            figure.members.iter().find(|feature| matches!(feature, SxfFeature::LinearDim { .. })).unwrap()
+        else {
+            panic!()
+        };
+        assert!((text.as_ref().unwrap().height - 250.0).abs() < 1e-9, "{format}");
+    }
+    let bytes = read_fixture("sfc", "sample");
+    let error = |json: Value| edit_sxf(&bytes, "sfc", &operations(json)).unwrap_err();
+    let viewport = |extra: Value| {
+        let mut operation = json!({"op": "add", "kind": "viewport", "center": [0, 0], "viewCenter": [0, 0]});
+        operation.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        operation
+    };
+    assert_eq!(error(json!([viewport(json!({"container": "figure:S"}))])).code, "invalid-value");
+    assert_eq!(error(json!([viewport(json!({"name": "S"}))])).code, "already-exists");
+    assert_eq!(error(json!([viewport(json!({"name": "$$ATRU"}))])).code, "invalid-value");
+    assert_eq!(error(json!([viewport(json!({"scale": 0}))])).code, "invalid-value");
+    assert_eq!(error(json!([{"op": "add", "kind": "viewport", "center": [0, 0]}])).code, "invalid-value");
+}
+
 /// この編集で足した寸法スタイルの値で寸法のフィーチャを描く（docs/decisions/0026）。尺度のないスタイルの長さは用紙の
 /// mm（部分図の中は配置の尺度で割る）、尺度のあるスタイルは尺度を掛けた入れ物の座標。矢印は用紙の大きさで書く
 #[test]

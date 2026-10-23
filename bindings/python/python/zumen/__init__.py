@@ -132,8 +132,10 @@ def read(
 ) -> Scene:
     """Read a drawing from bytes or a file path into a ``Scene``.
 
-    ``format`` forces a format (``"sfc"``, ``"p21"``, ``"p2z"``, ``"sfz"``, ``"jww"``, ``"jwc"``, ``"jws"``, ``"dxf"``
-    or ``"dwg"``) instead of detecting it from the contents. ``view`` chooses a view such as a DXF layout (see ``Scene.views``).
+    ``format`` forces a format (``"sfc"``, ``"p21"``, ``"p2z"``, ``"sfz"``, ``"jww"``, ``"jwc"``, ``"jws"``, ``"dxf"``,
+    ``"dwg"`` or ``"pdf"``) instead of detecting it from the contents. ``view`` chooses a view such as a DXF layout or a
+    PDF page (``"1"``, ``"2"`` …; see ``Scene.views``). The paths, texts and images of a PDF page are entities that are
+    not drawn (``drawn`` is false): the page itself is the underlay that shows them.
     Raises ``ReadError`` when the drawing cannot be read.
 
     For drawings received from others, ``max_bytes`` (the size after unpacking P2Z and SFZ), ``max_entities`` and
@@ -207,7 +209,10 @@ def edit(
     ``multiline`` and ``widthFactor``; ``"kind": "attribute-definition"`` goes in a block and ``block-reference`` takes ``attributes``
     (``{"TAG": "value"}``); ``add-layout`` (``paperSize`` and ``margins`` in mm) and ``"kind": "viewport"`` in ``"container":
     "layout:<name>"`` (``center``, ``width``, ``height``, ``viewCenter``, ``scale``) make sheets;
-    ``update-layout`` (``name``, ``set: {"paperSize": [width, height]}`` in mm) resizes an existing sheet.
+    ``update-layout`` (``name``, ``set: {"paperSize": [width, height]}`` in mm) resizes an existing sheet. SXF takes
+    ``"kind": "viewport"`` on its sheet with the same keys and ``name``: it adds an empty sub-figure of that name,
+    placed at 1:``scale``, to fill with ``"container": "figure:<name>"`` at real size. A JWW layer name belongs to its
+    layer group, and with ``"container": "group:<g>"`` a name is looked up (or added) in that group.
     ``"kind": "leader"`` (``vertices``, ``text``, ``height``,
     ``dimensionStyle``) adds a leader with its note; ``"kind": "image"`` (``path``, ``pixels``,
     ``position``, ``width``, ``rotation``) adds a raster image that refers to ``path``. Kinds and keys are the ones that ``Scene``
@@ -249,14 +254,17 @@ def draft_into(
     format: str | None = None,
     max_bytes: int | None = None,
 ) -> Converted:
-    """Draw a drawing spec into a DXF or DWG drawing (a template) in place.
+    """Draw a drawing spec into a DXF, DWG, JWW or SXF drawing (a template) in place.
 
     The drawing is changed through the operations of ``edit``, so its entities, handles, extended data and what zumen
-    cannot read stay, and the format and version stay too. A sheet named after a layout of the template is drawn into
-    that layout, with its paper size when the sheet gives none; other sheets become new layouts. The ``fields`` of a
-    sheet (``{"TAG": "value"}``) fill the attributes of the block references on it, such as the template's title
-    block. ``template`` is bytes or a file path, ``sheet`` draws one sheet only. A mistake in the spec, or an operation
-    that the drawing refuses, raises ``DraftError`` with ``code`` and ``path``.
+    cannot read stay, and the format and version stay too. In DXF and DWG, a sheet named after a layout of the
+    template is drawn into that layout, with its paper size when the sheet gives none; other sheets become new
+    layouts. The ``fields`` of a sheet (``{"TAG": "value"}``) fill the attributes of the block references on it, such
+    as the template's title block. JWW and SXF hold one sheet: the first sheet (or ``sheet``) is drawn on the
+    template's paper, each view into a JWW layer group of its scale or an SXF sub-figure, and what these formats
+    cannot hold (other sheets, another paper size, line types, attributes) is drawn as close as they allow and listed
+    in ``notices``. ``template`` is bytes or a file path, ``sheet`` draws one sheet only. A mistake in the spec, or an
+    operation that the drawing refuses, raises ``DraftError`` with ``code`` and ``path``.
     """
     return _draft_into(_spec(spec), _load(template), sheet=sheet, format=format, max_bytes=max_bytes)
 
