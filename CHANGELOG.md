@@ -28,6 +28,9 @@ All packages share one version during 0.x.
 - Rust, Python and the command line: `kind: "dimension"` also takes `dimensionType` `angular-3-point` (`center`,
   `start`, `end`, `position`), `radius` and `diameter` (`center`, `point`) in DXF (R12 to 2018) and DWG (R13 to 2018),
   with the arc, arrowheads and the `°`, `R` or `Ø` text in their blocks.
+- Rust, Python, the command line and the MCP server: the drawing spec's `dimension` takes `kind` `angular` (`center`,
+  `from`, `to`, and `radius` or `at`), `radius` and `diameter` (`center`, `radius`, `angle`), drawn in every format and
+  through `draft_into` ([Drafting](docs/drafting.md)).
 - Rust, Python and the command line: `add-text-style`, `add-line-type` and `add-dimension-style` for DXF and DWG, so
   that a new drawing gets a Japanese text style and dimensions sized for its units and scale.
 - Rust, Python and the command line: `add` takes `kind: "hatch"` for DXF (R13 to 2018) and DWG (R14

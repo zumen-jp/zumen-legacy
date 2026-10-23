@@ -143,6 +143,14 @@ fn names_the_place_and_code_of_mistakes() {
     assert_eq!((span.code, span.path.as_str()), ("invalid-value", "sheets[0].items[0].cells[0][0]"));
     let nested = error(&sheet(r#"{"type": "group", "items": [{"type": "circle", "center": [0, 0], "radius": -1}]}"#));
     assert_eq!((nested.code, nested.path.as_str()), ("invalid-value", "sheets[0].items[0].items[0]"));
+    let dimension = |item: &str| error(&sheet(&format!(r#"{{"type": "dimension", {item}}}"#))).code;
+    assert_eq!(dimension(r#""kind": "radius", "center": [0, 0], "radius": 1, "from": [0, 0]"#), "unknown-key");
+    assert_eq!(dimension(r#""kind": "diameter", "center": [0, 0]"#), "invalid-spec");
+    assert_eq!(dimension(r#""kind": "angular", "from": [1, 0], "to": [0, 1]"#), "invalid-spec");
+    let both = r#""kind": "angular", "center": [0, 0], "from": [1, 0], "to": [0, 1], "at": [1, 1], "radius": 1"#;
+    assert_eq!(dimension(both), "invalid-value");
+    assert_eq!(dimension(r#""kind": "angular", "center": [0, 0], "from": [1, 0], "to": [2, 0]"#), "invalid-value");
+    assert_eq!(dimension(r#""kind": "ordinate", "from": [1, 0], "to": [2, 0]"#), "invalid-value");
     let twice = error(r#"{"sheets": [{"name": "S"}, {"name": "s"}]}"#);
     assert_eq!(twice.code, "invalid-spec");
     assert_eq!(error(r#"{"sheets": []}"#).code, "invalid-spec");
@@ -345,5 +353,52 @@ fn drafts_into_with_case_variant_font_names_without_duplicate_styles() {
             })
             .collect();
         assert_eq!(families, ["MS GOTHIC", "MS GOTHIC"], "{to}");
+    }
+}
+
+/// 角度・半径・直径寸法（決定 0018 の目標 1）: どの形式に書いても、draft_into で描いても、読み直すと寸法として描かれ、
+/// 値は度・R・直径の記号付き
+#[test]
+fn drafts_angular_radius_and_diameter_dimensions_in_every_format() {
+    let spec = r#"{"sheets": [{"name": "S", "paper": "A3", "views": [{
+        "scale": 100, "viewport": [20, 20, 400, 277], "center": [10000, 5000],
+        "items": [
+            {"type": "line", "from": [0, 0], "to": [6000, 0]},
+            {"type": "line", "from": [0, 0], "to": [3000, 4000]},
+            {"type": "dimension", "kind": "angular", "center": [0, 0], "from": [6000, 0], "to": [3000, 4000], "radius": 3000},
+            {"type": "dimension", "kind": "angular", "center": [0, 0], "from": [6000, 0], "to": [3000, 4000], "at": [-2000, -1000], "precision": 1},
+            {"type": "circle", "center": [12000, 5000], "radius": 1500},
+            {"type": "dimension", "kind": "radius", "center": [12000, 5000], "radius": 1500},
+            {"type": "circle", "center": [17000, 5000], "radius": 1500},
+            {"type": "dimension", "kind": "diameter", "center": [17000, 5000], "radius": 1500, "angle": 0, "text": "<> 穴"}
+        ]}]}]}"#;
+    let check = |label: &str, bytes: &[u8], view: Option<&str>, dimensions: bool| {
+        let scene = read(bytes, view);
+        let texts = texts(&scene);
+        // SXF の文字は CP932 で、直径の記号（Ø）がない（書き出しが encoding で知らせる）
+        let diameter = if label == "sfc" { "?3,000 穴" } else { "Ø3,000 穴" };
+        for text in ["53°", "306.9°", "R1,500", diameter] {
+            let found = find(&texts, text);
+            assert!(is_paper_2_5(found.3), "{label}: {found:?}");
+        }
+        if dimensions {
+            let count = scene.entities.iter().filter(|entity| entity.kind.name() == "dimension").count();
+            assert_eq!(count, 4, "{label}");
+        }
+    };
+    for (to, version) in [("dxf", None), ("dxf", Some("R12")), ("dwg", None)] {
+        let options = DraftOptions { write: WriteOptions { version: version.map(str::to_string) }, sheet: None };
+        let drafted = zumen::draft(spec, to, &options).unwrap_or_else(|error| panic!("{to}: {error}"));
+        check(&format!("{to} {version:?}"), &drafted.bytes, None, true);
+    }
+    for to in ["jww", "sfc"] {
+        let drafted = zumen::draft(spec, to, &DraftOptions::default()).unwrap_or_else(|error| panic!("{to}: {error}"));
+        check(to, &drafted.bytes, None, false);
+        let encoding = drafted.notices.iter().any(|notice| notice.code == "encoding");
+        assert_eq!(encoding, to == "sfc", "{to}: {:?}", drafted.notices);
+    }
+    for to in ["dxf", "dwg"] {
+        let drafted = draft_into(&template(to), &spec.replace(r#""name": "S""#, r#""name": "A3""#));
+        check(&format!("{to} into"), &drafted.bytes, Some("A3"), true);
     }
 }

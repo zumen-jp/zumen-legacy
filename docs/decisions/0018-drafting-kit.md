@@ -90,7 +90,7 @@ paths share the geometry code. (Done: `zumen_draft::plan` turns the drawn model 
   are multiplied by the view's scale.
 - **Items**: `line`, `polyline`, `rectangle`, `circle`, `arc`, `text` (one line or MTEXT, with `align`, `width` for
   wrapping and `fit` for shrinking into a width), `hatch` (`SOLID`, built-in patterns written for zumen, or pattern
-  lines), `dimension` (`linear`, `aligned`), `dimensionChain` (consecutive dimensions along points, with an overall
+  lines), `dimension` (`linear`, `aligned`, then `angular`, `radius`, `diameter`), `dimensionChain` (consecutive dimensions along points, with an overall
   dimension), `insert` (a block with attribute values), `table`, `grid` (axis lines with bubbles and a dimension
   chain), `northArrow`, `scaleBar`, `levelMark`, `spotLevel`, `leader`, `polygonLabel` (side lengths and area of a
   boundary), and `group` (items with a shared layer and style). Every item takes `layer`, `color`, `lineType` and

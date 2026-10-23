@@ -126,7 +126,7 @@ pub(crate) fn wrap(text: &str, max_width: f64, height: f64, factor: f64) -> Vec<
 
 /// 文字列を TEXT の文字列にする。% が 2 つ続くと制御コード（%%c など）になるので、続く % の前の % を %%% にし、
 /// ^ はテキストの DXF の書き方（「^ 」）にする（DXF Reference「Control Codes and Special Characters」）
-fn escape_text(text: &str) -> String {
+pub(crate) fn escape_text(text: &str) -> String {
     let chars: Vec<char> = text.chars().collect();
     let mut out = String::with_capacity(text.len());
     for (index, c) in chars.iter().enumerate() {
@@ -174,24 +174,42 @@ pub(crate) struct Placed<'a> {
 
 /// 文字を置く。1 行は TEXT、複数行は MTEXT
 pub(crate) fn put(drafter: &mut Drafter, space: &Space, look: &Look, placed: Placed<'_>, path: &str) -> String {
-    let rotation = placed.rotation.rem_euclid(360.0);
     if placed.lines.len() <= 1 {
-        let text = placed.lines.first().map_or("", String::as_str);
-        let data = DxfTextBase {
-            text: escape_text(text),
-            insert: xyz(placed.at),
-            align_point: (placed.align.h != 0 || placed.align.v != 0).then(|| xyz(placed.at)),
-            height: placed.height,
-            rotation,
-            oblique: 0.0,
-            width: placed.width_factor,
-            style: placed.style,
-            halign: f64::from(placed.align.h),
-            valign: f64::from(placed.align.v),
-            text_generation_flag: 0.0,
-        };
-        return drafter.add(space, look, "TEXT", DxfEntityData::Text(data), path);
+        let text = escape_text(placed.lines.first().map_or("", String::as_str));
+        return put_line(drafter, space, look, placed, text, path);
     }
+    put_lines(drafter, space, look, placed, path)
+}
+
+/// 1 行の文字を TEXT で置く。text は TEXT の文字列のまま（%% の制御コードを含んでよい。DXF Reference「TEXT」）
+pub(crate) fn put_line(
+    drafter: &mut Drafter,
+    space: &Space,
+    look: &Look,
+    placed: Placed<'_>,
+    text: String,
+    path: &str,
+) -> String {
+    let rotation = placed.rotation.rem_euclid(360.0);
+    let data = DxfTextBase {
+        text,
+        insert: xyz(placed.at),
+        align_point: (placed.align.h != 0 || placed.align.v != 0).then(|| xyz(placed.at)),
+        height: placed.height,
+        rotation,
+        oblique: 0.0,
+        width: placed.width_factor,
+        style: placed.style,
+        halign: f64::from(placed.align.h),
+        valign: f64::from(placed.align.v),
+        text_generation_flag: 0.0,
+    };
+    drafter.add(space, look, "TEXT", DxfEntityData::Text(data), path)
+}
+
+/// 複数行の文字を MTEXT で置く
+fn put_lines(drafter: &mut Drafter, space: &Space, look: &Look, placed: Placed<'_>, path: &str) -> String {
+    let rotation = placed.rotation.rem_euclid(360.0);
     let mut raw = escape_mtext(placed.lines);
     if placed.width_factor != 1.0 {
         raw = format!("\\W{};{raw}", trim(placed.width_factor));

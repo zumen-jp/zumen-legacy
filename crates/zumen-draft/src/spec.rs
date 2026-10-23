@@ -443,18 +443,29 @@ pub struct DimensionLook {
 #[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DimensionSpec {
-    /// linear（既定、水平・垂直か angle の向き）か aligned（2 点の向き）
+    /// linear（既定、水平・垂直か angle の向き）、aligned（2 点の向き）、angular（center で from から to までの角）、
+    /// radius・diameter（center と radius の円）
     #[serde(default)]
     pub kind: Option<String>,
-    pub from: Point,
-    pub to: Point,
+    /// linear・aligned は測る 2 点、angular は角の 2 辺の上の点
+    #[serde(default)]
+    pub from: Option<Point>,
+    #[serde(default)]
+    pub to: Option<Point>,
+    /// angular の頂点、radius・diameter の円の中心
+    #[serde(default)]
+    pub center: Option<Point>,
+    /// radius・diameter の円の半径、angular の寸法の弧の半径（モデルの長さ）
+    #[serde(default)]
+    pub radius: Option<f64>,
     /// 寸法線の位置: 測る点からの距離（用紙の mm、正は from → to の左側）
     #[serde(default)]
     pub offset: Option<f64>,
-    /// 寸法線の位置: 寸法線が通る点（offset の代わり）
+    /// 寸法線の位置: 寸法線が通る点（offset の代わり）。angular では寸法の弧の上の点（radius の代わり）で、
+    /// その向きを含む角を測る
     #[serde(default)]
     pub at: Option<Point>,
-    /// linear の寸法線の角度（度）
+    /// linear の寸法線の角度、radius・diameter の寸法線の向き（度）
     #[serde(default)]
     pub angle: Option<f64>,
     /// 寸法の文字。<> は測った値

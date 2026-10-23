@@ -848,7 +848,26 @@
     "item.dimension": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["type", "from", "to"],
+      "required": ["type"],
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "enum": ["radius", "diameter"] } }, "required": ["kind"] },
+          "then": { "required": ["center", "radius"] }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "angular" } }, "required": ["kind"] },
+          "then": { "required": ["center", "from", "to"] }
+        },
+        {
+          "if": {
+            "anyOf": [
+              { "not": { "required": ["kind"] } },
+              { "properties": { "kind": { "enum": ["linear", "aligned"] } }, "required": ["kind"] }
+            ]
+          },
+          "then": { "required": ["from", "to"] }
+        }
+      ],
       "properties": {
         "type": {
           "const": "dimension"
@@ -868,13 +887,20 @@
           "maximum": 2.11
         },
         "kind": {
-          "enum": ["linear", "aligned"]
+          "enum": ["linear", "aligned", "angular", "radius", "diameter"]
         },
         "from": {
           "$ref": "#/$defs/point"
         },
         "to": {
           "$ref": "#/$defs/point"
+        },
+        "center": {
+          "$ref": "#/$defs/point"
+        },
+        "radius": {
+          "type": "number",
+          "exclusiveMinimum": 0
         },
         "offset": {
           "type": "number"
