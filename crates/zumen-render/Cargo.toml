@@ -10,6 +10,8 @@ publish.workspace = true
 include = ["src/**", "fonts/**", "Cargo.toml"]
 
 [dependencies]
+hayro.workspace = true
+kurbo.workspace = true
 miniz_oxide.workspace = true
 pdf-writer.workspace = true
 subsetter.workspace = true
@@ -19,6 +21,8 @@ zumen-core.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
+zumen-pdf.workspace = true
 
 [lints]
 workspace = true
+

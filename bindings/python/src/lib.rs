@@ -18,7 +18,7 @@ use zumen::regions::{ClosedRegion, RegionOptions, RegionShape, RegionText, close
 use zumen::tables::{RuledTable, TableOptions, ruled_tables};
 use zumen::title::{TitleKey, title_fields};
 use zumen::{BBox, Background, Property, PropertyRaw, ReadDrawingOptions, SceneEntity};
-use zumen_render::{ImageSize, MarkupStyle, RenderMarkup, RenderOptions, View};
+use zumen_render::{ImageSize, MarkupStyle, RenderMarkup, RenderOptions, UnderlayContent, View};
 
 pyo3::create_exception!(zumen, ReadError, PyValueError, "図面を読めなかった（形式が違う、壊れているなど）");
 pyo3::create_exception!(zumen, RenderError, PyValueError, "図面を描けなかった（範囲が空、画像が大きすぎるなど）");
@@ -144,11 +144,42 @@ struct Scene {
     inner: Arc<zumen::Scene>,
     /// 図形の id から位置への対応（entity で初めて使うときに作る）
     ids: OnceLock<HashMap<String, usize>>,
+    /// underlay の中身。PDF の図面のページ（file のない underlay）を描くために、読んだ図面のバイト列を持つ
+    underlays: UnderlayContent,
 }
 
 impl Scene {
     fn new(scene: zumen::Scene) -> Self {
-        Self { inner: Arc::new(scene), ids: OnceLock::new() }
+        Self { inner: Arc::new(scene), ids: OnceLock::new(), underlays: UnderlayContent::default() }
+    }
+
+    /// 読んだ図面。図面のファイルそのものを中身にする underlay があれば、そのバイト列も持つ
+    fn read(scene: zumen::Scene, bytes: &[u8]) -> Self {
+        let underlays = if scene.underlays.iter().any(|underlay| underlay.file.is_none()) {
+            UnderlayContent::drawing(bytes)
+        } else {
+            UnderlayContent::default()
+        };
+        Self { underlays, ..Self::new(scene) }
+    }
+
+    fn render_options(
+        &self,
+        theme: Option<&str>,
+        line_weights: bool,
+        hidden_layers: Option<Vec<u32>>,
+        sheet_frame: bool,
+        underlay_dpi: f64,
+    ) -> PyResult<RenderOptions> {
+        Ok(RenderOptions {
+            theme: parse_theme(theme)?,
+            line_weights,
+            hidden_layers: hidden_layers.map(|ids| ids.into_iter().collect::<HashSet<u32>>()),
+            sheet_frame,
+            underlays: self.underlays.clone(),
+            underlay_dpi,
+            ..RenderOptions::default()
+        })
     }
 }
 
@@ -584,14 +615,8 @@ impl Scene {
         markup: Option<&Bound<'py, PyAny>>,
         markup_colors: Option<HashMap<String, String>>,
     ) -> PyResult<Bound<'py, PyBytes>> {
-        let options = RenderOptions {
-            theme: parse_theme(theme)?,
-            line_weights,
-            hidden_layers: hidden_layers.map(|ids| ids.into_iter().collect::<HashSet<u32>>()),
-            sheet_frame,
-            markup: render_markup(py, &self.inner, markup, markup_colors)?,
-            ..RenderOptions::default()
-        };
+        let mut options = self.render_options(theme, line_weights, hidden_layers, sheet_frame, dpi)?;
+        options.markup = render_markup(py, &self.inner, markup, markup_colors)?;
         let region = region.map(|(min_x, min_y, max_x, max_y)| BBox { min_x, min_y, max_x, max_y });
         let scene = self.inner.clone();
         let (png, report) = py
@@ -602,8 +627,9 @@ impl Scene {
     }
 
     /// 図面を SVG にする。region は用紙の mm の範囲で、省略すると用紙（用紙がなければ図面全体）。
-    /// 単位は mm で、文字は検索できる text 要素になる。theme・line_weights・hidden_layers・sheet_frame は render_png と同じ
-    #[pyo3(signature = (*, region = None, theme = None, line_weights = true, hidden_layers = None, sheet_frame = true, markup = None, markup_colors = None))]
+    /// 単位は mm で、文字は検索できる text 要素になる。theme・line_weights・hidden_layers・sheet_frame は render_png と同じ。
+    /// PDF の図面のページ（underlay）は underlay_dpi の画像にして埋め込む
+    #[pyo3(signature = (*, region = None, theme = None, line_weights = true, hidden_layers = None, sheet_frame = true, markup = None, markup_colors = None, underlay_dpi = 150.0))]
     #[allow(clippy::too_many_arguments)]
     fn render_svg(
         &self,
@@ -615,15 +641,10 @@ impl Scene {
         sheet_frame: bool,
         markup: Option<&Bound<'_, PyAny>>,
         markup_colors: Option<HashMap<String, String>>,
+        underlay_dpi: f64,
     ) -> PyResult<String> {
-        let options = RenderOptions {
-            theme: parse_theme(theme)?,
-            line_weights,
-            hidden_layers: hidden_layers.map(|ids| ids.into_iter().collect::<HashSet<u32>>()),
-            sheet_frame,
-            markup: render_markup(py, &self.inner, markup, markup_colors)?,
-            ..RenderOptions::default()
-        };
+        let mut options = self.render_options(theme, line_weights, hidden_layers, sheet_frame, underlay_dpi)?;
+        options.markup = render_markup(py, &self.inner, markup, markup_colors)?;
         let scene = self.inner.clone();
         let region = region.map(to_bbox);
         let (svg, report) = py
@@ -635,7 +656,7 @@ impl Scene {
 
     /// 図面を 1 ページの PDF にする。ページは用紙の大きさ（region を指定すればその範囲）で、線の太さは図面のとおり。
     /// 文字は同梱の BIZ UDゴシックの使う字形だけを埋め込み、検索・コピーできる。引数は render_svg と同じ
-    #[pyo3(signature = (*, region = None, theme = None, line_weights = true, hidden_layers = None, sheet_frame = true, markup = None, markup_colors = None))]
+    #[pyo3(signature = (*, region = None, theme = None, line_weights = true, hidden_layers = None, sheet_frame = true, markup = None, markup_colors = None, underlay_dpi = 150.0))]
     #[allow(clippy::too_many_arguments)]
     fn render_pdf<'py>(
         &self,
@@ -647,15 +668,10 @@ impl Scene {
         sheet_frame: bool,
         markup: Option<&Bound<'py, PyAny>>,
         markup_colors: Option<HashMap<String, String>>,
+        underlay_dpi: f64,
     ) -> PyResult<Bound<'py, PyBytes>> {
-        let options = RenderOptions {
-            theme: parse_theme(theme)?,
-            line_weights,
-            hidden_layers: hidden_layers.map(|ids| ids.into_iter().collect::<HashSet<u32>>()),
-            sheet_frame,
-            markup: render_markup(py, &self.inner, markup, markup_colors)?,
-            ..RenderOptions::default()
-        };
+        let mut options = self.render_options(theme, line_weights, hidden_layers, sheet_frame, underlay_dpi)?;
+        options.markup = render_markup(py, &self.inner, markup, markup_colors)?;
         let scene = self.inner.clone();
         let region = region.map(to_bbox);
         let (pdf, report) = py
@@ -684,14 +700,8 @@ impl Scene {
         markup: Option<&Bound<'_, PyAny>>,
         markup_colors: Option<HashMap<String, String>>,
     ) -> PyResult<Rendering> {
-        let options = RenderOptions {
-            theme: parse_theme(theme)?,
-            line_weights,
-            hidden_layers: hidden_layers.map(|ids| ids.into_iter().collect::<HashSet<u32>>()),
-            sheet_frame,
-            markup: render_markup(py, &self.inner, markup, markup_colors)?,
-            ..RenderOptions::default()
-        };
+        let mut options = self.render_options(theme, line_weights, hidden_layers, sheet_frame, dpi)?;
+        options.markup = render_markup(py, &self.inner, markup, markup_colors)?;
         let image_size = match size {
             Some((width, height)) => ImageSize::Fit { width, height, margin },
             None => ImageSize::Dpi(dpi),
@@ -1296,7 +1306,7 @@ fn read(
     let limits = zumen::ReadLimits { max_bytes, max_entities, max_duration };
     let options = ReadDrawingOptions { format, view, limits };
     let scene = py.detach(|| zumen::read(data, &options)).map_err(|error| read_error(py, error))?;
-    Ok(Scene::new(scene))
+    Ok(Scene::read(scene, data))
 }
 
 /// 2 つの版の比較（compare の結果）。図形の dict は entities と同じ形で、それぞれの版の座標を持つ
