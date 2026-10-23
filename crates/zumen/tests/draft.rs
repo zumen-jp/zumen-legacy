@@ -1,6 +1,7 @@
 //! 作図キット（決定 0018）: 見本の仕様をどの形式にも書き、zumen で読み直して、用紙の上に描いた文字・寸法・表が
 //! 仕様のとおりの位置と大きさにあることを確かめる。仕様の読み違いは、場所と code で返す。
 
+use std::collections::BTreeSet;
 use zumen::extract::{EntityFilter, scene_texts};
 use zumen::{DraftOptions, ReadDrawingOptions, Scene, WriteOptions};
 
@@ -363,9 +364,12 @@ fn drafts_the_sample_into_a_template_with_new_layouts() {
 }
 
 #[test]
-fn refuses_formats_without_layouts_and_names_the_spec_place_of_edit_errors() {
-    let jww = zumen::create("jww", "mm", &[]).unwrap().bytes;
-    let error = zumen::draft_into(&jww, SPEC, &zumen::DraftIntoOptions::default()).unwrap_err();
+fn refuses_formats_that_cannot_be_edited_and_names_the_spec_place_of_edit_errors() {
+    let options = zumen::DraftIntoOptions {
+        read: ReadDrawingOptions { format: Some("jwc".into()), ..ReadDrawingOptions::default() },
+        ..zumen::DraftIntoOptions::default()
+    };
+    let error = zumen::draft_into(b"jw_cad(c)data", SPEC, &options).unwrap_err();
     assert_eq!(error.code, "unsupported-format");
     // テンプレートにある同じ名前のブロックを使うので、その定義にない属性は編集が断り、仕様の場所で返す
     let spec = r#"{
@@ -492,5 +496,235 @@ fn drafts_angular_radius_and_diameter_dimensions_in_every_format() {
     for to in ["dxf", "dwg"] {
         let drafted = draft_into(&template(to), &spec.replace(r#""name": "S""#, r#""name": "A3""#));
         check(&format!("{to} into"), &drafted.bytes, Some("A3"), true);
+    }
+}
+
+// ---- draft_into: JWW・SXF のテンプレート（決定 0027） ----
+
+fn fixture(path: &str) -> Vec<u8> {
+    std::fs::read(format!("{}/../../tests/fixtures/{path}", env!("CARGO_MANIFEST_DIR"))).unwrap()
+}
+
+/// 用紙が A3 横か A1 横の JWW・SXF のテンプレート: fixtures と、編集で作った線と作図部品のある SFZ
+fn landscape_templates() -> Vec<(&'static str, Vec<u8>)> {
+    let operations = zumen::edit::parse_operations(
+        r#"[
+            {"op": "add", "kind": "line", "layer": "既存", "start": [10, 10], "end": [100, 10]},
+            {"op": "add-block", "name": "既存の部品"},
+            {"op": "add", "kind": "circle", "container": "block:既存の部品", "center": [0, 0], "radius": 5},
+            {"op": "add", "kind": "block-reference", "block": "既存の部品", "position": [50, 50]}
+        ]"#,
+    )
+    .unwrap();
+    vec![
+        ("jww v700", fixture("jww/minimal-v700.jww")),
+        ("jww v600", fixture("jww/minimal-v600.jww")),
+        ("p21 A1", fixture("p21/sample.p21")),
+        ("sfc A1", fixture("sfc/sample.sfc")),
+        ("sfc without a sheet", fixture("sfc/nosheet.sfc")),
+        ("sfz", zumen::create("sfz", "mm", &operations).unwrap().bytes),
+    ]
+}
+
+fn draft_sheet_into(bytes: &[u8], spec: &str, sheet: Option<&str>) -> zumen::Converted {
+    let options = zumen::DraftIntoOptions { sheet: sheet.map(str::to_string), ..zumen::DraftIntoOptions::default() };
+    zumen::draft_into(bytes, spec, &options).unwrap_or_else(|error| panic!("{error} ({})", error.code))
+}
+
+/// 図形の id・種類・範囲（0.001 mm に丸める）
+fn outlines(scene: &Scene) -> Vec<(String, String, [i64; 4])> {
+    let round = |value: f64| (value * 1000.0).round() as i64;
+    scene
+        .entities
+        .iter()
+        .map(|entity| {
+            let b = &entity.bbox;
+            (
+                entity.id.clone(),
+                entity.kind.name().to_string(),
+                [round(b.min_x), round(b.min_y), round(b.max_x), round(b.max_y)],
+            )
+        })
+        .collect()
+}
+
+/// 見本の 4 枚を 1 枚ずつ JWW・SXF のテンプレートに描くと、テンプレートの図形はそのままで、draft と同じ文字が同じ大きさ
+/// で用紙にあり、寸法は寸法、ブロックはブロックの配置として読み直せる
+#[test]
+fn drafts_every_sample_sheet_into_jww_and_sxf_templates() {
+    for (label, template) in landscape_templates() {
+        let format = zumen::detect(&template).unwrap();
+        let before = outlines(&read(&template, None));
+        let mut scenes = Vec::new();
+        for sheet in SHEETS {
+            let drafted = draft_sheet_into(&template, SPEC, Some(sheet));
+            assert_eq!(zumen::detect(&drafted.bytes), Some(format), "{label} {sheet}");
+            let scene = read(&drafted.bytes, None);
+            let after = outlines(&scene);
+            for entity in &before {
+                assert!(after.contains(entity), "{label} {sheet}: テンプレートの {entity:?} が変わりました");
+            }
+            assert!(after.len() > before.len(), "{label} {sheet}");
+            let codes: Vec<&str> = drafted.notices.iter().map(|notice| notice.code.as_str()).collect();
+            assert!(!codes.contains(&"view-overlap") && !codes.contains(&"draft-into-sheets"), "{label}: {codes:?}");
+            scenes.push((sheet, scene));
+        }
+        check_sheets(&scenes, label);
+        let plan = &scenes[2].1;
+        let count = |kind: &str| plan.entities.iter().filter(|entity| entity.kind.name() == kind).count();
+        // 通り芯の間の 3 + 1 と 2 + 1 の寸法は、どちらの形式でも寸法の図形（JWW の寸法図形、SXF の寸法のフィーチャ）
+        let template_dimensions = before.iter().filter(|(_, kind, _)| kind == "dimension").count();
+        assert_eq!(count("dimension"), 7 + template_dimensions, "{label}");
+        // 扉は、足したブロックの配置
+        let doors =
+            plan.entities.iter().filter(|entity| entity.id.contains('>') && entity.kind.name() == "arc").count();
+        assert!(doors >= 2, "{label}: 扉の円弧 {doors}");
+    }
+}
+
+/// 用紙の大きさは変えられないので、仕様の用紙が違えば知らせて、テンプレートの用紙に描く。2 枚目からの用紙は描かない
+#[test]
+fn drafts_one_sheet_into_jww_and_sxf_on_the_template_paper() {
+    let drafted = draft_into(&fixture("jww/minimal-v700.jww"), SPEC);
+    let sheets = drafted.notices.iter().find(|notice| notice.code == "draft-into-sheets").expect("draft-into-sheets");
+    assert_eq!(sheets.count, 3);
+    let first = texts(&read(&drafted.bytes, None));
+    find(&first, "設計概要書");
+    assert!(first.iter().all(|(text, ..)| text != "敷地面積 2,096.00㎡"), "2 枚目は描かない");
+    // features.sfc の用紙は A3 縦。仕様の A3 横は描き込む先の用紙にし、警告する
+    let drafted = draft_sheet_into(&fixture("sfc/features.sfc"), SPEC, Some("A01-1"));
+    let paper = drafted.notices.iter().find(|notice| notice.code == "draft-into-paper").expect("draft-into-paper");
+    assert_eq!(paper.level, zumen::NoticeLevel::Warning);
+    let scene = read(&drafted.bytes, None);
+    let number = find(&texts(&scene), "A01-1").clone();
+    assert!(number.1 < 297.0 && number.1 > 200.0, "図面番号は A3 縦の表題欄 {number:?}");
+}
+
+/// JWW: ビューは縮尺の合うレイヤグループ（なければ図形のないレイヤグループの縮尺を変える）に、用紙の図形は 1/1 の
+/// レイヤグループに描き、レイヤの名前はレイヤグループごとに付ける
+#[test]
+fn drafts_views_into_jww_layer_groups_of_their_scales() {
+    let template = fixture("jww/minimal-v700.jww");
+    let original = zumen::jww::read_jww(&template).unwrap();
+    for (sheet, scale) in [("A10-1", 100.0), ("A05-1", 250.0)] {
+        let drafted = draft_sheet_into(&template, SPEC, Some(sheet));
+        let doc = zumen::jww::read_jww(&drafted.bytes).unwrap();
+        let layer = |name: &str| -> Vec<(usize, usize)> {
+            (0..16)
+                .flat_map(|group| (0..16).map(move |layer| (group, layer)))
+                .filter(|&(group, layer)| doc.groups[group].layers[layer].name == name)
+                .collect()
+        };
+        let walls = layer(if sheet == "A10-1" { "A-WALL" } else { "A-SITE" });
+        assert_eq!(walls.len(), 1, "{sheet}");
+        assert_eq!(doc.group_scale(walls[0].0 as u16), scale, "{sheet}");
+        let frame = layer("A-FRAME");
+        assert_eq!(doc.group_scale(frame[0].0 as u16), 1.0, "{sheet}");
+        // 同じ仕様のレイヤ（A-TEXT）は、用紙とビューのレイヤグループにそれぞれある
+        let groups: BTreeSet<usize> = layer("A-TEXT").iter().map(|(group, _)| *group).collect();
+        assert_eq!(groups.len(), 2, "{sheet}: {groups:?}");
+        // 図形のあるレイヤグループの縮尺は変えない
+        for group in 0..16 {
+            if original.entities.iter().any(|entity| usize::from(entity.base().layer_group) == group) {
+                assert_eq!(doc.groups[group].scale, original.groups[group].scale, "{sheet}: {group}");
+            }
+        }
+    }
+    // 図形のないレイヤグループがなく、縮尺も合わなければ、ビューの場所で断る
+    let lines: Vec<serde_json::Value> = (0..16)
+        .map(|group| {
+            serde_json::json!({"op": "add", "kind": "line", "container": format!("group:{group:X}"), "start": [0, 0], "end": [1, 0]})
+        })
+        .collect();
+    let full = zumen::create("jww", "mm", &zumen::edit::operations_from_json(&serde_json::json!(lines)).unwrap())
+        .unwrap()
+        .bytes;
+    let spec = r#"{"sheets": [{"name": "S", "views": [{"scale": 100, "viewport": [10, 10, 100, 100], "items": [
+        {"type": "line", "from": [0, 0], "to": [1000, 0]}
+    ]}]}]}"#;
+    let error = zumen::draft_into(&full, spec, &zumen::DraftIntoOptions::default()).unwrap_err();
+    assert_eq!((error.code, error.path.as_str()), ("invalid-value", "sheets[0].views[0]"), "{error}");
+}
+
+/// SXF: ビューはビューの名前の部分図（数学座標系）で、ビューポートの位置に 1/縮尺で置かれ、図形は実寸
+#[test]
+fn drafts_views_into_sxf_sub_figures() {
+    let drafted = draft_sheet_into(&fixture("sfc/sample.sfc"), SPEC, Some("A10-1"));
+    let drawing = zumen::sxf::parse_sxf(&drafted.bytes, "sfc").unwrap();
+    let figure = drawing.document.sub_figures.get("1階平面図").expect("ビューの部分図");
+    assert_eq!(figure.feature.flag, 1.0);
+    assert!(!figure.members.is_empty());
+    let placement = drawing.document.sheet_members.iter().find_map(|feature| match feature {
+        zumen::sxf::SxfFeature::SfigLocate { name, ratio_x, ratio_y, .. } if name == "1階平面図" => {
+            Some((*ratio_x, *ratio_y))
+        }
+        _ => None,
+    });
+    assert_eq!(placement, Some((0.01, 0.01)));
+}
+
+/// 角度・半径・直径寸法: SXF は寸法のフィーチャで、値は仕様の書き方（φ は CP932 で書ける）。JWW の寸法図形は角度寸法を
+/// 持てないので、角度寸法は表示の線・円弧・文字で描いて知らせる
+#[test]
+fn drafts_angular_radius_and_diameter_dimensions_into_jww_and_sxf() {
+    let spec = r#"{"sheets": [{"name": "S", "paper": "A3", "views": [{
+        "scale": 100, "viewport": [20, 20, 400, 277], "center": [10000, 5000],
+        "items": [
+            {"type": "line", "from": [0, 0], "to": [6000, 0]},
+            {"type": "line", "from": [0, 0], "to": [3000, 4000]},
+            {"type": "dimension", "kind": "angular", "center": [0, 0], "from": [6000, 0], "to": [3000, 4000], "radius": 3000},
+            {"type": "dimension", "kind": "angular", "center": [0, 0], "from": [6000, 0], "to": [3000, 4000], "at": [-2000, -1000], "precision": 1},
+            {"type": "circle", "center": [12000, 5000], "radius": 1500},
+            {"type": "dimension", "kind": "radius", "center": [12000, 5000], "radius": 1500},
+            {"type": "circle", "center": [17000, 5000], "radius": 1500},
+            {"type": "dimension", "kind": "diameter", "center": [17000, 5000], "radius": 1500, "angle": 0, "text": "<> 穴"}
+        ]}]}]}"#;
+    for to in ["jww", "sfc", "p21"] {
+        let template = zumen::create(to, "mm", &[]).unwrap().bytes;
+        let drafted = draft_into(&template, spec);
+        let scene = read(&drafted.bytes, None);
+        let texts = texts(&scene);
+        for text in ["53°", "306.9°", "R1,500", "φ3,000 穴"] {
+            let found = find(&texts, text);
+            assert!(is_paper_2_5(found.3), "{to}: {found:?}");
+        }
+        let dimensions = scene.entities.iter().filter(|entity| entity.kind.name() == "dimension").count();
+        let angular = drafted.notices.iter().find(|notice| notice.code == "draft-into-angular-dimension");
+        if to == "jww" {
+            assert_eq!((dimensions, angular.map(|notice| notice.count)), (2, Some(2)), "{to}");
+        } else {
+            assert_eq!((dimensions, angular), (4, None), "{to}");
+            assert!(
+                !drafted.notices.iter().any(|notice| notice.code == "edit-encoding"),
+                "{to}: {:?}",
+                drafted.notices
+            );
+        }
+    }
+}
+
+/// 属性の値は文字で描き、線種は図面にある近い線種にし、どちらも知らせる
+#[test]
+fn reports_what_jww_and_sxf_templates_cannot_hold() {
+    let spec = r#"{
+        "layers": [{"name": "HIDDEN-LAYER", "plot": false}],
+        "blocks": [{"name": "TAG", "attributes": [{"tag": "NAME", "at": [0, 0], "value": "既定"}]}],
+        "sheets": [{"name": "S", "fields": {"NAME": "室名", "MISSING": "x"}, "items": [
+            {"type": "insert", "block": "TAG", "at": [100, 100]},
+            {"type": "line", "from": [10, 10], "to": [200, 10], "lineType": "CENTER", "layer": "HIDDEN-LAYER"},
+            {"type": "polyline", "points": [[10, 20], [60, 20], [60, 40]], "bulges": [0.5, 0, 0], "width": 1}
+        ]}]
+    }"#;
+    for to in ["jww", "sfc"] {
+        let drafted = draft_into(&zumen::create(to, "mm", &[]).unwrap().bytes, spec);
+        let codes: Vec<&str> = drafted.notices.iter().map(|notice| notice.code.as_str()).collect();
+        for code in ["draft-into-attributes", "draft-into-line-type", "draft-into-layer-attributes", "unused-field"] {
+            assert!(codes.contains(&code), "{to}: {code} in {codes:?}");
+        }
+        let scene = read(&drafted.bytes, None);
+        find(&texts(&scene), "室名");
+        // 幅のある折線は塗り（JWW はソリッド、SXF は塗り）
+        let fills = scene.entities.iter().filter(|entity| matches!(entity.kind.name(), "solid" | "hatch")).count();
+        assert!(fills >= 2, "{to}: {fills}");
     }
 }

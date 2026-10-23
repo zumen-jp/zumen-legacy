@@ -43,7 +43,7 @@ Usage:
   zumen edit <file> <operations.json> -o <out> [--format <name>]
   zumen create <operations.json> -o <out.dxf|.dwg|.jww|.sfc|.p21|.sfz|.p2z> [--units mm|cm|m|inch|foot|unitless]
   zumen draft <spec.json> -o <out.dxf|.dwg|.jww|.sfc|.p21|.sfz|.p2z> [--target-version <version>] [--sheet <name>]
-              [--into <template.dxf|.dwg>]
+              [--into <template.dxf|.dwg|.jww|.sfc|.p21|.sfz|.p2z>]
   zumen markup carry <markup.json> <before> <after> [-o <out.json>] [--view-map <before view>=<after view>]...
                      [--tolerance <mm>] [--style] [--no-align] [--ignore-hash]
 
@@ -99,10 +99,11 @@ JSON, and on an error write the number of the operation that failed.
 draft draws a drawing from a drawing spec (JSON: layers, blocks, sheets with a frame and title block, views at
 scales, and items such as text, dimensions, hatches, tables and grid lines, decision 0018) and writes it in the
 format of the output (JWW and SXF hold one sheet: --sheet chooses it, else the first); an error names the place in the spec (sheets[0].views[1].items[4]) and a code.
---into draws the spec into a DXF or DWG template in place, through the operations of edit, so that the template's
-entities, handles and data stay: a sheet named after a layout of the template is drawn into it, other sheets become
-new layouts, and the fields of a sheet fill the attributes of its title block. The output keeps the template's
-format and version.
+--into draws the spec into a DXF, DWG, JWW or SXF template in place, through the operations of edit, so that the
+template's entities, handles and data stay: in DXF and DWG a sheet named after a layout of the template is drawn into
+it, other sheets become new layouts, and the fields of a sheet fill the attributes of its title block; JWW and SXF
+take one sheet (--sheet, else the first) on their paper, with views in layer groups of their scales (JWW) or
+sub-figures (SXF). The output keeps the template's format and version.
 markup carry moves a markup document made on <before> to the revision <after> (decision 0021): for each view
 with items it compares the two revisions (every layer, like compare with --all-layers), moves the items by the
 offset of the revision, points their entities at the matching entities and marks each item unchanged, changed or

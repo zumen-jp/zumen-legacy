@@ -1846,9 +1846,10 @@ def draft_drawing(
     extension. A mistake in the spec is a ``DrawingError`` whose message starts with the place in the spec and ends
     with the code, such as ``sheets[0].views[1].items[4]: ... (unknown-key)``.
 
-    With ``into``, the spec is drawn into that DXF or DWG drawing (a template) in place, keeping its entities and
-    format: sheets named after its layouts are drawn into them, and the ``fields`` of a sheet fill its title block.
-    ``output`` must then have the template's extension."""
+    With ``into``, the spec is drawn into that DXF, DWG, JWW or SXF drawing (a template) in place, keeping its
+    entities and format: in DXF and DWG, sheets named after its layouts are drawn into them, and the ``fields`` of a
+    sheet fill its title block; JWW and SXF take the first sheet (or ``sheet``) on their paper. ``output`` must then
+    have the template's extension."""
     path = drawings.writable(output)
     to = path.suffix.lower().lstrip(".")
     if to not in DRAFT_FORMATS:

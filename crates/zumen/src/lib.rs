@@ -240,16 +240,27 @@ pub fn draft(spec: &str, to: &str, options: &DraftOptions) -> Result<Converted, 
 /// 受け取った図面に描く指定
 #[derive(Debug, Clone, Default)]
 pub struct DraftIntoOptions {
-    /// 描く用紙の名前。省略するとすべての用紙
+    /// 描く用紙の名前。省略するとすべての用紙（JWW・SXF は用紙を 1 枚しか持たないので、1 枚目だけ）
     pub sheet: Option<String>,
-    /// 描き込む図面の形式（dxf・dwg）と、読み取りの上限
+    /// 描き込む図面の形式（dxf・dwg・jww・sfc・p21・sfz・p2z）と、読み取りの上限
     pub read: ReadDrawingOptions,
 }
 
-/// 図面の仕様（決定 0018）を、受け取った DXF・DWG の図面（テンプレート）にその場で描く。描いたものは決定 0017 の
-/// 編集の操作（`draft::plan`）にして `edit` で当てるので、元の図形・ハンドル・拡張データ・zumen が読まない内容は
-/// 残る。用紙の名前と同じレイアウトがあればそこに描き（用紙の大きさもそのレイアウトのもの）、なければレイアウトを
-/// 足す。用紙の `fields` は、その用紙のブロック参照（表題欄）の属性を埋める。図面の版と形式は元のまま
+/// 描き込む先の図面
+enum Template {
+    Dxf(Box<dxf::DxfDocument>),
+    Jww(Box<jww::JwwDocument>),
+    Sxf(Box<sxf::SxfDrawing>),
+}
+
+/// 図面の仕様（決定 0018）を、受け取った図面（テンプレート）にその場で描く。描いたものは決定 0017 の編集の操作
+/// （`draft::plan`、JWW は `draft::plan_jww`、SXF は `draft::plan_sxf`）にして `edit` で当てるので、元の図形・
+/// ハンドル・拡張データ・zumen が読まない内容は残る。図面の版と形式は元のまま。
+///
+/// - DXF・DWG: 用紙の名前と同じレイアウトがあればそこに描き（用紙の大きさもそのレイアウトのもの）、なければ
+///   レイアウトを足す。用紙の `fields` は、その用紙のブロック参照（表題欄）の属性を埋める。
+/// - JWW・SXF（決定 0027）: 図面の 1 枚の用紙に、1 枚目（か `sheet`）の用紙を描く。ビューは JWW ではその縮尺の
+///   レイヤグループ、SXF ではビューごとの部分図に描く
 pub fn draft_into(bytes: &[u8], spec: &str, options: &DraftIntoOptions) -> Result<Converted, draft::DraftError> {
     let error = |code: &'static str, message: String| draft::DraftError::new(code, "", message);
     let limits = &options.read.limits;
@@ -263,10 +274,11 @@ pub fn draft_into(bytes: &[u8], spec: &str, options: &DraftIntoOptions) -> Resul
     if format == "pdf" {
         return Err(error("unsupported-format", READ_ONLY_PDF.into()));
     }
-    if format != "dxf" && format != "dwg" {
+    // 編集できる形式なら描き込める
+    if !EDITABLE_FORMATS.contains(&format) {
         return Err(error(
             "unsupported-format",
-            format!("{} の図面には描き込めません（描き込めるのは DXF・DWG）", format.to_uppercase()),
+            format!("{} の図面には描き込めません（描き込めるのは DXF・DWG・JWW・SXF）", format.to_uppercase()),
         ));
     }
     let mut value: serde_json::Value = serde_json::from_str(spec)
@@ -274,15 +286,23 @@ pub fn draft_into(bytes: &[u8], spec: &str, options: &DraftIntoOptions) -> Resul
     if let Some(sheet) = &options.sheet {
         draft::select_sheet(&mut value, sheet)?;
     }
-    let (template, exceeded) = zumen_core::limits::with_limits(limits, || match format {
-        "dxf" => Ok(dxf::parse_dxf(bytes)),
-        _ => dwg::read_dwg(bytes),
+    let (template, exceeded) = zumen_core::limits::with_limits(limits, || -> Result<Template, String> {
+        Ok(match format {
+            "dxf" => Template::Dxf(Box::new(dxf::parse_dxf(bytes))),
+            "dwg" => Template::Dxf(Box::new(dwg::read_dwg(bytes)?)),
+            "jww" => Template::Jww(Box::new(jww::read_jww(bytes).map_err(|error| error.to_string())?)),
+            _ => Template::Sxf(Box::new(sxf::parse_sxf(bytes, format).map_err(|error| error.to_string())?)),
+        })
     });
     if let Some(limit) = exceeded {
         return Err(error("too-large", limit_error(limit, limits).to_string()));
     }
     let template = template.map_err(|message| error("unreadable", message.to_string()))?;
-    let planned = draft::plan(&value, &template)?;
+    let planned = match &template {
+        Template::Dxf(template) => draft::plan(&value, template)?,
+        Template::Jww(template) => draft::plan_jww(&value, template)?,
+        Template::Sxf(template) => draft::plan_sxf(&value, template)?,
+    };
     let operations = edit::operations_from_json(&planned.operations)
         .map_err(|e| error("unwritable", format!("描き込む操作を作れませんでした: {e}")))?;
     let edit_options = ReadDrawingOptions { format: Some(format.to_string()), ..options.read.clone() };

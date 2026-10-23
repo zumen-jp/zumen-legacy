@@ -211,6 +211,46 @@ fn adds_and_changes_layers_of_the_fixed_slots() {
 }
 
 #[test]
+fn keeps_layer_names_per_layer_group() {
+    // Jw_cad と同じく、レイヤの名前はレイヤグループごと。ほかのグループにある名前も付けられ、container のレイヤ
+    // グループがあれば、その中で探す（なければその中に足す）
+    let edited = edit(
+        &fixture(700),
+        r##"[
+            {"op": "add-layer", "name": "通り芯", "group": 2},
+            {"op": "add", "kind": "line", "container": "group:2", "layer": "通り芯", "start": [0, 0], "end": [100, 0]},
+            {"op": "add", "kind": "line", "container": "group:3", "layer": "通り芯", "start": [0, 0], "end": [100, 0]},
+            {"op": "update-layer", "name": "3-0", "set": {"name": "基準線"}},
+            {"op": "update-layer", "name": "2-1", "set": {"name": "基準線"}}
+        ]"##,
+    )
+    .unwrap();
+    assert_eq!(edited.created[0], "2-0 通り芯");
+    assert_eq!(codes(&edited), ["edit-added-layer"]);
+    let doc = read_jww(&edited.bytes).unwrap();
+    let names = |group: usize| -> Vec<&str> { doc.groups[group].layers[..2].iter().map(|l| l.name.as_str()).collect() };
+    assert_eq!(
+        (doc.groups[0].layers[0].name.as_str(), names(2), names(3)),
+        ("通り芯", vec!["通り芯", "基準線"], vec!["基準線", "3-1"])
+    );
+    let lines: Vec<(u16, u16)> = doc.entities[6..]
+        .iter()
+        .map(|entity| match entity {
+            JwwEntity::Line(line) => (line.base.layer_group, line.base.layer),
+            _ => panic!("line"),
+        })
+        .collect();
+    assert_eq!(lines, [(2, 0), (3, 0)]);
+    // 同じグループの中では重ならず、グループを決めない名前は 2 つあれば番号で選ぶ
+    let two = r##"{"op": "add-layer", "name": "通り芯", "group": 2}"##;
+    let error = |operation: &str| edit(&fixture(700), &format!("[{two}, {operation}]")).unwrap_err();
+    assert_eq!(error(two).code, "already-exists");
+    assert_eq!(error(r##"{"op": "update-layer", "name": "2-1", "set": {"name": "通り芯"}}"##).code, "already-exists");
+    let ambiguous = error(r##"{"op": "add", "kind": "line", "layer": "通り芯", "start": [0, 0], "end": [1, 0]}"##);
+    assert_eq!(ambiguous.code, "invalid-value");
+}
+
+#[test]
 fn explains_what_cannot_be_edited() {
     let bytes = fixture(700);
     let error = |operations: &str| edit(&bytes, operations).unwrap_err();

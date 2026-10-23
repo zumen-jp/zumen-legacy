@@ -13,7 +13,7 @@ use crate::{BlockInfo, Ctx, DraftError, Drafter, number, point, positive, symbol
 use serde_json::Value;
 use zumen_convert::builder::{BY_LAYER, LINEWEIGHT_BY_LAYER, Look, Space, VIEWPORT_LAYER, lineweight, lwpolyline, xyz};
 use zumen_convert::sheet::{View, region, viewport};
-use zumen_core::BBox;
+use zumen_core::{BBox, NoticeLevel, js};
 use zumen_dxf::{DxfEntity, DxfEntityBase, DxfEntityData, DxfInsert, DxfLayout, DxfSpace, DxfTextBase, DxfViewport};
 
 /// JIS Z 8311 の A 列と B 列（横置きの幅・高さ、mm）
@@ -142,12 +142,32 @@ pub(crate) fn draw(drafter: &mut Drafter, spec: &Spec) -> Result<(), DraftError>
             return Err(DraftError::new("invalid-spec", &path, format!("用紙の名前 {} が 2 度あります", sheet.name)));
         }
         names.push(sheet.name.clone());
-        let (paper_name, width, height) = match drafter.existing_layouts.get(&sheet.name.to_uppercase()) {
-            // 描き込む先に同じ名前のレイアウトがあれば、その用紙の大きさ
-            Some(&(width, height)) if sheet.paper.is_none() && width > 0.0 && height > 0.0 => {
-                (String::new(), width, height)
+        let (paper_name, width, height) = if let Some((width, height)) = drafter.sheet_paper {
+            // 用紙の大きさを変えられない描き込む先（JWW・SXF）は、その用紙に描く。違う大きさの指定は知らせる
+            if sheet.paper.is_some() || sheet.orientation.is_some() {
+                let (_, wanted_width, wanted_height) = paper(sheet, &path)?;
+                if (wanted_width - width).abs() > 0.5 || (wanted_height - height).abs() > 0.5 {
+                    let size = |w: f64, h: f64| format!("{}×{} mm", js::number_to_string(w), js::number_to_string(h));
+                    drafter.builder.notices.add(
+                        NoticeLevel::Warning,
+                        "draft-into-paper",
+                        format!(
+                            "{path} の用紙（{}）は、描き込む先の用紙（{}）の大きさを変えられないため、描き込む先の用紙に描きました",
+                            size(wanted_width, wanted_height),
+                            size(width, height)
+                        ),
+                    );
+                }
             }
-            _ => paper(sheet, &path)?,
+            (String::new(), width, height)
+        } else {
+            match drafter.existing_layouts.get(&sheet.name.to_uppercase()) {
+                // 描き込む先に同じ名前のレイアウトがあれば、その用紙の大きさ
+                Some(&(width, height)) if sheet.paper.is_none() && width > 0.0 && height > 0.0 => {
+                    (String::new(), width, height)
+                }
+                _ => paper(sheet, &path)?,
+            }
         };
         let (space, block) = if index == 0 {
             (Space::Paper, "*Paper_Space".to_string())
@@ -156,7 +176,7 @@ pub(crate) fn draw(drafter: &mut Drafter, spec: &Spec) -> Result<(), DraftError>
             (Space::Layout(block.clone()), block)
         };
         layouts.push(layout(drafter, &sheet.name, &block, false, index + 1, (&paper_name, width, height)));
-        draw_sheet(drafter, sheet, &space, (width, height), &path, &mut regions)?;
+        draw_sheet(drafter, sheet, index, &space, (width, height), &path, &mut regions)?;
         let filled = fill_fields(drafter, &block, &sheet.fields);
         if !drafter.into {
             let unused: Vec<&str> =
@@ -206,6 +226,7 @@ fn fill_fields(
 fn draw_sheet(
     drafter: &mut Drafter,
     sheet: &SheetSpec,
+    sheet_index: usize,
     space: &Space,
     size: (f64, f64),
     path: &str,
@@ -250,11 +271,27 @@ fn draw_sheet(
         let items = parse_items(&view.items, &format!("{view_path}.items"))?;
         let ctx = Ctx { space: Space::Model, scale, style: StyleSpec::default() };
         drafter.extent = None;
+        let first = drafter.builder.doc.entities.len();
         drafter.items(&items, &ctx)?;
+        let handles = drafter.builder.doc.entities[first..]
+            .iter()
+            .filter(|entity| entity.base.space == zumen_dxf::DxfSpace::Model)
+            .map(|entity| entity.base.handle.clone())
+            .collect();
         let center = match view.center {
             Some(center) => point(center, &view_path)?,
             None => drafter.extent.map_or([0.0, 0.0], |[x0, y0, x1, y1]| [(x0 + x1) / 2.0, (y0 + y1) / 2.0]),
         };
+        drafter.views.push(crate::DraftedView {
+            sheet: sheet_index,
+            path: view_path.clone(),
+            name: view.name.clone(),
+            scale,
+            center,
+            rect,
+            extent: drafter.extent,
+            handles,
+        });
         let paper_center = [(rect.min_x + rect.max_x) / 2.0, (rect.min_y + rect.max_y) / 2.0];
         let view_model = View {
             content: index,

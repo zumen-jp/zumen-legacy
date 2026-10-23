@@ -1464,8 +1464,8 @@ fn draft(
     Ok(Converted { inner: drafted, format: to })
 }
 
-/// 図面の仕様を、受け取った DXF・DWG の図面（テンプレート）にその場で描く（zumen::draft_into）。元の図形・ハンドル・
-/// 拡張データは残り、形式と版も元のまま。sheet は描く用紙の名前、format は分かっている場合の図面の形式
+/// 図面の仕様を、受け取った DXF・DWG・JWW・SXF の図面（テンプレート）にその場で描く（zumen::draft_into）。元の図形・
+/// ハンドル・拡張データは残り、形式と版も元のまま。sheet は描く用紙の名前、format は分かっている場合の図面の形式
 #[pyfunction]
 #[pyo3(signature = (spec, data, *, sheet = None, format = None, max_bytes = None))]
 fn draft_into(

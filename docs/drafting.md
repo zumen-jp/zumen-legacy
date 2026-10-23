@@ -127,21 +127,24 @@ multiline text. To show a diameter symbol, give `Ø` rather than a CAD control c
 
 ## Drawing into a template
 
-`zumen::draft_into` draws the spec into a DXF or DWG drawing received from someone else, a company template with its
-layouts and title block, without rewriting it. The drawing is drawn the same way as by `draft`, then turned into the
-edit operations of [decision 0017](decisions/0017-add-annotations-and-definitions.md) (`zumen_draft::plan`) and
-applied with `zumen::edit`: the template's entities keep their handles and bytes, extended data and objects that zumen
-does not read stay, and the format and version are the template's.
+`zumen::draft_into` draws the spec into a drawing received from someone else, a company template with its sheet and
+title block, without rewriting it: DXF, DWG, JWW and SXF (SFC, P21, SFZ, P2Z). The drawing is drawn the same way as by
+`draft`, then turned into the edit operations of [decision 0017](decisions/0017-add-annotations-and-definitions.md)
+(`zumen_draft::plan`, `plan_jww` and `plan_sxf`) and applied with `zumen::edit`: the template's entities keep their
+handles and bytes, extended data and objects that zumen does not read stay, and the format and version are the
+template's.
 
 ```sh
 zumen draft plan.json --into template.dwg -o A-101.dwg
+zumen draft plan.json --into template.jww -o A-101.jww --sheet A-101
 ```
 
 ```python
 zumen.draft_into(spec, "template.dwg").save("A-101.dwg")      # template: bytes or a path
 ```
 
-The MCP tool `draft_drawing` takes `into` for the same.
+The MCP tool `draft_drawing` takes `into` for the same. The rest of this section is about DXF and DWG templates;
+[JWW and SXF templates](#jww-and-sxf-templates) follows.
 
 - **Sheets**: a sheet named after a layout of the template is drawn into that layout, with that layout's paper size
   unless the sheet gives `paper`; an explicit `paper` updates the existing layout's size and its whole-sheet viewport.
@@ -163,3 +166,52 @@ The MCP tool `draft_drawing` takes `into` for the same.
 - **Solids** (arrowheads, filled marks) become solid hatches.
 - The template must be in millimeters (`$INSUNITS` 4 or unitless), and layouts need AutoCAD 2000 or later. An
   operation that the drawing refuses is reported with the place in the spec it came from.
+
+### JWW and SXF templates
+
+[Decision 0027](decisions/0027-draft-into-jww-and-sxf.md) draws into JWW and SXF drawings through their own edits
+(`zumen_draft::plan_jww`, `zumen_draft::plan_sxf`), so dimensions, hatches and blocks become the format's dimension
+figures and features, drawing parts and fills. What these formats cannot hold is drawn as close as they allow and
+reported in the notices, with these codes:
+
+- **One sheet.** A JWW or SXF drawing has one sheet, so the first sheet of the spec, or the one `sheet` names, is drawn;
+  the others are not (`draft-into-sheets`). The sheet is drawn on the template's paper (an SXF drawing without a sheet
+  takes the spec's). No operation changes the paper of these formats, so a `paper` or `orientation` that differs is a
+  warning (`draft-into-paper`) and the frame follows the template's paper. Sheet coordinates are the same as in DXF:
+  millimeters from the lower left corner of the paper.
+- **Views.** In JWW each view goes into a layer group whose scale is the view's: the write layer group if its scale
+  matches, else the first other group of that scale, else the first group without entities, whose scale is set (a hidden
+  or display-only group is not used, and views of one scale share a group). Sheet items go into a group of scale 1 the
+  same way. Coordinates are moved so that the view's `center` lands at the middle of its viewport on the JWW sheet; text
+  sizes are divided by the group's scale, since JWW keeps them in paper millimeters. A template without such a group is
+  an error at the view (`invalid-value`). In SXF each view becomes a sub-figure (部分図) named after the view, placed at
+  its viewport at 1:`scale` with the new `viewport` edit, and its items are drawn into it at real size. Layer groups and
+  sub-figures do not clip, so a view whose items pass its viewport is reported (`draft-into-view-clip`); since each view
+  has its own group or sub-figure, `view-overlap` does not apply.
+- **Layers** of the spec become layers of the item's group in JWW (layer names belong to their layer group, as in
+  Jw_cad) and layers of the drawing in SXF, reusing a layer of the same name; layer `0` is a layer named `0`, not the
+  template's current layer. A new JWW layer is the first layer of the group without a name and entities, named by the
+  planner. Layers take `off` (and `locked` in JWW); `plot: false`, and `locked` in SXF, are reported
+  (`draft-into-layer-attributes`). JWW and SXF have no BYLAYER or BYBLOCK, so every item carries its color (`#rrggbb`,
+  ACI 7 as black), line type and line width.
+- **Line types** cannot be added to these drawings yet, so a line type of the spec becomes the drawing's line type with
+  the same dash and gap lengths, or the nearest one (`draft-into-line-type`): Jw_cad's line types 2–9 and, from version
+  4.20, the SXF line types 31–62 in JWW; the predefined SXF line types and the drawing's own in SXF.
+- **Text** is one line placed by the lower left of its box: each line of a text becomes a text whose box (the text
+  height, and characters as wide as the height times the width factor, half-width ones half of that) is placed by the
+  text's alignment, 0.12 of the height below the baseline, as
+  [decision 0019](decisions/0019-text-heights-between-formats.md) keeps text heights between formats. JWW and SXF draw
+  glyphs to the box, so they are narrower than the glyphs zumen draws for DXF.
+- **Polylines** become lines and arcs in JWW, and polylines and arcs in SXF; a polyline with a width becomes a solid
+  fill for each segment (a filled circle is two half disks).
+- **Blocks**: only the blocks that the drawn sheet places are added (the template holds that sheet only). A block's
+  entities go on the layers of the group of its first reference, which also gives the values that layer `0` and BYBLOCK
+  take; references that would give others are reported (`draft-into-block-inherit`). A block the template has is used as
+  it is defined there (`draft-into-block-exists`).
+- **Attributes**: the values of block references are drawn as text where they would be, and attribute definitions are
+  not written (`draft-into-attributes`). `fields` fill the spec's block references; the template's title block is text
+  in these formats, so its fields are reported (`unused-field`).
+- **Dimensions** carry their dimension style's name, which the editors report (`edit-dimension-style`). JWW dimensions
+  follow the template's dimension settings, value format included, as Jw_cad's do; SXF dimensions take the value as the
+  spec formats it, with `φ` before diameters (CP932 has no `Ø`). JWW dimension figures cannot be angular, so angular
+  dimensions are drawn as the lines, arcs, fills and text of their block (`draft-into-angular-dimension`).
