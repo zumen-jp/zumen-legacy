@@ -3139,7 +3139,7 @@ impl<'a> Builder<'a> {
             self.entities[index].drawn = false;
         }
         // 表示しない画像（70 の 1 がない）と、読み込みを外した画像は、AutoCAD も外形だけを表示する
-        if (entity.flags as i64) & 1 == 0 || !entity.loaded {
+        if js::to_int32(entity.flags) & 1 == 0 || !entity.loaded {
             return;
         }
         let Some(underlay) = image_underlay(entity, path, ctx, &self.entities[index], boundary) else {
@@ -3981,4 +3981,18 @@ fn draw_viewport(
     }
     builder.add(base, root, vec![Primitive::Stroke(stroke)], properties, None);
     Some(label)
+}
+
+#[cfg(test)]
+mod image_flag_tests {
+    use super::*;
+
+    /// DXF Reference「IMAGE」の 70 はビットのフラグ。壊れた大きい数も TypeScript の ToInt32 と同じに読む。
+    #[test]
+    fn image_display_flags_follow_javascript_for_large_values() {
+        let bytes = b"0\nSECTION\n2\nENTITIES\n0\nIMAGE\n5\nA\n8\n0\n10\n0\n20\n0\n11\n1\n21\n0\n12\n0\n22\n1\n13\n100\n23\n50\n70\n1e100\n340\nB\n0\nENDSEC\n0\nSECTION\n2\nOBJECTS\n0\nIMAGEDEF\n5\nB\n1\nphoto.png\n280\n1\n0\nENDSEC\n0\nEOF\n";
+        let scene = dxf_to_scene(&crate::parse_dxf(bytes), None);
+        assert!(scene.entities.iter().any(|entity| entity.id == "A"));
+        assert!(scene.underlays.is_empty());
+    }
 }

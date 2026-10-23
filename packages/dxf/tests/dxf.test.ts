@@ -384,6 +384,12 @@ describe("DXF の縦書き", () => {
 });
 
 describe("DXF の画像", () => {
+  it("大きすぎる表示フラグも ToInt32 で読み、Rust と同じく表示しない", () => {
+    const doc = parseDxf(IMAGES);
+    for (const entity of doc.entities) if (entity.type === "IMAGE") entity.flags = 1e100;
+    expect(dxfToScene(doc).underlays).toBeUndefined();
+  });
+
   it("IMAGEDEF のファイルの名前・読み込んだ状態と、明るさ・フェード・反転した切り抜き・IMAGEFRAME を読む", () => {
     const doc = parseDxf(IMAGES);
     const images = doc.entities.filter((entity): entity is DxfImage => entity.type === "IMAGE");
