@@ -14,13 +14,16 @@
 //! - レイヤは、書いた図形のレイヤが元の図形のレイヤ（配置のレイヤを含む）にあること（レイヤ 0 を除く）。
 //!   ビューポートに映す部分図は、配置のレイヤを持たない
 //! - 実寸の縮尺: 部分図・レイヤグループの図形は、ビューポートの縮尺が元の配置の縮尺と同じこと
+//! - 描くか: 描かない図形（JWW の画像の配置、DXF の外形を表示しない画像）は描かない図形と、描く図形は描く図形と比べる
+//! - underlay（`underlay_differences`）: ファイル、中身の全体を置く場所（中身の原点と幅・高さの辺）、幅と高さの比、
+//!   切り取りと不透明度。中身の単位は形式ごとに違う（SXF・JWW は用紙の 0.01 mm、DXF は画素。decision 0031）
 //! - 文字の高さは数値を保って書く（decision 0019）ので、元の文字は `scale_texts` で書いた形式の字形の大きさに
 //!   してから比べる
 
 #![allow(dead_code)]
 
 use std::collections::HashMap;
-use zumen::{BBox, Primitive, Scene, SceneEntity, StrokePrimitive, TextPrimitive};
+use zumen::{BBox, Primitive, Scene, SceneEntity, StrokePrimitive, TextPrimitive, Underlay};
 
 pub const TOLERANCE: f64 = 0.05;
 
@@ -463,20 +466,24 @@ pub fn differences(original: &Scene, again: &Scene, sources: &HashMap<String, St
     let mut out = Vec::new();
     let mut matched = 0;
     for entity in &original.entities {
-        // JWW の画像の配置（選ぶためだけの外形）は、変換が書かずに embedded-image で知らせる
-        if entity.kind == zumen::EntityKind::Image && !entity.drawn {
-            continue;
-        }
         let primitives: Vec<&Primitive> = entity.primitives.iter().collect();
         let expected = normalized(&primitives);
         let id = &entity.id;
         let Some(converted) = groups.get(id) else {
-            if !expected.is_empty() {
+            // 描かない図形（選ぶためだけの外形）は、写さなくても見た目が変わらない。画像の中身は underlay で比べる
+            if !expected.is_empty() && entity.drawn {
                 out.push(format!("{id} ({}): missing", entity.type_name));
             }
             continue;
         };
         matched += 1;
+        // SXF の画像の範囲の折線（描く）は、DXF の折線と外形を表示しない画像になる
+        let converted: &[&SceneEntity] =
+            &converted.iter().copied().filter(|part| part.drawn == entity.drawn).collect::<Vec<_>>();
+        if converted.is_empty() {
+            out.push(format!("{id} ({}): drawn {} → {}", entity.type_name, entity.drawn, !entity.drawn));
+            continue;
+        }
         let all: Vec<&Primitive> = converted.iter().flat_map(|entity| entity.primitives.iter()).collect();
         let actual = normalized(&all);
         let mut bbox = zumen::geometry::empty_box();
@@ -531,5 +538,83 @@ pub fn differences(original: &Scene, again: &Scene, sources: &HashMap<String, St
     if matched == 0 && !original.entities.is_empty() {
         out.push("no entity matched".into());
     }
+    out
+}
+
+/// underlay の中身の全体を置く場所: 中身の原点と、幅・高さの辺のベクトル（用紙の mm）
+fn underlay_place(underlay: &Underlay) -> [f64; 6] {
+    let m = &underlay.matrix;
+    [m[4], m[5], m[0] * underlay.width, m[1] * underlay.width, m[2] * underlay.height, m[3] * underlay.height]
+}
+
+/// 元の図面と、書き直した図面の underlay の違い。中身の単位は形式ごとに違ってよいので、matrix は中身の全体を置く
+/// 場所で比べ、幅と高さの比は、画素数を整数に丸める違い（幅と高さの 1 単位分）まで同じであること
+pub fn underlay_differences(original: &Scene, again: &Scene, sources: &HashMap<String, String>) -> Vec<String> {
+    let mut converted: HashMap<String, Vec<&Underlay>> = HashMap::new();
+    for underlay in &again.underlays {
+        let id = source_id(&underlay.id, sources).unwrap_or_else(|| format!("?{}", underlay.id));
+        converted.entry(id).or_default().push(underlay);
+    }
+    let mut out = Vec::new();
+    for before in &original.underlays {
+        let id = &before.id;
+        let after = match converted.remove(id).as_deref() {
+            Some([after]) => *after,
+            Some(list) => {
+                out.push(format!("{id}: {} underlays", list.len()));
+                continue;
+            }
+            None => {
+                out.push(format!("{id}: underlay missing"));
+                continue;
+            }
+        };
+        if (before.kind, &before.file, before.page) != (after.kind, &after.file, after.page) {
+            out.push(format!(
+                "{id}: underlay {:?} {:?} {:?} → {:?} {:?} {:?}",
+                before.kind, before.file, before.page, after.kind, after.file, after.page
+            ));
+        }
+        let tolerance = TOLERANCE + size(&before.bbox) * 1e-4;
+        let (a, b) = (underlay_place(before), underlay_place(after));
+        if a.iter().zip(&b).any(|(p, q)| !close(*p, *q, tolerance)) {
+            out.push(format!("{id}: underlay placed {a:?} → {b:?}"));
+        }
+        let (ratio, again_ratio) = (before.width / before.height, after.width / after.height);
+        let allowance = ratio * (1.0 / before.width.min(after.width) + 1.0 / before.height.min(after.height));
+        if !close(ratio, again_ratio, allowance) {
+            out.push(format!(
+                "{id}: underlay size {} × {} → {} × {}",
+                before.width, before.height, after.width, after.height
+            ));
+        }
+        // 中身の全体と同じ切り取りは、切り取らないのと同じ
+        let clip = |underlay: &Underlay| -> Option<Vec<Vec<f64>>> {
+            let full = zumen::geometry::transform_points(
+                &underlay.matrix,
+                &[0.0, 0.0, underlay.width, 0.0, underlay.width, underlay.height, 0.0, underlay.height],
+            );
+            underlay
+                .clip
+                .clone()
+                .filter(|rings| !(rings.len() == 1 && hausdorff(&rings[0], true, &full, true) <= tolerance))
+        };
+        match (clip(before), clip(after)) {
+            (None, None) => {}
+            (Some(a), Some(b)) => {
+                if let Some(difference) = compare_rings(&a, &b, tolerance) {
+                    out.push(format!("{id}: underlay clip {difference}"));
+                }
+            }
+            (a, b) => out.push(format!("{id}: underlay clip {} → {}", a.is_some(), b.is_some())),
+        }
+        if !close(before.opacity.unwrap_or(1.0), after.opacity.unwrap_or(1.0), 1e-9) {
+            out.push(format!("{id}: underlay opacity {:?} → {:?}", before.opacity, after.opacity));
+        }
+    }
+    for (id, list) in converted {
+        out.push(format!("{id}: underlay not in the original ({})", list.len()));
+    }
+    out.sort();
     out
 }

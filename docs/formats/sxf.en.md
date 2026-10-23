@@ -151,6 +151,7 @@ layout of the written DXF draws the same shapes at the same places as the SXF.
 | Hatching (fill) | A solid HATCH. The boundary is the composite curve (lines and arcs as bulges; elliptical arcs, splines and clothoids as the points the display draws) |
 | Hatching (user-defined) | A user-defined HATCH for each set of lines (dashed sets as a custom pattern). Spacing and angle depend on the placement (実装規約 1-7) |
 | Outlines of composite curves | A closed LWPOLYLINE for those marked visible |
+| Images (drawing groups `$$ATRU$$…$$画像$$<file>` and `$$RASTER$$<file>`) | In the group's block, an IMAGE just before the polyline that bounds it (the first polyline of four points or more, read as the scene reads it), with the IMAGEDEF naming the file as the group does and the layer and source of the polyline. AutoCAD draws entities in their order, so the image hides earlier entities and not its outline, as SXF draws it. SXF does not record the pixel count, so the IMAGE has one pixel per hundredth of a sheet millimeter, as the content of the reader's underlay ([decision 0031](../decisions/0031-image-units-without-a-pixel-count.md)): the width and height on the sheet × 100, rounded to whole pixels, with the pixel vectors dividing the placed size by them (counted at the block's first placement). The DXF scene then places the same content at the same place. The pixel count is not the file's: zumen stretches the file over the content, and how AutoCAD fits a file of another pixel count has not been checked. The polyline stays the outline, so the drawing hides image frames (`IMAGEFRAME` 0, RASTERVARIABLES; DWG does not write it yet and reports `image-frame`) |
 
 What cannot be mapped as it is, or is mapped in another shape, is returned as notices (kind and count).
 
@@ -165,7 +166,8 @@ What cannot be mapped as it is, or is mapped in another shape, is returned as no
 | `leader` | A leader or balloon was split into lines, arrows, circles and texts |
 | `hatch-pattern`, `hatch-external`, `area-control` | Pattern hatching, externally defined hatching and Area_control were written as their outline only |
 | `lineweight` | A width that DXF lacks became the nearest lineweight |
-| `title`, `background`, `raster` | The title block, the background color and raster images were not written |
+| `title`, `background` | The title block and the background color were not written |
+| `raster` | An image group without a polyline that bounds it was not written, as in the display |
 | `name` | Characters not allowed in DXF names (< > / \ " : ; ? * \| = `) became _, or a number was added to a repeated name |
 | `missing-sfig`, `sfig-cycle`, `sfig-scale`, `unknown-*`, `layer-range`, `hatch-boundary`, `hatch-dense`, `degenerate` | Left out or replaced as in the display |
 
@@ -197,6 +199,7 @@ the original drawing.
 | Splines | Non-rational splines of degree 1–3 that pass through their ends are split into cubic Bézier curves (spline_feature) by knot insertion (Boehm's method); others become the polyline the display draws |
 | Points | Point markers (dot) |
 | Dimensions | The lines, fills and texts of their display block (not SXF dimension features) |
+| Images (IMAGE) | Not written (`image`). An SXF image is a drawing group with a drawn bounding polyline, so it cannot show an image whose frame the drawing hides (`IMAGEFRAME` 0, which every DXF written from SXF and JWW sets), and an image converted from SXF already has its polyline after it. The frame is written as the lines the display draws only when the display draws it (`IMAGEFRAME` other than 0, or an image without a file) |
 | Texts, attributes, MTEXT, leaders, multileaders, MLINE, fills (SOLID, TRACE), wipeouts, image frames | The lines (polylines), fills (fill_area_style_colour over invisible composite curves) and texts the display draws (text_string with the lower left corner as base point and the rotation and slant of the text box; its height is the TEXT height, so the box the display draws is shrunk by 0.88 or 0.72 about the start of the baseline, [decision 0019](../decisions/0019-text-heights-between-formats.md); vertical fonts are vertical) |
 | Hatches | Solid fills are fill_area_style_colour, patterns are fill_area_style_hatching for each set of lines (spacing, angle and base in the coordinates of the container, dashes in sheet millimeters). The boundary is a composite curve with the outline the display draws, with even-odd nesting as outer and inner boundaries |
 | Construction lines and rays | Line segments cut by the sheet (or the viewport frame), as in the display |
@@ -214,7 +217,7 @@ What cannot be written as it is, or is written in another shape, is returned as 
 | `text-mirror` | A mirrored text was written unmirrored in the same text box |
 | `linetype-dot`, `linetype-long`, `complex-linetype`, `transparency`, `gradient` | Dots of line types became 0.25 mm dashes, line types of more than 8 dashes and gaps kept the first 8, line types with texts or shapes became dashes and gaps, transparency became opaque, gradients became solid fills |
 | `hatch-dense` | Hatches without a pattern or with too many lines (more than 5,000) became their outline, as in the display |
-| `image`, `xline`, `minsert` | Images became their frame, construction lines and rays became cut segments, MINSERT became several placements |
+| `image`, `xline`, `minsert` | Images became their frame (only when it is drawn), construction lines and rays became cut segments, MINSERT became several placements |
 | `encoding` | Characters outside CP932 became ? (`write_sfc`) |
 | `missing-block`, `block-depth`, `dimension-block`, `skewed`, `text-skew` | Undefined blocks, blocks in a cycle or nested too deep, dimensions without a display block, and skewed placements and texts were left out |
 

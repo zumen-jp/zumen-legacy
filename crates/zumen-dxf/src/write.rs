@@ -6,9 +6,9 @@
 //! DXF・DWG から読んだ図面を DXF にする変換に使う（DXF Reference の各節・各図形のグループコードに従う）。
 //!
 //! 書くもの: 見出しの主な変数、クラス、表（VPORT・LTYPE・LAYER・STYLE・VIEW・UCS・APPID・DIMSTYLE・
-//! BLOCK_RECORD）、ブロック定義、図形、OBJECTS の辞書（ACAD_GROUP・ACAD_IMAGE_DICT・ACAD_LAYOUT・ACAD_MLEADERSTYLE・
-//! ACAD_MLINESTYLE・ACAD_PLOTSETTINGS・ACAD_PLOTSTYLENAME）、レイアウト、MLINESTYLE、MLEADERSTYLE、画像の定義と
-//! そのリアクタ。
+//! BLOCK_RECORD）、ブロック定義、図形、OBJECTS の辞書（ACAD_GROUP・ACAD_IMAGE_DICT・ACAD_IMAGE_VARS・ACAD_LAYOUT・
+//! ACAD_MLEADERSTYLE・ACAD_MLINESTYLE・ACAD_PLOTSETTINGS・ACAD_PLOTSTYLENAME）、レイアウト、MLINESTYLE、MLEADERSTYLE、
+//! 画像の定義とそのリアクタ、画像の設定（RASTERVARIABLES）。
 //! ハンドルは元の図面のものを保ち、ないもの・重なるものには新しいハンドルを振る。
 //! 図形が参照するのに表にないレイヤ・線種・文字スタイル・寸法スタイル・ブロックは補う。
 //! 書けなかった・形を変えて書いた内容は、読み取りと同じ notices（種類ごとの件数）で返す。
@@ -487,6 +487,8 @@ fn nearest_segment(path: &[Vec3], point: &Vec3) -> usize {
 
 const MODEL: &str = "*MODEL_SPACE";
 const PAPER: &str = "*PAPER_SPACE";
+/// 画像の設定（RASTERVARIABLES）を載せる、名前付きオブジェクトの辞書の項目
+const RASTER_VARIABLES: &str = "ACAD_IMAGE_VARS";
 
 fn upper(name: &str) -> String {
     name.to_uppercase()
@@ -853,6 +855,7 @@ impl<'a> Writer<'a> {
             ("IMAGE", "AcDbRasterImage", "ISM", 2175, images, true),
             ("IMAGEDEF", "AcDbRasterImageDef", "ISM", 0, definitions.len(), false),
             ("IMAGEDEF_REACTOR", "AcDbRasterImageDefReactor", "ISM", 1, images, false),
+            ("RASTERVARIABLES", "AcDbRasterVariables", "ISM", 0, usize::from(self.raster_variables()), false),
             ("ARC_DIMENSION", "AcDbArcDimension", "ObjectDBX Classes", 1025, dimensions("ARC_DIMENSION"), true),
             (
                 "LARGE_RADIAL_DIMENSION",
@@ -865,7 +868,7 @@ impl<'a> Writer<'a> {
         ];
         self.section("CLASSES");
         for (name, cpp, application, flags, instances, entity) in classes {
-            if (entity || name.starts_with("IMAGEDEF")) && instances == 0 {
+            if (entity || name.starts_with("IMAGEDEF") || name == "RASTERVARIABLES") && instances == 0 {
                 continue;
             }
             let out = &mut self.out;
@@ -1400,9 +1403,13 @@ impl<'a> Writer<'a> {
             self.handles.fresh(),
         );
         let images = (!self.image_defs.is_empty()).then(|| self.handles.fresh());
+        let variables = self.raster_variables().then(|| self.handles.fresh());
         let mut entries: Vec<(String, u64)> = vec![("ACAD_GROUP".into(), group)];
         if let Some(images) = images {
             entries.push((crate::edit::image::DICTIONARY.into(), images));
+        }
+        if let Some(variables) = variables {
+            entries.push((RASTER_VARIABLES.into(), variables));
         }
         entries.extend([
             ("ACAD_LAYOUT".into(), layout),
@@ -1415,6 +1422,9 @@ impl<'a> Writer<'a> {
         self.dictionary(group, root, &[]);
         if let Some(images) = images {
             self.image_objects(images, root);
+        }
+        if let (Some(variables), Some(frame)) = (variables, self.doc.image_frame) {
+            self.raster_variables_object(variables, root, frame);
         }
         let entries: Vec<(String, u64)> =
             self.layouts.iter().map(|(name, handle, _, _)| (name.clone(), *handle)).collect();
@@ -1472,16 +1482,32 @@ impl<'a> Writer<'a> {
         self.out.tag(0, "ENDSEC");
     }
 
+    /// 画像の外形の表示（IMAGEFRAME）を書くか。R12 は OBJECTS を持たない
+    fn raster_variables(&self) -> bool {
+        self.doc.image_frame.is_some() && !self.r12()
+    }
+
+    /// 画像の設定（DXF Reference「RASTERVARIABLES」）。名前付きオブジェクトの辞書の ACAD_IMAGE_VARS が指す。70 は
+    /// 外形の表示（0 表示しない、1 表示して印刷する、2 表示して印刷しない）、71 は画質（1 高い）、72 は画像を挿入する
+    /// ときの単位（0 なし。モデルは持たない）。値の並びは ezdxf の RasterVariables と同じ
+    fn raster_variables_object(&mut self, handle: u64, root: u64, frame: f64) {
+        let out = &mut self.out;
+        out.tag(0, "RASTERVARIABLES");
+        out.handle(5, handle);
+        out.tag(102, "{ACAD_REACTORS");
+        out.handle(330, root);
+        out.tag(102, "}");
+        out.handle(330, root);
+        out.tag(100, "AcDbRasterVariables");
+        out.tag(90, 0);
+        out.int(70, frame);
+        out.tag(71, 1);
+        out.tag(72, 0);
+    }
+
     /// 画像の辞書（ACAD_IMAGE_DICT）と、画像の定義（IMAGEDEF）・リアクタ（IMAGEDEF_REACTOR）。辞書の項目の名前は
     /// 編集と同じく、ファイルの名前から拡張子を除いたもの
     fn image_objects(&mut self, dictionary: u64, root: u64) {
-        if self.doc.image_frame == Some(0.0) {
-            self.notices.add(
-                NoticeLevel::Info,
-                "image-frame",
-                "画像の外形を表示しない設定（IMAGEFRAME）は書かず、外形を表示する図面にしました",
-            );
-        }
         let definitions = std::mem::take(&mut self.image_defs);
         let mut names: Vec<String> = Vec::new();
         for definition in &definitions {
@@ -3608,7 +3634,8 @@ mod tests {
     }
 
     /// 画像の定義のファイルが分かる画像は、定義・リアクタ・辞書・クラスとともに書く。同じ定義を指していた画像は
-    /// 1 つの定義を共有する。R12 は省いて知らせる
+    /// 1 つの定義を共有する。外形を表示しない設定（IMAGEFRAME）は ACAD_IMAGE_VARS の RASTERVARIABLES に書く。
+    /// R12 は省いて知らせる
     #[test]
     fn writes_images_with_their_definitions() {
         let source = write_dxf(&parse_dxf(b"0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n")).bytes;
@@ -3624,6 +3651,7 @@ mod tests {
         let mut shared = doc.entities.iter().find(|entity| entity.base.kind == "IMAGE").unwrap().clone();
         shared.base.handle = "FFFF".into();
         doc.entities.push(shared);
+        doc.image_frame = Some(0.0);
         let paths = |doc: &DxfDocument| -> Vec<Option<String>> {
             doc.entities
                 .iter()
@@ -3647,7 +3675,15 @@ mod tests {
             assert_eq!(text.matches("IMAGEDEF\r\n").count(), 3, "{version:?}: two definitions and their class");
             assert_eq!(text.matches("IMAGEDEF_REACTOR\r\n").count(), 4, "{version:?}: three reactors and their class");
             assert!(text.contains("ACAD_IMAGE_DICT") && text.contains("\r\nsite\r\n"), "{version:?}");
+            assert_eq!(again.image_frame, Some(0.0), "{version:?}");
+            assert_eq!(text.matches("RASTERVARIABLES\r\n").count(), 2, "{version:?}: the object and its class");
+            assert!(text.contains("ACAD_IMAGE_VARS"), "{version:?}");
         }
+        // 設定のない図面には書かない（AutoCAD の既定は外形を表示する）
+        doc.image_frame = None;
+        let written = write_dxf(&doc);
+        assert!(!String::from_utf8_lossy(&written.bytes).contains("RASTERVARIABLES"));
+        assert_eq!(parse_dxf(&written.bytes).image_frame, None);
         // 画像の定義のファイルが分からない画像は、これまでどおり省いて知らせる
         for entity in &mut doc.entities {
             if let DxfEntityData::Image(image) = &mut entity.data {

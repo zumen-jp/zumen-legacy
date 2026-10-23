@@ -432,6 +432,13 @@ impl Builder {
         }
     }
 
+    /// 画像を加え、ハンドルを返す。SXF・JWW の画像は外形を描かない（SXF の外形は折線として別に書く）ので、画像の
+    /// 外形を表示しない図面にする（RASTERVARIABLES の 70、IMAGEFRAME 0）
+    pub fn add_image(&mut self, space: &Space, look: &Look, image: DxfImage, source: &str) -> String {
+        self.doc.image_frame = Some(0.0);
+        self.add(space, look, "IMAGE", DxfEntityData::Image(image), source)
+    }
+
     /// 図形を加え、ハンドルを返す。source は元の図形の id（ブロックの中の部品など、元の図形にあたらないものは空）
     pub fn add(&mut self, space: &Space, look: &Look, kind: &str, data: DxfEntityData, source: &str) -> String {
         let handle = self.handle();
@@ -635,6 +642,34 @@ pub fn wipeout(points: &[Vec2]) -> DxfEntityData {
         path: None,
         loaded: true,
     })
+}
+
+/// 図面が画素数を記録しない画像（SXF・JWW）を DXF に書くときの、用紙の mm あたりの画素数。読み取りの中身の単位と
+/// 同じく、用紙の 0.01 mm を 1 画素とする（docs/decisions/0031）
+pub const IMAGE_PIXELS_PER_MM: f64 = 100.0;
+
+/// 画像（DXF Reference「IMAGE」）。insert は画像の左下の角、right と up は画像の幅と高さのベクトル（入れ物の座標）、
+/// sheet は用紙での幅と高さ（mm）。画素数は用紙の幅と高さを 0.01 mm で数えた整数（1 以上）で、U・V の画素の
+/// ベクトルは幅と高さをその数で割ったもの。70 の値と切り抜きは編集が足す画像と同じ（表示・回転しても表示・
+/// 切り抜きは画像の全体）
+pub fn image(path: &str, insert: Vec2, right: Vec2, up: Vec2, sheet: [f64; 2]) -> DxfImage {
+    let [columns, rows] = sheet.map(|length| (length * IMAGE_PIXELS_PER_MM).round().max(1.0));
+    DxfImage {
+        insert: xyz(insert),
+        u_pixel: [right[0] / columns, right[1] / columns, 0.0],
+        v_pixel: [up[0] / rows, up[1] / rows, 0.0],
+        image_size: [columns, rows],
+        boundary: Vec::new(),
+        flags: 7.0,
+        clipping: false,
+        clip_inverted: false,
+        brightness: 50.0,
+        contrast: 50.0,
+        fade: 0.0,
+        definition_handle: None,
+        path: Some(path.to_string()),
+        loaded: true,
+    }
 }
 
 /// 変換が長さを何倍にするか（0 や NaN なら 1）

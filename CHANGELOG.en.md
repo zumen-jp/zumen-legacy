@@ -6,6 +6,16 @@ All packages share one version during 0.x.
 
 ## Unreleased
 
+- Rust, Python and the command line: converting JWW and SXF to DXF keeps their images. JWW image placements (`^@BM`)
+  and SXF image groups (`$$ATRU$$…$$画像$$<file>`, `$$RASTER$$<file>`) become IMAGEs whose IMAGEDEF names the file
+  as the drawing does, with one pixel per hundredth of a sheet millimeter (the content unit of
+  [decision 0031](docs/decisions/0031-image-units-without-a-pixel-count.md)), so the DXF scene places the same
+  underlay. Jw_cad draws no frame and SXF draws its polyline, so these drawings hide image frames: the DXF writer now
+  writes the frame setting (`DxfDocument::image_frame`, RASTERVARIABLES in `ACAD_IMAGE_VARS`) instead of reporting
+  `image-frame` (the DWG writer still reports it). Converting to JWW writes DXF images that are unclipped rectangles
+  as `^@BM` texts (others are reported, `image`, and a fade, `image-fade`), and JWW and SXF write an image frame only
+  when the DXF draws it. Embedded JWW images keep their `%temp%` name (`embedded-file`), and trimming values other
+  than Jw_cad's defaults are not written (`image-trim`).
 - Playground: PDF drawings open in the 2D sample, with their pages drawn by `@zumenjs/pdf` and pdf.js under the
   entities that the reader reads (`playground/pdf-sample.ts`). pdf.js is imported only when the file is a PDF, and
   the playground serves pdf.js's CMaps (Japanese fonts that the PDF does not embed) and image decoders under `pdfjs/`.
