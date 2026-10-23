@@ -24,13 +24,13 @@ bytes ─▶ format reader ─▶ native model ─▶ toScene ─▶ Scene
 
 | Package | Responsibility |
 | --- | --- |
-| `@zumenjs/core` | What `zumen-core` covers: the `Scene` model and its types and JSON (`sceneToJson`, `sceneFromJson`), `NoticeList`, `readDrawing` and the `DrawingReader` interface (with the optional `load`), layer visibility (`isEntityVisible`), distance measurement (`measureDistance`, `toReal`), and drawing markup (`markupFromJson`, `markupToJson`, `markupShapes`, `drawingHash`, [Drawing markup](markup.md)). Geometry helpers are exported from `@zumenjs/core/geometry` and text layout from `@zumenjs/core/text`. No DOM. |
+| `@zumenjs/core` | What `zumen-core` covers: the `Scene` model and its types and JSON (`sceneToJson`, `sceneFromJson`), `NoticeList`, `readDrawing` and the `DrawingReader` interface (with the optional `load`), layer visibility (`isEntityVisible`), distance measurement (`measureDistance`, `toReal`), and drawing markup (`markupFromJson`, `markupToJson`, `markupShapes`, `drawingHash`, [Drawing markup](markup.md)), and, for applications, `placeUnderlays`, which places underlays whose drawing does not record the content size ([decision 0034](decisions/0034-place-pdf-underlays-after-reading.md)). Geometry helpers are exported from `@zumenjs/core/geometry` and text layout from `@zumenjs/core/text`. No DOM. |
 | `@zumenjs/viewer` | The 2D engine that applications embed: the Canvas 2D renderer (`renderScene`, `renderHighlights`, `renderPrimitives`), hit testing and snapping (`HitIndex`), `DrawingViewer` with the view, the state, input handlers, tools and style, and `MarkupLayer` with the markup tools, built on the public API of `DrawingViewer`. No text for people and no CSS. |
 | `@zumenjs/reader` | Every format through the WebAssembly build of the Rust readers: `initReader` loads the module, `reader` and `createReader({ limits })` are `DrawingReader`s, `readScene` reads with limits (`LimitError`), `detectDrawing` tells the format without the module, `readEmbeddedFiles` returns the files a drawing holds (embedded JWW images, the image files of compressed SXF) under the names its image underlays use, and `ReaderWorker` reads in a Web Worker (`@zumenjs/reader/worker`). |
 | `@zumenjs/sxf` | Not published; the reference for the tests. SFC and P21 parsing into the SXF feature model (`parseSfc`, `parseP21` → `SxfDrawing`), conversion to a scene (`sxfToScene`), and the `sxf` reader. |
 | `@zumenjs/jww` | Not published; the reference for the tests. JWW parsing into the JWW document model (`readJww` → `JwwDocument`), conversion to a scene (`jwwToScene`), and the `jww` reader. |
 | `@zumenjs/dxf` | Not published; the reference for the tests. DXF parsing (ASCII and binary) into the AutoCAD drawing model (`parseDxf` → `DxfDocument`), conversion of model space or a layout to a scene (`dxfToScene`), and the `dxf` reader. Their Rust port (`zumen-dxf`) also draws DWG. |
-| `@zumenjs/pdf` | Draws PDF pages under the scene with pdf.js: `pdfUnderlayRenderer`, an `UnderlayRenderer` for underlays of kind `pdf` (the pages of PDF drawings and the PDF underlays of DXF drawings) that renders the requested region of a page and turns optional content groups on and off as content layers are shown and hidden. It reads nothing: the entities of a page come from the reader. |
+| `@zumenjs/pdf` | Draws PDF pages under the scene with pdf.js: `pdfUnderlayRenderer`, an `UnderlayRenderer` for underlays of kind `pdf` (the pages of PDF drawings and the PDF underlays of DXF drawings) that renders the requested region of a page and turns optional content groups on and off as content layers are shown and hidden, and `placePdfUnderlays`, which places the PDF underlays of DXF and DWG at the page sizes of the documents it opens ([decision 0034](decisions/0034-place-pdf-underlays-after-reading.md)). It reads nothing: the entities of a page come from the reader. |
 | `@zumenjs/react` | Hooks only: `useDrawingViewer` (the engine on an element), `useViewerState` (a part of its state), `useViewerEvent` (its events), `useDrawing` (read a file, waiting for readers that load), and `useMarkupLayer`, `useMarkupState` and `useMarkupEvent` (the markup layer). |
 
 1. Format packages depend only on `@zumenjs/core`, never on each other.
@@ -90,7 +90,9 @@ fonts, and pdf.js then draws the standard 14 fonts with fonts of the system. The
   where it sits (a matrix from the content's pixels or points to paper millimeters, clip rings, layers) and what it is
   (`kind`, the `file` named in the drawing, the PDF `page`), not its bytes: a renderer that the application passes to
   `DrawingViewer` draws regions of it on request ([decision 0022](decisions/0022-underlays-drawn-by-a-region-renderer.md)).
-  Scenes without underlays leave the field out.
+  Scenes without underlays leave the field out. An underlay whose drawing does not record the content size (the PDF
+  underlays of DXF and DWG) has `width` and `height` 0 and is not drawn until the application places it with the size
+  it learns (`placeUnderlays`, [decision 0034](decisions/0034-place-pdf-underlays-after-reading.md)).
 - Entities with `drawn: false` stand for content that an underlay already shows, such as the paths and texts of a PDF
   page. `renderScene` and `zumen-render` do not draw them, but hit testing, snapping, measurement, `texts`,
   `entities` and the analyses use them like any other entity, and the viewer's highlights draw them when they are
@@ -274,7 +276,8 @@ the state, the input handlers and the tools are separate, and each can be used o
   event tells which requests finished or failed, and `imageUnderlayRenderer(load)` draws images that the application
   loads ([decision 0022](decisions/0022-underlays-drawn-by-a-region-renderer.md)). `pdfUnderlayRenderer` of
   `@zumenjs/pdf` draws PDF pages with the application's pdf.js, and `optionalContent` connects content layers to
-  optional content groups.
+  optional content groups. `placePdfUnderlays` places the PDF underlays of DXF and DWG with the page sizes of the same
+  documents before the scene goes to the engine.
 - **Readers that load.** A `DrawingReader` may have `load()`, as the WebAssembly reader of `@zumenjs/reader` does; `useDrawing` waits
   for the one that recognizes the file.
 - **React.** `useDrawingViewer`, `useViewerState(viewer, selector)`, `useViewerEvent(viewer, type, listener)`,

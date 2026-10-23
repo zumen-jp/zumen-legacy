@@ -98,6 +98,9 @@ pub(crate) fn page_image(
     dpi: f64,
     underlays: &mut Underlays<'_>,
 ) -> Option<PageImage> {
+    if underlays.skip_unplaced(underlay) {
+        return None;
+    }
     let region = &page.region;
     let rect = BBox {
         min_x: underlay.bbox.min_x.max(region.min_x),

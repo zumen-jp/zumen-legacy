@@ -18,7 +18,9 @@ Drawings with several views (DXF and DWG model space and layouts) list them in `
 `load()`; wait for it before reading (`useDrawing` of `@zumenjs/react` does).
 Raster content (images, PDF pages) is described in `scene.underlays`, with its place on the sheet and what it is, and
 `UnderlayRequest` is the shape of a request to draw a region of it; [`@zumenjs/viewer`](../viewer) asks a renderer that
-the application passes in to draw it.
+the application passes in to draw it. An underlay whose drawing does not record the content size (the PDF underlays of
+DXF and DWG) has `width` and `height` 0 until `placeUnderlays(scene, size)` places it with the size the application
+learns ([`@zumenjs/pdf`](../pdf)'s `placePdfUnderlays` takes it from pdf.js).
 Drawing markup (redlines, revision clouds, notes, review findings and photo positions) is a JSON document beside the
 drawing: `createMarkup`, `markupFromJson` (checked, throwing a `MarkupError`), `markupToJson`, `markupShapes` (the
 shapes drawn, in paper millimeters), `markupBox` and `drawingHash` (the SHA-256 that names the drawing); see

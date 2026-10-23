@@ -4,6 +4,18 @@ All packages share one version during 0.x.
 
 ## Unreleased
 
+- Browsers, Rust, Python and the command line: the DXF and DWG readers read PDF underlays (PDFUNDERLAY) as underlays of
+  `kind: "pdf"` with the `file` and `page` of their PDFDEFINITION, instead of counting them in `skipped`
+  ([decision 0034](docs/decisions/0034-place-pdf-underlays-after-reading.md),
+  [PDF underlays](docs/formats/dxf.md#pdf-underlays)). The drawing does not store the page size, so they are unplaced
+  (`width` and `height` 0) until the application places them: `placeUnderlays` of `@zumenjs/core` with the sizes it
+  knows, or `placePdfUnderlays` of `@zumenjs/pdf` with the documents that pdf.js opens. One PDF inch is one drawing
+  unit at scale 1 (*inferred*, consistent with ACadSharp's sample). Clip boundaries (also inverted), rotation, scale,
+  the normal, blocks, viewports and the fade are applied; contrast, monochrome, colors adjusted for the background,
+  frames and underlay layers are reported (`underlay-adjust`, `pdf-underlay`), as are underlays without a file or page
+  (`underlay`) and those that AutoCAD draws over earlier entities (`underlay-order`). `zumen-render` counts unplaced
+  underlays in `underlay-not-drawn`. The DXF, DWG, SXF and JWW writers leave PDF underlays out and report them
+  (`pdf-underlay`). The playground places them with PDF files picked next to the drawing.
 - Playground: PDF drawings open in the 2D sample, with their pages drawn by `@zumenjs/pdf` and pdf.js under the
   entities that the reader reads (`playground/pdf-sample.ts`). pdf.js is imported only when the file is a PDF, and
   the playground serves pdf.js's CMaps (Japanese fonts that the PDF does not embed) and image decoders under `pdfjs/`.

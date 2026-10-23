@@ -2005,6 +2005,15 @@ impl<'a> Writer<'a> {
             );
             return;
         }
+        // PDF の underlay は書かない（読み取りが PDFUNDERLAY を読む前と同じく、書いた図面にはない）
+        if matches!(entity.data, DxfEntityData::Underlay(_)) {
+            self.notices.add(
+                NoticeLevel::Warning,
+                "pdf-underlay",
+                "PDF の underlay（PDFUNDERLAY）は、書けないため省きました",
+            );
+            return;
+        }
         // R12 に書く図面は、R12 にない図形を先に r12::prepare で R12 の図形にしてある
         if self.r12() && !r12_native(&entity.data) {
             self.notices.add(NoticeLevel::Warning, "version-skipped", "AutoCAD R12 に書けない図形を省きました");
@@ -2363,6 +2372,7 @@ impl<'a> Writer<'a> {
             }
             DxfEntityData::Image(image) if kind == "IMAGE" => self.image(base, image, owner, paper),
             DxfEntityData::Image(image) => self.wipeout(base, image, owner, paper),
+            DxfEntityData::Underlay(_) => {}
             DxfEntityData::Table(table) => {
                 // 表（ACAD_TABLE）は、表示の図形を持つブロックの配置として書く
                 self.notices.add(
@@ -3528,6 +3538,20 @@ mod tests {
         let empty = write_dxf(&parse_dxf(&section("ENTITIES", &[])));
         let names: Vec<String> = classes(&empty).into_iter().map(|(name, _)| name).collect();
         assert_eq!(names, ["ACDBDICTIONARYWDFLT", "ACDBPLACEHOLDER", "LAYOUT", "MLEADERSTYLE"]);
+    }
+
+    #[test]
+    fn leaves_out_pdf_underlays_and_reports_them() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/dxf/pdf-underlays.dxf");
+        let doc = parse_dxf(&std::fs::read(path).unwrap());
+        for version in [DxfVersion::R2013, DxfVersion::R12] {
+            let written = write_dxf_as(&doc, version);
+            let again = parse_dxf(&written.bytes);
+            assert!(!again.entities.iter().any(|entity| matches!(entity.data, DxfEntityData::Underlay(_))));
+            let notice = written.notices.iter().find(|notice| notice.code == "pdf-underlay").unwrap();
+            // 表示を切ったもの・ファイルの分からないものも含めて、モデルの PDF の underlay（ブロックの中を含む）を数える
+            assert_eq!(notice.count, 7, "{version:?}");
+        }
     }
 
     #[test]

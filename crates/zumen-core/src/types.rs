@@ -484,12 +484,14 @@ pub struct Underlay {
     /// PDF のページ番号（1 から）。kind が Pdf のときだけ持つ
     #[serde(skip_serializing_if = "Option::is_none")]
     pub page: Option<u32>,
-    /// 中身の幅と高さ（中身の座標）
+    /// 中身の幅と高さ（中身の座標）。図面が中身の大きさを持たない underlay（DXF・DWG の PDF の underlay）は、
+    /// アプリケーションが置くまで（@zumenjs/core の placeUnderlays）どちらも 0 で、描かない（docs/decisions/0034）
     pub width: f64,
     pub height: f64,
-    /// 中身の座標から用紙の mm への変換
+    /// 中身の座標から用紙の mm への変換。置く前の underlay は高さ 0 の中身のもので、中身の左下の角が (e, f) にある
     pub matrix: Matrix,
-    /// 描く範囲を切り取る、用紙の mm の多角形。偶奇規則で、外形と中抜き。None なら中身の全体を描く
+    /// 描く範囲を切り取る、用紙の mm の多角形。偶奇規則で、外形と中抜き。None なら中身の全体を描く。置く前の
+    /// underlay の空の輪は、まだ分からない中身の外形
     #[serde(skip_serializing_if = "Option::is_none")]
     pub clip: Option<Vec<Vec<f64>>>,
     /// 不透明度（0〜1）。None なら 1

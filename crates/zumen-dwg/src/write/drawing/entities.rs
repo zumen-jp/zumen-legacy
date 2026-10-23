@@ -248,9 +248,12 @@ impl Writer<'_> {
         self.links(chain[index], previous, next)
     }
 
-    /// 書く図形か（R13 の画像、画像の定義のファイルが分からない画像と、表示のブロックを持たない寸法は書かない）。
-    /// R2000 の図形のつながりを先に決めるのに使う
+    /// 書く図形か（R13 の画像、画像の定義のファイルが分からない画像、PDF の underlay と、表示のブロックを持たない寸法は
+    /// 書かない）。R2000 の図形のつながりを先に決めるのに使う
     fn writes(&self, entity: &DxfEntity) -> bool {
+        if matches!(entity.data, DxfEntityData::Underlay(_)) {
+            return false;
+        }
         if entity.base.kind.eq_ignore_ascii_case("IMAGE") {
             return self.version >= Version::R14
                 && matches!(&entity.data, DxfEntityData::Image(image) if image.path.is_some());
@@ -332,6 +335,15 @@ impl Writer<'_> {
                     "画像（IMAGE）は、画像のファイル（IMAGEDEF）が分からないため省きました",
                 );
             }
+            return None;
+        }
+        if matches!(entity.data, DxfEntityData::Underlay(_)) {
+            // PDF の underlay は書かない（読み取りが PDFUNDERLAY を読む前と同じく、書いた図面にはない）
+            self.notices.add(
+                NoticeLevel::Warning,
+                "pdf-underlay",
+                "PDF の underlay（PDFUNDERLAY）は、書けないため省きました",
+            );
             return None;
         }
         if let DxfEntityData::Dimension(dimension) = &entity.data
@@ -812,6 +824,7 @@ impl Writer<'_> {
                 let number = self.class_number("WIPEOUT");
                 self.put(number, handle, common, Body::Image(Box::new(body)));
             }
+            DxfEntityData::Underlay(_) => return None,
             DxfEntityData::Table(table) => {
                 // 表（ACAD_TABLE）は、表示の図形を持つブロックの配置として書く
                 self.notices.add(

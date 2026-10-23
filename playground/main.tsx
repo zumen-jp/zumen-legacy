@@ -5,7 +5,7 @@ import { imageUnderlayRenderer, type UnderlayRenderer } from "@zumenjs/viewer";
 import { type DragEvent, StrictMode, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { DrawingSample } from "./drawing-sample.js";
-import { usePdfUnderlayRenderer } from "./pdf-sample.js";
+import { usePdfUnderlayFiles, usePdfUnderlayRenderer } from "./pdf-sample.js";
 
 const ACCEPT = ".sfc,.p21,.sfz,.p2z,.jww,.jwc,.jws,.dxf,.dwg,.pdf";
 const READERS = [reader];
@@ -93,11 +93,13 @@ function App() {
       current = false;
     };
   }, [file]);
+  // DXF・DWG の PDF の underlay は、利用者が選んだ PDF のページの大きさで置いてから描く
+  const linked = usePdfUnderlayFiles(drawing.scene, imageFiles, baseName);
   const scene = useMemo(
-    () => (drawing.scene && image ? withUnderlay(drawing.scene, image) : drawing.scene),
-    [drawing.scene, image],
+    () => (linked.scene && image ? withUnderlay(linked.scene, image) : linked.scene),
+    [linked.scene, image],
   );
-  // 図面の画像が指すファイルの名前（重なりを除く）
+  // 図面の画像・PDF の underlay が指すファイルの名前（重なりを除く）
   const wanted = useMemo(() => {
     const names = new Set<string>();
     for (const underlay of drawing.scene?.underlays ?? []) if (underlay.file) names.add(underlay.file);
@@ -116,15 +118,18 @@ function App() {
         : undefined,
     [image, imageFiles, embedded, wanted.length],
   );
-  // PDF の図面のページは pdf.js で、画像は imageUnderlayRenderer で描く
+  // PDF の図面のページと、DXF・DWG の PDF の underlay（ほかのファイル）は pdf.js で、画像は imageUnderlayRenderer で描く
   const pages = usePdfUnderlayRenderer(file);
-  const underlayRenderer = useMemo<UnderlayRenderer | undefined>(
-    () =>
-      pages && images
-        ? (request, target) => (request.underlay.kind === "pdf" ? pages : images)(request, target)
-        : (pages ?? images),
-    [pages, images],
-  );
+  const linkedPages = linked.renderer;
+  const underlayRenderer = useMemo<UnderlayRenderer | undefined>(() => {
+    if (!pages && !images && !linkedPages) return undefined;
+    return (request, target) => {
+      const { underlay } = request;
+      const renderer = underlay.kind !== "pdf" ? images : underlay.file === undefined ? pages : linkedPages;
+      if (!renderer) throw new Error(`underlay ${underlay.id} を描く手段がありません`);
+      return renderer(request, target);
+    };
+  }, [pages, images, linkedPages]);
   const found = wanted.filter((name) => embedded.has(name) || imageFiles.has(baseName(name))).length;
   // マークアップの文書は、図面のファイルのバイトの SHA-256 で図面を指す
   const [hash, setHash] = useState<{ file: File; sha256: string } | null>(null);
@@ -206,10 +211,10 @@ function App() {
         </label>
         {wanted.length > 0 ? (
           <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-            図面の画像のファイル（{found.toLocaleString("ja-JP")} / {wanted.length.toLocaleString("ja-JP")} 件）
+            図面の画像・PDF のファイル（{found.toLocaleString("ja-JP")} / {wanted.length.toLocaleString("ja-JP")} 件）
             <input
               type="file"
-              accept="image/*"
+              accept="image/*,.pdf"
               multiple
               title={wanted.join("\n")}
               onChange={(event) =>

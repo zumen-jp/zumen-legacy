@@ -1459,6 +1459,11 @@ impl<'a> Mapper<'a> {
                 }
             }
             DxfEntityData::Viewport(_) => {}
+            DxfEntityData::Underlay(_) => self.notices.add(
+                NoticeLevel::Warning,
+                "pdf-underlay",
+                "PDF の underlay（PDFUNDERLAY）は、書けないため省きました",
+            ),
             DxfEntityData::XLine { start, unit_vector } => self.xline(entity, start, unit_vector, ctx, items),
             DxfEntityData::Image(_) if base.kind == "IMAGE" => {
                 self.notices.add(
