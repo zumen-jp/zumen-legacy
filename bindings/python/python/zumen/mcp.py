@@ -585,10 +585,20 @@ def create_server(drawings: Drawings | None = None) -> Any:
     return server
 
 
+class _JapaneseHelpFormatter(argparse.HelpFormatter):
+    """使い方の見出しを日本語で表示します。"""
+
+    def add_usage(self, usage: Any, actions: Any, groups: Any, prefix: str | None = None) -> None:
+        super().add_usage(usage, actions, groups, prefix="使い方: " if prefix is None else prefix)
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     """zumen-mcp として stdio の MCP サーバーを起動します。"""
     parser = argparse.ArgumentParser(
-        prog="zumen-mcp", add_help=False, description="zumen で日本の建築・土木の 2D 図面を扱う MCP サーバー"
+        prog="zumen-mcp",
+        add_help=False,
+        formatter_class=_JapaneseHelpFormatter,
+        description="zumen で日本の建築・土木の 2D 図面を扱う MCP サーバー",
     )
     parser._optionals.title = "オプション"
     parser.add_argument("-h", "--help", action="help", help="このヘルプを表示して終了")
@@ -620,7 +630,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         metavar="SECONDS",
         help=f"1 つの図面の読み取り時間の上限（秒、既定 {DEFAULT_TIMEOUT:g}）",
     )
-    parser.add_argument("--version", action="version", version=f"zumen-mcp {__version__}")
+    parser.add_argument(
+        "--version", action="version", version=f"zumen-mcp {__version__}", help="バージョンを表示して終了"
+    )
     args = parser.parse_args(argv)
     try:
         drawings = Drawings(args.root, max_bytes=args.max_bytes, max_entities=args.max_entities, timeout=args.timeout)
