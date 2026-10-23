@@ -12,6 +12,7 @@ pub mod extract;
 pub mod geometry;
 pub mod js;
 pub mod limits;
+pub mod markup;
 mod measure;
 mod notices;
 mod read;
@@ -22,7 +23,7 @@ pub mod text;
 pub mod title;
 mod types;
 
-pub use limits::{Limit, ReadLimits};
+pub use limits::{Limit, ReadLimits, limit_error, read_drawing_with_limits};
 pub use measure::{Distance, MeasurePoint, measure_distance, to_real};
 pub use notices::NoticeList;
 pub use read::{DrawingReader, ReadError, ReadOptions, detect_format, read_drawing};

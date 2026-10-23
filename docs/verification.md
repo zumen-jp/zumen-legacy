@@ -658,16 +658,21 @@ Checked on 2026-10-20 on macOS 27 (Apple Silicon) with Rust 1.99.0 and Python 3.
   reader, each entity of the original scene (the SXF scene, or the DXF scene of the view that the drawing opens in) is
   matched with the SXF features written from it, through the source of each feature, and compared as in
   "SXF and JWW to DXF": boxes, drawn primitives in order, layers and the scale of sub-figures. The SXF → DXF → SXF round
-  trip finds no difference. From DXF and DWG, the differences that remain are the ones SXF cannot hold and that are
-  reported in `notices`: characters outside CP932 and mirrored text, viewport frames that clip, dots of line types
-  (0.25 mm), a block that inserts itself (drawn 32 levels deep by the DXF scene, written once), and the points of
-  dimensions on `DEFPOINTS`. Also left aside are differences in curve flattening: arcs within twice the chord error of
-  the two scenes, and splines within 5 % of their size, because the DXF scene samples the parameter of the whole curve
-  evenly (a spline of `farmhouse.dwg` with an uneven first knot span is 310 mm off in the DXF scene; the Bézier curves
-  written to SXF match the B-spline to 1e-13, `shapes::tests`).
-- The same check on the 57 local samples that zumen reads (the ACadSharp samples of R12 to 2018, the public drawings of
+  trip finds no difference. SFC writes a character outside CP932 as `?` and reports `encoding`, so the round trip
+  compares such a text with `?` in its place, checks that `encoding` is reported, and does not compare the place of each
+  character, since `?` is half width and a character such as `Ø` is laid out full width (pinned by a JWW text `Ø45,6`).
+  From DXF and DWG, the differences that remain are the ones SXF cannot hold and that are reported in `notices`:
+  characters outside CP932 and mirrored text, viewport frames that clip, dots of line types (0.25 mm), a block that
+  inserts itself (drawn 32 levels deep by the DXF scene, written once), and the points of dimensions on `DEFPOINTS`.
+  Also left aside are differences in curve flattening: arcs within twice the chord error of the two scenes, and splines
+  within 5 % of their size, because the DXF scene samples the parameter of the whole curve evenly (a spline of
+  `farmhouse.dwg` with an uneven first knot span is 310 mm off in the DXF scene; the Bézier curves written to SXF match
+  the B-spline to 1e-13, `shapes::tests`).
+- The same check on the 55 local samples that zumen reads (the ACadSharp samples of R12 to 2018, the public drawings of
   Yokosuka City and Imizu City, `farmhouse.dwg` with 25,873 entities, the SXF sample `D0LS004Z` and 10 JWW drawings)
-  finds no other difference (`ZUMEN_SAMPLES=… cargo test -p zumen --release --test convert_to_sxf -- --ignored`).
+  finds no other difference (`ZUMEN_SAMPLES=… cargo test -p zumen --release --test convert_to_sxf -- --ignored`, run
+  again on 2026-10-23). Among the SXF and JWW samples, one text has a character outside CP932: `Ø45,6` in a JWW
+  drawing, written as `?45,6`.
 - Small drawings in the same test pin the rules: model space as a 1:1 sub-figure on a sheet the size of the drawing,
   block references as drawing parts with a copy for each inherited BYBLOCK color, layer 0 inheriting the reference's
   layer, viewports as sub-figures at their scale and twist, CP932, the codes of colors and widths, and a line type of
@@ -740,3 +745,46 @@ view together; pinch anchors; and visible stroke widths at the screen edge.
 
 Placement edits with tilted OCS or embedded MTEXT attributes are explicitly refused instead of saving detached
 attributes. See [DXF editing](formats/dxf.md) and [DWG editing](formats/dwg.md).
+
+## PDF in Rust
+
+Checked on 2026-10-23 on macOS 27 (Apple M2 Pro) with Rust 1.99.0, hayro-interpret 0.8.0, Node.js 24.21.0,
+wasm-bindgen 0.2.129 and pdfjs-dist 6.4.299 ([issue #90](https://github.com/zumenjs/zumen/issues/90),
+[How PDF is handled](formats/pdf.md)). There is no TypeScript PDF reader and no real PDF drawing in `ZUMEN_SAMPLES`, so
+the reader is checked with PDFs whose answer is known.
+
+- Fifteen tests in `crates/zumen-pdf/tests/pdf.rs` write the smallest PDF that pins a rule with `pdf-writer`: the header
+  in the first 1,024 bytes, pages as views named by their labels, the transformation matrix, the kind of each painted
+  path and a fill and stroke as one entity, the text and font matrices (Helvetica at 12 pt: the advances 722, 556, 222,
+  222 and 556 of `Hello`), `Tz`, text rendering modes 2 and 3, a Type 0 font with `ToUnicode` and a ligature, a Type 3
+  font without Unicode, `Rotate` 0, 90, 180, 270 and −90 with a crop box, `UserUnit` 2, a form XObject, an image,
+  the content not read (a shading, a tiling pattern, a clipped and an off-page path, an annotation and a group hidden by
+  default), viewports at 1/100 and 1/50 and one in an unknown unit, and the limits. `tests/fixtures/pdf/drawing.pdf`
+  (two pages: an A3 sheet in a measured viewport and a turned page with a crop box) gives the same scenes natively and
+  through the PDF module (`crates/zumen/tests/golden.rs`), and its ids are recorded.
+- `render_pdf` of every fixture of the other formats, read back, gives the lines, fills and glyph centers drawn, for
+  41 drawings and views (`crates/zumen/tests/pdf.rs`, within 2e-3 mm and the 32-bit precision of large model spaces).
+  hayro gives rectangular paths as rectangles from their lower left corner, so closed outlines are compared without
+  their starting point and direction.
+- `pnpm run parity` on 19 PDFs that `zumen render` wrote from the CAD samples (JWW, SXF, DXF and DWG, kept outside the
+  repository): of the 7,523 strings that pdf.js's `getTextContent` gives on their 19 pages, 7,455 (99.1%) equal the
+  Rust texts on their baselines. The others are pdf.js joining or splitting strings differently from the glyph runs
+  (a label `P` and its number `1` drawn apart, two strings of different sizes), and texts that the drawings draw twice
+  at the same place (`No.20` in a sun shadow diagram); they are reported, not failures.
+- `crates/zumen-pdf/examples/fuzz.rs`, built with overflow checks and debug assertions, read 3,200 damaged copies of
+  eight of those PDFs (400 each, seed 1): 3,023 were read on every page, 177 were refused with a message, none panicked
+  and none took more than four times as long as the undamaged PDF (or 2 s).
+- Time in Node.js through the PDF module (`readSceneJson` with the JSON, median of seven runs after a warm-up): 25 ms for
+  a 75 KB SXF sheet (2,089 entities), 112 ms for the Yokosuka survey plan (0.4 MB, 9,115 entities) and 1.2 s for
+  `farmhouse` (2.9 MB, 54,070 entities, 42,115 of them glyph runs of one character, as `render_pdf` writes them).
+- WebAssembly, compressed with brotli at quality 11 (gzip −9 in parentheses): the CAD module stays 1,930,001 bytes
+  (581,296; 747,794), and the PDF module is 4,281,113 bytes (1,433,746; 1,782,182). One module with both would have
+  been 5,726,005 bytes (1,782,482), three times the CAD module, so PDF has a module of its own
+  ([decision 0030](decisions/0030-pdf-in-a-webassembly-module-of-its-own.md)). `@zumenjs/reader` reads the PDF fixture
+  through it in Node.js and in Chromium, Firefox and WebKit (`ReaderWorker`).
+- Not checked: PDFs written by CAD software (AutoCAD, Jw_cad, plotter drivers) and scans, since none is in the samples;
+  Japanese fonts that are not embedded with predefined CMaps such as `90ms-RKSJ-H` in real files; encrypted files;
+  optional content, annotations and measure dictionaries written by Acrobat or CAD software; pages with `UserUnit` in
+  pdf.js (its `getViewport` multiplies the scale by it, as the underlay's size assumes, read in the source of 6.4.299);
+  and PDFs larger than 3 MB.
+

@@ -46,6 +46,9 @@ TypeScript の読み取り（`packages/sxf`・`packages/jww`・`packages/dxf`）
 - DXF の R12〜2018（テキスト・バイナリ）。線分・円弧・ふくらみと幅のあるポリライン・スプライン・文字・書式つきの複数行文字・
   属性と配列のあるブロック・寸法・ハッチング・引出線・ソリッド・ワイプアウトを、レイヤ・線種・線の太さ・ACI とトゥルーカラー・透過度・文字スタイルとともに描く。
 - DWG の AutoCAD 1.0〜2018。DXF と同じく描く（[DWG の扱い（英語）](docs/formats/dwg.md)）。
+- PDF の図面（読むだけ）。ページを表示に、ページの線・文字・画像を、選択・吸着・計測（ページの計測辞書のある
+  ビューポートの縮尺で実寸も）・解析に使う図形として読む。ページそのものは PDF の描画部品が図形の下に描く
+  （[PDF の扱い（英語）](docs/formats/pdf.md)）。
 - 受け取った図面のための、大きさ・図形の数・時間の上限と、止められる Web Worker での読み取り。
 - DXF・DWG のモデル空間とレイアウト（紙空間）の切り替え。ビューポートの中はその縮尺で描き、計測すると実寸を返す。
 - 2 点間の距離の計測。端点・頂点、なければ線上の点に吸着し、部分図・部品（JWW はレイヤグループ、DXF は単位とビューポート）の縮尺から**実寸**も出す。
@@ -84,7 +87,8 @@ const READERS = [reader];
 
 export function DrawingView({ file }: { file: File | null }) {
   // 読み取りは、初めて図面を開いたときに WebAssembly（brotli で 507 KB）を読み込む。
-  // DXF・DWG のレイアウトは { view } で選ぶ
+  // DXF・DWG のレイアウトと PDF のページは { view } で選ぶ。PDF は先に PDF のモジュールを読み込む。PDF のページの図形は
+  // 描かない（drawn: false）ので、ページは @zumenjs/pdf の pdfUnderlayRenderer が図形の下に描く
   const { scene, error, loading } = useDrawing(file, READERS);
   if (loading) return <p>読み込み中…</p>;
   if (error) return <p role="alert">{error.message}</p>;
@@ -309,6 +313,7 @@ Python では、読み取り・描画・書き出し・編集の間 GIL を外�
 - [JWW の扱い](docs/formats/jww.md)
 - [DXF の扱い（英語）](docs/formats/dxf.md)
 - [DWG の扱い（英語）](docs/formats/dwg.md)
+- [PDF の扱い（英語）](docs/formats/pdf.md)
 - [図面の仕様からの作図（英語）](docs/drafting.md)
 - [CAD 製図の規則の確認（英語）](docs/checks.md)
 - [検証の記録（英語）](docs/verification.md)

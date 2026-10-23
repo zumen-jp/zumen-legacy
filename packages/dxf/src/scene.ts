@@ -13,6 +13,7 @@ import {
   type SceneView,
   type Sheet,
   type StrokePrimitive,
+  type Underlay,
 } from "@zumenjs/core";
 import {
   apply,
@@ -242,6 +243,11 @@ const MAX_DEPTH = 32;
  * 図形が指数的に増えて、読み取りが終わらずにメモリを使い果たす
  */
 const MAX_BLOCK_ENTITIES = 1_000_000;
+/**
+ * 画像が描く順で前の図形に重なるかを調べる、外接矩形の比較の数の上限（Rust と同じ）。使い切った後は、前に図形の
+ * ある画像を重なるものとして数える（画像と図形の多い壊れた図面で、画像ごとに全図形を比べ続けないように）
+ */
+const MAX_ORDER_CHECKS = 1_000_000;
 const MAX_PATTERN_LINES = 5000;
 const DEFAULT_LINEWEIGHT = 0.25;
 /** 文字の高さ（大文字の高さ）に対する字形の em の大きさ。全角を含む文字は漢字の高さを合わせる */
@@ -372,6 +378,13 @@ function extendPrimitiveBox(box: Box, primitive: Primitive): void {
   }
 }
 
+/** 多角形の外接矩形 */
+function ringsBox(rings: readonly Float64Array[]): Box {
+  const box = emptyBox();
+  for (const ring of rings) extendBoxWithPoints(box, ring);
+  return box;
+}
+
 function inside(inner: Box, outer: Box): boolean {
   return inner.minX >= outer.minX && inner.maxX <= outer.maxX && inner.minY >= outer.minY && inner.maxY <= outer.maxY;
 }
@@ -434,6 +447,8 @@ function compareHandles(a: string, b: string): number {
 
 class Builder {
   readonly entities: SceneEntity[] = [];
+  /** 画像（IMAGE）の中身。すべての図形の下に、この順に描く */
+  readonly underlays: Underlay[] = [];
   readonly usedLayers = new Map<number, number>();
   readonly notices: NoticeList;
   private readonly layerIds = new Map<string, number>();
@@ -451,9 +466,14 @@ class Builder {
   readonly model: DxfEntity[] = [];
   private readonly shxFonts = new Set<string>();
   private shxCount = 0;
+  /** 外部参照の参照先（パス、なければブロックの名前）と、描いた参照の数 */
+  private readonly xrefs = new Set<string>();
+  private xrefCount = 0;
   /** ブロック参照・寸法の中で描いた図形の数 */
   private expanded = 0;
   private readonly infinite: { entity: DxfXLine; ctx: Ctx }[] = [];
+  /** 画像の描く順を調べた、外接矩形の比較の数 */
+  private orderChecks = 0;
 
   constructor(readonly doc: DxfDocument) {
     this.notices = new NoticeList(doc.notices);
@@ -1563,7 +1583,13 @@ class Builder {
       this.notices.add("warning", "block-depth", "入れ子が深すぎるブロック参照を省きました");
       return;
     }
-    const base = contents.block?.base_point ?? [0, 0, 0];
+    // 外部参照（DXF Reference「BLOCK」の 70 の 4 と 8、1 が参照先のパス）の図形は参照先の図面にあり、その図面は読まない
+    const block = contents.block;
+    if (block && (block.flags & 12) !== 0) {
+      this.xrefs.add(block.xref_path || block.name);
+      this.xrefCount++;
+    }
+    const base = block?.base_point ?? [0, 0, 0];
     const ocs = ocsMatrix(entity.extrusion, entity.insert[2]);
     const columns = entity.type === "INSERT" ? entity.column_count : 1;
     const rows = entity.type === "INSERT" ? entity.row_count : 1;
@@ -2382,20 +2408,65 @@ class Builder {
 
   private image(entity: DxfImage, ctx: Ctx): void {
     const [w, h] = entity.image_size;
-    let pixels = entity.boundary;
-    if (pixels.length === 0) {
-      pixels = [
-        [-0.5, -0.5],
-        [w - 0.5, h - 0.5],
-      ];
+    // 画素の座標は左上が原点で、Y は下向き（ezdxf の Image.boundary_path_wcs と同じ）。切り抜かない画像の外形は
+    // 画像の全体（AutoCAD の IMAGECLIP の「オフ」は画像の全体と外形を表示する）
+    const whole: Vec2[] = [
+      [-0.5, -0.5],
+      [w - 0.5, h - 0.5],
+    ];
+    let pixels = entity.type === "IMAGE" && !entity.clipping ? whole : entity.boundary;
+    if (pixels.length === 0) pixels = whole;
+    const points = transformPoints(ctx.m, this.imageRing(entity, pixels));
+    if (entity.type === "WIPEOUT") {
+      this.add(entity, ctx, [{ kind: "fill", color: BACKGROUND_COLOR, rings: [points] }], []);
+      return;
     }
-    if (pixels.length === 2) {
-      const [a, b] = pixels as [Vec2, Vec2];
-      pixels = [a, [b[0], a[1]], b, [a[0], b[1]]];
+    const properties: Property[] = [{ key: "imageSize", label: "画素", value: `${fmt(w)} × ${fmt(h)}`, raw: [w, h] }];
+    // 名前が空の画像の定義は、画像を指さない
+    const path = entity.path || undefined;
+    if (path !== undefined) properties.push({ key: "file", label: "ファイル", value: path });
+    if (entity.fade !== 0) properties.push(numberProperty("fade", "フェード", entity.fade));
+    const index = this.entities.length;
+    this.add(
+      entity,
+      ctx,
+      [{ kind: "stroke", points, closed: true, color: this.color(entity, ctx), width: 0, dashes: [] }],
+      properties,
+    );
+    const frame = this.entities[index];
+    if (!frame) return;
+    if (path === undefined) {
+      this.notices.add("info", "image", "画像のファイルが分からない画像（IMAGE）は、外形だけを描きました");
+      return;
     }
-    // 画素の座標は左上が原点で、Y は下向き（ezdxf の Image.boundary_path_wcs と同じ）
+    if (this.doc.image_frame === 0) frame.drawn = false;
+    // 表示しない画像（70 の 1 がない）と、読み込みを外した画像は、AutoCAD も外形だけを表示する
+    if (!(entity.flags & 1) || !entity.loaded) return;
+    const underlay = this.imageUnderlay(entity, path, ctx, frame, entity.clipping ? points : null);
+    if (!underlay) return;
+    this.underlays.push(underlay);
+    if (entity.brightness !== 50 || entity.contrast !== 50) {
+      this.notices.add("info", "image-adjust", "画像（IMAGE）の明るさとコントラストは反映していません");
+    }
+    // 描く順で前にある図形に重なる画像は、AutoCAD ではその図形を隠す（underlay はすべての図形の下に描く）
+    let over = false;
+    for (let i = 0; i < index && !over; i++) {
+      const other = this.entities[i] as SceneEntity;
+      over = ++this.orderChecks > MAX_ORDER_CHECKS || (other.drawn !== false && intersects(other.bbox, underlay.bbox));
+    }
+    if (over) this.notices.add("info", "image-order", "図形の上に重なる画像（IMAGE）を、すべての図形の下に描きました");
+  }
+
+  /** 画像の画素の座標（中心が整数）の点を WCS の点にする */
+  private imageRing(entity: DxfImage, pixels: readonly Vec2[]): number[] {
+    const h = entity.image_size[1];
+    let corners = pixels;
+    if (corners.length === 2) {
+      const [a, b] = corners as [Vec2, Vec2];
+      corners = [a, [b[0], a[1]], b, [a[0], b[1]]];
+    }
     const ring: number[] = [];
-    for (const [px, py] of pixels) {
+    for (const [px, py] of corners) {
       const u = px + 0.5;
       const v = h - py - 0.5;
       ring.push(
@@ -2403,18 +2474,50 @@ class Builder {
         entity.insert[1] + entity.u_pixel[1] * u + entity.v_pixel[1] * v,
       );
     }
-    const points = transformPoints(ctx.m, ring);
-    if (entity.type === "WIPEOUT") {
-      this.add(entity, ctx, [{ kind: "fill", color: BACKGROUND_COLOR, rings: [points] }], []);
-      return;
+    return ring;
+  }
+
+  /**
+   * 画像の中身の underlay（docs/decisions/0022）。中身の座標は画素（左上が原点で Y は下向き）で、点 (x, y) は
+   * WCS の insert + U·x + V·(高さ − y)。boundary は切り抜きの境界（表示用の図面の座標）。反転した切り抜きは
+   * 画像の全体と境界の偶奇で表す。ビューポートの中では、ビューポートの矩形でも切る
+   */
+  private imageUnderlay(
+    entity: DxfImage,
+    path: string,
+    ctx: Ctx,
+    frame: SceneEntity,
+    boundary: Float64Array | null,
+  ): Underlay | null {
+    const [w, h] = entity.image_size;
+    const [ux, uy] = entity.u_pixel;
+    const [vx, vy] = entity.v_pixel;
+    const matrix = multiply(ctx.m, [ux, uy, -vx, -vy, entity.insert[0] + vx * h, entity.insert[1] + vy * h]);
+    const full = transformPoints(matrix, [0, 0, w, 0, w, h, 0, h]);
+    let clip: Float64Array[] | null = null;
+    if (boundary) clip = entity.clip_inverted ? [full, boundary] : [boundary];
+    let bbox = ringsBox(clip ?? [full]);
+    if (ctx.clip && !inside(bbox, ctx.clip)) {
+      if (!intersects(bbox, ctx.clip)) return null;
+      const box = ctx.clip;
+      clip = (clip ?? [full]).map((ring) => clipPolygon(ring, box)).filter((ring) => ring.length >= 6);
+      bbox = ringsBox(clip);
+      if (isEmptyBox(bbox)) return null;
     }
-    this.notices.add("info", "image", "画像（IMAGE）は読み込まず、外形だけを描きました");
-    this.add(
-      entity,
-      ctx,
-      [{ kind: "stroke", points, closed: true, color: this.color(entity, ctx), width: 0, dashes: [] }],
-      [{ key: "imageSize", label: "画素", value: `${fmt(w)} × ${fmt(h)}`, raw: [w, h] }],
-    );
+    const underlay: Underlay = {
+      id: frame.id,
+      kind: "image",
+      file: path,
+      width: w,
+      height: h,
+      matrix,
+      layers: frame.layers,
+      bbox,
+    };
+    if (clip) underlay.clip = clip;
+    // フェードは背景の色に近づける（0〜100）。下の図形と underlay も透けるが、背景の上では同じ見た目
+    if (entity.fade > 0) underlay.opacity = Math.max(0, 1 - entity.fade / 100);
+    return underlay;
   }
 
   /** 構築線・放射線を、ほかの図形の範囲（limit）で切って描く */
@@ -2452,6 +2555,14 @@ class Builder {
   }
 
   finishNotices(): void {
+    if (this.xrefCount > 0) {
+      this.notices.add(
+        "warning",
+        "xref",
+        `外部参照（${[...this.xrefs].sort().join("・")}）は参照先の図面を読まないため、描いていません`,
+        this.xrefCount,
+      );
+    }
     if (this.shxCount > 0) {
       this.notices.add(
         "info",
@@ -2791,6 +2902,7 @@ export function dxfToScene(doc: DxfDocument, options: DxfSceneOptions = {}): Sce
   }
   const bounds = emptyBox();
   for (const entity of builder.entities) unionBox(bounds, entity.bbox);
+  for (const underlay of builder.underlays) unionBox(bounds, underlay.bbox);
   if (sheet) {
     extendBox(bounds, 0, 0);
     extendBox(bounds, sheet.width, sheet.height);
@@ -2798,7 +2910,7 @@ export function dxfToScene(doc: DxfDocument, options: DxfSceneOptions = {}): Sce
   builder.finishInfinite(sheet ? { minX: 0, minY: 0, maxX: sheet.width, maxY: sheet.height } : { ...bounds });
   for (const entity of builder.entities) unionBox(bounds, entity.bbox);
   builder.finishNotices();
-  return {
+  const scene: Scene = {
     format: doc.format,
     version: `${formatName(doc)} ${doc.version}`,
     unit: lengthUnit,
@@ -2812,6 +2924,8 @@ export function dxfToScene(doc: DxfDocument, options: DxfSceneOptions = {}): Sce
     metadata,
     background,
   };
+  if (builder.underlays.length > 0) scene.underlays = builder.underlays;
+  return scene;
 }
 
 /**

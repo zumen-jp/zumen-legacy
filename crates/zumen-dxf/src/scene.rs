@@ -23,7 +23,7 @@ use zumen_core::text::{EM_LATIN, TextLayoutInput, font_family_for, is_half_width
 use zumen_core::{
     BACKGROUND_COLOR, BBox, Background, ClippedPrimitive, DotPrimitive, EntityKind, FillPrimitive, LengthUnit, Matrix,
     NoticeLevel, NoticeList, Placement, Primitive, Property, Scene, SceneEntity, SceneLayer, SceneView, Sheet,
-    StrokePrimitive, js,
+    StrokePrimitive, Underlay, UnderlayKind, js,
 };
 
 /// $INSUNITS の単位の mm（DXF Reference「HEADER Section Group Codes」の $INSUNITS）
@@ -197,6 +197,9 @@ const MAX_DEPTH: u32 = 32;
 /// ブロック参照・寸法の中で描く図形の数の上限。自分を 2 回以上含むブロックは、入れ子の深さの上限（32 段）より前に
 /// 図形が指数的に増えて、読み取りが終わらずにメモリを使い果たす
 const MAX_BLOCK_ENTITIES: u64 = 1_000_000;
+/// 画像が描く順で前の図形に重なるかを調べる、外接矩形の比較の数の上限（TypeScript と同じ）。使い切った後は、前に
+/// 図形のある画像を重なるものとして数える（画像と図形の多い壊れた図面で、画像ごとに全図形を比べ続けないように）
+const MAX_ORDER_CHECKS: u64 = 1_000_000;
 const MAX_PATTERN_LINES: f64 = 5000.0;
 /// JavaScript の Number.MAX_SAFE_INTEGER（2⁵³ − 1）。これより大きい数は、1 を足しても変わらないことがある
 const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
@@ -437,6 +440,87 @@ fn stroke_primitive(points: Vec<f64>, closed: bool, color: String) -> StrokePrim
     StrokePrimitive { points, closed, segments: None, color, width: 0.0, dashes: Vec::new() }
 }
 
+/// 画像の画素の座標（中心が整数）の点を WCS の点にする
+fn image_ring(entity: &DxfImage, pixels: &[Vec2]) -> Vec<f64> {
+    let h = entity.image_size[1];
+    let corners: Vec<Vec2> = if pixels.len() == 2 {
+        let (a, b) = (pixels[0], pixels[1]);
+        vec![a, [b[0], a[1]], b, [a[0], b[1]]]
+    } else {
+        pixels.to_vec()
+    };
+    let mut ring = Vec::with_capacity(corners.len() * 2);
+    for [px, py] in corners {
+        let u = px + 0.5;
+        let v = h - py - 0.5;
+        ring.push(entity.insert[0] + entity.u_pixel[0] * u + entity.v_pixel[0] * v);
+        ring.push(entity.insert[1] + entity.u_pixel[1] * u + entity.v_pixel[1] * v);
+    }
+    ring
+}
+
+/// 多角形の外接矩形
+fn rings_box(rings: &[Vec<f64>]) -> BBox {
+    let mut b = empty_box();
+    for ring in rings {
+        extend_box_with_points(&mut b, ring);
+    }
+    b
+}
+
+/// 画像の中身の underlay（docs/decisions/0022）。中身の座標は画素（左上が原点で Y は下向き）で、点 (x, y) は
+/// WCS の insert + U·x + V·(高さ − y)。boundary は切り抜きの境界（表示用の図面の座標）。反転した切り抜きは
+/// 画像の全体と境界の偶奇で表す。ビューポートの中では、ビューポートの矩形でも切る
+fn image_underlay(
+    entity: &DxfImage,
+    path: &str,
+    ctx: &Ctx,
+    frame: &SceneEntity,
+    boundary: Option<Vec<f64>>,
+) -> Option<Underlay> {
+    let [w, h] = entity.image_size;
+    let [ux, uy, _] = entity.u_pixel;
+    let [vx, vy, _] = entity.v_pixel;
+    let matrix = multiply(&ctx.m, &[ux, uy, -vx, -vy, entity.insert[0] + vx * h, entity.insert[1] + vy * h]);
+    let full = transform_points(&matrix, &[0.0, 0.0, w, 0.0, w, h, 0.0, h]);
+    let mut clip: Option<Vec<Vec<f64>>> =
+        boundary.map(|boundary| if entity.clip_inverted { vec![full.clone(), boundary] } else { vec![boundary] });
+    let mut bbox = rings_box(clip.as_deref().unwrap_or(std::slice::from_ref(&full)));
+    if let Some(viewport) = &ctx.clip
+        && !inside(&bbox, viewport)
+    {
+        if !intersects(&bbox, viewport) {
+            return None;
+        }
+        let rings: Vec<Vec<f64>> = clip
+            .unwrap_or_else(|| vec![full])
+            .iter()
+            .map(|ring| clip_polygon(ring, viewport))
+            .filter(|ring| ring.len() >= 6)
+            .collect();
+        bbox = rings_box(&rings);
+        if is_empty_box(&bbox) {
+            return None;
+        }
+        clip = Some(rings);
+    }
+    Some(Underlay {
+        id: frame.id.clone(),
+        kind: UnderlayKind::Image,
+        file: Some(path.to_string()),
+        page: None,
+        width: w,
+        height: h,
+        matrix,
+        clip,
+        // フェードは背景の色に近づける（0〜100）。下の図形と underlay も透けるが、背景の上では同じ見た目
+        opacity: (entity.fade > 0.0).then(|| (1.0 - entity.fade / 100.0).max(0.0)),
+        layers: frame.layers.clone(),
+        content_layers: None,
+        bbox,
+    })
+}
+
 struct BlockContents<'a> {
     block: Option<&'a DxfBlock>,
     entities: Rc<Vec<&'a DxfEntity>>,
@@ -452,6 +536,10 @@ struct PartColor {
 struct Builder<'a> {
     doc: &'a DxfDocument,
     entities: Vec<SceneEntity>,
+    /// 画像（IMAGE）の中身。すべての図形の下に、この順に描く
+    underlays: Vec<Underlay>,
+    /// 画像の描く順を調べた、外接矩形の比較の数
+    order_checks: u64,
     used_layers: HashMap<u32, u64>,
     notices: NoticeList,
     layer_ids: HashMap<String, u32>,
@@ -470,6 +558,9 @@ struct Builder<'a> {
     /// SHX のフォント（加えた順で重複なし）
     shx_fonts: Vec<String>,
     shx_count: u64,
+    /// 外部参照の参照先（パス、なければブロックの名前。加えた順で重複なし）と、描いた参照の数
+    xrefs: Vec<String>,
+    xref_count: u64,
     /// ブロック参照・寸法の中で描いた図形の数
     expanded: u64,
     infinite: Vec<(DxfEntity, Ctx)>,
@@ -482,6 +573,8 @@ impl<'a> Builder<'a> {
         let mut builder = Builder {
             doc,
             entities: Vec::new(),
+            underlays: Vec::new(),
+            order_checks: 0,
             used_layers: HashMap::new(),
             notices: NoticeList::from_notices(&doc.notices),
             layer_ids: HashMap::new(),
@@ -498,6 +591,8 @@ impl<'a> Builder<'a> {
             model: Rc::new(Vec::new()),
             shx_fonts: Vec::new(),
             shx_count: 0,
+            xrefs: Vec::new(),
+            xref_count: 0,
             expanded: 0,
             infinite: Vec::new(),
             pieces: None,
@@ -1921,6 +2016,14 @@ impl<'a> Builder<'a> {
             self.notices.add(NoticeLevel::Warning, "block-depth", "入れ子が深すぎるブロック参照を省きました");
             return;
         }
+        // 外部参照（DXF Reference「BLOCK」の 70 の 4 と 8、1 が参照先のパス）の図形は参照先の図面にあり、その図面は読まない
+        if let Some(xref) = block.filter(|block| js::to_int32(block.flags) & 12 != 0) {
+            let target = xref.xref_path.as_deref().filter(|path| !path.is_empty()).unwrap_or(&xref.name);
+            if !self.xrefs.iter().any(|known| known == target) {
+                self.xrefs.push(target.to_string());
+            }
+            self.xref_count += 1;
+        }
         let base_point = block.map_or([0.0, 0.0, 0.0], |block| block.base_point);
         let ocs = ocs_matrix(base.extrusion.as_ref(), point[2]);
         let columns = insert.map_or(1.0, |insert| insert.column_count);
@@ -3008,37 +3111,77 @@ impl<'a> Builder<'a> {
 
     fn image(&mut self, base: &DxfEntityBase, entity: &DxfImage, ctx: &Ctx) {
         let [w, h] = entity.image_size;
-        let mut pixels: Vec<Vec2> = entity.boundary.clone();
+        // 画素の座標は左上が原点で、Y は下向き（ezdxf の Image.boundary_path_wcs と同じ）。切り抜かない画像の外形は
+        // 画像の全体（AutoCAD の IMAGECLIP の「オフ」は画像の全体と外形を表示する）
+        let whole: Vec<Vec2> = vec![[-0.5, -0.5], [w - 0.5, h - 0.5]];
+        let mut pixels: &[Vec2] = if base.kind == "IMAGE" && !entity.clipping { &whole } else { &entity.boundary };
         if pixels.is_empty() {
-            pixels = vec![[-0.5, -0.5], [w - 0.5, h - 0.5]];
+            pixels = &whole;
         }
-        if pixels.len() == 2 {
-            let (a, b) = (pixels[0], pixels[1]);
-            pixels = vec![a, [b[0], a[1]], b, [a[0], b[1]]];
-        }
-        // 画素の座標は左上が原点で、Y は下向き（ezdxf の Image.boundary_path_wcs と同じ）
-        let mut ring: Vec<f64> = Vec::new();
-        for [px, py] in pixels {
-            let u = px + 0.5;
-            let v = h - py - 0.5;
-            ring.push(entity.insert[0] + entity.u_pixel[0] * u + entity.v_pixel[0] * v);
-            ring.push(entity.insert[1] + entity.u_pixel[1] * u + entity.v_pixel[1] * v);
-        }
-        let points = transform_points(&ctx.m, &ring);
+        let points = transform_points(&ctx.m, &image_ring(entity, pixels));
         if base.kind == "WIPEOUT" {
             let fill = FillPrimitive { color: BACKGROUND_COLOR.into(), rings: vec![points] };
             self.add(base, ctx, vec![Primitive::Fill(fill)], Vec::new(), None);
             return;
         }
-        self.notices.add(NoticeLevel::Info, "image", "画像（IMAGE）は読み込まず、外形だけを描きました");
+        let mut properties = vec![Property::new("imageSize", "画素", format!("{} × {}", fmt(w), fmt(h))).raw([w, h])];
+        // 名前が空の画像の定義は、画像を指さない
+        let path = entity.path.as_deref().filter(|path| !path.is_empty());
+        if let Some(path) = path {
+            properties.push(Property::new("file", "ファイル", path));
+        }
+        if entity.fade != 0.0 {
+            properties.push(number_property("fade", "フェード", entity.fade));
+        }
+        let index = self.entities.len();
         let color = self.color(base, ctx);
-        self.add(
-            base,
-            ctx,
-            vec![Primitive::Stroke(stroke_primitive(points, true, color))],
-            vec![Property::new("imageSize", "画素", format!("{} × {}", fmt(w), fmt(h))).raw([w, h])],
-            None,
-        );
+        let boundary = entity.clipping.then(|| points.clone());
+        self.add(base, ctx, vec![Primitive::Stroke(stroke_primitive(points, true, color))], properties, None);
+        if self.entities.len() == index {
+            return;
+        }
+        let Some(path) = path else {
+            self.notices.add(
+                NoticeLevel::Info,
+                "image",
+                "画像のファイルが分からない画像（IMAGE）は、外形だけを描きました",
+            );
+            return;
+        };
+        if self.doc.image_frame == Some(0.0) {
+            self.entities[index].drawn = false;
+        }
+        // 表示しない画像（70 の 1 がない）と、読み込みを外した画像は、AutoCAD も外形だけを表示する
+        if js::to_int32(entity.flags) & 1 == 0 || !entity.loaded {
+            return;
+        }
+        let Some(underlay) = image_underlay(entity, path, ctx, &self.entities[index], boundary) else {
+            return;
+        };
+        if entity.brightness != 50.0 || entity.contrast != 50.0 {
+            self.notices.add(
+                NoticeLevel::Info,
+                "image-adjust",
+                "画像（IMAGE）の明るさとコントラストは反映していません",
+            );
+        }
+        // 描く順で前にある図形に重なる画像は、AutoCAD ではその図形を隠す（underlay はすべての図形の下に描く）
+        let mut over = false;
+        for other in &self.entities[..index] {
+            self.order_checks += 1;
+            over = self.order_checks > MAX_ORDER_CHECKS || (other.drawn && intersects(&other.bbox, &underlay.bbox));
+            if over {
+                break;
+            }
+        }
+        if over {
+            self.notices.add(
+                NoticeLevel::Info,
+                "image-order",
+                "図形の上に重なる画像（IMAGE）を、すべての図形の下に描きました",
+            );
+        }
+        self.underlays.push(underlay);
     }
 
     /// 構築線・放射線を、ほかの図形の範囲（limit）で切って描く
@@ -3084,6 +3227,16 @@ impl<'a> Builder<'a> {
     }
 
     fn finish_notices(&mut self) {
+        if self.xref_count > 0 {
+            let mut xrefs = self.xrefs.clone();
+            xrefs.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
+            self.notices.add_count(
+                NoticeLevel::Warning,
+                "xref",
+                format!("外部参照（{}）は参照先の図面を読まないため、描いていません", xrefs.join("・")),
+                self.xref_count,
+            );
+        }
         if self.shx_count > 0 {
             let mut fonts = self.shx_fonts.clone();
             fonts.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
@@ -3707,6 +3860,9 @@ pub fn dxf_to_scene(doc: &DxfDocument, layout: Option<&str>) -> Scene {
     for entity in &builder.entities {
         union_box(&mut bounds, &entity.bbox);
     }
+    for underlay in &builder.underlays {
+        union_box(&mut bounds, &underlay.bbox);
+    }
     if let Some(sheet) = &sheet {
         extend_box(&mut bounds, 0.0, 0.0);
         extend_box(&mut bounds, sheet.width, sheet.height);
@@ -3731,7 +3887,7 @@ pub fn dxf_to_scene(doc: &DxfDocument, layout: Option<&str>) -> Scene {
         bounds,
         layers,
         entities: builder.entities,
-        underlays: Vec::new(),
+        underlays: builder.underlays,
         notices: builder.notices.into_vec(),
         metadata,
         background,
@@ -3848,4 +4004,18 @@ fn draw_viewport(
     }
     builder.add(base, root, vec![Primitive::Stroke(stroke)], properties, None);
     Some(label)
+}
+
+#[cfg(test)]
+mod image_flag_tests {
+    use super::*;
+
+    /// DXF Reference「IMAGE」の 70 はビットのフラグ。壊れた大きい数も TypeScript の ToInt32 と同じに読む。
+    #[test]
+    fn image_display_flags_follow_javascript_for_large_values() {
+        let bytes = b"0\nSECTION\n2\nENTITIES\n0\nIMAGE\n5\nA\n8\n0\n10\n0\n20\n0\n11\n1\n21\n0\n12\n0\n22\n1\n13\n100\n23\n50\n70\n1e100\n340\nB\n0\nENDSEC\n0\nSECTION\n2\nOBJECTS\n0\nIMAGEDEF\n5\nB\n1\nphoto.png\n280\n1\n0\nENDSEC\n0\nEOF\n";
+        let scene = dxf_to_scene(&crate::parse_dxf(bytes), None);
+        assert!(scene.entities.iter().any(|entity| entity.id == "A"));
+        assert!(scene.underlays.is_empty());
+    }
 }

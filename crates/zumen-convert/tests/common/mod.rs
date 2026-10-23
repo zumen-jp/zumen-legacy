@@ -625,6 +625,10 @@ pub fn differences(
     let mut out = Vec::new();
     let mut matched = 0;
     for entity in &original.entities {
+        // JWW の画像の配置（選ぶためだけの外形）は、AutoCAD の図面のモデルに写さずに embedded-image で知らせる
+        if entity.kind == zumen_core::EntityKind::Image && !entity.drawn {
+            continue;
+        }
         let expected: Vec<&Primitive> = entity.primitives.iter().filter(|primitive| !invisible(primitive)).collect();
         let id = &entity.id;
         let Some(converted) = groups.get(id) else {

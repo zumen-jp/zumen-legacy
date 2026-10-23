@@ -16,6 +16,14 @@ interface UnderlayImage {
   bitmap: ImageBitmap;
 }
 
+/**
+ * 図面が書くファイルの名前（.\image.JPG、C:\scans\a.tif、JWW に同梱した %temp%a.bmp など）から、フォルダを
+ * 除いた名前を小文字で
+ */
+function baseName(path: string): string {
+  return (path.split(/[\\/]/).pop() ?? path).replace(/^%temp%/i, "").toLowerCase();
+}
+
 /** 画像を、用紙（なければ図面の範囲）の中央に縦横比を保って収める underlay にし、図面の下に敷く */
 function withUnderlay(scene: Scene, image: UnderlayImage): Scene {
   const box = scene.sheet ? { minX: 0, minY: 0, maxX: scene.sheet.width, maxY: scene.sheet.height } : scene.bounds;
@@ -61,18 +69,32 @@ function App() {
     setView(undefined);
     setFile(next);
   };
-  // 図面の下に敷く画像。図面の underlay のうち、ここで敷いたものだけを描く
+  // 図面の下に敷く画像と、図面の画像（DXF の IMAGE など）が指すファイル（フォルダを除いた名前で引く）
   const [image, setImage] = useState<UnderlayImage | null>(null);
   const [imageError, setImageError] = useState<string | null>(null);
-  const underlayRenderer = useMemo(
-    () =>
-      image ? imageUnderlayRenderer((underlay) => (underlay.id === UNDERLAY_ID ? image.bitmap : null)) : undefined,
-    [image],
-  );
+  const [imageFiles, setImageFiles] = useState<ReadonlyMap<string, File>>(new Map());
   const scene = useMemo(
     () => (drawing.scene && image ? withUnderlay(drawing.scene, image) : drawing.scene),
     [drawing.scene, image],
   );
+  // 図面の画像が指すファイルの名前（重なりを除く）
+  const wanted = useMemo(() => {
+    const names = new Set<string>();
+    for (const underlay of drawing.scene?.underlays ?? []) if (underlay.file) names.add(underlay.file);
+    return [...names];
+  }, [drawing.scene]);
+  const underlayRenderer = useMemo(
+    () =>
+      image || wanted.length > 0
+        ? imageUnderlayRenderer((underlay) => {
+            if (underlay.id === UNDERLAY_ID) return image?.bitmap ?? null;
+            const found = underlay.file === undefined ? undefined : imageFiles.get(baseName(underlay.file));
+            return found ? createImageBitmap(found) : null;
+          })
+        : undefined,
+    [image, imageFiles, wanted.length],
+  );
+  const found = wanted.filter((name) => imageFiles.has(baseName(name))).length;
   // マークアップの文書は、図面のファイルのバイトの SHA-256 で図面を指す
   const [hash, setHash] = useState<{ file: File; sha256: string } | null>(null);
   useEffect(() => {
@@ -151,6 +173,22 @@ function App() {
           下敷きの画像（PNG・JPEG）
           <input type="file" accept="image/*" onChange={(event) => openImage(event.currentTarget.files?.[0] ?? null)} />
         </label>
+        {wanted.length > 0 ? (
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+            図面の画像のファイル（{found.toLocaleString("ja-JP")} / {wanted.length.toLocaleString("ja-JP")} 件）
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              title={wanted.join("\n")}
+              onChange={(event) =>
+                setImageFiles(
+                  new Map([...(event.currentTarget.files ?? [])].map((file) => [baseName(file.name), file])),
+                )
+              }
+            />
+          </label>
+        ) : null}
         {imageError ? <span role="alert">{imageError}</span> : null}
         <span aria-live="polite">
           {loading

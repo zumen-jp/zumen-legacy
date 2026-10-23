@@ -221,6 +221,7 @@ impl Builder {
                 layouts: Vec::new(),
                 entities: Vec::new(),
                 sort_handles: Vec::new(),
+                image_frame: None,
                 skipped: Vec::new(),
                 notices: Vec::new(),
             },
@@ -626,8 +627,13 @@ pub fn wipeout(points: &[Vec2]) -> DxfEntityData {
         boundary,
         flags: 7.0,
         clipping: true,
+        clip_inverted: false,
+        brightness: 50.0,
+        contrast: 50.0,
+        fade: 0.0,
         definition_handle: None,
         path: None,
+        loaded: true,
     })
 }
 

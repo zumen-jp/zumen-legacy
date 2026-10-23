@@ -1,7 +1,8 @@
 import { type Scene, sceneFromJson } from "@zumenjs/core";
+import { detectDrawing } from "./detect.js";
 import type { ReadSceneOptions } from "./index.js";
 import { type Limit, LimitError } from "./limits.js";
-import type { FromWorker, ToWorker } from "./protocol.js";
+import type { FromWorker, ReaderModule, ToWorker } from "./protocol.js";
 
 export interface ReaderWorkerOptions {
   /**
@@ -9,6 +10,18 @@ export interface ReaderWorkerOptions {
    * 相対の ../wasm/zumen_wasm_bg.wasm（initReader の既定と同じ）
    */
   wasm?: string | URL | WebAssembly.Module;
+  /**
+   * PDF を読む WebAssembly。省略すると ../wasm/zumen_wasm_pdf_bg.wasm（initPdfReader の既定と同じ）。PDF を初めて
+   * 読むときに読み込む（決定 0030）
+   */
+  pdfWasm?: string | URL | WebAssembly.Module;
+}
+
+/** 読み込み中か読み込んだモジュール */
+interface Load {
+  promise: Promise<void>;
+  resolve(): void;
+  reject(error: unknown): void;
 }
 
 export interface WorkerReadOptions extends ReadSceneOptions {
@@ -31,13 +44,14 @@ interface Job {
  * 止められる（WebAssembly は途中で止まらないので、受け取った図面を読むときはこちらを使う）。
  *
  * createWorker は @zumenjs/reader/worker のモジュールで Worker を作る関数。止めたあとに作り直すので、関数で渡す。
- * 読み取りは 1 つずつ順に行い、時間は Web Worker が読み始めたときから測る（WebAssembly の読み込みは含めない）
+ * 読み取りは 1 つずつ順に行い、時間は Web Worker が読み始めたときから測る（WebAssembly の読み込みは含めない）。
+ * WebAssembly は図面の形式のモジュール（PDF とそれ以外）を、その形式を初めて読むときに読み込む
  */
 export class ReaderWorker {
   readonly #createWorker: () => Worker;
-  readonly #wasm: string | WebAssembly.Module | undefined;
+  readonly #wasm: Record<ReaderModule, string | WebAssembly.Module | undefined>;
   #worker: Worker | undefined;
-  #ready: Promise<Worker> | undefined;
+  #loads = new Map<ReaderModule, Load>();
   readonly #queue: Job[] = [];
   #current: Job | undefined;
   #nextId = 0;
@@ -45,7 +59,8 @@ export class ReaderWorker {
 
   constructor(createWorker: () => Worker, options: ReaderWorkerOptions = {}) {
     this.#createWorker = createWorker;
-    this.#wasm = options.wasm instanceof URL ? options.wasm.href : options.wasm;
+    const location = (wasm: string | URL | WebAssembly.Module | undefined) => (wasm instanceof URL ? wasm.href : wasm);
+    this.#wasm = { cad: location(options.wasm), pdf: location(options.pdfWasm) };
   }
 
   /** 図面を読み、表示用の図面を返す。読めない図面は Error、上限を超えたら LimitError、やめたら signal.reason で拒否する */
@@ -89,9 +104,10 @@ export class ReaderWorker {
 
   async #run(job: Job): Promise<void> {
     try {
-      const worker = await this.#start();
-      if (this.#current !== job) return;
+      const worker = this.#start();
       const { signal: _signal, ...options } = job.options;
+      await this.#load(worker, (options.format ?? detectDrawing(job.bytes)) === "pdf" ? "pdf" : "cad");
+      if (this.#current !== job) return;
       const message: ToWorker = { type: "read", id: job.id, bytes: job.bytes, options };
       worker.postMessage(message);
       const timeout = options.limits?.timeout;
@@ -111,33 +127,46 @@ export class ReaderWorker {
     }
   }
 
-  /** Web Worker を作り、WebAssembly を読み込ませる。読み込めなかったら、次の読み取りで作り直す */
-  #start(): Promise<Worker> {
-    if (this.#ready) return this.#ready;
+  /** Web Worker を作る。WebAssembly は #load で読み込ませる */
+  #start(): Worker {
+    if (this.#worker) return this.#worker;
     const worker = this.#createWorker();
     this.#worker = worker;
-    const ready = new Promise<Worker>((resolve, reject) => {
-      worker.onmessage = (event: MessageEvent<FromWorker>) => {
-        const message = event.data;
-        if (message.type === "ready") resolve(worker);
-        else if (message.type === "init-error") {
-          this.#kill();
-          reject(new Error(message.message));
-        } else this.#reply(message);
-      };
-      // モジュールを読み込めない、読んでいる途中で落ちたなど。読んでいる図面を拒否し、次は作り直す
-      worker.onerror = (event) => {
-        event.preventDefault();
+    worker.onmessage = (event: MessageEvent<FromWorker>) => {
+      const message = event.data;
+      if (message.type === "loaded") this.#loads.get(message.module)?.resolve();
+      else if (message.type === "load-error") {
+        // 読み込めなかったら Web Worker ごと捨て、次の読み取りで作り直す
+        this.#loads.get(message.module)?.reject(new Error(message.message));
         this.#kill();
-        const error = new Error(event.message || "図面を読む Web Worker が止まりました");
-        reject(error);
-        if (this.#current) this.#finish(this.#current, error);
-      };
+      } else this.#reply(message);
+    };
+    // モジュールを読み込めない、読んでいる途中で落ちたなど。読んでいる図面を拒否し、次は作り直す
+    worker.onerror = (event) => {
+      event.preventDefault();
+      const error = new Error(event.message || "図面を読む Web Worker が止まりました");
+      for (const load of this.#loads.values()) load.reject(error);
+      this.#kill();
+      if (this.#current) this.#finish(this.#current, error);
+    };
+    return worker;
+  }
+
+  /** Web Worker にモジュールを読み込ませる。読み込み中・読み込んだものは同じ Promise を返す */
+  #load(worker: Worker, module: ReaderModule): Promise<void> {
+    const existing = this.#loads.get(module);
+    if (existing) return existing.promise;
+    let resolve!: () => void;
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<void>((onResolve, onReject) => {
+      resolve = onResolve;
+      reject = onReject;
     });
-    this.#ready = ready;
-    const init: ToWorker = this.#wasm === undefined ? { type: "init" } : { type: "init", wasm: this.#wasm };
-    worker.postMessage(init);
-    return ready;
+    this.#loads.set(module, { promise, resolve, reject });
+    const wasm = this.#wasm[module];
+    const message: ToWorker = wasm === undefined ? { type: "load", module } : { type: "load", module, wasm };
+    worker.postMessage(message);
+    return promise;
   }
 
   #reply(message: Extract<FromWorker, { id: number }>): void {
@@ -192,6 +221,9 @@ export class ReaderWorker {
       this.#worker.terminate();
     }
     this.#worker = undefined;
-    this.#ready = undefined;
+    // 読み込みを待っている読み取りを終える（その読み取りがまだ今のものなら、呼び出した側が別の理由で終えている）
+    const stopped = new Error("ReaderWorker の Web Worker を止めました");
+    for (const load of this.#loads.values()) load.reject(stopped);
+    this.#loads = new Map();
   }
 }

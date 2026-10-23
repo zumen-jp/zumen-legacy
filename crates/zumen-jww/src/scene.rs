@@ -6,17 +6,23 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::f64::consts::PI;
 use std::sync::Arc;
 use zumen_core::geometry::{
-    apply, arc_segments, ellipse_arc_points, empty_box, extend_box, extend_box_with_points, is_empty_box, mean_scale,
-    multiply, sweep_radians, transform_points, union_box,
+    apply, apply_vector, arc_segments, ellipse_arc_points, empty_box, extend_box, extend_box_with_points, is_empty_box,
+    mean_scale, multiply, sweep_radians, transform_points, union_box,
 };
 use zumen_core::text::layout_text;
 use zumen_core::{
     BBox, Background, DotPrimitive, EntityKind, FillPrimitive, LengthUnit, Matrix, NoticeLevel, NoticeList, Placement,
-    Primitive, Property, Scene, SceneEntity, SceneLayer, Sheet, StrokePrimitive, TextPrimitive, js,
+    Primitive, Property, Scene, SceneEntity, SceneLayer, Sheet, StrokePrimitive, TextPrimitive, Underlay, UnderlayKind,
+    js,
 };
 
 const MAX_DEPTH: usize = 16;
 const TOLERANCE: f64 = 0.02;
+/// 図面が画素数を記録しない画像の中身の座標の単位（用紙の mm あたり）。用紙の 0.01 mm を 1 とする
+/// （docs/decisions/0031）
+const IMAGE_UNITS_PER_MM: f64 = 100.0;
+/// 画像の配置の文字の、トリミングと透過の値の既定（Jw_cad が書く値。ezjww の IMAGE_DEFAULT_EXTRA）
+const IMAGE_DEFAULT_EXTRA: &str = "0,0,1,0,255,255,255";
 
 fn number(value: f64) -> String {
     js::format_number(value, 3)
@@ -42,6 +48,8 @@ struct Builder<'a> {
     origin: (f64, f64),
     notices: NoticeList,
     entities: Vec<SceneEntity>,
+    /// 画像（^@BM）の中身。すべての図形の下に、この順に描く
+    underlays: Vec<Underlay>,
     /// 文字として保存された Jw_cad の設定（Printer_Orientation = 0 など）
     settings: Vec<String>,
     used_layers: BTreeMap<u32, u64>,
@@ -56,6 +64,7 @@ impl<'a> Builder<'a> {
             origin,
             notices,
             entities: Vec::new(),
+            underlays: Vec::new(),
             settings: Vec::new(),
             used_layers: BTreeMap::new(),
             blocks: doc.blocks.iter().map(|block| (block.number, block)).collect(),
@@ -238,6 +247,10 @@ impl<'a> Builder<'a> {
                     self.settings.push(e.content.clone());
                     return;
                 }
+                if e.content.starts_with("^@BM") {
+                    self.image(ctx, e, id);
+                    return;
+                }
                 let Some(text) = self.text(ctx, e) else {
                     return;
                 };
@@ -358,6 +371,84 @@ impl<'a> Builder<'a> {
         points
     }
 
+    /// 画像の配置（^@BM）。文字は「^@BMファイル名,幅,高さ,トリミングと透過の値」で、幅と高さは用紙の mm、文字の始点が
+    /// 画像の左下（jwdatafmt.txt の「画像データ文字列」、ezjww の docs/JWW_WRITE.md）。中身は文字の向きに回した矩形に
+    /// 描く underlay にし（中身の座標は用紙の 0.01 mm、docs/decisions/0031）、外形は選ぶためだけの図形にする
+    fn image(&mut self, ctx: &Context, text: &JwwText, id: usize) {
+        let mut parts = text.content[4..].split(',');
+        let file = parts.next().unwrap_or("").to_string();
+        let values: Vec<&str> = parts.collect();
+        let w = values.first().map_or(f64::NAN, |value| js::string_to_number(value));
+        let h = values.get(1).map_or(f64::NAN, |value| js::string_to_number(value));
+        let unreadable = |builder: &mut Self| {
+            builder.notices.add(
+                NoticeLevel::Info,
+                "image",
+                "ファイル・幅・高さを読めない画像の配置（^@BM）は描いていません",
+            );
+        };
+        let sized = w > 0.0 && h > 0.0 && (w * h).is_finite();
+        if file.is_empty() || !sized {
+            unreadable(self);
+            return;
+        }
+        let angle = text.angle * PI / 180.0;
+        let (cos, sin) = (js::cos(angle), js::sin(angle));
+        let (rx, ry) = apply_vector(&ctx.m, w * cos, w * sin);
+        let (ux, uy) = apply_vector(&ctx.m, -h * sin, h * cos);
+        let width = js::hypot2(rx, ry) * IMAGE_UNITS_PER_MM;
+        let height = js::hypot2(ux, uy) * IMAGE_UNITS_PER_MM;
+        if !(width > 0.0 && height > 0.0 && (width * height).is_finite()) {
+            unreadable(self);
+            return;
+        }
+        let (tx, ty) = apply(&ctx.m, text.x1 - h * sin, text.y1 + h * cos);
+        let matrix = [rx / width, ry / width, -ux / height, -uy / height, tx, ty];
+        let corners = transform_points(&matrix, &[0.0, 0.0, width, 0.0, width, height, 0.0, height]);
+        let color = self.color(&text.base, None);
+        let index = self.entities.len();
+        let stroke =
+            StrokePrimitive { points: corners, closed: true, segments: None, color, width: 0.0, dashes: Vec::new() };
+        let properties = vec![
+            Property::new("file", "ファイル", file.clone()),
+            Property::new("text", "文字列", text.content.clone()),
+        ];
+        self.add(
+            ctx,
+            &text.base,
+            id,
+            EntityKind::Image,
+            "画像",
+            "CDataMoji",
+            vec![Primitive::Stroke(stroke)],
+            properties,
+        );
+        let Some(entity) = self.entities.get_mut(index) else {
+            return;
+        };
+        // Jw_cad は画像に外形を描かない。選ぶ・測るためだけに残す
+        entity.drawn = false;
+        let underlay = Underlay {
+            id: entity.id.clone(),
+            kind: UnderlayKind::Image,
+            file: Some(file),
+            page: None,
+            width,
+            height,
+            matrix,
+            clip: None,
+            opacity: None,
+            layers: entity.layers.clone(),
+            content_layers: None,
+            bbox: entity.bbox,
+        };
+        self.underlays.push(underlay);
+        let extra = values.get(2..).unwrap_or(&[]).join(",");
+        if !extra.is_empty() && extra != IMAGE_DEFAULT_EXTRA {
+            self.notices.add(NoticeLevel::Info, "image-trim", "画像のトリミングと透過の指定は反映していません");
+        }
+    }
+
     fn text(&mut self, ctx: &Context, text: &JwwText) -> Option<TextPrimitive> {
         if text.content.is_empty() {
             return None;
@@ -366,7 +457,7 @@ impl<'a> Builder<'a> {
             self.notices.add(
                 NoticeLevel::Info,
                 "embedded-image",
-                "文字に埋め込んだ画像（^@BM など）は表示していません",
+                "画像の配置でない、^@ で始まる制御の文字は表示していません",
             );
             return None;
         }
@@ -441,6 +532,9 @@ pub fn jww_to_scene(doc: &JwwDocument) -> Scene {
     for entity in &builder.entities {
         union_box(&mut bounds, &entity.bbox);
     }
+    for underlay in &builder.underlays {
+        union_box(&mut bounds, &underlay.bbox);
+    }
     if let Some(sheet) = &sheet {
         extend_box(&mut bounds, 0.0, 0.0);
         extend_box(&mut bounds, sheet.width, sheet.height);
@@ -509,7 +603,7 @@ pub fn jww_to_scene(doc: &JwwDocument) -> Scene {
         bounds,
         layers,
         entities: builder.entities,
-        underlays: Vec::new(),
+        underlays: builder.underlays,
         notices: builder.notices.into_vec(),
         metadata,
         background,

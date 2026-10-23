@@ -67,8 +67,32 @@ What is not drawn or is shown otherwise (counted in the reader's notices):
 | --- | --- |
 | Patterns of pattern hatching and externally defined hatching | Only the outline is drawn |
 | Predefined symbols | Their name is shown instead of the shape (実装規約 1-10) |
-| Raster images (separate TIFF and JPEG files) | Not shown |
+| Raster images (separate TIFF and JPEG files) | Drawn under every entity ([Images](#images)) |
 | Area_control | A blank region; not drawn, but it can be selected |
+
+### Images
+
+An image (画像, a monochrome TIFF or a JPEG, called raster in SXF Ver.2.0) is a drawing group placed on the sheet. Its
+name carries the file: the predefined attribute 画像 of the attribute mechanism (`$$ATRU$$<number>$$<name>$$画像$$<file>`)
+from Ver.3.0, or `$$RASTER$$<file>` in Ver.2.0 (SXF 技術者リファレンスブック 2017, 3.5.4 画像). The polyline in the
+group bounds the image, and the image is on that polyline's layer (OCF implementation rules, geometry, 2011, 18 画像
+(3)). The image file sits next to the drawing (18 (5)); zumen does not open it.
+
+- The image becomes an underlay of `Scene.underlays` with `file` as the name gives it, drawn over the rectangle of the
+  first polyline of four points or more in the group, which stays drawn as an entity. The underlay has its id and
+  layers.
+- The polyline is taken to start at the image's lower left corner (*inferred*: the public drawings of Yamaguchi
+  prefecture's infrastructure database, written by TOWISE CAD, go clockwise from there; the specification text was
+  not at hand). The second vertex is the upper left corner when the polygon turns clockwise and the lower right corner
+  otherwise, so images rotated by their placement angle are drawn rotated (18 (1)).
+- SXF does not record the pixel count, so the content is measured in hundredths of a sheet millimeter
+  ([decision 0031](../decisions/0031-image-units-without-a-pixel-count.md)).
+- SXF draws in the order of the file (the implementation rules' display order), so an image placed after entities that
+  it overlaps hides them. Underlays are drawn under every entity, and such images are reported (`raster-order`). The
+  comparisons are limited as in DXF (1,000,000).
+- An image group without a polyline is not drawn (`raster`). The display color and the transparency of monochrome
+  rasters (18 (1)) are left to the application, which decodes the file (browsers other than Safari do not decode
+  TIFF).
 
 Broken or hostile drawings must not stop the reader, so these limits apply, with the same rules in TypeScript and Rust
 (`crates/zumen-sxf`):

@@ -177,13 +177,17 @@ made with (coordinates, scales, rotations, texts, layers, block names).
   `$DIMASZ`, `$DIMTXT`, extents and limits) and `$MEASUREMENT` from the template section; the tables of layers, line
   types, text styles, dimension styles and block records with their BLOCK entities; layouts (the `ACAD_LAYOUT`
   dictionary, from R2000 on); multiline styles (`ACAD_MLINESTYLE`); draw order (SORTENTSTABLE); color book colors
-  (DBCOLOR in `ACAD_COLOR`).
+  (DBCOLOR in `ACAD_COLOR`); the image frame setting (RASTERVARIABLES in `ACAD_IMAGE_VARS`) when the drawing has
+  images.
 - Entities: LINE, POINT, CIRCLE, ARC, ELLIPSE, LWPOLYLINE, POLYLINE (2D, 3D, polyface and polygon meshes), SPLINE, TEXT,
   ATTRIB, ATTDEF, MTEXT, INSERT, MINSERT, the seven DIMENSION types, ARC_DIMENSION, LARGE_RADIAL_DIMENSION, HATCH, SOLID,
   TRACE, 3DFACE, LEADER, MULTILEADER, MLINE (with its element parameters), VIEWPORT, XLINE, RAY, IMAGE, WIPEOUT and
   ACAD_TABLE (its anonymous block, as for DXF).
 - Not read, counted and reported: HELIX and MPOLYGON (drawn from DXF), REGION, 3DSOLID, BODY, MESH, SURFACE, TOLERANCE,
   SHAPE, underlays, OLE frames, lights and proxy entities.
+- External references: the bits of BLOCK_HEADER for an attached and an overlaid reference (20.4.52) become the flags 4
+  and 8 of DXF, and its path the path (group 1), so references to them are counted in the `xref` notice as from DXF
+  ([Entities](dxf.md#entities)). The drawings they refer to are not read.
 - `$MEASUREMENT` follows the template's description (22). From R2007 the description is UTF-16 and its length counts
   characters: AutoCAD writes one NUL character there (the specification counts bytes, which would read 256 for a metric
   drawing).
@@ -204,6 +208,9 @@ return what `parse_dxf` returns for that DXF. All are *inferred* from the sample
 - **Values that DXF leaves out**: the MTEXT direction (1, 0, 0), the dimension clone point (12) at the origin and the
   dimension angles 50, 51, 52 and 53 when they are zero are left out, as AutoCAD leaves them out of DXF.
 - **Polygons**: the boundary of a polygonal WIPEOUT or IMAGE is closed with its first point, as DXF repeats it.
+- **IMAGE**: brightness, contrast and fade (20.4.80, RC) are DXF 281, 282 and 283, and the clip mode bit (R2010 and
+  later) is 290. The IMAGEDEF (20.4.82) gives the file name and the loaded bit (DXF 280). The ACadSharp samples of R2000
+  to R2018 give the same underlay from the DWG and from the DXF that AutoCAD wrote.
 - **LEADER**: AutoCAD writes the hook of a leader with an annotation (annotation type below 3) as an extra vertex in DXF;
   DWG does not store it. It is added before the last vertex, at the arrow size times `DIMSCALE` along the leader's
   horizontal direction, backwards unless the hook is on the X direction.
@@ -474,6 +481,8 @@ of an object and write it back; each of them gives the same bits for every objec
   and tangents when it has no control points or when its control points are those the reader computes from the fit
   points (a spline read from a DWG keeps its fit points).
 - A WIPEOUT boundary that ends at its first point is written without that point, which the reader adds back.
+- An IMAGE keeps its brightness, contrast and fade (RC) and, from R2010, its clip mode; its IMAGEDEF keeps the loaded
+  bit. The image frame setting (RASTERVARIABLES) is not written (`image-frame`).
 
 #### Inferred rules
 
@@ -503,6 +512,7 @@ The codes of the DXF writer, with the same messages, and two more:
 | `table` | An ACAD_TABLE | An INSERT of its block |
 | `attrib-alone` | An ATTRIB that no INSERT owns | A TEXT or MTEXT |
 | `image` | An IMAGE whose image definition (IMAGEDEF) the model does not know | Nothing |
+| `image-frame` | The drawing hides image frames (`IMAGEFRAME` 0) | Nothing: the frames show |
 | `dimension-block` | A dimension without its block | Nothing |
 | `mleader-block` | A MULTILEADER whose block content is not defined | No content |
 | `multiline-attrib` | A multi-line attribute, which DWG before AutoCAD 2018 cannot hold (the embedded MTEXT is R2018) | A single-line attribute with the text on one line |
@@ -611,6 +621,7 @@ DWG (the DXF writer has no R13 or R14):
 | `version-background` | R13 to 2004 | No background mask of MTEXT |
 | `version-mleader` | R13 to 2004 | MULTILEADER as it is (AutoCAD before 2008 shows it as a proxy) |
 | `version-mleader-2010` | R13 to 2007 | A MULTILEADER without its vertical attachment, top and bottom text attachments and per-line colors (DWG only) |
+| `version-image-clip` | R14 to 2007 | An image clip that removes the inside of its boundary, as one that keeps it |
 | `multiline-attrib` | R13 to 2013 | A multi-line attribute as a single-line attribute (DWG only) |
 
 R13 and R14 also leave out the dimension values of R2000 (attachment, line spacing and measurement), which the dimension
