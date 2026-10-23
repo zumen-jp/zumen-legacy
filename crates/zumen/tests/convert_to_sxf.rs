@@ -16,13 +16,14 @@ fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures")
 }
 
-/// AutoCAD の図面のモデルを SFC に書いて読み直した表示と、SXF のインスタンス番号 → 元の表示の id の部分
+/// AutoCAD の図面のモデルを SFC に書いて読み直した表示と、SXF のインスタンス番号 → 元の表示の id の部分、写して書いた
+/// ときの知らせ
 fn to_sxf(doc: &DxfDocument) -> (Scene, HashMap<String, String>, Vec<zumen::Notice>) {
     let mapped = zumen::mapping::dxf_to_sxf(doc);
     let (written, sources) = mapped.write();
     let again = zumen::sxf::parse_sfc(&written.bytes).expect("書いた SFC を読める");
     assert!(again.notices.is_empty(), "{:?}", again.notices);
-    (zumen::sxf::sxf_to_scene(&again), sources, mapped.notices)
+    (zumen::sxf::sxf_to_scene(&again), sources, [mapped.notices, written.notices].concat())
 }
 
 /// SXF・JWW を DXF に写し、書いた DXF を読み直したモデル。ハンドル → 元の図形の id
@@ -64,13 +65,43 @@ fn files(folder: &Path, extensions: &[&str]) -> Vec<PathBuf> {
     files
 }
 
-/// SXF・JWW を DXF を経て SXF に書き直し、元と比べる
+/// SXF・JWW を DXF を経て SXF に書き直し、元と比べる。SFC は CP932 にない文字を ? にして encoding で知らせ、制御文字は
+/// 書かないので、元の文字列もそうしてから比べ、? にした文字があれば知らせたかを確かめる
 fn check_round_trip(name: &str, bytes: &[u8]) -> (usize, Vec<String>) {
-    let original = zumen::read(bytes, &ReadDrawingOptions::default()).unwrap();
+    let mut original = zumen::read(bytes, &ReadDrawingOptions::default()).unwrap();
+    let mut replaced = std::collections::HashSet::new();
+    let mut unmapped = false;
+    for entity in &mut original.entities {
+        for primitive in &mut entity.primitives {
+            if let zumen::Primitive::Text(text) = primitive
+                && unwritable(&text.text)
+            {
+                unmapped |= text.text.chars().any(|c| !c.is_control() && unwritable(&c.to_string()));
+                text.text = cp932(&text.text);
+                replaced.insert(entity.id.clone());
+            }
+        }
+    }
     let (doc, dxf_sources) = through_dxf(bytes);
-    let (again, sxf_sources, _) = to_sxf(&doc);
+    let (mut again, sxf_sources, notices) = to_sxf(&doc);
     let sources = compose(&sxf_sources, &dxf_sources);
-    let differences = common::differences(&original, &again, &sources);
+    // ? は半角なので、全角とする文字（Ø など）を ? にした文字列は、字の並びが変わる。その図形の文字は 1 文字ずつの
+    // 位置を比べない
+    let written = again
+        .entities
+        .iter_mut()
+        .filter(|entity| common::source_id(&entity.id, &sources).is_some_and(|id| replaced.contains(&id)));
+    for entity in original.entities.iter_mut().filter(|entity| replaced.contains(&entity.id)).chain(written) {
+        for primitive in &mut entity.primitives {
+            if let zumen::Primitive::Text(text) = primitive {
+                text.cells.clear();
+            }
+        }
+    }
+    let mut differences = common::differences(&original, &again, &sources);
+    if unmapped && !codes(&notices).contains(&"encoding") {
+        differences.push("characters outside CP932 written as ? without the encoding notice".into());
+    }
     (original.entities.len(), differences.into_iter().map(|line| format!("{name}: {line}")).collect())
 }
 
@@ -88,6 +119,21 @@ fn sxf_written_through_the_autocad_model_draws_the_same() {
     }
     assert!(failures.is_empty(), "{failures:#?}");
     assert!(checked >= 100, "checked only {checked} entities");
+}
+
+/// CP932 にない文字（Ø）を含む JWW の文字は、DXF を経た SFC に ? にして書き、encoding で知らせる。その文字と
+/// 1 文字ずつの位置のほかは、元と同じに描ける
+#[test]
+fn writes_jww_text_outside_cp932_with_question_marks() {
+    let operations = zumen::edit::parse_operations(
+        r#"[{"op": "add", "kind": "text", "position": [0, 0], "text": "Ø45,6", "height": 2.5}]"#,
+    )
+    .unwrap();
+    let bytes = zumen::create("jww", "mm", &operations).unwrap().bytes;
+    let scene = zumen::read(&bytes, &ReadDrawingOptions::default()).unwrap();
+    assert!(matches!(&scene.entities[0].primitives[0], zumen::Primitive::Text(text) if text.text == "Ø45,6"));
+    let (entities, differences) = check_round_trip("Ø.jww", &bytes);
+    assert_eq!((entities, differences), (1, Vec::<String>::new()));
 }
 
 /// 表示を平行移動する（モデル空間を表示する図面は、図形の範囲の左下を用紙の原点にして書く）

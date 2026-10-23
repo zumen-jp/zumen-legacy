@@ -658,16 +658,21 @@ Checked on 2026-10-20 on macOS 27 (Apple Silicon) with Rust 1.99.0 and Python 3.
   reader, each entity of the original scene (the SXF scene, or the DXF scene of the view that the drawing opens in) is
   matched with the SXF features written from it, through the source of each feature, and compared as in
   "SXF and JWW to DXF": boxes, drawn primitives in order, layers and the scale of sub-figures. The SXF → DXF → SXF round
-  trip finds no difference. From DXF and DWG, the differences that remain are the ones SXF cannot hold and that are
-  reported in `notices`: characters outside CP932 and mirrored text, viewport frames that clip, dots of line types
-  (0.25 mm), a block that inserts itself (drawn 32 levels deep by the DXF scene, written once), and the points of
-  dimensions on `DEFPOINTS`. Also left aside are differences in curve flattening: arcs within twice the chord error of
-  the two scenes, and splines within 5 % of their size, because the DXF scene samples the parameter of the whole curve
-  evenly (a spline of `farmhouse.dwg` with an uneven first knot span is 310 mm off in the DXF scene; the Bézier curves
-  written to SXF match the B-spline to 1e-13, `shapes::tests`).
-- The same check on the 57 local samples that zumen reads (the ACadSharp samples of R12 to 2018, the public drawings of
+  trip finds no difference. SFC writes a character outside CP932 as `?` and reports `encoding`, so the round trip
+  compares such a text with `?` in its place, checks that `encoding` is reported, and does not compare the place of each
+  character, since `?` is half width and a character such as `Ø` is laid out full width (pinned by a JWW text `Ø45,6`).
+  From DXF and DWG, the differences that remain are the ones SXF cannot hold and that are reported in `notices`:
+  characters outside CP932 and mirrored text, viewport frames that clip, dots of line types (0.25 mm), a block that
+  inserts itself (drawn 32 levels deep by the DXF scene, written once), and the points of dimensions on `DEFPOINTS`.
+  Also left aside are differences in curve flattening: arcs within twice the chord error of the two scenes, and splines
+  within 5 % of their size, because the DXF scene samples the parameter of the whole curve evenly (a spline of
+  `farmhouse.dwg` with an uneven first knot span is 310 mm off in the DXF scene; the Bézier curves written to SXF match
+  the B-spline to 1e-13, `shapes::tests`).
+- The same check on the 55 local samples that zumen reads (the ACadSharp samples of R12 to 2018, the public drawings of
   Yokosuka City and Imizu City, `farmhouse.dwg` with 25,873 entities, the SXF sample `D0LS004Z` and 10 JWW drawings)
-  finds no other difference (`ZUMEN_SAMPLES=… cargo test -p zumen --release --test convert_to_sxf -- --ignored`).
+  finds no other difference (`ZUMEN_SAMPLES=… cargo test -p zumen --release --test convert_to_sxf -- --ignored`, run
+  again on 2026-10-23). Among the SXF and JWW samples, one text has a character outside CP932: `Ø45,6` in a JWW
+  drawing, written as `?45,6`.
 - Small drawings in the same test pin the rules: model space as a 1:1 sub-figure on a sheet the size of the drawing,
   block references as drawing parts with a copy for each inherited BYBLOCK color, layer 0 inheriting the reference's
   layer, viewports as sub-figures at their scale and twist, CP932 and the codes of colors and widths. Each SXF and P21
