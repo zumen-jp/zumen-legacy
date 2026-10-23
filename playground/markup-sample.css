@@ -1,0 +1,118 @@
+/*
+ * マークアップのサンプル（markup-sample.tsx）の見た目。マークアップの色は --zumen-markup-* のカスタムプロパティで、
+ * 分類ごとに --zumen-markup-category-<分類>-dark・-light を決める（docs/markup.md）
+ */
+.sample {
+  --zumen-markup-category-correction-dark: #ff4d4d;
+  --zumen-markup-category-correction-light: #d50000;
+  --zumen-markup-category-question-dark: #5ab0ff;
+  --zumen-markup-category-question-light: #0050c8;
+  --zumen-markup-category-checked-dark: #4cd964;
+  --zumen-markup-category-checked-light: #00802b;
+}
+.markup-open {
+  display: inline-flex;
+  align-items: center;
+}
+.markup-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+}
+.markup-check input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--sample-accent);
+}
+.markup-message {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--sample-text-muted);
+}
+.markup-list {
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--sample-border);
+}
+.markup-list ul {
+  display: grid;
+  gap: 2px;
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+.markup-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0 8px;
+  width: 100%;
+  min-height: 40px;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.markup-item:hover {
+  background: var(--sample-surface-muted);
+}
+.markup-item[aria-current="true"] {
+  border-color: var(--sample-accent);
+  background: var(--sample-selected);
+}
+.markup-kind {
+  font-weight: 600;
+}
+.markup-carried {
+  color: var(--sample-accent);
+  font-size: 12px;
+}
+.markup-text {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  color: var(--sample-text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.markup-editor {
+  display: grid;
+  gap: 4px;
+}
+.markup-editor textarea,
+.markup-dialog textarea,
+.markup-dialog input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--sample-border);
+  border-radius: 6px;
+  background: var(--sample-surface);
+  color: var(--sample-text);
+  font: inherit;
+}
+.markup-editor .sample-properties {
+  margin: 8px 0;
+}
+.markup-dialog {
+  width: min(28em, calc(100vw - 32px));
+  border: 1px solid var(--sample-border);
+  border-radius: 8px;
+  background: var(--sample-surface);
+  color: var(--sample-text);
+}
+.markup-dialog form {
+  display: grid;
+  gap: 12px;
+}
+.markup-dialog label {
+  display: grid;
+  gap: 4px;
+}
+.markup-dialog h3 {
+  margin: 0;
+  font-size: 16px;
+}
