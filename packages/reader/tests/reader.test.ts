@@ -150,6 +150,106 @@ describe("@zumenjs/reader", () => {
     expect(drawings.filter((name) => isPdf(read(name)))).toEqual(["pdf/drawing.pdf"]);
   });
 
+  // IFC や STEP の AP203・AP214・AP242 も ISO-10303-21 で始まる。FILE_SCHEMA の 1 つ目のスキーマが SXF の
+  // ASSOCIATIVE_DRAUGHTING でないものは SXF ではなく、FILE_SCHEMA のないものは SXF とみなす。入力は
+  // crates/zumen-sxf/tests/detect.rs と同じで、WebAssembly の detect も同じ形式を返す
+  it("FILE_SCHEMA がほかのスキーマの STEP のファイルを SXF とみなさず、対応していない形式として読まない", () => {
+    const step = (schema: string) =>
+      latin1(
+        "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION((''),'2;1');\n" +
+          `FILE_NAME('x','2026-10-23T00:00:00',(''),(''),'','','');\n${schema}\n` +
+          "ENDSEC;\nDATA;\n#1=CARTESIAN_POINT('',(0.,0.));\nENDSEC;\nEND-ISO-10303-21;\n",
+      );
+    const others = [
+      "FILE_SCHEMA(('IFC2X3'));",
+      "FILE_SCHEMA(('IFC4'));",
+      "FILE_SCHEMA(('IFC4X3_ADD2'));",
+      // AP203、AP214（スキーマのオブジェクト識別子つき）、AP242
+      "FILE_SCHEMA(('CONFIG_CONTROL_DESIGN'));",
+      "FILE_SCHEMA(('AUTOMOTIVE_DESIGN { 1 0 10303 214 1 1 1 1 }'));",
+      "FILE_SCHEMA(('AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF { 1 0 10303 442 1 1 4 }'));",
+      // 大文字と小文字、空白（\s の VT・FF・NBSP も）
+      "FILE_SCHEMA(('ifc4'));",
+      "file_schema(('IFC4'));",
+      "FILE_SCHEMA ( ( 'IFC4' ) ) ;",
+      "FILE_SCHEMA\r\n\t(\t(\r\n'IFC4'));",
+      "FILE_SCHEMA\x0b\x0c\xa0(('IFC4'));",
+      // 名前の一部が同じもの、\s でない U+0085 が続くもの、ß（toUpperCase では SS）を含むもの
+      "FILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING_X'));",
+      "FILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING\x85'));",
+      "FILE_SCHEMA(('A\xdfOCIATIVE_DRAUGHTING'));",
+      // 1 つ目がほかのスキーマのもの、空の名前、FILE_SCHEMA という文字列を含む FILE_NAME の後
+      "FILE_SCHEMA(('IFC4','ASSOCIATIVE_DRAUGHTING'));",
+      "FILE_SCHEMA((''));",
+      "FILE_NAME('FILE_SCHEMA');\nFILE_SCHEMA(('IFC4'));",
+    ];
+    const sxfs = [
+      "FILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));",
+      "FILE_SCHEMA(('associative_draughting'));",
+      "file_schema (( ' Associative_Draughting\t' ));",
+      "FILE_SCHEMA\xa0(('\xa0ASSOCIATIVE_DRAUGHTING\xa0'));",
+      "FILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING { 1 0 10303 202 1 1 1 }'));",
+      "FILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING{1 0 10303 202 1 1 1}'));",
+      "FILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING','IFC4'));",
+      // FILE_SCHEMA がない、スキーマ名の文字列がないものは、これまでどおり SXF
+      "",
+      "FILE_SCHEMA(());",
+      "FILE_SCHEMA($);",
+    ];
+    // tests/fixtures の SXF から FILE_SCHEMA を除いたものは SXF のまま、IFC4 にしたものは SXF でない
+    const line = "FILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));\n";
+    const fixtures = drawings
+      .filter((name) => /^(sfc|p21)\//.test(name))
+      .flatMap((name): [Uint8Array, string | null][] => {
+        const text = Buffer.from(read(name)).toString("latin1");
+        expect(text).toContain(line);
+        return [
+          [latin1(text.replace(line, "")), name.slice(0, 3)],
+          [latin1(text.replace(line, "FILE_SCHEMA(('IFC4'));\n")), null],
+        ];
+      });
+    // 先頭の 64 KiB だけを見る。FILE_SCHEMA の文字列の閉じる引用符が 64 KiB の最後のバイトなら読み、次のバイトなら読まない
+    const quoteAt = (at: number) => {
+      const [before, after] = ["ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('", "'),'2;1');\nFILE_SCHEMA(('IFC4"];
+      const padding = "x".repeat(at - before.length - after.length);
+      const bytes = latin1(`${before}${padding}${after}'));\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;\n`);
+      expect(bytes[at]).toBe(0x27);
+      return bytes;
+    };
+    const cases: [Uint8Array, string | null][] = [
+      ...others.map((schema): [Uint8Array, null] => [step(schema), null]),
+      ...sxfs.map((schema): [Uint8Array, string] => [step(schema), "p21"]),
+      // ISO-10303-21 の前の空白と改行は、これまでどおり飛ばす
+      [Uint8Array.from([...latin1(" \r\n"), ...step("FILE_SCHEMA(('IFC4'));")]), null],
+      [step("/* FILE_SCHEMA(('IFC4')); */\nFILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));"), "p21"],
+      [step("/* FILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING')); */\nFILE_SCHEMA(('IFC4'));"), null],
+      [
+        latin1(
+          Buffer.from(step("FILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));"))
+            .toString("latin1")
+            .replace("FILE_NAME('x'", "FILE_NAME('FILE_SCHEMA((''IFC4''))'"),
+        ),
+        "p21",
+      ],
+      [step("FILE_SCHEMA/* metadata */( /* metadata */ ('IFC4'));"), null],
+      [step("FILE_SCHEMA/* metadata */(('ASSOCIATIVE_DRAUGHTING'));"), "p21"],
+      ...fixtures,
+      [quoteAt(64 * 1024 - 1), null],
+      [quoteAt(64 * 1024), "p21"],
+    ];
+    for (const [bytes, format] of cases) {
+      // 違えば、ヘッダの FILE_SCHEMA の辺りを示す
+      const header = Buffer.from(bytes.subarray(0, 200)).toString("latin1");
+      expect(detectDrawing(bytes), header).toBe(format);
+      expect(detect(bytes) ?? null, header).toBe(format);
+    }
+    // TypeScript の readDrawing も Rust の読み取り（readScene）も、どの読み取りも読めない形式のエラーにする
+    const message = "対応していない形式のファイルです（読める形式: SFC・P21・SFZ・P2Z・JWW・JWC・JWS・DXF・DWG）";
+    const ifc = step("FILE_SCHEMA(('IFC4'));");
+    expect(() => readDrawing(ifc, [reader])).toThrow(message);
+    expect(() => readScene(ifc)).toThrow(message);
+  });
+
   it("JWC と JWS を WebAssembly 読み込み前の判定と reader の対応形式に含める", () => {
     for (const [signature, format] of [
       ["jw_cad(c)data", "jwc"],

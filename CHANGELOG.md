@@ -21,6 +21,11 @@ All packages share one version during 0.x.
   loads the PDF module only when a PDF is opened. The CAD module does not change.
 - `pnpm run parity` compares the texts of PDF files with pdf.js page by page and reports the differences, and
   `THIRD_PARTY_LICENSES.txt` also carries the licenses of the data that crates embed (the fonts and CMaps of hayro).
+- Browsers, Rust, Python and the command line: files that start with `ISO-10303-21` but whose `FILE_SCHEMA` does not
+  begin with SXF's schema `ASSOCIATIVE_DRAUGHTING`, such as IFC (`IFC2X3`, `IFC4`, `IFC4X3_ADD2`) and STEP AP203, AP214
+  and AP242 files, are no longer detected as SXF P21. Reading them gives the error for a format no reader knows instead
+  of an empty drawing with the `no-sheet` notice. SXF files without `FILE_SCHEMA` are still detected
+  ([How SXF is handled](docs/formats/sxf.md#reading)).
 - Browsers: drawing markup, kept in a JSON document beside the drawing in paper millimeters of a view
   ([decision 0021](docs/decisions/0021-drawing-markup.md), [Drawing markup](docs/markup.md)). `@zumenjs/core` has the
   model (`MarkupDocument`, `MarkupItem` and its kinds `redline`, `cloud`, `text`, `finding` and `photo`),
