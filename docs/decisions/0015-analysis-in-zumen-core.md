@@ -68,9 +68,9 @@ Each analysis has the same surfaces as the existing ones:
 
 | Surface | Regions (this decision) | Tables (next) | Checks (after) |
 | --- | --- | --- | --- |
-| Rust | `zumen_core::regions::closed_regions` | `zumen_core::tables::ruled_tables` | `zumen_core::checks` |
-| Python | `Scene.regions` (all values), `zumen.tools.find_regions` (bounded JSON, `RegionPage`) | `Scene.tables`, `tools.find_tables` (`TablePage`) | `tools.check_drawing` |
-| Command line | `zumen regions` (JSON lines) | `zumen tables` (JSON lines, CSV with `--csv`) | `zumen check` |
+| Rust | `zumen_core::regions::closed_regions` | `zumen_core::tables::ruled_tables` | `zumen_core::checks::check_scene` |
+| Python | `Scene.regions` (all values), `zumen.tools.find_regions` (bounded JSON, `RegionPage`) | `Scene.tables`, `tools.find_tables` (`TablePage`) | `Scene.check`, `tools.check_drawing` (`CheckInfo`) |
+| Command line | `zumen regions` (JSON lines) | `zumen tables` (JSON lines, CSV with `--csv`) | `zumen check` (JSON, fails on a rule of level error) |
 | MCP | `find_regions` | `find_tables` | `check_drawing` |
 
 The browser gets them through `bindings/wasm` when an application needs them; there is no TypeScript port.
@@ -114,6 +114,29 @@ The browser gets them through `bindings/wasm` when an application needs them; th
   left place, which `zumen tables --csv` writes and `tools.find_tables` returns, with the ids of the texts, the spans
   and a page bound in cells (`max_cells`); `contains` keeps the tables with a cell whose text contains a word.
 
+**Checks against CAD standards**, the third piece ([Checks](../checks.md) lists the fields of each rule):
+
+- A rule set is JSON: a name, a title, a source and rules, each with an id, a kind, a level (`error`, `warning`,
+  `info`), the section of the standard and the fields of its kind. The kinds are `layer-name` (shell patterns and a
+  length counted in half-width characters), `color`, `line-type`, `line-width`, `text-height`, `characters`,
+  `sheet-size`, `orientation` and `scale`; the rules of entities can be limited to layers by name patterns, so that an
+  organization can say which colors or line types a layer may use. A rule with missing or foreign fields is refused,
+  so that a misspelt field does not pass silently. Patterns are a small shell-pattern matcher in `zumen-core` rather
+  than regular expressions: layer naming rules are written that way, and no dependency is added.
+- The checks read the scene only: the stable keys `lineType` and `lineWidth`, the `scale` property and metadata, the
+  colors and text parts drawn, the layers that hold entities and the sheet. Where the scene does not give a value (a
+  DXF width taken from the layer, a JWW line type that is only a number, the text heights of a drawing without a
+  sheet), the item is counted as `unchecked` rather than passed, and a rule reports how many items it `checked`.
+- Text heights are those the drawing gives: the frame height in SXF and JWW, which the scene draws as the glyph
+  height, and the height of capitals in DXF and DWG, whose glyphs the scene draws larger by a fixed ratio. That ratio
+  (`zumen_core::text::em_for`) moves from `zumen-dxf` to `zumen-core`, so that the reader and the check share it; a
+  scene whose texts have the DXF `height` property is measured by it.
+- Findings group the items by the value that breaks the rule, with the count, the entity ids and the layers, so that
+  a drawing with thousands of texts at one wrong height gives one finding.
+- The built-in rule set `mlit-cad-2025` follows the CAD drafting standard of MLIT (令和7年12月) section by section; the
+  rule set file cites the sections. Its layer names are an error, as the electronic delivery checker treats them, and
+  its other rules are warnings or information, since the standard states them as principles with exceptions.
+
 **Order**: closed regions, then ruled tables built on the same faces, then checks. Regions answer the question asked
 most (areas) and stand alone; tables reuse their faces; checks need rule sets to be designed and written down from
 the standards, and can then also use regions and tables (the sheet frame, the title block, a drawing list).
@@ -137,6 +160,12 @@ the standards, and can then also use regions and tables (the sheet frame, the ti
   table with a gap in a rule (a cell whose line was left out) has one merged cell there.
 - A title block drawn as one column with a label and a value in each cell is a table of one column, with the label and
   the value as two lines of one cell; `zumen_core::title` still reads its fields.
+- The checks report what the scene shows, not the file: a check of an SXF drawing written by `zumen-convert` from DXF
+  sees the heights that the conversion wrote, and a rule set cannot tell a user-defined SXF line type named like a
+  predefined one from the predefined one.
+- The built-in rule set checks the rules of the standard that the scene can show. The line widths by sheet size, the
+  border, margins and title block, file names and fonts are left for later ([Checks](../checks.md)); the frame and the
+  title block can then come from ruled tables.
 - Decision 0009 still holds: shapes stay available as they were drawn, and regions add a computed fact with the
   entities it comes from, not an interpretation.
 
@@ -146,4 +175,6 @@ the standards, and can then also use regions and tables (the sheet frame, the ti
 - [Decision 0009](0009-geometry-for-ai-clients.md), [decision 0011](0011-tool-functions-for-agents.md)
 - [`tests/fixtures/dxf/rooms.dxf`](../../tests/fixtures/dxf/rooms.dxf), generated by `packages/dxf/tests/fixtures.ts`
 - The sample drawing spec of the drafting kit, [`crates/zumen-draft/examples/sheets.json`](../../crates/zumen-draft/examples/sheets.json),
-  whose tables and title blocks `crates/zumen/tests/tables.rs` reads back from DXF, DWG, JWW and SXF
+  whose tables and title blocks `crates/zumen/tests/tables.rs` reads back from DXF, DWG, JWW and SXF, and which
+  `crates/zumen/tests/checks.rs` checks against `mlit-cad-2025`
+- 国土交通省「CAD製図基準・同解説」令和7年12月, [cad8.pdf](https://www.cals-ed.go.jp/mg/wp-content/uploads/cad8.pdf)

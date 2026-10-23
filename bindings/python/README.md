@@ -216,6 +216,25 @@ between texts on one line. `layers`, `tolerance` and `region` work as for `regio
 smaller tables, and `empty=True` also returns tables without any text. Tables turned against the sheet are not found,
 and rooms drawn with single lines that fill a rectangle are found as a table too.
 
+## Checks
+
+`check` checks a drawing against the rules of a CAD standard: layer names, colors, line types, line widths, text
+heights on the sheet, machine-dependent characters, the sheet size and orientation, and scales:
+
+```python
+report = scene.check()  # the CAD drafting standard of MLIT (mlit-cad-2025)
+for rule in report["results"]:
+    print(rule["id"], rule["level"], rule["checked"], rule["unchecked"])
+    for finding in rule["findings"]:  # a value that breaks the rule, with the ids and layers that have it
+        print(finding["value"], finding["count"], finding["message"])
+own = scene.check({"name": "office", "rules": [{"id": "layers", "kind": "layer-name", "patterns": ["A-*"]}]})
+```
+
+`rules` is the name of a built-in rule set, a rule set as a dict or JSON text. Each rule counts what it `checked` and
+what it could not because the drawing does not give the value (`unchecked`, such as DXF line widths taken from the
+layer), and `passed` is true when no rule of level error is broken. The rule sets and the rules of every kind are in
+[Checks](https://github.com/zumenjs/zumen/blob/main/docs/checks.md).
+
 ## MCP server
 
 `zumen-mcp` lets AI applications that speak the Model Context Protocol open, render, search, measure and compare drawings
@@ -237,6 +256,7 @@ claude mcp add zumen -- zumen-mcp --root ~/drawings  # Claude Code; other client
 | `measure_distance` | The distance between two points on the sheet and in real-world millimeters |
 | `find_regions` | The regions that the drawn lines close, such as rooms: areas in square meters, perimeters, outlines and holes, the entities that bound them and the texts inside, filtered by layer, text and area |
 | `find_tables` | The tables drawn with rules (schedules, area tables, title blocks): the text of every row and column, merged cells, the ids of the texts and the positions of the rules, filtered by layer and text |
+| `check_drawing` | The drawing checked against a CAD standard (the CAD drafting standard of MLIT, or a rule set as JSON): for each rule, what it checked and could not, and the values that break it with the ids and layers of their entities |
 | `compare_drawings` | What changed between two revisions: an image of the changes, the regions that changed and the changed entities with their texts |
 
 Geometry is the agent's to interpret: the server gives the shapes as drawn and their coordinates, and the regions
@@ -269,6 +289,7 @@ entity = tools.get_entity(scene, page["texts"][0]["id"])  # properties, values, 
 tools.measure(scene, [10, 20], [110, 20])  # on the sheet, and in real-world millimeters through the scale
 rooms = tools.find_regions(scene, layer="壁", named=True)  # rooms with their areas in square meters
 doors = tools.find_tables(scene, contains="建具表")  # a schedule as rows and columns of text
+report = tools.check_drawing(scene)  # layer names, colors, line types, widths and text heights against CAD製図基準
 ```
 
 | Function | Result | What it returns |
@@ -281,6 +302,7 @@ doors = tools.find_tables(scene, contains="建具表")  # a schedule as rows and
 | `measure` | `MeasurementInfo` | A distance on the sheet and in real-world millimeters |
 | `find_regions` | `RegionPage` | Closed regions (rooms) with their real-world areas in square meters, outlines, boundary entities and texts inside |
 | `find_tables` | `TablePage` | Ruled tables as a grid of texts, with merged cells, the ids of the texts and the positions of the rules; a page stops before `max_cells` cells (1,000 by default) |
+| `check_drawing` | `CheckInfo` | The rules of a rule set (`RULE_SETS` or one's own) with what they checked and could not, and the values that break them, the most common first, with up to `max_ids` entity ids each (`max_findings` values per rule) |
 | `compare_revisions` | `bytes`, `ComparisonInfo` | An image of the changes between two revisions, the regions that changed and the changed entities |
 
 - **Coordinates.** Paper millimeters with the Y axis up, rounded to 0.001: boxes `[min_x, min_y, max_x, max_y]`,

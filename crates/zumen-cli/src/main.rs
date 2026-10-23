@@ -1,11 +1,13 @@
 //! zumen のコマンド。図面の形式の判定、表示用モデル（Scene）の JSON の出力、文字と図形の取り出し、PNG への描画、
-//! 線で閉じた領域（部屋）と面積の取り出し、罫線で描いた表の取り出し、2 つの版の比較、DXF への書き出しを行う。
+//! 線で閉じた領域（部屋）と面積の取り出し、罫線で描いた表の取り出し、製図の規則の確認、2 つの版の比較、DXF への
+//! 書き出しを行う。
 #![forbid(unsafe_code)]
 
 use serde_json::{Map, Value, json};
 use std::collections::HashSet;
 use std::io::{BufWriter, Write};
 use std::process::ExitCode;
+use zumen::checks::{CheckLevel, RuleSet, check_scene};
 use zumen::compare::{CompareOptions, compare_scenes, diff_scene};
 use zumen::extract::{
     EntityFilter, EntityText, Shape, entity_shapes, entity_text, layer_names, real_shapes, scene_texts, select_entities,
@@ -28,6 +30,7 @@ Usage:
                 [--min-area <mm2>] [--all-layers] [--format <name>] [--view <id>]
   zumen tables <file> [--csv] [--empty] [--region <x0>,<y0>,<x1>,<y1>] [--layer <name>]... [--tolerance <mm>]
                [--all-layers] [--format <name>] [--view <id>]
+  zumen check <file> [--rules <name|rules.json>] [--format <name>] [--view <id>]
   zumen render <file> -o <out.png|out.svg|out.pdf> [--dpi <n> | --size <w>x<h> [--margin <px>]] [--dpr <n>]
                [--region <x0>,<y0>,<x1>,<y1>] [--all-layers] [--map <out.json>]
                [--theme light|dark] [--thin] [--format <name>] [--view <id>]
@@ -57,6 +60,11 @@ tables, drawing lists, title blocks): the lines between rows and columns, and ea
 rows and columns it spans and its text. --csv writes each table as CSV instead (a merged cell's text in its top left
 place), with an empty line between tables. --empty also writes tables without any text, and --layer, --tolerance
 and --region work as for regions.
+check checks a drawing against the rules of a CAD standard and writes the result of each rule as JSON: how many
+layers, entities, sheets or scales it checked, how many it could not (a value the drawing does not give), and each
+value that breaks it with its count, entity ids and layers. --rules names a built-in rule set (mlit-cad-2025, the CAD
+drafting standard of the Ministry of Land, Infrastructure, Transport and Tourism of Japan, by default) or a JSON
+file of rules (docs/checks.md). The command fails when a rule of level error is broken.
 render writes SVG or PDF when the output ends in .svg or .pdf: the sheet (or --region) at its real size,
 with text that can be searched. --dpi, --size, --dpr and --map are for PNG only.
 --region selects a part of the sheet in paper millimeters, and --all-layers includes the layers
@@ -113,6 +121,7 @@ struct Args {
     align: bool,
     csv: bool,
     empty: bool,
+    rules: Option<String>,
     limits: ReadLimits,
 }
 
@@ -168,6 +177,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
         align: true,
         csv: false,
         empty: false,
+        rules: None,
         limits: ReadLimits::default(),
     };
     while let Some(arg) = args.next() {
@@ -210,6 +220,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
             "--no-align" => parsed.align = false,
             "--csv" => parsed.csv = true,
             "--empty" => parsed.empty = true,
+            "--rules" => parsed.rules = Some(value("--rules")?),
             "--max-bytes" => {
                 parsed.limits.max_bytes = Some(value("--max-bytes")?.parse().map_err(|_| "--max-bytes needs a count")?)
             }
@@ -700,6 +711,21 @@ fn run(args: Args) -> Result<(), String> {
         }
         "texts" => {
             write_lines(scene_texts(&scene, &filter).iter().map(|(entity, text)| text_json(&scene, entity, text)))?
+        }
+        "check" => {
+            let name = args.rules.as_deref().unwrap_or("mlit-cad-2025");
+            let rules = if name.ends_with(".json") {
+                let json = std::fs::read_to_string(name).map_err(|error| format!("{name}: {error}"))?;
+                RuleSet::from_json(&json).map_err(|error| format!("{name}: {error}"))?
+            } else {
+                RuleSet::named_or_json(name)?
+            };
+            let report = check_scene(&scene, &rules);
+            println!("{}", serde_json::to_string_pretty(&report).map_err(|error| error.to_string())?);
+            let errors = report.count(CheckLevel::Error);
+            if errors > 0 {
+                return Err(format!("{errors} values break rules of level error"));
+            }
         }
         "title" => {
             let mut object = Map::new();

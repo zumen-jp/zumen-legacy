@@ -192,6 +192,37 @@ class Table(TypedDict):
     grid: list[list[str]]
     boundary: list[str]
 
+class CheckFinding(TypedDict):
+    """A value that breaks a rule, with the number, ids and layers of what has it (type checking only)."""
+
+    value: str
+    message: str
+    count: int
+    entities: list[str]
+    layers: list[str]
+
+class CheckResult(TypedDict):
+    """The result of one rule: how many items it checked, how many it could not, and its findings (type checking
+    only)."""
+
+    id: str
+    kind: str
+    level: str
+    reference: str | None
+    description: str | None
+    checked: int
+    unchecked: int
+    findings: list[CheckFinding]
+
+class CheckReport(TypedDict):
+    """A drawing checked against a rule set; ``passed`` is true when no rule of level error is broken (type checking
+    only)."""
+
+    rule_set: str
+    title: str | None
+    passed: bool
+    results: list[CheckResult]
+
 class DrawnEntity(TypedDict):
     """An entity drawn in a ``Rendering``, with its box in pixels (type checking only)."""
 
@@ -320,6 +351,8 @@ class Scene:
         empty: bool = False,
     ) -> list[Table]:
         """The tables drawn with horizontal and vertical rules (schedules, title blocks), in reading order."""
+    def check(self, rules: str | dict[str, Any] | None = None) -> CheckReport:
+        """Check the drawing against a rule set: a built-in name (``mlit-cad-2025`` by default), JSON text or a dict."""
     def to_arrow(self, *, region: Box | None = None, hidden_layers: list[int] | None = None) -> Any:
         """A ``pyarrow.Table`` of the entities (needs pyarrow)."""
 

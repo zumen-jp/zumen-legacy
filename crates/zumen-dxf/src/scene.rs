@@ -19,7 +19,7 @@ use zumen_core::geometry::{
     IDENTITY, apply, apply_vector, empty_box, extend_box, extend_box_with_points, invert, is_empty_box, mean_scale,
     multiply, transform_points, union_box,
 };
-use zumen_core::text::{TextLayoutInput, font_family_for, is_half_width, layout_text};
+use zumen_core::text::{EM_LATIN, TextLayoutInput, font_family_for, is_half_width, layout_text};
 use zumen_core::{
     BACKGROUND_COLOR, BBox, Background, ClippedPrimitive, DotPrimitive, EntityKind, FillPrimitive, LengthUnit, Matrix,
     NoticeLevel, NoticeList, Placement, Primitive, Property, Scene, SceneEntity, SceneLayer, SceneView, Sheet,
@@ -201,9 +201,6 @@ const MAX_PATTERN_LINES: f64 = 5000.0;
 /// JavaScript の Number.MAX_SAFE_INTEGER（2⁵³ − 1）。これより大きい数は、1 を足しても変わらないことがある
 const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
 const DEFAULT_LINEWEIGHT: f64 = 0.25;
-/// 文字の高さ（大文字の高さ）に対する字形の em の大きさ。全角を含む文字は漢字の高さを合わせる
-const EM_LATIN: f64 = 1.0 / 0.72;
-const EM_CJK: f64 = 1.0 / 0.88;
 /// em の下端からベースラインまで（em に対する比）
 pub const DESCENT: f64 = 0.12;
 /// MTEXT の既定の行の間隔（文字の高さの 5/3、DXF Reference「MTEXT」の 44）
@@ -378,9 +375,9 @@ fn units(text: &str) -> f64 {
     text.chars().fold(0.0, |total, c| total + if is_half_width(c) { 0.5 } else { 1.0 })
 }
 
-/// 文字の高さ（TEXT の 40）に対する字形の em の大きさ。全角の文字を含めば漢字の高さを、なければ大文字の高さを合わせる
+/// 文字の高さ（TEXT の 40）に対する字形の em の大きさ（`zumen_core::text::em_for`）
 pub fn em_for(text: &str) -> f64 {
-    if text.chars().any(|c| !is_half_width(c) && !js::is_whitespace(c)) { EM_CJK } else { EM_LATIN }
+    zumen_core::text::em_for(text)
 }
 
 /// 描いた MTEXT の範囲。frame は文字の座標系から今の座標系（ctx.local の前）への変換

@@ -1,0 +1,169 @@
+{
+  "name": "mlit-cad-2025",
+  "title": "国土交通省 CAD製図基準（令和7年12月）",
+  "source": "https://www.cals-ed.go.jp/mg/wp-content/uploads/cad8.pdf",
+  "rules": [
+    {
+      "id": "layer-name",
+      "kind": "layer-name",
+      "level": "error",
+      "reference": "1-5-7",
+      "description": "レイヤ名は責任主体（S・D・C・M）、図面オブジェクト（表 1-4 の 10 項目）、省略できるユーザ定義領域をハイフンでつなぎ、半角 256 文字以内とする。発注用レイヤ（ORD）の責任主体は C",
+      "patterns": [
+        "[SDCM]-TTL",
+        "[SDCM]-TTL-?*",
+        "[SDCM]-BGD",
+        "[SDCM]-BGD-?*",
+        "[SDCM]-BMK",
+        "[SDCM]-BMK-?*",
+        "[SDCM]-STR",
+        "[SDCM]-STR-?*",
+        "[SDCM]-BYP",
+        "[SDCM]-BYP-?*",
+        "[SDCM]-MTR",
+        "[SDCM]-MTR-?*",
+        "[SDCM]-DCR",
+        "[SDCM]-DCR-?*",
+        "[SDCM]-DOC",
+        "[SDCM]-DOC-?*",
+        "[SDCM]-SUV",
+        "[SDCM]-SUV-?*",
+        "C-ORD",
+        "C-ORD-?*"
+      ],
+      "maxWidth": 256
+    },
+    {
+      "id": "color",
+      "kind": "color",
+      "level": "warning",
+      "reference": "1-5-9",
+      "description": "色は黒、赤、緑、青、黄、マジェンタ、シアン、白、牡丹、茶、橙、薄緑、明青、青紫、明灰、暗灰の 16 色を原則とする（RGB は解説表 1-4）",
+      "colors": [
+        "#000000",
+        "#ff0000",
+        "#00ff00",
+        "#0000ff",
+        "#ffff00",
+        "#ff00ff",
+        "#00ffff",
+        "#ffffff",
+        "#c00080",
+        "#c08040",
+        "#ff8000",
+        "#80c080",
+        "#0080ff",
+        "#8040ff",
+        "#c0c0c0",
+        "#808080"
+      ]
+    },
+    {
+      "id": "line-type",
+      "kind": "line-type",
+      "level": "warning",
+      "reference": "1-5-10",
+      "description": "線種は JIS Z 8312:1999 の 15 種類（表 1-6）を原則とする",
+      "names": [
+        "実線",
+        "破線",
+        "跳び破線",
+        "一点長鎖線",
+        "二点長鎖線",
+        "三点長鎖線",
+        "点線",
+        "一点鎖線",
+        "二点鎖線",
+        "一点短鎖線",
+        "一点二短鎖線",
+        "二点短鎖線",
+        "二点二短鎖線",
+        "三点短鎖線",
+        "三点二短鎖線",
+        "continuous",
+        "dashed",
+        "dashed spaced",
+        "long dashed dotted",
+        "long dashed double-dotted",
+        "long dashed triplicate-dotted",
+        "dotted",
+        "chain",
+        "chain double dash",
+        "dashed dotted",
+        "double-dashed dotted",
+        "dashed double-dotted",
+        "double-dashed double-dotted",
+        "dashed triplicate-dotted",
+        "double-dashed triplicate-dotted"
+      ]
+    },
+    {
+      "id": "line-width",
+      "kind": "line-width",
+      "level": "warning",
+      "reference": "1-5-10",
+      "description": "線の太さは 0.13、0.18、0.25、0.35、0.5、0.7、1、1.4、2 mm から選ぶことを原則とする",
+      "widths": [0.13, 0.18, 0.25, 0.35, 0.5, 0.7, 1, 1.4, 2]
+    },
+    {
+      "id": "text-height",
+      "kind": "text-height",
+      "level": "warning",
+      "reference": "1-5-11",
+      "description": "文字の高さは 1.8、2.5、3.5、5、7、10、14、20 mm から選ぶことを原則とする（単位などはこの限りでない）",
+      "heights": [1.8, 2.5, 3.5, 5, 7, 10, 14, 20]
+    },
+    {
+      "id": "characters",
+      "kind": "characters",
+      "level": "warning",
+      "reference": "1-5-11",
+      "description": "CAD ソフトウェア固有の文字や機種依存文字（丸数字、ローマ数字、単位記号、半角カナなど）は使わない",
+      "ranges": [
+        "FF61-FF9F",
+        "2460-2473",
+        "2160-217F",
+        "3220-3243",
+        "3280-32B0",
+        "3300-33FF",
+        "301D-301F",
+        "2116",
+        "2121",
+        "2211",
+        "221F",
+        "222E",
+        "22BF"
+      ]
+    },
+    {
+      "id": "sheet-size",
+      "kind": "sheet-size",
+      "level": "warning",
+      "reference": "1-4-1",
+      "description": "図面の大きさは A 列サイズ（JIS Z 8311:1998）を標準とする。これによりがたい場合は延長サイズなどを選べる",
+      "sizes": [
+        { "name": "A0", "width": 1189, "height": 841 },
+        { "name": "A1", "width": 841, "height": 594 },
+        { "name": "A2", "width": 594, "height": 420 },
+        { "name": "A3", "width": 420, "height": 297 },
+        { "name": "A4", "width": 297, "height": 210 }
+      ]
+    },
+    {
+      "id": "orientation",
+      "kind": "orientation",
+      "level": "info",
+      "reference": "1-4-2",
+      "description": "図面は長辺を横方向においた位置を正位とする。高さの大きい構造物などは協議の上で縦にできる",
+      "orientation": "landscape"
+    },
+    {
+      "id": "scale",
+      "kind": "scale",
+      "level": "info",
+      "reference": "1-4-5",
+      "description": "尺度は JIS Z 8314:1998 に準じ、1:A の A は 1、2、5 × 10ⁿ を優先し、1.5、2.5、3、4、6 × 10ⁿ を次善とする",
+      "mantissas": [1, 1.5, 2, 2.5, 3, 4, 5, 6]
+    }
+  ]
+}

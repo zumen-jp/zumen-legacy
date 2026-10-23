@@ -378,10 +378,16 @@ block strip). The rules between columns and rows are the cell edges merged withi
 its row, column and spans, and the texts whose box center lies in it, joined from the top line down. `RuledTable::grid`
 gives the text by row and column, with a merged cell's text in its top left place.
 
+`zumen_core::checks` checks a scene against a rule set, JSON data with rules for layer names, colors, line types, line
+widths, text heights, characters, the sheet and scales ([Checks](checks.md)). It reads only the stable keys, the
+shapes drawn and the sheet, counts what it could not check because the scene lacks the value, and groups the items
+that break a rule by their value. The CAD drafting standard of MLIT (`mlit-cad-2025`) is built in.
+
 `zumen.tools` gives them to AI agents as functions with JSON results: summarize a drawing (with its placements and
 their conversion to real-world millimeters), render a region, find texts and entities, show one entity with its
 shapes, measure in real-world millimeters through the scale of a placement, find the closed regions with their
-real-world areas, read the ruled tables as rows and columns and compare two revisions. The results
+real-world areas, read the ruled tables as rows and columns, check a drawing against a CAD standard and compare two
+revisions. The results
 follow `TypedDict` classes that are part of the API, are bounded by the arguments (items, characters of a text, points
 of shapes, pixels), and take regions in paper millimeters or as fractions of the frame (the scene's `bounds`, origin at
 the top left) ([decision 0011](decisions/0011-tool-functions-for-agents.md)). `zumen.mcp` serves the same functions as
