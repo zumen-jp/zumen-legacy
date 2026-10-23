@@ -4,7 +4,47 @@
   "sheet": { "name": "A4", "size": "A4", "width": 297, "height": 210 },
   "bounds": { "minX": 0, "minY": 0, "maxX": 297, "maxY": 210 },
   "layers": [{ "id": 0, "name": "0", "visible": true }, { "id": 1, "name": "写真", "visible": true }],
-  "entities": [],
+  "entities": [
+    {
+      "id": "1",
+      "kind": "line",
+      "type": "線分",
+      "source": "path",
+      "layers": [0],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [10, 20, 100, 20],
+          "closed": false,
+          "color": "#000000",
+          "width": 0.25,
+          "dashes": []
+        }
+      ],
+      "bbox": { "minX": 10, "minY": 20, "maxX": 100, "maxY": 20 },
+      "properties": [],
+      "drawn": false
+    },
+    {
+      "id": "2",
+      "kind": "line",
+      "type": "線分",
+      "source": "line",
+      "layers": [0],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [10, 30, 100, 30],
+          "closed": false,
+          "color": "#ff0000",
+          "width": 0.5,
+          "dashes": []
+        }
+      ],
+      "bbox": { "minX": 10, "minY": 30, "maxX": 100, "maxY": 30 },
+      "properties": []
+    }
+  ],
   "underlays": [
     {
       "id": "page-1",

@@ -295,7 +295,8 @@ pub fn render_png_fit(
     Ok((image.png, image.report))
 }
 
-/// render が描く図形を、描く順に返す。表示するレイヤにあり、外接矩形が画像に写る範囲と重なる図形
+/// render が描く図形を、描く順に返す。表示するレイヤにあり、外接矩形が画像に写る範囲と重なる図形。
+/// underlay が見せている図形（`SceneEntity::drawn` が false）は描かない
 pub fn drawn_entities<'a>(
     scene: &'a Scene,
     view: &View,
@@ -305,7 +306,7 @@ pub fn drawn_entities<'a>(
 ) -> Vec<&'a SceneEntity> {
     let filter =
         EntityFilter { region: Some(view.visible_region(width, height)), hidden_layers: options.hidden_layers.clone() };
-    select_entities(scene, &filter)
+    select_entities(scene, &filter).into_iter().filter(|entity| entity.drawn).collect()
 }
 
 /// #rrggbb・#rrggbbaa を RGBA にする。読めない色は None
@@ -717,6 +718,7 @@ mod tests {
             bbox: BBox { min_x: x0.min(x1), min_y: y0.min(y1), max_x: x0.max(x1), max_y: y0.max(y1) },
             properties: Vec::new(),
             placement: None,
+            drawn: true,
         }
     }
 
@@ -788,6 +790,29 @@ mod tests {
         assert_eq!((image.width, image.height), (30, 20));
         assert_eq!(ids(drawn_entities(&scene, &image.view, image.width, image.height, &all)), ["a", "b"]);
     }
+
+    #[test]
+    fn leaves_out_the_entities_that_an_underlay_shows() {
+        let ids = |entities: Vec<&SceneEntity>| entities.into_iter().map(|e| e.id.clone()).collect::<Vec<_>>();
+        let options = RenderOptions::default();
+        let view = View { scale: 2.0, offset_x: 0.0, offset_y: 100.0 };
+        // 「a」は (0, 0)〜(100, 50) の黒い細線で、中ほど (50, 25) は画像の (100, 50) の辺り
+        let darkness = |scene: &Scene| {
+            let (pixmap, _) = render(scene, &view, 200, 100, &options).unwrap();
+            let around = (98..=102).flat_map(|x| (48..=52).map(move |y| (x, y)));
+            around.map(|(x, y)| 255 - pixmap.pixel(x, y).unwrap().red()).max().unwrap()
+        };
+        let mut scene = scene();
+        assert!(darkness(&scene) > 100);
+        let (drawn_svg, _) = render_svg(&scene, None, &options).unwrap();
+        scene.entities[0].drawn = false;
+        assert_eq!(darkness(&scene), 0);
+        assert_eq!(ids(drawn_entities(&scene, &view, 200, 100, &options)), ["c"]);
+        let (svg, _) = render_svg(&scene, None, &options).unwrap();
+        assert!(drawn_svg.contains("M0 0L100 50") && !svg.contains("M0 0L100 50"));
+        // 文字・図形の取り出しには残る
+        assert_eq!(ids(select_entities(&scene, &EntityFilter::default())), ["a", "c"]);
+    }
 }
 
 #[cfg(test)]
@@ -808,6 +833,7 @@ mod vector_tests {
             bbox: BBox { min_x: 0.0, min_y: 0.0, max_x: 420.0, max_y: 297.0 },
             properties: Vec::new(),
             placement: None,
+            drawn: true,
         }
     }
 

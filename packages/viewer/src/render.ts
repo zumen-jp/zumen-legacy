@@ -456,7 +456,10 @@ export function renderScene(
   }
   if (options.sheetFrame) painter.sheet(scene);
   for (const entity of scene.entities) {
-    if (!painter.intersectsEntity(entity) || !isEntityVisible(entity, options.hiddenLayers)) continue;
+    // underlay が見せている図形（drawn が false）は描かない。強調の重ね描きでは描く
+    if (entity.drawn === false || !painter.intersectsEntity(entity) || !isEntityVisible(entity, options.hiddenLayers)) {
+      continue;
+    }
     for (const primitive of entity.primitives) painter.primitive(primitive);
   }
   painter.finish();

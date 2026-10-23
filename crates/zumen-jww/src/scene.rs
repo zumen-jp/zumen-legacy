@@ -184,6 +184,7 @@ impl<'a> Builder<'a> {
             bbox,
             properties: all,
             placement: Some(placement),
+            drawn: true,
         });
     }
 

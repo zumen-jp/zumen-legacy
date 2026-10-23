@@ -387,6 +387,14 @@ pub struct SceneEntity {
     /// 部分図・部品の中の図形は、元の座標から用紙への縮尺を持つ（実寸の計測に使う）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub placement: Option<Arc<Placement>>,
+    /// false なら描かない（underlay が見せている内容の図形。PDF のページの線と文字など）。選択・吸着・計測と、文字・図形の
+    /// 取り出しには使う。JSON では true のとき省く（docs/decisions/0022）
+    #[serde(skip_serializing_if = "is_true")]
+    pub drawn: bool,
+}
+
+fn is_true(value: &bool) -> bool {
+    *value
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -541,7 +549,30 @@ mod tests {
         assert_eq!(names.len(), LengthUnit::ALL.len());
     }
 
-    /// packages/core/tests/underlay.test.ts も同じファイルと比べ、TypeScript と同じ JSON になることを確かめる
+    fn line(id: &str, y: f64, color: &str, width: f64, drawn: bool) -> SceneEntity {
+        SceneEntity {
+            id: id.into(),
+            kind: EntityKind::Line,
+            type_name: "線分".into(),
+            source: if drawn { "line" } else { "path" }.into(),
+            layers: vec![0],
+            primitives: vec![Primitive::Stroke(StrokePrimitive {
+                points: vec![10.0, y, 100.0, y],
+                closed: false,
+                segments: None,
+                color: color.into(),
+                width,
+                dashes: Vec::new(),
+            })],
+            bbox: BBox { min_x: 10.0, min_y: y, max_x: 100.0, max_y: y },
+            properties: Vec::new(),
+            placement: None,
+            drawn,
+        }
+    }
+
+    /// packages/core/tests/underlay.test.ts も同じファイルと比べ、TypeScript と同じ JSON になることを確かめる。
+    /// underlay が見せている図形は drawn: false を持ち、描く図形は drawn を書かない
     #[test]
     fn underlays_have_the_json_of_typescript() {
         let layer = |id: u32, name: &str| SceneLayer { id, name: name.into(), visible: true, group: None };
@@ -555,7 +586,7 @@ mod tests {
             sheet: Some(Sheet { name: "A4".into(), size: "A4".into(), width: 297.0, height: 210.0 }),
             bounds: BBox { min_x: 0.0, min_y: 0.0, max_x: 297.0, max_y: 210.0 },
             layers: vec![layer(0, "0"), layer(1, "写真")],
-            entities: Vec::new(),
+            entities: vec![line("1", 20.0, "#000000", 0.25, false), line("2", 30.0, "#ff0000", 0.5, true)],
             underlays: vec![
                 Underlay {
                     id: "page-1".into(),

@@ -49,12 +49,15 @@ impl Page {
         (x - self.region.min_x, y - self.region.min_y)
     }
 
-    /// 描く図形（表示するレイヤにあり、ページと重なるもの）
+    /// 描く図形（表示するレイヤにあり、ページと重なるもの。underlay が見せている図形は除く）
     pub(crate) fn entities<'a>(&self, scene: &'a Scene, options: &RenderOptions) -> Vec<&'a SceneEntity> {
         select_entities(
             scene,
             &EntityFilter { region: Some(self.region), hidden_layers: options.hidden_layers.clone() },
         )
+        .into_iter()
+        .filter(|entity| entity.drawn)
+        .collect()
     }
 
     /// 用紙の枠（ページの mm の 4 隅）

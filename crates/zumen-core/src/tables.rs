@@ -425,6 +425,7 @@ mod tests {
             bbox,
             properties: Vec::new(),
             placement: None,
+            drawn: true,
         }
     }
 
@@ -452,6 +453,7 @@ mod tests {
             bbox: BBox { min_x: x, min_y: y, max_x: x + width, max_y: y + 2.0 },
             properties: Vec::new(),
             placement: None,
+            drawn: true,
         }
     }
 
