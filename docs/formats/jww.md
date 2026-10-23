@@ -59,10 +59,9 @@ sheet millimeters and the text's start point is the image's lower left corner.
   実体). Files whose name ends in `.gz` are gzip-compressed (the same text says they are compressed with zlib's
   algorithm just before saving; ezjww reads them as gzip). `zumen::embedded_files` (and `readEmbeddedFiles` of
   `@zumenjs/reader`) returns them extracted, named `%temp%<name>` without `.gz`, the name the placing text uses.
-  The gzip CRC-32 and size are checked, and nonzero reserved flags are refused (RFC 1952, 2.3.1.2). A file that cannot
-  be extracted is left out (`embedded-broken`), a list that
-  ends early keeps the images before (`embedded-truncated`), and the extracted sizes count against the read limit
-  (`max_bytes`, or 2 GiB without one).
+  The gzip CRC-32 and size are checked, and nonzero reserved flags are refused (RFC 1952, 2.3.1.2). A file that
+  cannot be extracted is left out (`embedded-broken`), a list that ends early keeps the images before
+  (`embedded-truncated`), and the extracted sizes count against the read limit (`max_bytes`, or 2 GiB without one).
 
 <a id="dxf-への変換zumen-convert"></a>
 
