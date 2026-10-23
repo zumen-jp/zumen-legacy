@@ -416,4 +416,18 @@ mod tests {
                 .unwrap_err();
         assert_eq!(error.message(), "図形が上限の 5 個を超えたため、読むのを途中でやめました");
     }
+
+    // IFC は SXF と同じく ISO-10303-21 で始まるが、FILE_SCHEMA が SXF のスキーマでないので、空の SXF として読まない
+    #[test]
+    fn does_not_read_ifc_as_sxf() {
+        let ifc = b"ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('ViewDefinition [ReferenceView_V1.2]'),'2;1');\n\
+            FILE_NAME('model.ifc','2026-10-23T00:00:00',(''),(''),'','','');\nFILE_SCHEMA(('IFC4'));\nENDSEC;\n\
+            DATA;\n#1=IFCPROJECT('0YvctVUKr0kugbFTf53O9L',$,'Project',$,$,$,$,$,$);\nENDSEC;\nEND-ISO-10303-21;\n";
+        assert_eq!(detect(ifc), None);
+        let error = read(ifc, &ReadDrawingOptions::default()).unwrap_err();
+        assert_eq!(
+            error.message(),
+            "対応していない形式のファイルです（読める形式: SFC・P21・SFZ・P2Z・JWW・JWC・JWS・DXF・DWG）"
+        );
+    }
 }
