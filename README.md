@@ -342,8 +342,8 @@ sending them anywhere.
 8. Drawing markup (redlines, revision clouds, review findings, photo positions,
    [decision 0021](docs/decisions/0021-drawing-markup.md)): a JSON document beside the drawing, in paper millimeters of
    a view so that CAD and PDF drawings share it, which names the drawing by the hash of its bytes and is carried to new
-   revisions through the comparison; drawn and edited by a layer on `DrawingViewer`, then read, drawn and carried in
-   Python, the command line and the MCP server.
+   revisions through the comparison; drawn and edited by a layer on `DrawingViewer` (done, [Drawing
+   markup](docs/markup.md)), then read, drawn and carried in Python, the command line and the MCP server.
 
 ## Documentation
 
@@ -354,6 +354,7 @@ sending them anywhere.
 - [How DWG is handled](docs/formats/dwg.md)
 - [Drafting sheets from a drawing spec](docs/drafting.md)
 - [Checks against CAD standards](docs/checks.md)
+- [Drawing markup](docs/markup.md)
 - [Verification records](docs/verification.md)
 - [Design decisions](docs/decisions/README.md)
 

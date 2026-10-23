@@ -1,0 +1,1213 @@
+[
+  {
+    "name": "not JSON",
+    "text": "{\"format\": ",
+    "code": "json",
+    "item": null,
+    "id": null,
+    "key": null
+  },
+  {
+    "name": "not an object",
+    "document": [
+      1,
+      2
+    ],
+    "code": "format",
+    "item": null,
+    "id": null,
+    "key": "format"
+  },
+  {
+    "name": "other format",
+    "document": {
+      "format": "zumen-scene",
+      "version": 1,
+      "drawing": {
+        "sha256": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b",
+        "format": "sfc"
+      },
+      "items": []
+    },
+    "code": "format",
+    "item": null,
+    "id": null,
+    "key": "format"
+  },
+  {
+    "name": "no version",
+    "document": {
+      "format": "zumen-markup",
+      "drawing": {
+        "sha256": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b",
+        "format": "sfc"
+      },
+      "items": []
+    },
+    "code": "missing",
+    "item": null,
+    "id": null,
+    "key": "version"
+  },
+  {
+    "name": "version is text",
+    "document": {
+      "format": "zumen-markup",
+      "version": "1",
+      "drawing": {
+        "sha256": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b",
+        "format": "sfc"
+      },
+      "items": []
+    },
+    "code": "type",
+    "item": null,
+    "id": null,
+    "key": "version"
+  },
+  {
+    "name": "version is not an integer",
+    "document": {
+      "format": "zumen-markup",
+      "version": 1.5,
+      "drawing": {
+        "sha256": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b",
+        "format": "sfc"
+      },
+      "items": []
+    },
+    "code": "value",
+    "item": null,
+    "id": null,
+    "key": "version"
+  },
+  {
+    "name": "newer version",
+    "document": {
+      "format": "zumen-markup",
+      "version": 2,
+      "drawing": {
+        "sha256": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b",
+        "format": "sfc"
+      },
+      "items": []
+    },
+    "code": "version",
+    "item": null,
+    "id": null,
+    "key": "version"
+  },
+  {
+    "name": "no drawing",
+    "document": {
+      "format": "zumen-markup",
+      "version": 1,
+      "items": []
+    },
+    "code": "missing",
+    "item": null,
+    "id": null,
+    "key": "drawing"
+  },
+  {
+    "name": "uppercase hash",
+    "document": {
+      "format": "zumen-markup",
+      "version": 1,
+      "drawing": {
+        "sha256": "9F2C6D1A4B7E8F0312A5C6D7E8F9A0B1C2D3E4F5061728394A5B6C7D8E9F0A1B",
+        "format": "sfc"
+      },
+      "items": []
+    },
+    "code": "value",
+    "item": null,
+    "id": null,
+    "key": "drawing.sha256"
+  },
+  {
+    "name": "empty drawing format",
+    "document": {
+      "format": "zumen-markup",
+      "version": 1,
+      "drawing": {
+        "sha256": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b",
+        "format": ""
+      },
+      "items": []
+    },
+    "code": "value",
+    "item": null,
+    "id": null,
+    "key": "drawing.format"
+  },
+  {
+    "name": "items is an object",
+    "document": {
+      "format": "zumen-markup",
+      "version": 1,
+      "drawing": {
+        "sha256": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b",
+        "format": "sfc"
+      },
+      "items": {}
+    },
+    "code": "type",
+    "item": null,
+    "id": null,
+    "key": "items"
+  },
+  {
+    "name": "data is an array",
+    "document": {
+      "format": "zumen-markup",
+      "version": 1,
+      "drawing": {
+        "sha256": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b",
+        "format": "sfc"
+      },
+      "items": [],
+      "data": []
+    },
+    "code": "type",
+    "item": null,
+    "id": null,
+    "key": "data"
+  },
+  {
+    "name": "item is not an object",
+    "document": {
+      "format": "zumen-markup",
+      "version": 1,
+      "drawing": {
+        "sha256": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b",
+        "format": "sfc"
+      },
+      "items": [
+        {
+          "id": "a",
+          "kind": "redline",
+          "points": [
+            [
+              0,
+              0
+            ],
+            [
+              1,
+              1
+            ]
+          ]
+        },
+        3
+      ]
+    },
+    "code": "type",
+    "item": 1,
+    "id": null,
+    "key": null
+  },
+  {
+    "name": "no id",
+    "document": {
+      "format": "zumen-markup",
+      "version": 1,
+      "drawing": {
+        "sha256": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b",
+        "format": "sfc"
+      },
+      "items": [
+        {
+          "kind": "redline",
+          "points": [
+            [
+              0,
+              0
+            ],
+            [
+              1,
+              1
+            ]
+          ]
+        }
+      ]
+    },
+    "code": "missing",
+    "item": 0,
+    "id": null,
+    "key": "id"
+  },
+  {
+    "name": "empty id",
+    "document": {
+      "format": "zumen-markup",
+      "version": 1,
+      "drawing": {
+        "sha256": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b",
+        "format": "sfc"
+      },
+      "items": [
+        {
+          "id": "",
+          "kind": "redline",
+          "points": [
+            [
+              0,
+              0
+            ],
+            [
+              1,
+              1
+            ]
+          ]
+        }
+      ]
+    },
+    "code": "value",
+    "item": 0,
+    "id": null,
+    "key": "id"
+  },
+  {
+    "name": "duplicate id",
+    "document": {
+      "format": "zumen-markup",
+      "version": 1,
+      "drawing": {
+        "sha256": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b",
+        "format": "sfc"
+      },
+      "items": [
+        {
+          "id": "a",
+          "kind": "redline",
+          "points": [
+            [
+              0,
+              0
+            ],
+            [
+              1,
+              1
+            ]
+          ]
+        },
+        {
+          "id": "a",
+          "kind": "redline",
+          "points": [
+            [
+              0,
+              0
+            ],
+            [
+              1,
+              1
+            ]
+          ]
+        }
+      ]
+    },
+    "code": "duplicate",
+    "item": 1,
+    "id": "a",
+    "key": "id"
+  },
+  {
+    "name": "unknown kind",
+    "document": {
+      "format": "zumen-markup",
+      "version": 1,
+      "drawing": {
+        "sha256": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b",
+        "format": "sfc"
+      },
+      "items": [
+        {
+          "id": "a",
+          "kind": "stamp",
+          "points": [
+            [
+              0,
+              0
+            ],
+            [
+              1,
+              1
+            ]
+          ]
+        }
+      ]
+    },
+    "code": "value",
+    "item": 0,
+    "id": "a",
+    "key": "kind"
+  },
+  {
+    "name": "empty view",
+    "document": {
+      "format": "zumen-markup",
+      "version": 1,
+      "drawing": {
+        "sha256": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b",
+        "format": "sfc"
+      },
+      "items": [
+        {
+          "id": "a",
+          "kind": "redline",
+          "points": [
+            [
+              0,
+              0
+            ],
+            [
+              1,
+              1
+            ]
+          ],
+          "view": ""
+        }
+      ]
+    },
+    "code": "value",
+    "item": 0,
+    "id": "a",
+    "key": "view"
+  },
+  {
+    "name": "uppercase category",
+    "document": {
+      "format": "zumen-markup",
+      "version": 1,
+      "drawing": {
+        "sha256": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b",
+        "format": "sfc"
+      },
+      "items": [
+        {
+          "id": "a",
+          "kind": "redline",
+          "points": [
+            [
+              0,
+              0
+            ],
+            [
+              1,
+              1
+            ]
+          ],
+          "category": "Correction"
+        }
+      ]
+    },
+    "code": "value",
+    "item": 0,
+    "id": "a",
+    "key": "category"
+  },
+  {
+    "name": "named color",
+    "document": {
+      "format": "zumen-markup",
+      "version": 1,
+      "drawing": {
+        "sha256": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b",
+        "format": "sfc"
+      },
+      "items": [
+        {
+          "id": "a",
+          "kind": "redline",
+          "points": [
+            [
+              0,
+              0
+            ],
+            [
+              1,
+              1
+            ]
+          ],
+          "color": "red"
+        }
+      ]
+    },
+    "code": "value",
+    "item": 0,
+    "id": "a",
+    "key": "color"
+  },
+  {
+    "name": "zero line width",
+    "document": {
+      "format": "zumen-markup",
+      "version": 1,
+      "drawing": {
+        "sha256": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b",
+        "format": "sfc"
+      },
+      "items": [
+        {
+          "id": "a",
+          "kind": "redline",
+          "points": [
+            [
+              0,
+              0
+            ],
+            [
+              1,
+              1
+            ]
+          ],
+          "lineWidth": 0
+        }
+      ]
+    },
+    "code": "value",
+    "item": 0,
+    "id": "a",
+    "key": "lineWidth"
+  },
+  {
+    "name": "text is a number",
+    "document": {
+      "format": "zumen-markup",
+      "version": 1,
+      "drawing": {
+        "sha256": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b",
+        "format": "sfc"
+      },
+      "items": [
+        {
+          "id": "a",
+          "kind": "redline",
+          "points": [
+            [
+              0,
+              0
+            ],
+            [
+              1,
+              1
+            ]
+          ],
+          "text": 1
+        }
+      ]
+    },
+    "code": "type",
+    "item": 0,
+    "id": "a",
+    "key": "text"
+  },
+  {
+    "name": "entity id is a number",
+    "document": {
+      "format": "zumen-markup",
+      "version": 1,
+      "drawing": {
+        "sha256": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b",
+        "format": "sfc"
+      },
+      "items": [
+        {
+          "id": "a",
+          "kind": "redline",
+          "points": [
+            [
+              0,
+              0
+            ],
+            [
+              1,
+              1
+            ]
+          ],
+          "entities": [
+            "1",
+            2
+          ]
+        }
+      ]
+    },
+    "code": "type",
+    "item": 0,
+    "id": "a",
+    "key": "entities"
+  },
+  {
+    "name": "date without zone",
+    "document": {
+      "format": "zumen-markup",
+      "version": 1,
+      "drawing": {
+        "sha256": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b",
+        "format": "sfc"
+      },
+      "items": [
+        {
+          "id": "a",
+          "kind": "redline",
+          "points": [
+            [
+              0,
+              0
+            ],
+            [
+              1,
+              1
+            ]
+          ],
+          "createdAt": "2026-10-23T09:12:00"
+        }
+      ]
+    },
+    "code": "value",
+    "item": 0,
+    "id": "a",
+    "key": "createdAt"
+  },
+  {
+    "name": "month 13",
+    "document": {
+      "format": "zumen-markup",
+      "version": 1,
+      "drawing": {
+        "sha256": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b",
+        "format": "sfc"
+      },
+      "items": [
+        {
+          "id": "a",
+          "kind": "redline",
+          "points": [
+            [
+              0,
+              0
+            ],
+            [
+              1,
+              1
+            ]
+          ],
+          "updatedAt": "2026-13-01T00:00:00Z"
+        }
+      ]
+    },
+    "code": "value",
+    "item": 0,
+    "id": "a",
+    "key": "updatedAt"
+  },
+  {
+    "name": "carried without state",
+    "document": {
+      "format": "zumen-markup",
+      "version": 1,
+      "drawing": {
+        "sha256": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b",
+        "format": "sfc"
+      },
+      "items": [
+        {
+          "id": "a",
+          "kind": "redline",
+          "points": [
+            [
+              0,
+              0
+            ],
+            [
+              1,
+              1
+            ]
+          ],
+          "carried": {
+            "from": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b"
+          }
+        }
+      ]
+    },
+    "code": "missing",
+    "item": 0,
+    "id": "a",
+    "key": "carried.state"
+  },
+  {
+    "name": "unknown carried state",
+    "document": {
+      "format": "zumen-markup",
+      "version": 1,
+      "drawing": {
+        "sha256": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b",
+        "format": "sfc"
+      },
+      "items": [
+        {
+          "id": "a",
+          "kind": "redline",
+          "points": [
+            [
+              0,
+              0
+            ],
+            [
+              1,
+              1
+            ]
+          ],
+          "carried": {
+            "from": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b",
+            "state": "moved"
+          }
+        }
+      ]
+    },
+    "code": "value",
+    "item": 0,
+    "id": "a",
+    "key": "carried.state"
+  },
+  {
+    "name": "item data is text",
+    "document": {
+      "format": "zumen-markup",
+      "version": 1,
+      "drawing": {
+        "sha256": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b",
+        "format": "sfc"
+      },
+      "items": [
+        {
+          "id": "a",
+          "kind": "redline",
+          "points": [
+            [
+              0,
+              0
+            ],
+            [
+              1,
+              1
+            ]
+          ],
+          "data": "x"
+        }
+      ]
+    },
+    "code": "type",
+    "item": 0,
+    "id": "a",
+    "key": "data"
+  },
+  {
+    "name": "redline without points",
+    "document": {
+      "format": "zumen-markup",
+      "version": 1,
+      "drawing": {
+        "sha256": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b",
+        "format": "sfc"
+      },
+      "items": [
+        {
+          "id": "a",
+          "kind": "redline"
+        }
+      ]
+    },
+    "code": "missing",
+    "item": 0,
+    "id": "a",
+    "key": "points"
+  },
+  {
+    "name": "redline with one point",
+    "document": {
+      "format": "zumen-markup",
+      "version": 1,
+      "drawing": {
+        "sha256": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b",
+        "format": "sfc"
+      },
+      "items": [
+        {
+          "id": "a",
+          "kind": "redline",
+          "points": [
+            [
+              0,
+              0
+            ]
+          ]
+        }
+      ]
+    },
+    "code": "value",
+    "item": 0,
+    "id": "a",
+    "key": "points"
+  },
+  {
+    "name": "point with three numbers",
+    "document": {
+      "format": "zumen-markup",
+      "version": 1,
+      "drawing": {
+        "sha256": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b",
+        "format": "sfc"
+      },
+      "items": [
+        {
+          "id": "a",
+          "kind": "redline",
+          "points": [
+            [
+              0,
+              0
+            ],
+            [
+              1,
+              1,
+              1
+            ]
+          ]
+        }
+      ]
+    },
+    "code": "value",
+    "item": 0,
+    "id": "a",
+    "key": "points"
+  },
+  {
+    "name": "point with text",
+    "document": {
+      "format": "zumen-markup",
+      "version": 1,
+      "drawing": {
+        "sha256": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b",
+        "format": "sfc"
+      },
+      "items": [
+        {
+          "id": "a",
+          "kind": "redline",
+          "points": [
+            [
+              0,
+              0
+            ],
+            [
+              1,
+              "1"
+            ]
+          ]
+        }
+      ]
+    },
+    "code": "type",
+    "item": 0,
+    "id": "a",
+    "key": "points"
+  },
+  {
+    "name": "closed is text",
+    "document": {
+      "format": "zumen-markup",
+      "version": 1,
+      "drawing": {
+        "sha256": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b",
+        "format": "sfc"
+      },
+      "items": [
+        {
+          "id": "a",
+          "kind": "redline",
+          "points": [
+            [
+              0,
+              0
+            ],
+            [
+              1,
+              1
+            ]
+          ],
+          "closed": "true"
+        }
+      ]
+    },
+    "code": "type",
+    "item": 0,
+    "id": "a",
+    "key": "closed"
+  },
+  {
+    "name": "unknown arrows",
+    "document": {
+      "format": "zumen-markup",
+      "version": 1,
+      "drawing": {
+        "sha256": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b",
+        "format": "sfc"
+      },
+      "items": [
+        {
+          "id": "a",
+          "kind": "redline",
+          "points": [
+            [
+              0,
+              0
+            ],
+            [
+              1,
+              1
+            ]
+          ],
+          "arrows": "left"
+        }
+      ]
+    },
+    "code": "value",
+    "item": 0,
+    "id": "a",
+    "key": "arrows"
+  },
+  {
+    "name": "cloud with two points",
+    "document": {
+      "format": "zumen-markup",
+      "version": 1,
+      "drawing": {
+        "sha256": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b",
+        "format": "sfc"
+      },
+      "items": [
+        {
+          "id": "c",
+          "kind": "cloud",
+          "points": [
+            [
+              0,
+              0
+            ],
+            [
+              1,
+              1
+            ]
+          ]
+        }
+      ]
+    },
+    "code": "value",
+    "item": 0,
+    "id": "c",
+    "key": "points"
+  },
+  {
+    "name": "negative arc length",
+    "document": {
+      "format": "zumen-markup",
+      "version": 1,
+      "drawing": {
+        "sha256": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b",
+        "format": "sfc"
+      },
+      "items": [
+        {
+          "id": "c",
+          "kind": "cloud",
+          "points": [
+            [
+              0,
+              0
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              0
+            ]
+          ],
+          "arcLength": -1
+        }
+      ]
+    },
+    "code": "value",
+    "item": 0,
+    "id": "c",
+    "key": "arcLength"
+  },
+  {
+    "name": "text without text",
+    "document": {
+      "format": "zumen-markup",
+      "version": 1,
+      "drawing": {
+        "sha256": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b",
+        "format": "sfc"
+      },
+      "items": [
+        {
+          "id": "t",
+          "kind": "text",
+          "position": [
+            0,
+            0
+          ]
+        }
+      ]
+    },
+    "code": "missing",
+    "item": 0,
+    "id": "t",
+    "key": "text"
+  },
+  {
+    "name": "text without position",
+    "document": {
+      "format": "zumen-markup",
+      "version": 1,
+      "drawing": {
+        "sha256": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b",
+        "format": "sfc"
+      },
+      "items": [
+        {
+          "id": "t",
+          "kind": "text",
+          "text": "x"
+        }
+      ]
+    },
+    "code": "missing",
+    "item": 0,
+    "id": "t",
+    "key": "position"
+  },
+  {
+    "name": "angle is text",
+    "document": {
+      "format": "zumen-markup",
+      "version": 1,
+      "drawing": {
+        "sha256": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b",
+        "format": "sfc"
+      },
+      "items": [
+        {
+          "id": "t",
+          "kind": "text",
+          "position": [
+            0,
+            0
+          ],
+          "text": "x",
+          "angle": "30"
+        }
+      ]
+    },
+    "code": "type",
+    "item": 0,
+    "id": "t",
+    "key": "angle"
+  },
+  {
+    "name": "finding without status",
+    "document": {
+      "format": "zumen-markup",
+      "version": 1,
+      "drawing": {
+        "sha256": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b",
+        "format": "sfc"
+      },
+      "items": [
+        {
+          "id": "f",
+          "kind": "finding",
+          "position": [
+            0,
+            0
+          ]
+        }
+      ]
+    },
+    "code": "missing",
+    "item": 0,
+    "id": "f",
+    "key": "status"
+  },
+  {
+    "name": "unknown status",
+    "document": {
+      "format": "zumen-markup",
+      "version": 1,
+      "drawing": {
+        "sha256": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b",
+        "format": "sfc"
+      },
+      "items": [
+        {
+          "id": "f",
+          "kind": "finding",
+          "position": [
+            0,
+            0
+          ],
+          "status": "done"
+        }
+      ]
+    },
+    "code": "value",
+    "item": 0,
+    "id": "f",
+    "key": "status"
+  },
+  {
+    "name": "finding area with two points",
+    "document": {
+      "format": "zumen-markup",
+      "version": 1,
+      "drawing": {
+        "sha256": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b",
+        "format": "sfc"
+      },
+      "items": [
+        {
+          "id": "f",
+          "kind": "finding",
+          "position": [
+            0,
+            0
+          ],
+          "status": "open",
+          "points": [
+            [
+              0,
+              0
+            ],
+            [
+              1,
+              1
+            ]
+          ]
+        }
+      ]
+    },
+    "code": "value",
+    "item": 0,
+    "id": "f",
+    "key": "points"
+  },
+  {
+    "name": "label is a number",
+    "document": {
+      "format": "zumen-markup",
+      "version": 1,
+      "drawing": {
+        "sha256": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b",
+        "format": "sfc"
+      },
+      "items": [
+        {
+          "id": "f",
+          "kind": "finding",
+          "position": [
+            0,
+            0
+          ],
+          "status": "open",
+          "label": 3
+        }
+      ]
+    },
+    "code": "type",
+    "item": 0,
+    "id": "f",
+    "key": "label"
+  },
+  {
+    "name": "photo without photo",
+    "document": {
+      "format": "zumen-markup",
+      "version": 1,
+      "drawing": {
+        "sha256": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b",
+        "format": "sfc"
+      },
+      "items": [
+        {
+          "id": "p",
+          "kind": "photo",
+          "position": [
+            0,
+            0
+          ]
+        }
+      ]
+    },
+    "code": "missing",
+    "item": 0,
+    "id": "p",
+    "key": "photo"
+  },
+  {
+    "name": "photo taken at a date",
+    "document": {
+      "format": "zumen-markup",
+      "version": 1,
+      "drawing": {
+        "sha256": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b",
+        "format": "sfc"
+      },
+      "items": [
+        {
+          "id": "p",
+          "kind": "photo",
+          "position": [
+            0,
+            0
+          ],
+          "photo": "x",
+          "takenAt": "2026-10-20"
+        }
+      ]
+    },
+    "code": "value",
+    "item": 0,
+    "id": "p",
+    "key": "takenAt"
+  },
+  {
+    "name": "position with one number",
+    "document": {
+      "format": "zumen-markup",
+      "version": 1,
+      "drawing": {
+        "sha256": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b",
+        "format": "sfc"
+      },
+      "items": [
+        {
+          "id": "p",
+          "kind": "photo",
+          "position": [
+            0
+          ],
+          "photo": "x"
+        }
+      ]
+    },
+    "code": "value",
+    "item": 0,
+    "id": "p",
+    "key": "position"
+  }
+]
