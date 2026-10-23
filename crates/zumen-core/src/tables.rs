@@ -184,8 +184,10 @@ pub fn ruled_tables(scene: &Scene, options: &TableOptions) -> Vec<RuledTable> {
         .filter_map(|entity| Some((*entity, entity_text(entity)?)))
         .collect();
 
-    let mut result: Vec<(usize, RuledTable)> =
-        tables.into_iter().map(|(group, members)| (group, build_table(&members, &cells, tolerance))).collect();
+    let mut result: Vec<(usize, RuledTable)> = tables
+        .into_iter()
+        .filter_map(|(group, members)| Some((group, build_table(&members, &cells, tolerance)?)))
+        .collect();
 
     // 文字は、同じ配置でその中心を含むます目に入れる。ます目の中の島（記号の枠など）の文字もそのます目に入れる
     let mut spots: Vec<(usize, usize)> = Vec::new();
@@ -284,39 +286,51 @@ fn split_connected(members: &[usize], cells: &[(usize, ClosedRegion)], tolerance
     groups
 }
 
-/// 位置を許容差の 2 倍までまとめ、まとまりの最初の値を並べる
-fn lines(mut values: Vec<f64>, tolerance: f64) -> Vec<f64> {
-    values.sort_by(f64::total_cmp);
+/// 位置を許容差の 2 倍までまとめるが、同じます目の向かい合う辺は別の罫線にする。
+/// 各ます目の両端が属する罫線も返す（近い罫線への再割り当てで細います目をつぶさない）。
+fn lines(boxes: &[BBox], axis: fn(&BBox) -> [f64; 2], tolerance: f64) -> (Vec<f64>, Vec<[usize; 2]>) {
+    let mut values: Vec<(f64, usize, usize)> = boxes
+        .iter()
+        .enumerate()
+        .flat_map(|(cell, bbox)| axis(bbox).into_iter().enumerate().map(move |(side, value)| (value, cell, side)))
+        .collect();
+    values.sort_by(|a, b| a.0.total_cmp(&b.0));
     let mut lines: Vec<f64> = Vec::new();
-    for value in values {
-        if lines.last().is_none_or(|last| value - last > tolerance * 2.0) {
+    let mut edges = vec![[0; 2]; boxes.len()];
+    let mut members = HashSet::new();
+    let mut index = 0;
+    while index < values.len() {
+        let value = values[index].0;
+        // 交点の計算で同じ辺の座標の末尾だけ違うことがある。幾何の許容差より十分小さい誤差は同じ位置。
+        let rounding = (f64::EPSILON * 8.0 * value.abs().max(1.0)).min(tolerance * 0.001);
+        let end = index + values[index..].partition_point(|edge| edge.0 - value <= rounding);
+        // 同じ位置の辺はまとめて扱う。細います目の反対側の辺があれば、この位置から新しい罫線にする。
+        if lines.last().is_none_or(|last| value - last > tolerance * 2.0)
+            || values[index..end].iter().any(|(_, cell, _)| members.contains(cell))
+        {
             lines.push(value);
+            members.clear();
         }
+        for &(_, cell, side) in &values[index..end] {
+            edges[cell][side] = lines.len() - 1;
+            members.insert(cell);
+        }
+        index = end;
     }
-    lines
+    (lines, edges)
 }
 
-/// 位置に最も近い罫線の番号
-fn nearest(lines: &[f64], value: f64) -> usize {
-    let mut best = 0;
-    for (i, line) in lines.iter().enumerate() {
-        if (line - value).abs() < (lines[best] - value).abs() {
-            best = i;
-        }
-    }
-    best
-}
-
-fn build_table(members: &[usize], cells: &[(usize, ClosedRegion)], tolerance: f64) -> RuledTable {
+fn build_table(members: &[usize], cells: &[(usize, ClosedRegion)], tolerance: f64) -> Option<RuledTable> {
     let boxes: Vec<BBox> = members.iter().map(|&m| cells[m].1.bbox).collect();
-    let columns = lines(boxes.iter().flat_map(|b| [b.min_x, b.max_x]).collect(), tolerance);
-    let mut rows = lines(boxes.iter().flat_map(|b| [b.min_y, b.max_y]).collect(), tolerance);
+    let (columns, x_edges) = lines(&boxes, |b| [b.min_x, b.max_x], tolerance);
+    let (mut rows, y_edges) = lines(&boxes, |b| [b.min_y, b.max_y], tolerance);
     rows.reverse();
     let mut boundary: Vec<String> = Vec::new();
     let mut seen: HashSet<&str> = HashSet::new();
     let mut table_cells: Vec<TableCell> = members
         .iter()
-        .map(|&m| {
+        .enumerate()
+        .map(|(index, &m)| {
             let region = &cells[m].1;
             for id in &region.boundary {
                 if seen.insert(id) {
@@ -324,8 +338,8 @@ fn build_table(members: &[usize], cells: &[(usize, ClosedRegion)], tolerance: f6
                 }
             }
             let b = region.bbox;
-            let (left, right) = (nearest(&columns, b.min_x), nearest(&columns, b.max_x));
-            let (top, bottom) = (nearest(&rows, b.max_y), nearest(&rows, b.min_y));
+            let [left, right] = x_edges[index];
+            let (top, bottom) = (rows.len() - 1 - y_edges[index][1], rows.len() - 1 - y_edges[index][0]);
             TableCell {
                 row: top,
                 column: left,
@@ -338,14 +352,20 @@ fn build_table(members: &[usize], cells: &[(usize, ClosedRegion)], tolerance: f6
         })
         .collect();
     table_cells.sort_by_key(|cell| (cell.row, cell.column));
-    RuledTable {
+    if table_cells
+        .iter()
+        .any(|cell| cell.row + cell.row_span >= rows.len() || cell.column + cell.column_span >= columns.len())
+    {
+        return None;
+    }
+    Some(RuledTable {
         bbox: union_box(&boxes),
         placement: cells[members[0]].1.placement.clone(),
         columns,
         rows,
         cells: table_cells,
         boundary,
-    }
+    })
 }
 
 /// ます目の文字を、上の行から、同じ行は左から並べる。中心の高さの差が文字の高さの半分までなら同じ行
@@ -422,6 +442,7 @@ mod tests {
                 color: "#000000".into(),
                 font_family: "sans-serif".into(),
                 height: 2.0,
+                character_height: None,
                 scale_x: 1.0,
                 cells: Vec::new(),
                 box_width: width,
@@ -511,6 +532,45 @@ mod tests {
         assert!(ruled_tables(&scene(entities.clone()), &TableOptions::default()).is_empty());
         let empty = TableOptions { empty: true, ..TableOptions::default() };
         assert_eq!(ruled_tables(&scene(entities), &empty).len(), 1);
+    }
+
+    #[test]
+    fn keeps_both_edges_of_cells_narrower_than_twice_the_tolerance() {
+        for tolerance in [0.01, 1.0] {
+            for (width, height) in [(20.0, 1.5), (1.5, 20.0), (1.5, 1.5)] {
+                let (w, h) = (width * tolerance, height * tolerance);
+                let drawing = scene(vec![
+                    line("frame", &[0.0, 0.0, w * 2.0, 0.0, w * 2.0, h * 2.0, 0.0, h * 2.0], true),
+                    line("vertical", &[w, 0.0, w, h * 2.0], false),
+                    line("horizontal", &[0.0, h, w * 2.0, h], false),
+                ]);
+                let options = TableOptions { tolerance, empty: true, ..TableOptions::default() };
+                let tables = ruled_tables(&drawing, &options);
+                assert_eq!(tables.len(), 1, "{tolerance} {width} {height}");
+                assert_eq!(tables[0].size(), (2, 2));
+                assert_eq!(tables[0].grid(), vec![vec!["", ""], vec!["", ""]]);
+                assert!(tables[0].cells.iter().all(|cell| cell.row_span == 1 && cell.column_span == 1));
+            }
+        }
+    }
+
+    #[test]
+    fn merges_offset_edges_without_collapsing_a_narrow_cell() {
+        for tolerance in [0.01, 1.0] {
+            let t = tolerance;
+            let drawing = scene(vec![
+                line("frame", &[0.0, 0.0, 20.0 * t, 0.0, 20.0 * t, 20.0 * t, 0.0, 20.0 * t], true),
+                line("horizontal", &[0.0, 10.0 * t, 20.0 * t, 10.0 * t], false),
+                line("upper", &[1.5 * t, 10.0 * t, 1.5 * t, 20.0 * t], false),
+                line("lower", &[2.3 * t, 0.0, 2.3 * t, 10.0 * t], false),
+            ]);
+            let tables = ruled_tables(&drawing, &TableOptions { tolerance, empty: true, ..TableOptions::default() });
+            assert_eq!(tables.len(), 1);
+            assert_eq!(tables[0].size(), (2, 2));
+            let cells: Vec<_> = tables[0].cells.iter().map(|c| (c.row, c.column, c.row_span, c.column_span)).collect();
+            assert_eq!(cells, [(0, 0, 1, 1), (0, 1, 1, 1), (1, 0, 1, 1), (1, 1, 1, 1)], "{tables:#?}");
+            assert_eq!(tables[0].grid(), vec![vec!["", ""], vec!["", ""]]);
+        }
     }
 
     #[test]

@@ -677,6 +677,10 @@ drawing with `write_dwg` (`$INSUNITS` and `$MEASUREMENT` from the units), which 
   POLYLINE is also set on its vertices and SEQEND; LWPOLYLINE vertices are written again with their bulges (vertex
   widths are dropped). The text of a multi-line attribute (R2018) cannot be changed (`unsupported-kind`). An entity of
   a type that the codec does not read can be deleted but not changed.
+  Changing an INSERT's position, rotation or scale also transforms its ATTRIB positions, alignment points and
+  glyph axes, including unequal and negative scales. Attribute values, handles and extended data stay. Tilted OCS
+  and embedded MTEXT attributes refuse these placement changes (`unsupported-kind`) rather than stay at the old
+  location.
 - **What `delete` removes**: the entity with what follows it (vertices and SEQEND, attributes and SEQEND), its extension
   dictionary and the objects in it; the entity leaves the entity list (R2004 and later) or the chain of its block (R13 to R2000:
   the neighbours are linked to each other and the block's first or last entity moves), the draw order of the block
@@ -718,6 +722,9 @@ drawing with `write_dwg` (`$INSUNITS` and `$MEASUREMENT` from the units), which 
   paper space, so a viewport can be added there only from R2004 on; layouts added by the edit take them in R2000 too.
   New layouts use millimeter paper coordinates at 1:1, with no rotation or plot offset. Their margins default to
   zero; an explicit `margins` value overrides that default.
+  `update-layout` (`name`, `set: {"paperSize": [width, height]}` in millimeters) changes an existing paper layout's
+  dimensions, paper name and limits and resizes its whole-sheet viewport while preserving its handle, margins and
+  other plot settings, as in the DXF editor.
 - **Leaders**: `leader` writes the annotation MTEXT and a LEADER (20.4.47) that points to it, with the values of the
   DXF editor; R13 and R14 also get DIMGAP × DIMSCALE and DIMASZ × DIMSCALE in the LEADER. Reading adds the hook vertex
   that AutoCAD writes to DXF (`entities.rs`, an inferred rule).

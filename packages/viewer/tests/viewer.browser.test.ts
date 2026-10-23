@@ -437,6 +437,26 @@ describe("操作のハンドラ", () => {
     expect(viewer.getView().center).toEqual(view.center);
   });
 
+  it.each([
+    [100, 300, 200],
+    [120, 320, 220],
+  ])("2 本指を %s・%s px に広げても、指の中心 %s px の下に同じ点がある", async (left, right, center) => {
+    const { viewer } = await mount();
+    const anchor = viewer.toPaper(200, 150);
+    const touch = (type: string, id: number, px: number) =>
+      pointer(viewer, type, px, 150, { pointerId: id, pointerType: "touch", isPrimary: id === 1 });
+    touch("pointerdown", 1, 150);
+    touch("pointerdown", 2, 250);
+    touch("pointermove", 1, left);
+    touch("pointermove", 2, right);
+    touch("pointerup", 1, left);
+    touch("pointerup", 2, right);
+
+    const [x, y] = viewer.toScreen(...anchor);
+    expect(x).toBeCloseTo(center, 9);
+    expect(y).toBeCloseTo(150, 9);
+  });
+
   it("ダブルクリックとキーは 1 つずつ止められ、止めたキーはページに任せる", async () => {
     const { viewer } = await mount();
     const zoom = viewer.getView().zoom;

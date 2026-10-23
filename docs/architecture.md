@@ -53,6 +53,10 @@ bytes ─▶ format reader ─▶ native model ─▶ toScene ─▶ Scene
 
 ## The scene model
 
+- A text primitive's `height` is the height of the glyph em used for drawing. Its optional `characterHeight` is
+  the height declared by the drawing, in the same local coordinates, and defaults to `height`. Checks apply the
+  primitive's matrix to this declared height; merging texts into a dimension keeps it with each part
+  ([decision 0024](decisions/0024-declared-text-height.md)).
 - Coordinates are paper millimeters with the Y axis up. Placements of sub-figures, parts and blocks are resolved.
 - Each entity has drawing primitives (`stroke`, `fill`, `clipped`, `dot`, `text`), a bounding box, its layers
   (its own and those of the placements it sits in), a list of properties to show, and, inside a scaled placement,

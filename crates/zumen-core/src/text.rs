@@ -126,6 +126,7 @@ pub fn layout_text(input: TextLayoutInput<'_>, transform: &Matrix) -> Option<Tex
         color: input.color,
         font_family: input.font_family,
         height: glyph_height,
+        character_height: None,
         scale_x: if scale_x.is_finite() && scale_x > 0.0 { scale_x } else { 1.0 },
         cells,
         box_width,

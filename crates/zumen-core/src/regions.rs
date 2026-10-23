@@ -838,6 +838,7 @@ mod tests {
                 color: "#000000".into(),
                 font_family: "sans-serif".into(),
                 height: 2.0,
+                character_height: None,
                 scale_x: 1.0,
                 cells: Vec::new(),
                 box_width: 2.0 * text.chars().count() as f64,

@@ -130,6 +130,14 @@ pub(crate) fn draw(drafter: &mut Drafter, spec: &Spec) -> Result<(), DraftError>
     let mut regions: Vec<(String, BBox)> = Vec::new();
     for (index, sheet) in spec.sheets.iter().enumerate() {
         let path = format!("sheets[{index}]");
+        // DXF Reference「LAYOUT」: モデル空間の Model は用紙の名前として使わない。
+        if sheet.name.trim().is_empty() || sheet.name.trim().eq_ignore_ascii_case("Model") {
+            return Err(DraftError::new(
+                "invalid-value",
+                &format!("{path}.name"),
+                "用紙の名前は空でなく、Model 以外にしてください",
+            ));
+        }
         if names.iter().any(|name| name.eq_ignore_ascii_case(&sheet.name)) {
             return Err(DraftError::new("invalid-spec", &path, format!("用紙の名前 {} が 2 度あります", sheet.name)));
         }
@@ -186,7 +194,7 @@ fn fill_fields(
         for attrib in &mut insert.attribs {
             let DxfEntityData::Attrib { text, tag, .. } = &mut attrib.data else { continue };
             if let Some((key, value)) = fields.iter().find(|(key, _)| key.eq_ignore_ascii_case(tag)) {
-                text.text = value.clone();
+                text.text = text::escape_text(value);
                 filled.insert(key.to_uppercase());
             }
         }
@@ -565,7 +573,7 @@ fn attribute_text(
     let height = positive(attribute.height.unwrap_or_else(|| drafter.text_height()), "height", path)? * scale[1].abs();
     let style = drafter.text_style(None);
     Ok(DxfTextBase {
-        text: value.to_string(),
+        text: text::escape_text(value),
         insert: xyz(position),
         align_point: (align.h != 0 || align.v != 0).then(|| xyz(position)),
         height,

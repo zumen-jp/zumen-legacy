@@ -21,7 +21,7 @@ pub use edit::{
 };
 pub use model::*;
 pub use mtext::{
-    ParagraphAlign, RunColor, RunFont, RunStack, TextParagraph, TextRun, mtext_plain_text, parse_mtext,
+    ParagraphAlign, RunColor, RunFont, RunStack, TextParagraph, TextRun, escape_mtext, mtext_plain_text, parse_mtext,
     parse_text_codes,
 };
 pub use parse::parse_dxf;

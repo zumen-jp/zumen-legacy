@@ -77,6 +77,8 @@ export interface TextPrimitive {
   fontFamily: string;
   /** 文字の座標系での 1 文字の高さ */
   height: number;
+  /** 元の図面が定義する文字の高さ（文字の座標系）。省略時は height。描画の em と異なる場合の解析に使う */
+  characterHeight?: number;
   /** 字形の横方向の倍率（文字範囲幅に合わせる） */
   scaleX: number;
   cells: GlyphCell[];

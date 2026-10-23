@@ -420,6 +420,7 @@ mod tests {
                 color: "#000000".into(),
                 font_family: "sans-serif".into(),
                 height,
+                character_height: None,
                 scale_x: 1.0,
                 cells: Vec::new(),
                 box_width: width,

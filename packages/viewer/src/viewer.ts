@@ -1054,7 +1054,7 @@ export class DrawingViewer {
       const distance = Math.hypot(a.x - b.x, a.y - b.y);
       const mx = (a.x + b.x) / 2;
       const my = (a.y + b.y) / 2;
-      const zoomed = zoomAt(this.transform(), mx, my, distance / Math.max(pinch.distance, 1));
+      const zoomed = zoomAt(this.transform(), pinch.x, pinch.y, distance / Math.max(pinch.distance, 1));
       this.pinch = { distance, x: mx, y: my, moved: true };
       this.fitTarget = null;
       this.setCamera(
