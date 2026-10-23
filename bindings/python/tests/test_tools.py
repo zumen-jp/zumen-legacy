@@ -105,6 +105,8 @@ def test_every_result_follows_the_documented_schema(tmp_path):
     summary_sheet = zumen.read(zumen.draft(SHEETS, "dxf", sheet="A01-1").data)
     check(tools.find_tables(summary_sheet), tools.TablePage)
     check(tools.find_tables(summary_sheet, max_cells=10), tools.TablePage)
+    check(tools.check_drawing(summary_sheet, max_findings=1, max_ids=1, max_text_length=2), tools.CheckInfo)
+    check(tools.check_drawing(zumen.read(ROOMS)), tools.CheckInfo)
     scene = zumen.read(SFC)
     line = scene.entity("#810>#260>#220")
     x0, y0, x1, y1 = line["bbox"]
@@ -377,6 +379,50 @@ def test_reads_the_tables_of_a_drafted_sheet_as_rows_and_columns():
     assert [len(table["cells"]) for table in tables] == [6, 31, 19]
     with pytest.raises(tools.DrawingError):
         tools.find_tables(scene, max_cells=0)
+
+
+def test_checks_a_drafted_sheet_against_the_cad_standard_of_mlit():
+    scene = zumen.read(zumen.draft(SHEETS, "dxf", sheet="A01-1").data)
+    report = tools.check_drawing(scene)
+    assert report["rule_set"] == "mlit-cad-2025" and not report["passed"]
+    rules = {rule["id"]: rule for rule in report["rules"]}
+    assert list(rules) == [
+        "layer-name",
+        "color",
+        "line-type",
+        "line-width",
+        "text-height",
+        "characters",
+        "sheet-size",
+        "orientation",
+        "scale",
+    ]
+    # The layer names of the sample do not follow the standard, the most used first
+    names = rules["layer-name"]
+    assert names["level"] == "error" and names["reference"] == "1-5-7"
+    assert [finding["value"] for finding in names["findings"]] == ["A-TEXT", "0", "A-FRAME"]
+    assert report["errors"] == 3
+    # ㎡ is a character of one maker's machines
+    unit = rules["characters"]["findings"][0]
+    assert unit["value"] == "㎡" and unit["count"] == 7
+    assert scene.entity(unit["ids"][0])["kind"] == "text"
+    # Line widths taken from the layer are not in the DXF entities
+    assert rules["line-width"]["unchecked"] > 0
+    small = tools.check_drawing(scene, max_findings=1, max_ids=2)
+    names = small["rules"][0]
+    assert len(names["findings"]) == 1 and names["findings_omitted"] == 2
+    heights = next(rule for rule in small["rules"] if rule["id"] == "text-height")["findings"][0]
+    assert len(heights["ids"]) == 2 and heights["ids_omitted"] == 4
+    # A rule set of one's own, as a dict
+    own = {"name": "office", "rules": [{"id": "layers", "kind": "layer-name", "patterns": ["A-*", "0"]}]}
+    assert tools.check_drawing(scene, rules=own)["passed"]
+    assert scene.check(own)["results"][0]["findings"] == []
+    with pytest.raises(tools.DrawingError, match="cannot be used"):
+        tools.check_drawing(scene, rules="none")
+    with pytest.raises(tools.DrawingError):
+        tools.check_drawing(scene, rules={"name": "x", "rules": [{"id": "a", "kind": "color"}]})
+    with pytest.raises(tools.DrawingError):
+        tools.check_drawing(scene, max_ids=0)
 
 
 def test_gives_real_areas_through_the_scale_of_a_viewport():

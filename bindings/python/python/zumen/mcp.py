@@ -1,5 +1,6 @@
 """An MCP server that lets AI applications open, render, search, measure and compare drawings, read their geometry,
-find the regions (rooms) that their lines close and the tables drawn with rules, and draft drawings from a drawing spec.
+find the regions (rooms) that their lines close and the tables drawn with rules, check them against the rules of a CAD
+standard, and draft drawings from a drawing spec.
 
 Install it with ``pip install "zumen[mcp]"`` and start it with ``zumen-mcp`` (or ``python -m zumen.mcp``).
 It speaks MCP over stdio and reads drawing files from the local disk; ``--root`` limits the directories it may read.
@@ -22,9 +23,12 @@ from .tools import (
     DEFAULT_MAX_BYTES,
     DEFAULT_MAX_CELLS,
     DEFAULT_MAX_ENTITIES,
+    DEFAULT_MAX_FINDINGS,
+    DEFAULT_MAX_IDS,
     DEFAULT_MAX_POINTS,
     DEFAULT_TIMEOUT,
     MAX_CELLS,
+    MAX_FINDINGS,
     MAX_IMAGE_SIZE,
     MAX_LIMIT,
     MAX_PLACEMENTS,
@@ -32,6 +36,7 @@ from .tools import (
     PICK_MM,
     DrawingError,
     Drawings,
+    check_drawing,
     compare_revisions,
     draft_drawing,
     find_entities,
@@ -51,10 +56,13 @@ __all__ = [
     "DEFAULT_MAX_BYTES",
     "DEFAULT_MAX_CELLS",
     "DEFAULT_MAX_ENTITIES",
+    "DEFAULT_MAX_FINDINGS",
+    "DEFAULT_MAX_IDS",
     "DEFAULT_MAX_POINTS",
     "DEFAULT_TIMEOUT",
     "INSTRUCTIONS",
     "MAX_CELLS",
+    "MAX_FINDINGS",
     "MAX_IMAGE_SIZE",
     "MAX_LIMIT",
     "MAX_PLACEMENTS",
@@ -62,6 +70,7 @@ __all__ = [
     "PICK_MM",
     "DrawingError",
     "Drawings",
+    "check_drawing",
     "compare_revisions",
     "create_server",
     "draft_drawing",
@@ -85,6 +94,7 @@ find_texts and find_entities search the contents, get_entity shows the propertie
 (find_entities with geometry gives the geometry of many), measure_distance converts lengths to real-world
 millimeters, and compare_drawings shows what changed between two revisions. find_regions gives the areas that lines
 close (rooms) and find_tables the text of the tables drawn with rules (schedules, area tables, title blocks).
+check_drawing checks layer names, colors, line types, line widths, text heights and the sheet against a CAD standard.
 Coordinates are paper millimeters with the Y axis up; geometry inside a placement also has real, the same
 coordinates in real-world millimeters (left out when they are the same as on the sheet, as in DXF model space).
 A region is [min_x, min_y, max_x, max_y] in paper millimeters, or frame_region [left, top, right, bottom] as
@@ -393,6 +403,36 @@ def create_server(drawings: Drawings | None = None) -> Any:
                 offset=offset,
                 max_cells=max_cells,
             )
+        except DrawingError as error:
+            raise ToolError(str(error)) from error
+        return result(data)
+
+    @server.tool(name="check_drawing", annotations=read_only)
+    def check_drawing_tool(
+        path: DrawingPath,
+        view: View = None,
+        rules: Annotated[
+            str,
+            Field(
+                description="A built-in rule set (mlit-cad-2025, the CAD drafting standard of MLIT Japan) or a rule "
+                "set as JSON text"
+            ),
+        ] = "mlit-cad-2025",
+        max_findings: Annotated[
+            int, Field(description="Most values that break one rule", ge=1, le=MAX_FINDINGS)
+        ] = DEFAULT_MAX_FINDINGS,
+        max_ids: Annotated[
+            int, Field(description="Most entity ids of one value", ge=1, le=MAX_FINDINGS)
+        ] = DEFAULT_MAX_IDS,
+    ) -> CallToolResult:
+        """Check a drawing against the rules of a CAD standard: layer names, colors, line types, line widths, text
+        heights on the sheet, characters that should not be used (such as ① and ㎡), the sheet size and orientation,
+        and scales. Each rule gives the section of the standard, how many layers, entities, sheets or scales it
+        checked, how many it could not because the drawing does not give the value, and the values that break it with
+        the ids and layers of the entities that have them, the most common first. passed is true when no rule of level
+        error is broken."""
+        try:
+            data = check_drawing(scene_of(path, view), rules=rules, max_findings=max_findings, max_ids=max_ids)
         except DrawingError as error:
             raise ToolError(str(error)) from error
         return result(data)

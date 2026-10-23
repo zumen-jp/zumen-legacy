@@ -8,6 +8,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict, PyList};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, OnceLock};
+use zumen::checks::{CheckReport, RuleSet, check_scene};
 use zumen::compare::{CompareOptions, SceneDiff, compare_scenes, diff_scene};
 use zumen::extract::{
     EntityFilter, EntityText, Shape, entity_shapes, entity_text, layer_names, real_shapes, scene_texts, select_entities,
@@ -285,6 +286,39 @@ fn region_texts<'py>(py: Python<'py>, texts: &[RegionText]) -> PyResult<Bound<'p
         list.append(item)?;
     }
     Ok(list)
+}
+
+/// 規則で調べた結果の dict（rule_set、title、passed、results）
+fn check_dict<'py>(py: Python<'py>, report: &CheckReport) -> PyResult<Bound<'py, PyDict>> {
+    let dict = PyDict::new(py);
+    dict.set_item("rule_set", &report.rule_set)?;
+    dict.set_item("title", &report.title)?;
+    dict.set_item("passed", report.passed())?;
+    let results = PyList::empty(py);
+    for result in &report.results {
+        let item = PyDict::new(py);
+        item.set_item("id", &result.id)?;
+        item.set_item("kind", result.kind.name())?;
+        item.set_item("level", result.level.name())?;
+        item.set_item("reference", &result.reference)?;
+        item.set_item("description", &result.description)?;
+        item.set_item("checked", result.checked)?;
+        item.set_item("unchecked", result.unchecked)?;
+        let findings = PyList::empty(py);
+        for finding in &result.findings {
+            let entry = PyDict::new(py);
+            entry.set_item("value", &finding.value)?;
+            entry.set_item("message", &finding.message)?;
+            entry.set_item("count", finding.count)?;
+            entry.set_item("entities", &finding.entities)?;
+            entry.set_item("layers", &finding.layers)?;
+            findings.append(entry)?;
+        }
+        item.set_item("findings", findings)?;
+        results.append(item)?;
+    }
+    dict.set_item("results", results)?;
+    Ok(dict)
 }
 
 /// 罫線で描いた表の dict（bbox、placement、row_count、column_count、columns、rows、cells、boundary）
@@ -757,6 +791,25 @@ impl Scene {
             list.append(table_dict(py, table)?)?;
         }
         Ok(list)
+    }
+
+    /// 製図の規則（レイヤ名・色・線種・線の太さ・文字の高さ・使えない文字・用紙・尺度）に合うかを調べる。rules は組み込みの
+    /// 規則集の名前（mlit-cad-2025）、JSON の規則集の文字列か dict（docs/checks.md）。dict は rule_set、title、passed
+    /// （error の規則に合わない値がない）、results（規則ごとの id、kind、level、reference、description、checked、
+    /// unchecked、findings。findings は合わない値ごとの value、message、count、entities、layers）
+    #[pyo3(signature = (rules = None))]
+    fn check<'py>(&self, py: Python<'py>, rules: Option<&Bound<'py, PyAny>>) -> PyResult<Bound<'py, PyDict>> {
+        let text: String = match rules {
+            None => "mlit-cad-2025".to_string(),
+            Some(rules) => match rules.extract::<String>() {
+                Ok(text) => text,
+                Err(_) => py.import("json")?.call_method1("dumps", (rules,))?.extract()?,
+            },
+        };
+        let rules = RuleSet::named_or_json(&text).map_err(PyValueError::new_err)?;
+        let scene = self.inner.clone();
+        let report = py.detach(move || check_scene(&scene, &rules));
+        check_dict(py, &report)
     }
 
     /// id の図形（entities と同じ dict で、geometry も entities と同じ）。ない id なら None

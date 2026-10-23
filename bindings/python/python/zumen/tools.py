@@ -67,6 +67,15 @@ MAX_POINTS = 10_000
 DEFAULT_MAX_CELLS = 1000
 #: Most cells of tables one call may return.
 MAX_CELLS = 10_000
+#: Findings of one rule that ``check_drawing`` returns when the caller does not ask for a number.
+DEFAULT_MAX_FINDINGS = 50
+#: Entity ids of one finding that ``check_drawing`` returns when the caller does not ask for a number.
+DEFAULT_MAX_IDS = 20
+#: Most findings of one rule, and most entity ids of one finding, that ``check_drawing`` may return.
+MAX_FINDINGS = 1000
+#: Built-in rule sets of ``check_drawing``: the CAD drafting standard of the Ministry of Land, Infrastructure,
+#: Transport and Tourism of Japan (CAD製図基準, December 2025).
+RULE_SETS = ("mlit-cad-2025",)
 #: Most placements (scaled parts of the sheet) that ``summary`` lists, the largest first.
 MAX_PLACEMENTS = 100
 #: Largest drawing that ``Drawings`` reads (bytes; P2Z and SFZ after unpacking). Received files are not trusted.
@@ -486,6 +495,56 @@ class TablePage(TypedDict):
     offset: int
     next_offset: int | None
     tables: list[TableInfo]
+
+
+class _CheckFindingInfo(TypedDict):
+    value: str
+    message: str
+    count: int
+    ids: list[str]
+    layers: list[str]
+
+
+class CheckFindingInfo(_CheckFindingInfo, total=False):
+    """A value that breaks a rule (a layer name, a color ``#rrggbb``, a line type, a width or text height in paper
+    millimeters, a character, a sheet size, a scale ``1:N``), with a message in Japanese, the number of entities,
+    layers, sheets or scales that have it, the ids of the entities (``ids_omitted`` counts those left out) and the
+    names of their layers."""
+
+    ids_omitted: int
+    truncated: bool
+
+
+class _CheckRuleInfo(TypedDict):
+    id: str
+    kind: str
+    level: Literal["error", "warning", "info"]
+    reference: str | None
+    description: str | None
+    checked: int
+    unchecked: int
+    findings: list[CheckFindingInfo]
+
+
+class CheckRuleInfo(_CheckRuleInfo, total=False):
+    """One rule of the rule set: its kind and level, the section of the standard (``reference``), how many items it
+    checked, how many it could not because the drawing does not give the value (``unchecked``), and the values that
+    break it, the most common first. ``findings_omitted`` counts the findings left out."""
+
+    findings_omitted: int
+
+
+class CheckInfo(TypedDict):
+    """A drawing checked against a rule set: ``passed`` is true when no rule of level error is broken, and
+    ``errors``, ``warnings`` and ``infos`` count the values that break rules of each level."""
+
+    rule_set: str
+    title: str | None
+    passed: bool
+    errors: int
+    warnings: int
+    infos: int
+    rules: list[CheckRuleInfo]
 
 
 class _MeasurementInfo(TypedDict):
@@ -1419,6 +1478,74 @@ def find_tables(
         "offset": offset,
         "next_offset": following if following < len(tables) else None,
         "tables": page,
+    }
+
+
+def check_drawing(
+    scene: Scene,
+    *,
+    rules: str | dict[str, Any] = "mlit-cad-2025",
+    max_findings: int = DEFAULT_MAX_FINDINGS,
+    max_ids: int = DEFAULT_MAX_IDS,
+    max_text_length: int | None = DEFAULT_TEXT_LENGTH,
+) -> CheckInfo:
+    """Check a drawing against the rules of a CAD standard: layer names, colors, line types, line widths, text
+    heights on the sheet, characters that should not be used, the sheet size and orientation, and scales.
+
+    ``rules`` is the name of a built-in rule set (``RULE_SETS``) or a rule set of one's own as a dict or JSON text
+    (``docs/checks.md``). Each rule reports how many items it checked and how many it could not, because the drawing
+    does not give the value (a DXF line width taken from the layer, a JWW line type that has only a number, text
+    heights in a drawing without a sheet), so that a rule without findings is not read as passed when nothing was
+    checked. Findings group the entities by the value that breaks the rule, the most common value first.
+    """
+    if not 1 <= max_findings <= MAX_FINDINGS or not 1 <= max_ids <= MAX_FINDINGS:
+        raise DrawingError(f"max_findings and max_ids must be between 1 and {MAX_FINDINGS:,}")
+    length = _text_length(max_text_length)
+    try:
+        report = scene.check(rules)
+    except ValueError as error:
+        raise DrawingError(f"the rule set cannot be used: {error}") from error
+    counts = {"error": 0, "warning": 0, "info": 0}
+    infos: list[CheckRuleInfo] = []
+    for result in report["results"]:
+        counts[result["level"]] += len(result["findings"])
+        findings = sorted(result["findings"], key=lambda finding: -finding["count"])
+        rule: CheckRuleInfo = {
+            "id": result["id"],
+            "kind": result["kind"],
+            "level": cast(Any, result["level"]),
+            "reference": result["reference"],
+            "description": result["description"],
+            "checked": result["checked"],
+            "unchecked": result["unchecked"],
+            "findings": [],
+        }
+        for finding in findings[:max_findings]:
+            value, cut = _clip(finding["value"], length)
+            layers = [_clip(name, length) for name in finding["layers"]]
+            item: CheckFindingInfo = {
+                "value": value,
+                "message": finding["message"],
+                "count": finding["count"],
+                "ids": finding["entities"][:max_ids],
+                "layers": [name for name, _ in layers],
+            }
+            if len(finding["entities"]) > max_ids:
+                item["ids_omitted"] = len(finding["entities"]) - max_ids
+            if cut or any(clipped for _, clipped in layers):
+                item["truncated"] = True
+            rule["findings"].append(item)
+        if len(findings) > max_findings:
+            rule["findings_omitted"] = len(findings) - max_findings
+        infos.append(rule)
+    return {
+        "rule_set": report["rule_set"],
+        "title": report["title"],
+        "passed": report["passed"],
+        "errors": counts["error"],
+        "warnings": counts["warning"],
+        "infos": counts["info"],
+        "rules": infos,
     }
 
 

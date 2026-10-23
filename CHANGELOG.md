@@ -4,6 +4,15 @@ All packages share one version during 0.x.
 
 ## Unreleased
 
+- Rust, Python, the command line and the MCP server: check a drawing against the rules of a CAD standard (layer
+  names, colors, line types, line widths, text heights on the sheet, machine-dependent characters, the sheet size and
+  orientation, and scales), with the CAD drafting standard of MLIT (CAD製図基準, December 2025) built in as
+  `mlit-cad-2025` and rule sets of one's own as JSON ([Checks](docs/checks.md),
+  [decision 0015](docs/decisions/0015-analysis-in-zumen-core.md)). Each rule reports what it checked, what the drawing
+  does not give, and the values that break it with the ids and layers of their entities. `zumen_core::checks`,
+  `Scene.check` and `zumen.tools.check_drawing` in Python, `zumen check` (which fails when a rule of level error is
+  broken), and the `check_drawing` MCP tool. The ratio between the text height of DXF and DWG and the glyphs drawn
+  moves to `zumen_core::text::em_for`.
 - Rust, Python, the command line and the MCP server: read the tables drawn with rules (schedules, area tables,
   drawing lists, title blocks) as rows and columns, with merged cells and the texts of each cell
   ([decision 0015](docs/decisions/0015-analysis-in-zumen-core.md)). Only horizontal and vertical lines are rules, so

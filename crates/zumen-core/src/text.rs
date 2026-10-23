@@ -32,6 +32,16 @@ pub fn is_half_width(c: char) -> bool {
     (0x20..=0x7e).contains(&code) || (0xff61..=0xff9f).contains(&code) || code == 0xa5 || code == 0x203e
 }
 
+/// 文字の高さを大文字の高さで示す形式（DXF・DWG）の、文字の高さに対する字形の em の大きさ。全角の文字を含む文字は
+/// 漢字の高さ（em の 0.88）を、含まない文字は大文字の高さ（em の 0.72）を文字の高さに合わせる
+pub const EM_LATIN: f64 = 1.0 / 0.72;
+pub const EM_CJK: f64 = 1.0 / 0.88;
+
+/// 文字の高さ（大文字の高さ）に対する字形の em の大きさ。全角の文字を含めば EM_CJK、なければ EM_LATIN
+pub fn em_for(text: &str) -> f64 {
+    if text.chars().any(|c| !is_half_width(c) && !js::is_whitespace(c)) { EM_CJK } else { EM_LATIN }
+}
+
 #[derive(Debug, Clone)]
 pub struct TextLayoutInput<'a> {
     pub text: &'a str,
