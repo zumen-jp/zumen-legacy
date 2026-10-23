@@ -4,6 +4,9 @@ All packages share one version during 0.x.
 
 ## Unreleased
 
+- Playground: PDF drawings open in the 2D sample, with their pages drawn by `@zumenjs/pdf` and pdf.js under the
+  entities that the reader reads (`playground/pdf-sample.ts`). pdf.js is imported only when the file is a PDF, and
+  the playground serves pdf.js's CMaps (Japanese fonts that the PDF does not embed) and image decoders under `pdfjs/`.
 - Rust, Python, the command line and the MCP server: draw a drawing spec into JWW and SXF (SFC, P21, SFZ, P2Z)
   templates too (`zumen::draft_into`, `zumen.draft_into`, `zumen draft --into template.jww`, `into` of
   `draft_drawing`), through their edits ([decision 0027](docs/decisions/0027-draft-into-jww-and-sxf.md),

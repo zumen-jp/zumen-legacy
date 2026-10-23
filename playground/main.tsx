@@ -1,12 +1,13 @@
 import { drawingHash, type MarkupDrawing, type Scene, type Underlay } from "@zumenjs/core";
 import { useDrawing } from "@zumenjs/react";
 import { initReader, readEmbeddedFiles, reader } from "@zumenjs/reader";
-import { imageUnderlayRenderer } from "@zumenjs/viewer";
+import { imageUnderlayRenderer, type UnderlayRenderer } from "@zumenjs/viewer";
 import { type DragEvent, StrictMode, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { DrawingSample } from "./drawing-sample.js";
+import { usePdfUnderlayRenderer } from "./pdf-sample.js";
 
-const ACCEPT = ".sfc,.p21,.sfz,.p2z,.jww,.jwc,.jws,.dxf,.dwg";
+const ACCEPT = ".sfc,.p21,.sfz,.p2z,.jww,.jwc,.jws,.dxf,.dwg,.pdf";
 const READERS = [reader];
 const UNDERLAY_ID = "playground-image";
 
@@ -102,7 +103,7 @@ function App() {
     for (const underlay of drawing.scene?.underlays ?? []) if (underlay.file) names.add(underlay.file);
     return [...names];
   }, [drawing.scene]);
-  const underlayRenderer = useMemo(
+  const images = useMemo(
     () =>
       image || wanted.length > 0
         ? imageUnderlayRenderer((underlay) => {
@@ -114,6 +115,15 @@ function App() {
           })
         : undefined,
     [image, imageFiles, embedded, wanted.length],
+  );
+  // PDF の図面のページは pdf.js で、画像は imageUnderlayRenderer で描く
+  const pages = usePdfUnderlayRenderer(file);
+  const underlayRenderer = useMemo<UnderlayRenderer | undefined>(
+    () =>
+      pages && images
+        ? (request, target) => (request.underlay.kind === "pdf" ? pages : images)(request, target)
+        : (pages ?? images),
+    [pages, images],
   );
   const found = wanted.filter((name) => embedded.has(name) || imageFiles.has(baseName(name))).length;
   // マークアップの文書は、図面のファイルのバイトの SHA-256 で図面を指す
@@ -187,7 +197,7 @@ function App() {
       <header style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12 }}>
         <h1 style={{ margin: 0, fontSize: 18 }}>図面のビューア</h1>
         <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-          図面（SFC・P21・P2Z・SFZ・JWW・JWC・JWS・DXF・DWG）
+          図面（SFC・P21・P2Z・SFZ・JWW・JWC・JWS・DXF・DWG・PDF）
           <input type="file" accept={ACCEPT} onChange={(event) => open(event.currentTarget.files?.[0] ?? null)} />
         </label>
         <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>

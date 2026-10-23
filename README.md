@@ -119,7 +119,8 @@ function Drawing({ scene, label }: { scene: Scene; label: string }) {
 ```
 
 The playground's [2D sample](playground/drawing-sample.tsx) builds a complete viewer this way: toolbar, layer list,
-properties, notices and status bar.
+properties, notices and status bar. Its [PDF sample](playground/pdf-sample.ts) draws the pages of PDF drawings with
+`@zumenjs/pdf`, loading pdf.js only when a PDF is opened.
 
 Without React: load the reader once, then give `DrawingViewer` an element and a scene. To read drawings you receive
 in a Web Worker, with limits on bytes, entities and time, see [packages/reader](packages/reader/README.md).

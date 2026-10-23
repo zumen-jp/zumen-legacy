@@ -343,7 +343,9 @@ Node.js は `.node-version`、pnpm は `package.json` の `packageManager` に�
 試用画面は `pnpm dev` で開く（ポートは [config/local-ports.json](config/local-ports.json) の `playground`、既定 24100）。
 Git に入れない図面は、置いたフォルダーを `ZUMEN_SAMPLES` に指定し、`http://127.0.0.1:24100/?sample=<ファイル名>` で開く。
 ファイルの選択・ドロップでも開ける。図面は公開 API だけで作った 2D のサンプル（`playground/drawing-sample.tsx`）で表示する。
-図面は初めて開いたときに WebAssembly の読み取りを読み込む。
+図面は初めて開いたときに WebAssembly の読み取りを読み込む。PDF の図面のページは、PDF のサンプル（`playground/pdf-sample.ts`）が
+`@zumenjs/pdf` と pdf.js で描く。pdf.js は PDF を開いたときに初めて読み込み、pdf.js が読む CMap と画像の復号器は
+`vite.config.ts` が `pdfjs/` に置く。
 
 ## ライセンス
 

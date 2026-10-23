@@ -508,9 +508,24 @@ Chromium 156 (headless shell), Firefox 157.0 and WebKit 27.2, for `@zumenjs/pdf`
 - In the development server of Vite 8, `new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url)` resolves to
   the file of the package, and `pdfjs-dist/webpack.mjs` starts its worker and opens a document. The README recommends
   `?url` for Vite, which the tests use.
-- Not checked: PDF drawings written by CAD plotters and scans (there are none in `ZUMEN_SAMPLES`, and the playground
-  waits for the PDF reader of [#90](https://github.com/zumenjs/zumen/issues/90)), the time pdf.js takes on large
-  sheets, Vite's production build and webpack, the legacy build of pdf.js, and Safari.
+- In the playground on 2026-10-24 (built-in browser of the Claude desktop app, Chromium, 1280 × 860), with PDFs
+  made on this machine, since there are none in `ZUMEN_SAMPLES`: `zumen render` of `Ａマンション平面例.jww` and of
+  the Yokosuka survey plan DXF (9,115 entities, 1,248 × 400 mm), a PDF written by hand (two pages: a crop box,
+  `/Rotate 90`, two optional content groups, one hidden by default, and text in a CID font that it does not embed,
+  with the `UniJIS-UCS2-H` CMap), and four pages joined with `pdfunite` (the apartment plan, `D0LS004Z.SFC` and the
+  hand-written pages; pages 1, 3 and 4 opened).
+  - Each page opened drew under its entities, and switching pages in the view menu drew the new page. The hand-written page
+    showed its Japanese text through the CMaps served under `pdfjs/`, had the size of its crop box, and left out the
+    group hidden by default, as the reader does. The `/Rotate 90` page was upright as A4 portrait.
+  - At 296 % on the survey plan, the visible region was drawn again sharply. The measure tool snapped to two vertices
+    of the PDF's paths (8.68 mm on paper; the PDF has no scale), and selecting a glyph run highlighted it over the
+    page with its properties.
+  - pdf.js rendered the whole survey plan page (3,618 × 1,160 px) in 97 ms; the pane, hidden behind the app, delayed
+    the viewer's timers, so the time to the first page in the playground was not measured.
+  - The production build (`vite preview`) loaded the pdf.js chunk (430 kB), its worker and the CMaps only when a PDF
+    was dropped; a JWW drawing loaded none of them.
+- Not checked: PDF drawings written by CAD plotters and scans, the time to the first page with the pane in front,
+  webpack, the legacy build of pdf.js, and Safari.
 
 ## DXF writing
 

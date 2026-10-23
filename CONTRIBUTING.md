@@ -34,7 +34,8 @@ format, version, authoring software, and the notices the viewer shows.
   [config/local-ports.json](config/local-ports.json) (24100); set `PORT` to override it.
   To open drawings that are not in Git, set `ZUMEN_SAMPLES` to their folder and visit `/?sample=<file name>`.
   Drawings are shown by the 2D sample (`playground/drawing-sample.tsx`), which uses only the public API of `@zumenjs/react` and
-  `@zumenjs/viewer`.
+  `@zumenjs/viewer`; the pages of PDF drawings are drawn by `playground/pdf-sample.ts` with `@zumenjs/pdf` and pdf.js,
+  whose CMaps and image decoders `vite.config.ts` serves under `pdfjs/`.
 
 ### Windows
 
