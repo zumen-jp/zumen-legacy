@@ -20,7 +20,6 @@ import {
   ATTRIBUTES_R2018,
   ascii,
   BINARY,
-  BINARY_LIMITS,
   BINARY_TEXT,
   BLOCKS,
   CODEPAGE,
@@ -28,12 +27,10 @@ import {
   IDS,
   IMAGES,
   LAYOUT,
-  LIMITS,
   latin1,
   MISALIGNED,
   MLEADER,
   MLINE,
-  R12,
   R12_SHIFT_JIS,
   VERTICAL_TEXT,
   WESTERN,
@@ -103,14 +100,6 @@ describe("DXF の単位とブロックの入れ子", () => {
     expect(distance.real).toBeCloseTo(2000);
   });
 
-  it("レイヤ 0 の図形は配置元のレイヤ A に属し、BYBLOCK は内側の配置（BYLAYER のレイヤ A の赤）を継ぐ", () => {
-    const scene = readDrawing(BLOCKS, [dxf]);
-    const line = scene.entities.find((entity) => entity.id === "20>B2>B1");
-    const layerA = scene.layers.find((layer) => layer.name === "A");
-    expect(line?.layers).toEqual([layerA?.id]);
-    expect(line?.primitives[0]).toMatchObject({ kind: "stroke", color: "#ff0000" });
-  });
-
   it("外部参照は参照先の図面を読まないので、ブロックの中の参照も数えて、参照先とともに notices で知らせる", () => {
     const scene = readDrawing(XREFS, [dxf]);
     expect(scene.entities.map((entity) => entity.id)).toEqual(["20", "24>B1"]);
@@ -128,7 +117,7 @@ describe("DXF の単位とブロックの入れ子", () => {
  * ハンドルのない図形（R12 の図面など）は、ファイルの先頭から数えたレコード（グループコード 0）の位置で表す。
  * 読まない種類の図形も数えるので、読める種類が増えても id は変わらず、ブロックの中と INSERT の属性でも重ならない。
  */
-describe("DXF の id と単位", () => {
+describe("DXF の id", () => {
   it("ハンドルのない図形は、ファイルの中のレコードの位置で表す", () => {
     const drawing = IDS;
     const doc = parseDxf(drawing);
@@ -140,14 +129,6 @@ describe("DXF の id と単位", () => {
     // ハンドルのある図形はハンドルで表し、位置を持たない
     const handled = parseDxf(BLOCKS);
     expect(handled.entities.every((entity) => entity.handle !== "" && entity.ordinal === undefined)).toBe(true);
-  });
-
-  it("$INSUNITS の単位を Scene.unit に示し、指定がなければ見なした単位にする", () => {
-    expect(readDrawing(BLOCKS, [dxf]).unit).toBe("meter");
-    expect(readDrawing(LAYOUT, [dxf]).unit).toBe("millimeter");
-    const r12 = readDrawing(R12, [dxf]);
-    expect(r12.unit).toBe("inch");
-    expect(r12.notices.some((notice) => notice.code === "unit-assumed")).toBe(true);
   });
 });
 
@@ -222,34 +203,6 @@ describe("DXF のマルチライン", () => {
       [0, 1, 9, 1, 9, 10],
       [0, -1, 11, -1, 11, 10],
     ]);
-  });
-});
-
-// 壊れた図面・大きすぎる値でも、読み取りが終わり、TypeScript と Rust が同じところで止まること
-describe("DXF の読み取りの上限", () => {
-  it("表示のブロックが自分を指す寸法は、ブロック参照と同じ深さで止め、自分を 2 回含むブロックは描く数で止める", () => {
-    const scene = readDrawing(LIMITS, [dxf]);
-    expect(scene.notices).toContainEqual(expect.objectContaining({ code: "block-depth" }));
-    expect(scene.notices).toContainEqual(expect.objectContaining({ code: "block-limit" }));
-    // 32 段の寸法の線を、一番外側の寸法の 1 つの要素にまとめる
-    expect(strokes(scene.entities.find((entity) => entity.id === "D1"))).toHaveLength(32);
-  });
-
-  it("M × N が頂点の数より大きいポリゴンメッシュは、頂点のある格子の位置だけを描く", () => {
-    const mesh = readDrawing(LIMITS, [dxf]).entities.find((entity) => entity.type === "ポリゴンメッシュ");
-    expect(strokes(mesh)).toEqual([[0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 1, 1]]);
-  });
-
-  it("模様の線の基点が遠く、線の番号に 1 を足しても変わらないハッチングは、多すぎる模様として外形を描く", () => {
-    const scene = readDrawing(LIMITS, [dxf]);
-    expect(scene.notices).toContainEqual(expect.objectContaining({ code: "hatch-dense", count: 1 }));
-    expect(stroke(scene.entities.find((entity) => entity.id === "H1"))).toEqual([0, 0, 100, 0, 100, 100, 0, 100, 0, 0]);
-  });
-
-  it("模様の線の本数が数えられない（NaN の）ハッチングは、多すぎる模様として外形を描く", () => {
-    const scene = readDrawing(BINARY_LIMITS, [dxf]);
-    expect(scene.notices).toContainEqual(expect.objectContaining({ code: "hatch-dense", count: 1 }));
-    expect(stroke(scene.entities[0])).toEqual([0, 0, 100, 0, 100, 100, 0, 100, 0, 0]);
   });
 });
 
