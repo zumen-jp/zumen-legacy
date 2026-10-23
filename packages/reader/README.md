@@ -1,68 +1,53 @@
 # @zumenjs/reader
 
-Reads every drawing format of [zumen](https://github.com/zumenjs/zumen) in browsers and Node.js: SXF (SFC, P21 and the
-compressed P2Z and SFZ), JWW (also JWC and JWS), DXF (ASCII and binary), DWG (AutoCAD 1.0 to 2018) and PDF. The readers are zumen's Rust
-readers built to WebAssembly, the same code that the Rust crates, the command line and the Python package run, so a
-drawing reads into the same scene everywhere.
+SXF（SFC・P21・SFZ・P2Z）・JWW（JWC・JWS を含む）・DXF・DWG・PDF を、ブラウザと Node.js で読み取ります。Rust・Python・CLI と同じ Rust の読み取りを WebAssembly で動かすため、環境が違っても同じ図面モデルを返します。
+
+## 読み取り
 
 ```ts
 import { readDrawing } from "@zumenjs/core";
 import { initReader, reader } from "@zumenjs/reader";
 
-await initReader(); // loads the WebAssembly module once
-const scene = readDrawing(bytes, [reader]); // any format, detected from the contents
-const layout = readDrawing(bytes, [reader], { view: "Layout1" }); // a DXF or DWG layout; scene.views lists them
+await initReader(); // 初回だけ WebAssembly を読み込みます
+const scene = readDrawing(bytes, [reader]); // ファイルの中身から形式を判定します
+const layout = readDrawing(bytes, [reader], { view: "Layout1" });
 ```
 
-PDF is read by a WebAssembly module of its own, loaded only when it is needed:
+PDF は専用モジュールを必要なときだけ読み込みます。
 
 ```ts
 import { initPdfReader, reader } from "@zumenjs/reader";
 
-await initPdfReader(); // or await reader.load("pdf"), which useDrawing calls for a PDF
-const page = readDrawing(pdfBytes, [reader], { view: "2" }); // the second page; scene.views lists the pages
+await initPdfReader(); // reader.load("pdf") でも同じです
+const page = readDrawing(pdfBytes, [reader], { view: "2" }); // 2 ページ目
 ```
 
-## Loading
+## WebAssembly の配置
 
-- `initReader()` loads `wasm/zumen_wasm_bg.wasm` (1.6 MB, 507 KB with brotli) relative to the module: browsers fetch
-  it and Node.js reads the file. Bundlers that follow `new URL(…, import.meta.url)`, such as Vite and webpack 5, copy
-  it into the build. Elsewhere, serve `@zumenjs/reader/zumen_wasm_bg.wasm` yourself and pass its URL, a `Response`,
-  its bytes or a compiled `WebAssembly.Module`. Every call returns the same promise, and a failed load is retried by
-  the next call.
-- `reader.detect` and `detectDrawing` tell the format from the contents without the WebAssembly module, with the rules
-  of the Rust readers, so an application can load the module only when a drawing is opened. `reader.load(format)` calls
-  `initPdfReader()` for `pdf` and `initReader()` otherwise, and `useDrawing` of `@zumenjs/react` waits for it with the
-  format it detected. Reading before the module has loaded throws an error that says so.
-- `initPdfReader()` loads `wasm/zumen_wasm_pdf_bg.wasm` (4.3 MB, 1.4 MB with brotli) the same way; serve
-  `@zumenjs/reader/zumen_wasm_pdf_bg.wasm` and pass its location when bundlers do not copy it. PDF has its own module
-  because it would triple the other one (the PDF interpreter, its fonts and CMaps,
-  [decision 0030](https://github.com/zumenjs/zumen/blob/main/docs/decisions/0030-pdf-in-a-webassembly-module-of-its-own.md)),
-  so applications that never open a PDF never download it.
-- The drawing stays on the device; the only requests are for the WebAssembly files. Under a Content Security Policy,
-  `script-src` needs `'wasm-unsafe-eval'`.
+`initReader()` はモジュールからの相対位置 `wasm/zumen_wasm_bg.wasm` を読み込みます。ブラウザは取得し、Node.js はファイルを読みます。Vite・webpack 5 などは `new URL(…, import.meta.url)` に従ってファイルをコピーします。
 
-## Limits for drawings you receive
+自動で配置されない場合は `@zumenjs/reader/zumen_wasm_bg.wasm` を配信し、その URL・`Response`・バイト列・コンパイル済み `WebAssembly.Module` を渡してください。PDF は `@zumenjs/reader/zumen_wasm_pdf_bg.wasm` を `initPdfReader()` に渡します。同じ初期化の呼び出しは同じ Promise を返し、失敗後の呼び出しは再試行します。
+
+`detectDrawing` と `reader.detect` は WebAssembly を読み込まずに形式を判定します。`reader.load(format)` は PDF の場合だけ PDF モジュールを読み、React の `useDrawing` はこれを待ってから読み取ります。初期化前の読み取りは日本語のエラーを返します。
+
+図面は端末に留まり、読み取りのための通信は WebAssembly の取得だけです。CSP の `script-src` には `'wasm-unsafe-eval'` が必要です。
+
+## 読み取りの上限
 
 ```ts
-import { createReader, LimitError, readScene } from "@zumenjs/reader";
+import { createReader, LimitError } from "@zumenjs/reader";
 
 const limited = createReader({ limits: { maxBytes: 50_000_000, maxEntities: 500_000 } });
 try {
   const scene = readDrawing(bytes, [limited]);
 } catch (error) {
-  if (error instanceof LimitError) console.log(error.limit); // "bytes" or "entities"
+  if (error instanceof LimitError) console.log(error.limit); // bytes・entities・time
 }
-// or without readDrawing
-const scene = readScene(bytes, { limits: { maxEntities: 500_000 } });
 ```
 
-`maxBytes` counts the drawing after decompression for P2Z and SFZ, and `maxEntities` the entities of the scene; the
-Rust reader stops as soon as one is exceeded and throws a `LimitError` whose `limit` names it and whose `message` can be
-shown to people. Other unreadable files throw an `Error` with the reader's message. WebAssembly cannot look at the
-clock while it reads, so a time limit (`timeout`, in milliseconds) needs a Web Worker.
+`maxBytes` は P2Z・SFZ の展開後のバイト数、`maxEntities` は図形数です。超えた時点で読み取りを停止します。`LimitError.limit` は機械処理用の識別子、`message` は利用者に見せられる日本語です。時間制限 `timeout`（ミリ秒）には Web Worker が必要です。
 
-## Reading in a Web Worker
+## Web Worker
 
 ```ts
 // reader.worker.ts
@@ -76,31 +61,38 @@ const worker = new ReaderWorker(() => new Worker(new URL("./reader.worker.ts", i
 const scene = await worker.read(bytes, { view: "Layout1", limits: { timeout: 10_000, maxEntities: 500_000 } });
 ```
 
-- The page keeps responding while the drawing is read. The worker sends the scene back as JSON and the page turns it
-  into a scene with `sceneFromJson` (0.9 s for 227,000 entities): structured cloning the scene, with a `Float64Array`
-  for every primitive, took several times longer than the reading.
-- A read that passes `timeout` stops the worker and rejects with `LimitError` (`limit: "time"`); the next read starts
-  a new worker. `signal` (an `AbortSignal`) cancels a read the same way, and `terminate()` stops the worker for good.
-- Reads run one at a time in the order they were asked for. The time is measured from when the worker starts reading,
-  so loading the WebAssembly module does not count.
-- The function passed to `ReaderWorker` creates the worker, because a stopped worker is created again. The worker is a
-  file of your own that imports `@zumenjs/reader/worker`, so that the bundler builds it as a worker
-  (`new Worker(new URL(…, import.meta.url), { type: "module" })`, as Vite and webpack 5 do). Pass `wasm` (a URL or a
-  `WebAssembly.Module`) when the WebAssembly file is not where `initReader()` finds it, and `pdfWasm` for the PDF
-  module. The worker loads each module the first time it reads a drawing of its format.
+- 読み取り中も画面を操作できます。結果は JSON として返し、`sceneFromJson` で復元します。
+- `timeout` を超えるか `signal` が中断されると Worker を停止し、次の読み取りで作り直します。`terminate()` は恒久的に停止します。
+- 読み取りは依頼順に 1 件ずつ行います。時間は読み取り開始から数え、モジュールの読み込み時間を含めません。
+- Worker の作成関数は利用側が渡します。WebAssembly の配置を変えるときは `wasm` と、PDF 用の `pdfWasm` を指定します。
 
-## Formats
+対応形式の細則は[形式別の資料](../../README.md#文書)を参照してください。
 
-| Format | Read as | Notes |
-| --- | --- | --- |
-| SXF SFC, P21 | `sfc`, `p21` | Sheets, sub-figures at their scale, attributes. P2Z and SFZ (a ZIP archive with one `.p21` or `.sfc`) read the drawing inside. |
-| JWW | `jww` | Layer groups and their scales, blocks, dimensions. |
-| JWC / JWS | `jwc` / `jws` | Legacy Jw_cad drawings and registered figures. |
-| DXF | `dxf` | ASCII and binary; model space and layouts with viewports at their scale. |
-| DWG | `dwg` | AutoCAD 1.0 to 2018 (MC0.0 to AC1032), read into the same model as DXF. |
-| PDF | `pdf` | Each page is a view (`"1"`, `"2"` …) with the page as its underlay (`kind: "pdf"`, `page`, no `file`); the paths, texts and images are entities with `drawn: false`, for hit testing, snapping, measurement and analysis, while a PDF engine draws the page. Read by the PDF module. |
+## 英語の補足資料
 
-How the formats are read is described in [docs/formats](https://github.com/zumenjs/zumen/tree/main/docs/formats), why
-the browser reads with WebAssembly in [decision 0005](https://github.com/zumenjs/zumen/blob/main/docs/decisions/0005-browser-packages-for-embedding.md),
-and how this package loads the module in the
-[architecture notes](https://github.com/zumenjs/zumen/blob/main/docs/architecture.md#the-readers-in-the-browser).
+対応表・実装上の細則・従来のコード例は [README.en.md](README.en.md) にも保存しています。
+
+<details>
+<summary>従来の見出しから詳細を探す</summary>
+
+<a id="zumenjsreader"></a>
+
+[zumenjsreader](README.en.md#zumenjsreader)
+
+<a id="loading"></a>
+
+[loading](README.en.md#loading)
+
+<a id="limits-for-drawings-you-receive"></a>
+
+[limits-for-drawings-you-receive](README.en.md#limits-for-drawings-you-receive)
+
+<a id="reading-in-a-web-worker"></a>
+
+[reading-in-a-web-worker](README.en.md#reading-in-a-web-worker)
+
+<a id="formats"></a>
+
+[formats](README.en.md#formats)
+
+</details>

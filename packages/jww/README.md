@@ -1,17 +1,20 @@
 # @zumenjs/jww
 
-Reads Jw_cad JWW drawings for [zumen](https://github.com/zumenjs/zumen): every data version, with the fields of each
-version as Jw_cad's format description notes them (checked on drawings that Jw_cad saved in versions 6.00 and 7.00).
-Written in TypeScript without WebAssembly; works in browsers and Node.js.
+Jw_cad の図面を読み取ります。レイヤグループの縮尺、日本語、線・円弧・文字・ソリッド・部品・寸法を扱います。
 
-```ts
-import { readDrawing } from "@zumenjs/core";
-import { jww, jwwToScene, readJww } from "@zumenjs/jww";
+この TypeScript パッケージは、テストの正解を作るための参照実装としてリポジトリに残しています。npm には公開しません。アプリケーションからは、全形式で同じ Rust の読み取りを使う [`@zumenjs/reader`](../reader) を利用してください。
 
-const scene = readDrawing(bytes, [jww]);
-const doc = readJww(bytes); // or keep the JWW document model
-```
+形式の細則は [Jw_cad の JWW の扱い](../../docs/formats/jww.md)、全体の使い方は [README](../../README.md) を参照してください。
 
-How the format is handled is described in
-[docs/formats/jww.md](https://github.com/zumenjs/zumen/blob/main/docs/formats/jww.md).
-The file layout follows [ezjww](https://github.com/monozukuri-ai/ezjww) (MIT); see THIRD_PARTY_NOTICES.md.
+## 英語の補足資料
+
+対応表・実装上の細則・従来のコード例は [README.en.md](README.en.md) にも保存しています。
+
+<details>
+<summary>従来の見出しから詳細を探す</summary>
+
+<a id="zumenjsjww"></a>
+
+[zumenjsjww](README.en.md#zumenjsjww)
+
+</details>

@@ -1,39 +1,57 @@
-# 0014: Verify native Windows builds and CAD interoperability
+# 0014: Windows ネイティブのビルドと CAD 連携を確認する
 
-| Item | Value |
+| 項目 | 内容 |
 | --- | --- |
-| Date | 2026-10-20 |
-| Status | Accepted |
+| 日付 | 2026-10-20 |
+| 状態 | 採用 |
 
-## Context
+このページは既存判断の日本語の要約です。詳細な条件と当時の議論は英語の補足資料に保持しています。
 
-Linux CI and comparisons between our TypeScript and Rust readers cannot detect Windows executable paths,
-MSVC floating-point differences, Python extension packaging, or errors shared by both readers. Jw_cad and
-the installed Japanese Windows fonts provide independent checks of the drawings that users actually see.
+## 背景
 
-## Options
+日本の実務では Windows と Jw_cad の利用が多く、macOS・Linux の結果だけでは足りない。
 
-1. Keep Linux CI and perform all Windows checks manually.
-2. Run the same verification entry point on Linux and Windows, and keep native CAD interoperability checks manual.
-3. Require proprietary CAD software and exact platform font pixels in CI.
+## 選択肢
 
-## Decision
+WSL だけで確認する、Windows ネイティブでも検証する方法を比較した。
 
-Use option 2. Both CI runners execute `pnpm run check` and install a built Python wheel into a fresh environment.
-Scripts use native executable paths and child-process environment variables instead of POSIX shell syntax.
-Browser tests check text pixels and hit areas with MS Gothic and MS Mincho font families without requiring
-identical rasterization across systems. Windows font availability is recorded in manual verification.
+## 決定
 
-Compare externally stored drawings with Jw_cad on Windows, and turn reproducible rules into synthetic fixtures.
-Record the application version, observations and limits in `docs/verification.md`; never commit sample drawings.
+PowerShell・MSVC・Windows の Python で CI と配布物を確認し、Jw_cad などでの読み直しは別の手動検証として記録する。
 
-## Consequences
+## 影響
 
-CI takes more runner time, but Windows regressions block merging. Native CAD rendering and exact font metrics
-remain manual checks. Machines without the symlink privilege still test root containment through junctions;
-the privilege-dependent symlink check reports a skip without changing Windows settings.
+日本語・空白を含むパスや wheel を検査する。フォント・実際の CAD の表示など、自動テストでは確認できない範囲を区別する。
 
-## References
+## 英語の補足資料
 
-- [Verification records](../verification.md#windows-native-verification)
-- [Contributing](../../CONTRIBUTING.md#windows)
+対応表・実装上の細則・従来のコード例は [0014-verify-on-native-windows.en.md](0014-verify-on-native-windows.en.md) にも保存しています。
+
+<details>
+<summary>従来の見出しから詳細を探す</summary>
+
+<a id="0014-verify-native-windows-builds-and-cad-interoperability"></a>
+
+[0014-verify-native-windows-builds-and-cad-interoperability](0014-verify-on-native-windows.en.md#0014-verify-native-windows-builds-and-cad-interoperability)
+
+<a id="context"></a>
+
+[context](0014-verify-on-native-windows.en.md#context)
+
+<a id="options"></a>
+
+[options](0014-verify-on-native-windows.en.md#options)
+
+<a id="decision"></a>
+
+[decision](0014-verify-on-native-windows.en.md#decision)
+
+<a id="consequences"></a>
+
+[consequences](0014-verify-on-native-windows.en.md#consequences)
+
+<a id="references"></a>
+
+[references](0014-verify-on-native-windows.en.md#references)
+
+</details>

@@ -1,6 +1,6 @@
 [package]
 name = "zumen-python"
-description = "Python bindings for zumen: read 2D drawings and render them to PNG"
+description = "zumen の Python 拡張。日本の建築・土木の図面を読み取り、描画・解析する"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

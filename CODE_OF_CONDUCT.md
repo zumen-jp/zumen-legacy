@@ -1,98 +1,119 @@
-# Code of conduct
+# 行動規範
 
-## Our pledge
+## 私たちの約束
 
-We as members, contributors and leaders pledge to make participation in our community a harassment-free experience for
-everyone, regardless of age, body size, visible or invisible disability, ethnicity, sex characteristics, gender identity
-and expression, level of experience, education, socio-economic status, nationality, personal appearance, race, caste,
-color, religion, or sexual identity and orientation.
+メンバー・貢献者・運営者は、年齢、体格、見える・見えない障害、民族、性的特徴、性自認・性表現、経験、学歴、社会経済的状況、国籍、外見、人種、カースト、肌の色、宗教、性的アイデンティティ・性的指向によらず、誰もがハラスメントなく参加できる場を作ることを約束します。
 
-We pledge to act and interact in ways that contribute to an open, welcoming, diverse, inclusive and healthy community.
+開かれた、歓迎する、多様で、包摂的で、健全なコミュニティになるよう行動します。
 
-## Our standards
+## 行動の基準
 
-Examples of behavior that contributes to a positive environment:
+望ましい行動には、次のようなものがあります。
 
-- Demonstrating empathy and kindness toward other people.
-- Being respectful of differing opinions, viewpoints and experiences.
-- Giving and gracefully accepting constructive feedback.
-- Accepting responsibility and apologizing to those affected by our mistakes, and learning from the experience.
-- Focusing on what is best not just for us as individuals, but for the overall community.
+- 他者への思いやりと親切を示す。
+- 異なる意見・見方・経験を尊重する。
+- 建設的な意見を伝え、受け入れる。
+- 自分の誤りに責任を持ち、影響を受けた相手に謝罪し、経験から学ぶ。
+- 個人だけでなくコミュニティ全体にとって良いことを考える。
 
-Examples of unacceptable behavior:
+次の行動は認めません。
 
-- The use of sexualized language or imagery, and sexual attention or advances of any kind.
-- Trolling, insulting or derogatory comments, and personal or political attacks.
-- Public or private harassment.
-- Publishing others' private information, such as a physical or email address, without their explicit permission.
-- Sharing drawings that belong to someone else without their permission. Drawings often belong to clients; see
-  [CONTRIBUTING.md](CONTRIBUTING.md).
-- Other conduct which could reasonably be considered inappropriate in a professional setting.
+- 性的な言葉・画像、性的な関心の押し付けや働きかけ。
+- 荒らし、侮辱、軽蔑的な発言、個人・政治に関する攻撃。
+- 公開・非公開を問わないハラスメント。
+- 明示的な許可なく他者の住所・メールアドレスなどの個人情報を公開すること。
+- 所有者の許可なく図面を共有すること。図面の扱いは[開発への参加](CONTRIBUTING.md)も参照してください。
+- 職業上の場で不適切と合理的に判断される行為。
 
-## Enforcement responsibilities
+## 運営者の責任
 
-Community leaders are responsible for clarifying and enforcing our standards of acceptable behavior and will take
-appropriate and fair corrective action in response to any behavior that they deem inappropriate, threatening, offensive
-or harmful.
+運営者は行動の基準を明確にし、適用します。不適切、威圧的、攻撃的、有害と判断する行為には、公平で適切な是正措置を取ります。
 
-Community leaders have the right and responsibility to remove, edit or reject comments, commits, code, issues, pull
-requests and other contributions that are not aligned to this Code of Conduct, and will communicate reasons for
-moderation decisions when appropriate.
+この規範に合わないコメント・コミット・コード・Issue・PR などを削除・編集・却下する権利と責任を持ち、必要に応じて判断理由を説明します。
 
-## Scope
+## 適用範囲
 
-This Code of Conduct applies within all community spaces: the repository, its issues, pull requests and discussions, and
-any other place where the project is discussed in its name. It also applies when an individual is officially
-representing the community in public spaces.
+リポジトリ、Issue、PR、議論など、プロジェクトの名で活動するすべての場に適用します。公の場でコミュニティを正式に代表する場合にも適用します。
 
-## Enforcement
+## 報告と対応
 
-Instances of abusive, harassing or otherwise unacceptable behavior may be reported to the community leaders responsible
-for enforcement: [Yusuke Hayashi](https://github.com/yhay81). All complaints will be reviewed and investigated promptly and fairly.
+不適切な行為は運営責任者 [Yusuke Hayashi](https://github.com/yhay81) に報告できます。報告は速やかに公平に調査します。運営者は報告者のプライバシーと安全を守ります。
 
-All community leaders are obligated to respect the privacy and security of the reporter of any incident.
+## 対応の目安
 
-## Enforcement guidelines
+### 1. 是正
 
-Community leaders will follow these guidelines in determining the consequences for any action they deem in violation of
-this Code of Conduct:
+不適切な言葉や、職業上・コミュニティ上好ましくない行為には、非公開の書面で警告し、違反内容と理由を説明します。公の謝罪を求める場合があります。
 
-### 1. Correction
+### 2. 警告
 
-**Community impact**: Use of inappropriate language or other behavior deemed unprofessional or unwelcome in the
-community.
+単発または繰り返しの違反には、再発時の措置を伝えて警告します。一定期間、当事者や対応する運営者への求められていない接触を禁じます。コミュニティ内と SNS など外部の場の両方が対象です。違反すると一時的・恒久的な参加禁止になる場合があります。
 
-**Consequence**: A private, written warning from community leaders, providing clarity around the nature of the violation
-and an explanation of why the behavior was inappropriate. A public apology may be requested.
+### 3. 一時的な参加禁止
 
-### 2. Warning
+継続的な不適切行為など重大な違反には、一定期間、コミュニティとのあらゆる交流・公開の発信を禁じます。その間は当事者や運営者との公開・非公開の接触も禁止します。違反すると恒久的な参加禁止になる場合があります。
 
-**Community impact**: A violation through a single incident or series of actions.
+### 4. 恒久的な参加禁止
 
-**Consequence**: A warning with consequences for continued behavior. No interaction with the people involved, including
-unsolicited interaction with those enforcing the Code of Conduct, for a specified period of time. This includes avoiding
-interactions in community spaces as well as external channels like social media. Violating these terms may lead to a
-temporary or permanent ban.
+継続的な不適切行為、個人へのハラスメント、特定の属性の集団への攻撃や中傷など、違反が繰り返される場合は、コミュニティ内のあらゆる公開の交流を恒久的に禁止します。
 
-### 3. Temporary ban
+## 出典
 
-**Community impact**: A serious violation of community standards, including sustained inappropriate behavior.
+この規範は [Contributor Covenant](https://www.contributor-covenant.org) 2.1 の[原文](https://www.contributor-covenant.org/version/2/1/code_of_conduct.html)を翻訳・調整したものです。ライセンスは [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) です。対応の目安は [Mozilla の運用基準](https://github.com/mozilla/diversity)を参考にしています。
 
-**Consequence**: A temporary ban from any sort of interaction or public communication with the community for a
-specified period of time. No public or private interaction with the people involved, including unsolicited interaction
-with those enforcing the Code of Conduct, is allowed during this period. Violating these terms may lead to a permanent
-ban.
+## 英語の補足資料
 
-### 4. Permanent ban
+対応表・実装上の細則・従来のコード例は [CODE_OF_CONDUCT.en.md](CODE_OF_CONDUCT.en.md) にも保存しています。
 
-**Community impact**: Demonstrating a pattern of violation of community standards, including sustained inappropriate
-behavior, harassment of an individual, or aggression toward or disparagement of classes of individuals.
+<details>
+<summary>従来の見出しから詳細を探す</summary>
 
-**Consequence**: A permanent ban from any sort of public interaction within the community.
+<a id="code-of-conduct"></a>
 
-## Attribution
+[code-of-conduct](CODE_OF_CONDUCT.en.md#code-of-conduct)
 
-This Code of Conduct is adapted from the [Contributor Covenant](https://www.contributor-covenant.org), version 2.1,
-available at <https://www.contributor-covenant.org/version/2/1/code_of_conduct.html>, which is licensed under
-[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Its enforcement guidelines were inspired by
-[Mozilla's code of conduct enforcement ladder](https://github.com/mozilla/diversity).
+<a id="our-pledge"></a>
+
+[our-pledge](CODE_OF_CONDUCT.en.md#our-pledge)
+
+<a id="our-standards"></a>
+
+[our-standards](CODE_OF_CONDUCT.en.md#our-standards)
+
+<a id="enforcement-responsibilities"></a>
+
+[enforcement-responsibilities](CODE_OF_CONDUCT.en.md#enforcement-responsibilities)
+
+<a id="scope"></a>
+
+[scope](CODE_OF_CONDUCT.en.md#scope)
+
+<a id="enforcement"></a>
+
+[enforcement](CODE_OF_CONDUCT.en.md#enforcement)
+
+<a id="enforcement-guidelines"></a>
+
+[enforcement-guidelines](CODE_OF_CONDUCT.en.md#enforcement-guidelines)
+
+<a id="1-correction"></a>
+
+[1-correction](CODE_OF_CONDUCT.en.md#1-correction)
+
+<a id="2-warning"></a>
+
+[2-warning](CODE_OF_CONDUCT.en.md#2-warning)
+
+<a id="3-temporary-ban"></a>
+
+[3-temporary-ban](CODE_OF_CONDUCT.en.md#3-temporary-ban)
+
+<a id="4-permanent-ban"></a>
+
+[4-permanent-ban](CODE_OF_CONDUCT.en.md#4-permanent-ban)
+
+<a id="attribution"></a>
+
+[attribution](CODE_OF_CONDUCT.en.md#attribution)
+
+</details>

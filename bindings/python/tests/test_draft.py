@@ -59,9 +59,9 @@ def test_draft_drawing_writes_inside_the_roots(tmp_path):
     assert (tmp_path / "sheets.dxf").stat().st_size == info["bytes"]
     one = tools.draft_drawing(drawings, SPEC, tmp_path / "plan.sfc", sheet="A10-1")
     assert one["sheets"] == ["A10-1"]
-    with pytest.raises(tools.DrawingError, match="outside"):
+    with pytest.raises(tools.DrawingError, match="許可されたフォルダーの外"):
         tools.draft_drawing(drawings, SPEC, tmp_path.parent / "elsewhere.dxf")
-    with pytest.raises(tools.DrawingError, match="cannot write"):
+    with pytest.raises(tools.DrawingError, match="書き出せません"):
         tools.draft_drawing(drawings, SPEC, tmp_path / "sheets.pdf")
     bad = {"sheets": [{"name": "S", "items": [{"type": "cloud"}]}]}
     with pytest.raises(tools.DrawingError, match=r"sheets\[0\]\.items\[0\].*unknown-type"):
@@ -186,5 +186,5 @@ def test_draft_drawing_draws_into_a_template(tmp_path):
     assert (info["format"], info["sheets"]) == ("dwg", ["A3"])
     with pytest.raises(tools.DrawingError, match="DWG"):
         tools.draft_drawing(drawings, INTO, tmp_path / "out.dxf", into=template)
-    with pytest.raises(tools.DrawingError, match="outside"):
+    with pytest.raises(tools.DrawingError, match="許可されたフォルダーの外"):
         tools.draft_drawing(drawings, INTO, tmp_path / "out2.dwg", into=tmp_path.parent / "elsewhere.dwg")

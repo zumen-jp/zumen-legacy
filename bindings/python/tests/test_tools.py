@@ -166,9 +166,9 @@ def test_a_drawing_without_entities_has_no_frame():
     info = tools.summary(empty)
     check(info, tools.Summary)
     assert (info["bounds"], info["entities"], tools.frame(empty)) == (None, 0, None)
-    with pytest.raises(tools.DrawingError, match="nothing"):
+    with pytest.raises(tools.DrawingError, match="図面が空"):
         tools.render(empty)
-    with pytest.raises(tools.DrawingError, match="no frame"):
+    with pytest.raises(tools.DrawingError, match="全体の範囲がありません"):
         tools.find_texts(empty, frame_region=[0, 0, 1, 1])
     _, image = tools.render(empty, region=[0, 0, 10, 10], size=100)
     assert (image["width"], image["frame_region"]) == (100, None)
@@ -186,7 +186,7 @@ def test_converts_between_paper_millimeters_and_fractions_of_the_frame():
     assert tools.paper_region(scene, fractions) == pytest.approx([10, 220, 25, 225], abs=1e-3)
     with pytest.raises(tools.DrawingError):
         tools.paper_region(scene, [0, 0, 1])
-    with pytest.raises(tools.DrawingError, match="not both"):
+    with pytest.raises(tools.DrawingError, match="どちらか一方"):
         tools.find_texts(scene, region=[0, 0, 1, 1], frame_region=[0, 0, 1, 1])
 
 
@@ -417,7 +417,7 @@ def test_checks_a_drafted_sheet_against_the_cad_standard_of_mlit():
     own = {"name": "office", "rules": [{"id": "layers", "kind": "layer-name", "patterns": ["A-*", "0"]}]}
     assert tools.check_drawing(scene, rules=own)["passed"]
     assert scene.check(own)["results"][0]["findings"] == []
-    with pytest.raises(tools.DrawingError, match="cannot be used"):
+    with pytest.raises(tools.DrawingError, match="規則集を使えません"):
         tools.check_drawing(scene, rules="none")
     with pytest.raises(tools.DrawingError):
         tools.check_drawing(scene, rules={"name": "x", "rules": [{"id": "a", "kind": "color"}]})
@@ -453,13 +453,13 @@ def test_renders_a_region_with_its_long_edge_in_pixels():
 def test_reads_only_from_its_roots_and_up_to_its_size_limit():
     drawings = tools.Drawings([FIXTURES / "sfc"])
     assert drawings.scene(SFC) is drawings.scene(SFC)  # read once while the file is unchanged
-    with pytest.raises(tools.DrawingError, match="outside"):
+    with pytest.raises(tools.DrawingError, match="許可されたフォルダーの外"):
         drawings.scene(str(FIXTURES / "jww" / "minimal-v700.jww"))
-    with pytest.raises(tools.DrawingError, match="limit"):
+    with pytest.raises(tools.DrawingError, match="上限"):
         tools.Drawings(max_bytes=10).scene(SFC)
-    with pytest.raises(tools.DrawingError, match="cannot read"):
+    with pytest.raises(tools.DrawingError, match="読み取れません"):
         tools.Drawings().scene(__file__)
-    with pytest.raises(tools.DrawingError, match="entities limit"):
+    with pytest.raises(tools.DrawingError, match="entities の上限"):
         tools.Drawings(max_entities=5).scene(SFC)
 
 
@@ -471,7 +471,7 @@ def test_rejects_symlinks_outside_its_roots(tmp_path):
         if getattr(error, "winerror", None) == 1314:
             pytest.skip("Windows symlinks require Developer Mode or the create-symlink privilege")
         raise
-    with pytest.raises(tools.DrawingError, match="outside"):
+    with pytest.raises(tools.DrawingError, match="許可されたフォルダーの外"):
         tools.Drawings([tmp_path]).scene(str(link))
 
 
@@ -481,7 +481,7 @@ def test_rejects_junctions_outside_its_roots(tmp_path):
     link = tmp_path / "図面 link"
     subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(FIXTURES / "sfc")], check=True, capture_output=True)
     try:
-        with pytest.raises(tools.DrawingError, match="outside"):
+        with pytest.raises(tools.DrawingError, match="許可されたフォルダーの外"):
             tools.Drawings([tmp_path]).scene(str(link / "features.sfc"))
     finally:
         link.rmdir()  # Remove the junction itself, never its target.

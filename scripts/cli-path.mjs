@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-/** Respect Cargo configuration and CARGO_TARGET_DIR, including paths with spaces and non-ASCII characters. */
+/** 空白・日本語を含むパスでも、Cargo の設定と CARGO_TARGET_DIR に従う。 */
 export function cliPath(profile = "release") {
   const metadata = JSON.parse(
     execFileSync("cargo", ["metadata", "--no-deps", "--format-version", "1"], {

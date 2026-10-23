@@ -1,6 +1,6 @@
 [package]
 name = "zumen-convert"
-description = "Map SXF and JWW drawings into the AutoCAD drawing model of zumen-dxf, so that they can be written as DXF"
+description = "SXF・JWW と AutoCAD の図面モデルを相互に変換する"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

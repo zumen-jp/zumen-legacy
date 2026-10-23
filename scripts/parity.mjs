@@ -25,12 +25,14 @@ import { compareScenes } from "./compare-scenes.mjs";
 const inputs = process.argv.slice(2);
 if (inputs.length === 0 && process.env.ZUMEN_SAMPLES) inputs.push(process.env.ZUMEN_SAMPLES);
 if (inputs.length === 0) {
-  console.error("Usage: node scripts/parity.mjs <folder or files…> (or set ZUMEN_SAMPLES)");
+  console.error("使い方: node scripts/parity.mjs <フォルダーまたはファイル…>（ZUMEN_SAMPLES でも指定可）");
   process.exit(2);
 }
 const binary = process.env.ZUMEN_BINARY || cliPath();
 if (!existsSync(binary)) {
-  console.error(`Rust CLI not found: ${binary}\nRun cargo build --release -p zumen-cli (or set ZUMEN_BINARY).`);
+  console.error(
+    `Rust CLI がありません: ${binary}\ncargo build --release -p zumen-cli を実行するか、ZUMEN_BINARY を指定してください。`,
+  );
   process.exit(1);
 }
 const files = inputs.flatMap((input) =>
@@ -67,21 +69,21 @@ for (const file of files) {
       const stem = file.replace(/\.dwg$/i, "");
       twin = [`${stem}.dxf`, `${stem}_ascii.dxf`].find((path) => existsSync(path));
       if (!twin) {
-        console.log(`skip  ${file} (DWG without a DXF of the same drawing)`);
+        console.log(`skip  ${file} (同じ図面の DXF がない DWG)`);
         continue;
       }
       bytes = readFileSync(twin);
     }
     rust = JSON.parse(execFileSync(binary, ["scene", file], { maxBuffer: 1 << 30, stdio: ["ignore", "pipe", "pipe"] }));
   } catch (error) {
-    // Only an explicit unknown format may be skipped, and never if TypeScript recognises the drawing.
-    // Spawn errors, crashes, parse failures and invalid JSON must fail verification.
+    // 形式が未対応という明示的な結果だけを除外する。TypeScript が判定した図面は除外しない。
+    // 起動・解析の失敗や不正な JSON は検証失敗にする。
     if (
       error.status === 1 &&
-      error.stderr?.toString().trim() === "unknown format" &&
+      error.stderr?.toString().trim() === "対応していない形式です" &&
       !detectFormat(bytes, [sxf, jww, dxf])
     ) {
-      console.log(`skip  ${file} (unknown format)`);
+      console.log(`skip  ${file} (未対応の形式)`);
     } else {
       console.error(`ERROR ${file}: ${error.stderr?.toString().trim() || error.message}`);
       failed++;
@@ -112,16 +114,16 @@ for (const file of files) {
     const args = ["scene", file, "--view", id];
     const rustView = JSON.parse(execFileSync(binary, args, { maxBuffer: 1 << 30, stdio: ["ignore", "pipe", "pipe"] }));
     const viewDifferences = compare(other, rustView);
-    if (viewDifferences.length === 0) console.log(`same  ${file} @${id} (${other.entities.length} entities)`);
+    if (viewDifferences.length === 0) console.log(`same  ${file} @${id} (${other.entities.length} 図形)`);
     else {
       fail();
       console.log(`DIFF  ${file} @${id}\n  ${viewDifferences.join("\n  ")}`);
     }
   }
 }
-if (dwgDiffering > 0) console.log(`${dwgDiffering} DWG scenes differ from the DXF of the same drawing (not a failure)`);
-if (pdfDiffering > 0) console.log(`${pdfDiffering} PDF files have texts that differ from pdf.js (not a failure)`);
-if (compared === 0) console.error("No drawings were compared.");
+if (dwgDiffering > 0) console.log(`同じ図面の DXF と異なる DWG が ${dwgDiffering} 件（差分の報告のみ）`);
+if (pdfDiffering > 0) console.log(`pdf.js と文字の異なる PDF が ${pdfDiffering} 件（差分の報告のみ）`);
+if (compared === 0) console.error("比較対象の図面がありませんでした。");
 process.exit(failed > 0 || compared === 0 ? 1 : 0);
 
 /**
@@ -216,7 +218,7 @@ async function comparePdf(file, bytes) {
     }
     const unmatched = texts.filter((text) => !text.used && text.text.trim() !== "").length;
     if (differences.length === 0 && unmatched === 0) {
-      console.log(`same  ${file} p${number} (${items} pdf.js texts, ${texts.length} Rust texts)`);
+      console.log(`same  ${file} p${number} (pdf.js ${items} 文字、Rust ${texts.length} 文字)`);
     } else {
       same = false;
       console.log(

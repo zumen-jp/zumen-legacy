@@ -1,22 +1,7 @@
-"""zumen: read 2D drawings of Japanese construction and render them.
+"""zumen: 日本の建築・土木の 2D 図面を読み取り、描画・解析・編集します。
 
-Drawings are detected from their contents, not their file names. The result is a
-format-neutral ``Scene`` in paper millimeters (Y up), the same model as the
-``@zumenjs/core`` package in the browser, so a scene can be sent to the viewer as JSON.
-
->>> import zumen
->>> scene = zumen.read("plan.jww")
->>> png = scene.render_png(dpi=150)
->>> texts = scene.texts()  # the texts with their positions, in paper millimeters
->>> image = scene.render(size=(2000, 2000))  # a PNG and the pixel box of every entity drawn
->>> changes = zumen.compare(zumen.read("plan-rev1.jww"), scene)  # removed, added and changed entities
->>> zumen.convert("plan.jww", "dxf").save("plan.dxf")  # every format can be written as DXF
->>> zumen.edit("plan.dxf", [{"op": "add", "kind": "line", "start": [0, 0], "end": [1000, 0]}]).save("plan.dxf")
->>> zumen.draft("sheets.json", "dwg").save("sheets.dwg")  # draw sheets from a drawing spec (docs/drafting.md)
->>> markup = zumen.read_markup("plan.markup.json")  # redlines, clouds and findings beside the drawing (docs/markup.md)
->>> png = scene.render_png(markup=markup, markup_colors={"question": "#0050c8"})
->>> carried = zumen.carry_markup(markup, "plan-rev1.jww", "plan.jww")  # the markup moved to the new revision
-"""
+形式はファイル名ではなく中身で判定します。Scene は用紙上の mm（Y 軸は上向き）で、
+ブラウザの @zumenjs/core と共通です。図面の読み取り・描画・書き出し中は GIL を解放します。"""
 
 from __future__ import annotations
 
@@ -130,18 +115,10 @@ def read(
     max_entities: int | None = None,
     timeout: float | None = None,
 ) -> Scene:
-    """Read a drawing from bytes or a file path into a ``Scene``.
+    """バイト列またはファイルパスから図面を Scene に読み取ります。
 
-    ``format`` forces a format (``"sfc"``, ``"p21"``, ``"p2z"``, ``"sfz"``, ``"jww"``, ``"jwc"``, ``"jws"``, ``"dxf"``,
-    ``"dwg"`` or ``"pdf"``) instead of detecting it from the contents. ``view`` chooses a view such as a DXF layout or a
-    PDF page (``"1"``, ``"2"`` …; see ``Scene.views``). The paths, texts and images of a PDF page are entities that are
-    not drawn (``drawn`` is false): the page itself is the underlay that shows them.
-    Raises ``ReadError`` when the drawing cannot be read.
-
-    For drawings received from others, ``max_bytes`` (the size after unpacking P2Z and SFZ), ``max_entities`` and
-    ``timeout`` (seconds) stop reading part way and raise ``LimitError``, whose ``limit`` is ``"bytes"``,
-    ``"entities"`` or ``"time"``. A file larger than ``max_bytes`` is not read into memory.
-    """
+    format で sfc・p21・p2z・sfz・jww・jwc・jws・dxf・dwg・pdf を指定できます。
+    view はレイアウト名・PDF ページなどです。max_bytes・max_entities を超えると LimitError を返します。"""
     if isinstance(source, (str, os.PathLike)):
         if max_bytes is not None and os.path.getsize(source) > max_bytes:
             error = LimitError(f"図面が上限の {max_bytes:,} バイトより大きいため、読みませんでした")
@@ -161,26 +138,11 @@ def convert(
     format: str | None = None,
     version: str | None = None,
 ) -> Converted:
-    """Read a drawing from bytes or a file path and write it in another format.
+    """図面を読み取り、AutoCAD の共通モデルを経て別形式に書き出します。
 
-    Drawings of every format can be written as DXF (``to="dxf"``: ASCII, AutoCAD 2013, UTF-8), DWG (``"dwg"``:
-    AutoCAD 2013), JWW (``"jww"``: Jw_cad 8) and SXF (``"sfc"``, ``"p21"``, ``"sfz"`` or ``"p2z"``: SXF Ver.3.1),
-    through the AutoCAD drawing model. SXF and JWW drawings are mapped into
-    it with model space at real size, and the sheet as a layout whose viewports show each scale where the drawing had
-    it. Written as SFC, the layout becomes the sheet, each viewport a sub-figure at its scale and each block a drawing
-    part; what SXF has no feature for (multiline texts, leaders, dimensions) is written as the lines, fills and texts
-    that zumen draws for it. Written as JWW, the layout becomes the sheet and the model space in each viewport a layer
-    group at the viewport's scale.
-    ``version`` chooses the SXF version (``"2.0"``, ``"3.0"`` or ``"3.1"``, the default) or the DXF version: ``"R12"``, ``"2000"``, ``"2004"``, ``"2007"``, ``"2010"``, ``"2013"`` (the
-    default) or ``"2018"``. Versions before 2007 are written in the drawing's code page (``$DWGCODEPAGE``), or in the one
-    that holds its texts (such as ANSI_932 for Japanese), and what a version cannot hold (true colors, transparency,
-    gradients and arc and large radial dimensions before 2004, backgrounds of multiline text before 2007) is written in
-    another form and reported in the notices. R12 also explodes what it lacks (multiline text, hatches, leaders,
-    ellipses, splines) into lines, solids and one-line texts, keeps only the current layout and has no length unit.
-    ``Converted.data`` holds the bytes and ``Converted.save(path)`` writes them to a file.
-    ``Converted.notices`` tells what could not be written as it was, such as images (IMAGE) that are left out.
-    Raises ``ReadError`` when the drawing cannot be read or written in that format.
-    """
+    to は dxf（既定 2013・UTF-8）・dwg（2013）・jww（Jw_cad 8）・sfc・p21・sfz・p2z（既定 SXF 3.1）です。
+    version で DXF R12〜2018・SXF 2.0〜3.1 を選べます。R12 にない図形は分解します。
+    2007 より前の DXF はコードページを使い、元のまま書けない内容は notices に返します。PDF は対象外です。"""
     return _convert(_load(source), to, format=format, version=version)
 
 
@@ -191,41 +153,11 @@ def edit(
     format: str | None = None,
     max_bytes: int | None = None,
 ) -> Edited:
-    """Edit a drawing in place: apply ``operations`` and keep everything else as it was.
+    """操作を適用し、対象外の内容・形式・版・文字コードを保って図面を編集します。
 
-    ``operations`` is a list of dicts (or the same as a JSON string): ``{"op": "add", "kind": "line", ...}``,
-    ``{"op": "update", "id": ..., "set": {...}}``, ``{"op": "delete", "id": ...}``, ``{"op": "add-layer", "name":
-    ...}``, ``{"op": "update-layer", "name": ..., "set": {...}}`` and ``{"op": "add-block", "name": ...,
-    "basePoint": [x, y]}`` (an empty block definition that later operations fill with ``"container":
-    "block:<name>"``; a drawing part in SXF). Every format takes ``"kind": "dimension"`` (``dimensionType``
-    ``"linear"`` or ``"aligned"`` with ``start``, ``end``, ``position`` and ``rotation``, ``"angular-3-point"`` with
-    ``center``, ``start``, ``end`` and ``position`` (not in JWW), ``"radius"`` or ``"diameter"`` with ``center`` and
-    ``point``; ``text``, ``dimensionStyle``) and ``"kind": "hatch"`` (``boundaries``, ``pattern``, ``patternScale``,
-    ``patternAngle``, ``patternLines``; JWW writes solids and hatch lines, and ``created`` names the first), and the
-    ops ``add-text-style``, ``add-line-type`` and ``add-dimension-style`` (in JWW and SXF, which have no named
-    dimension or text styles, their names last for the edit: a dimension style sizes and formats the dimensions that
-    name it, a text style is a font, and a line type keeps its name). DXF and DWG ``text`` takes
-    ``justification``, ``lineSpacing``,
-    ``multiline`` and ``widthFactor``; ``"kind": "attribute-definition"`` goes in a block and ``block-reference`` takes ``attributes``
-    (``{"TAG": "value"}``); ``add-layout`` (``paperSize`` and ``margins`` in mm) and ``"kind": "viewport"`` in ``"container":
-    "layout:<name>"`` (``center``, ``width``, ``height``, ``viewCenter``, ``scale``) make sheets;
-    ``update-layout`` (``name``, ``set: {"paperSize": [width, height]}`` in mm) resizes an existing sheet. SXF takes
-    ``"kind": "viewport"`` on its sheet with the same keys and ``name``: it adds an empty sub-figure of that name,
-    placed at 1:``scale``, to fill with ``"container": "figure:<name>"`` at real size. A JWW layer name belongs to its
-    layer group, and with ``"container": "group:<g>"`` a name is looked up (or added) in that group.
-    ``"kind": "leader"`` (``vertices``, ``text``, ``height``,
-    ``dimensionStyle``) adds a leader with its note; ``"kind": "image"`` (``path``, ``pixels``,
-    ``position``, ``width``, ``rotation``) adds a raster image that refers to ``path``. Kinds and keys are the ones that ``Scene``
-    reports (``kind`` and the property keys), and coordinates are the drawing's own (the ``raw`` of properties), not
-    paper millimeters. The format, its version, its text encoding and everything that no operation names stay as they
-    were, including what zumen cannot read. DXF, DWG, JWW and SXF can be edited.
-
-    ``Edited.data`` holds the bytes, ``Edited.created`` the ids of the entities and the names of the layers and blocks
-    added (in the order of the operations; an entity added into a JWW block is ``block:<name>>#<n>``, its place in the
-    block), and ``Edited.notices`` what was written differently, such as a color that the format
-    cannot hold. If any operation cannot be applied, nothing is written and ``EditError`` is raised, with ``code``
-    (``"not-found"``, ``"unknown-key"`` and so on) and ``operation``, the number of the operation (from 0).
-    """
+    operations は辞書のリストまたは同じ内容の JSON 文字列です。add・update・delete・add-layer・update-layer と
+    部品・文字スタイル・線種・寸法スタイルの追加を使えます。座標は元の図面の単位です。
+    DXF・DWG・JWW・SXF が対象です。すべて検証してから書き、失敗時は EditError の index・code・message で返します。"""
     return _edit(_load(source), operations, format=format, max_bytes=max_bytes)
 
 
@@ -236,13 +168,10 @@ def draft(
     version: str | None = None,
     sheet: str | None = None,
 ) -> Converted:
-    """Draw a drawing from a drawing spec and write it as ``to`` (dxf, dwg, jww, sfc, p21, sfz or p2z).
+    """図面仕様から to（dxf・dwg・jww・sfc・p21・sfz・p2z）に作図します。
 
-    ``spec`` is a dict (the JSON document of docs/drafting.md), a JSON string, or the path of a JSON file.
-    ``version`` is the version to write (DXF R12 to 2018, SXF 2.0 to 3.1). JWW and SXF hold one sheet, so
-    ``sheet`` names the sheet to write (the first one by default). A mistake in the spec raises
-    ``DraftError`` with ``code`` and ``path`` (such as ``sheets[0].views[1].items[4]``).
-    """
+    spec は辞書・JSON 文字列・JSON ファイルのパスです。version で DXF・SXF の版を指定できます。
+    JWW・SXF は sheet で 1 枚を選び、省略時は先頭です。誤りは DraftError の path・code で返します。"""
     return _draft(_spec(spec), to, version=version, sheet=sheet)
 
 
@@ -254,23 +183,15 @@ def draft_into(
     format: str | None = None,
     max_bytes: int | None = None,
 ) -> Converted:
-    """Draw a drawing spec into a DXF, DWG, JWW or SXF drawing (a template) in place.
+    """DXF・DWG・JWW・SXF のテンプレートに、既存内容・ハンドル・拡張データ・形式・版を保って作図します。
 
-    The drawing is changed through the operations of ``edit``, so its entities, handles, extended data and what zumen
-    cannot read stay, and the format and version stay too. In DXF and DWG, a sheet named after a layout of the
-    template is drawn into that layout, with its paper size when the sheet gives none; other sheets become new
-    layouts. The ``fields`` of a sheet (``{"TAG": "value"}``) fill the attributes of the block references on it, such
-    as the template's title block. JWW and SXF hold one sheet: the first sheet (or ``sheet``) is drawn on the
-    template's paper, each view into a JWW layer group of its scale or an SXF sub-figure, and what these formats
-    cannot hold (other sheets, another paper size, line types, attributes) is drawn as close as they allow and listed
-    in ``notices``. ``template`` is bytes or a file path, ``sheet`` draws one sheet only. A mistake in the spec, or an
-    operation that the drawing refuses, raises ``DraftError`` with ``code`` and ``path``.
-    """
+    DXF・DWG は同名のレイアウトに描き、なければ追加します。fields は表題欄の属性を埋めます。
+    JWW・SXF は sheet で選んだ 1 枚（省略時は先頭）を既存用紙に描き、ビューの縮尺をレイヤグループ・部分図にします。"""
     return _draft_into(_spec(spec), _load(template), sheet=sheet, format=format, max_bytes=max_bytes)
 
 
 def _spec(spec: object) -> object:
-    """The spec as a dict or JSON string. A path (or a string that is not JSON) is read from the file."""
+    """辞書・JSON 文字列の図面仕様を返します。パスまたは JSON でない文字列はファイルから読みます。"""
     if isinstance(spec, os.PathLike) or (isinstance(spec, str) and not spec.lstrip().startswith("{")):
         with open(spec, encoding="utf-8") as file:
             return file.read()
@@ -278,13 +199,12 @@ def _spec(spec: object) -> object:
 
 
 def draft_schema() -> dict[str, object]:
-    """The JSON Schema (draft 2020-12) of the drawing spec that ``draft`` takes."""
+    """draft が受け取る図面仕様の JSON Schema（draft 2020-12）です。"""
     return json.loads(_draft_schema())
 
 
 def _markup_json(markup: object) -> str:
-    """The markup document as JSON text: a dict, a JSON string, or the path of a file (a path, or a string that does
-    not start like JSON with ``{`` or ``[``)."""
+    """辞書・JSON 文字列・ファイルパスからマークアップの JSON 文字列を得ます。"""
     if isinstance(markup, os.PathLike) or (isinstance(markup, str) and not markup.lstrip().startswith(("{", "["))):
         with open(markup, encoding="utf-8") as file:
             return file.read()
@@ -294,22 +214,18 @@ def _markup_json(markup: object) -> str:
 
 
 def read_markup(source: object) -> MarkupDocument:
-    """Read and check a markup document (docs/markup.md): a dict, a JSON string, the bytes of the JSON, or the path of
-    a file. Keys that zumen does not know are kept. A mistake raises ``MarkupError`` with ``code`` (``json``,
-    ``format``, ``version``, ``missing``, ``type``, ``value`` or ``duplicate``), ``item`` (the index of the item, or
-    ``None``), ``id`` and ``key`` (such as ``drawing.sha256`` or ``points``), the same checks as ``markupFromJson`` of
-    ``@zumenjs/core``."""
+    """辞書・JSON 文字列・バイト列・ファイルパスからマークアップを読み取り、検証します。
+    未知のキーは保ちます。誤りは MarkupError の code・path・message で返します。"""
     return json.loads(_read_markup(_markup_json(source)))
 
 
 def markup_schema() -> dict[str, object]:
-    """The JSON Schema (draft 2020-12) of markup documents."""
+    """マークアップ文書の JSON Schema（draft 2020-12）です。"""
     return json.loads(_markup_schema())
 
 
 def drawing_hash(source: bytes | bytearray | memoryview | str | os.PathLike[str]) -> str:
-    """The SHA-256 of a drawing's bytes (or of the file at a path) in lowercase hexadecimal, which a markup document
-    names in ``drawing.sha256``."""
+    """図面のバイト列またはファイルパスから SHA-256 を小文字の 16 進数で返します。drawing.sha256 に使います。"""
     return _drawing_hash(_load(source))
 
 
@@ -327,16 +243,10 @@ def carry_markup(
     max_entities: int | None = None,
     timeout: float | None = None,
 ) -> MarkupCarry:
-    """Carry a markup document made on the drawing ``before`` to the new revision ``after`` (bytes or file paths).
+    """before に付けたマークアップを新版 after に移します。入力はバイト列またはファイルパスです。
 
-    For each view with items, the two revisions are compared like ``compare`` with ``all_layers=True`` (``tolerance``,
-    ``style`` and ``align`` as there): the items move by the offset of the revision, their ``entities`` point at the
-    matching entities of the new revision, and ``carried`` marks each item ``unchanged``, ``changed`` (an entity it
-    names changed or was removed, or its box overlaps a region that changed) or ``removed`` (every entity it named was
-    removed, or its view is gone). ``views`` maps a view of ``before`` to a view of ``after``, such as a DXF layout to
-    the page of the PDF plotted from it. The document then names the new bytes. It must have been made on ``before``
-    (its ``drawing.sha256``) unless ``ignore_hash``; otherwise ``CarryError`` is raised, whose ``code`` is
-    ``drawing-mismatch``, ``unreadable`` or ``too-large``."""
+    全レイヤで版を比較し、項目の座標・対象図形 id を移し、unchanged・changed・removed を記録します。
+    views でビューを対応付けられます。元の図面のハッシュ不一致は ignore_hash 指定時以外は拒否します。"""
     text, unchanged, changed, removed = _carry_markup(
         _markup_json(markup),
         _load(before),

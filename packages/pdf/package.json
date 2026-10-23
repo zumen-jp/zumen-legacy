@@ -1,7 +1,7 @@
 {
   "name": "@zumenjs/pdf",
   "version": "0.1.1",
-  "description": "Draw the pages of PDF drawings and PDF underlays under a zumen drawing with pdf.js: an UnderlayRenderer for @zumenjs/viewer",
+  "description": "pdf.js で PDF 図面のページと PDF の下敷きを描く、@zumenjs/viewer 向けの描画処理",
   "keywords": [
     "cad",
     "drawing",

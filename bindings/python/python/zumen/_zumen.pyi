@@ -6,7 +6,7 @@ __version__: str
 type Box = tuple[float, float, float, float]
 
 class Placement(TypedDict):
-    """Paper millimeters per original millimeter, and the conversion from paper to original coordinates."""
+    """用紙上の mm と元の座標の換算。縮尺と、用紙座標から元の座標への変換を持ちます。"""
 
     name: str
     scale_x: float
@@ -40,7 +40,7 @@ type LengthUnit = Literal[
 ]
 
 class Polyline(TypedDict):
-    """A line through points; curves come as the polyline drawn (type checking only)."""
+    """点列を通る折線です。曲線も描画時の折線として返します。型検査用です。"""
 
     shape: Literal["polyline"]
     points: list[Point]
@@ -48,28 +48,28 @@ class Polyline(TypedDict):
     real: list[Point] | None
 
 class Segments(TypedDict):
-    """Separate lines, two points each (type checking only)."""
+    """2 点ずつの独立した線分です。型検査用です。"""
 
     shape: Literal["segments"]
     segments: list[tuple[Point, Point]]
     real: list[tuple[Point, Point]] | None
 
 class Area(TypedDict):
-    """A filled area, or one filled with hatch lines: outer and inner rings, even-odd (type checking only)."""
+    """塗りまたはハッチングの領域です。外周と穴を偶奇規則で扱います。型検査用です。"""
 
     shape: Literal["fill", "hatch"]
     rings: list[list[Point]]
     real: list[list[Point]] | None
 
 class Dot(TypedDict):
-    """A point (type checking only)."""
+    """点です。型検査用です。"""
 
     shape: Literal["point"]
     point: Point
     real: Point | None
 
 class TextPart(TypedDict):
-    """A part of a text: the lower left of the text, its height and angle in degrees (type checking only)."""
+    """文字の部分です。左下位置、高さ、角度（度）を持ちます。型検査用です。"""
 
     shape: Literal["text"]
     text: str
@@ -95,16 +95,15 @@ class _Entity(TypedDict):
     placement: Placement | None
 
 class Entity(_Entity, total=False):
-    """An entity of ``Scene.entities`` and ``Scene.entity``, with ``geometry`` when asked (type checking only).
+    """図形の種類、レイヤ、範囲、文字、属性と、指定時は形を返します。
 
-    ``kind`` and the keys of ``values`` are the same for every format (see "Stable keys" in docs/architecture.md);
-    ``type`` and the labels of ``properties`` are Japanese, for people. ``values`` maps each property's key to its
-    unformatted value (numbers, ``(x, y)``), or to the formatted text when it has none."""
+    kind と values のキーは形式によらない識別子です。type と属性ラベルは日本語です。
+    values の数値と座標は、用紙ではなく元の形式の座標系・単位です。"""
 
     geometry: list[Shape]
 
 class Text(TypedDict):
-    """A text of ``Scene.texts`` in paper millimeters (type checking only)."""
+    """用紙上の mm で表す文字です。型検査用です。"""
 
     id: str
     kind: str
@@ -118,7 +117,7 @@ class Text(TypedDict):
     layers: list[str]
 
 class TitleField(TypedDict):
-    """A candidate for a title block field (type checking only)."""
+    """表題欄の項目の候補です。型検査用です。"""
 
     key: Literal["number", "revision", "title", "project", "scale", "date"]
     value: str
@@ -130,7 +129,7 @@ class TitleField(TypedDict):
     y: float
 
 class TitleBlock(TypedDict):
-    """The fields of a title block, and every candidate found (type checking only)."""
+    """表題欄の項目と、見つかった候補の一覧です。型検査用です。"""
 
     number: str | None
     revision: str | None
@@ -141,7 +140,7 @@ class TitleBlock(TypedDict):
     fields: list[TitleField]
 
 class RegionShape(TypedDict):
-    """The outline (counterclockwise), holes (clockwise), area and perimeter of a closed region (type checking only)."""
+    """閉じた領域の外周（反時計回り）・穴（時計回り）・面積・周長です。型検査用です。"""
 
     area: float
     outline_area: float
@@ -150,7 +149,7 @@ class RegionShape(TypedDict):
     holes: list[list[Point]]
 
 class RegionText(TypedDict):
-    """A text inside a closed region, at the center of its box (type checking only)."""
+    """閉じた領域内の文字です。位置は文字の範囲の中心です。型検査用です。"""
 
     id: str
     text: str
@@ -158,8 +157,7 @@ class RegionText(TypedDict):
     y: float
 
 class Region(RegionShape):
-    """A region that drawn lines close, in paper millimeters, with ``real`` in real-world millimeters inside a
-    placement (type checking only)."""
+    """線で囲まれた領域です。座標は用紙上の mm、配置内の real は実寸の mm です。型検査用です。"""
 
     bbox: Box
     placement: Placement | None
@@ -168,8 +166,7 @@ class Region(RegionShape):
     texts: list[RegionText]
 
 class TableCell(TypedDict):
-    """A cell of a ruled table: its row and column from the top left, the rows and columns it spans, and its text
-    (type checking only)."""
+    """罫線の表のセルです。左上からの行・列、結合範囲、文字を持ちます。型検査用です。"""
 
     row: int
     column: int
@@ -180,7 +177,7 @@ class TableCell(TypedDict):
     texts: list[RegionText]
 
 class Table(TypedDict):
-    """A table drawn with horizontal and vertical rules, in paper millimeters (type checking only)."""
+    """縦横の罫線で描かれた表です。座標は用紙上の mm です。型検査用です。"""
 
     bbox: Box
     placement: Placement | None
@@ -193,7 +190,7 @@ class Table(TypedDict):
     boundary: list[str]
 
 class CheckFinding(TypedDict):
-    """A value that breaks a rule, with the number, ids and layers of what has it (type checking only)."""
+    """規則に違反した値と、その値を持つ対象の件数・id・レイヤです。型検査用です。"""
 
     value: str
     message: str
@@ -202,8 +199,7 @@ class CheckFinding(TypedDict):
     layers: list[str]
 
 class CheckResult(TypedDict):
-    """The result of one rule: how many items it checked, how many it could not, and its findings (type checking
-    only)."""
+    """規則ごとの確認件数、確認できなかった件数、指摘です。型検査用です。"""
 
     id: str
     kind: str
@@ -215,8 +211,7 @@ class CheckResult(TypedDict):
     findings: list[CheckFinding]
 
 class CheckReport(TypedDict):
-    """A drawing checked against a rule set; ``passed`` is true when no rule of level error is broken (type checking
-    only)."""
+    """規則集による確認結果です。error の違反がなければ passed が真になります。型検査用です。"""
 
     rule_set: str
     title: str | None
@@ -224,7 +219,7 @@ class CheckReport(TypedDict):
     results: list[CheckResult]
 
 class DrawnEntity(TypedDict):
-    """An entity drawn in a ``Rendering``, with its box in pixels (type checking only)."""
+    """Rendering に描いた図形と、そのピクセル範囲です。型検査用です。"""
 
     id: str
     kind: str
@@ -235,14 +230,14 @@ class DrawnEntity(TypedDict):
 class ReadError(ValueError): ...
 
 class LimitError(ReadError):
-    """Reading stopped at ``max_bytes``, ``max_entities`` or ``timeout``."""
+    """max_bytes・max_entities・timeout の上限で読み取りを停止したエラーです。"""
 
     limit: Literal["bytes", "entities", "time"]
 
 class RenderError(ValueError): ...
 
 class EditError(ValueError):
-    """An edit that could not be applied; nothing was written."""
+    """適用できない編集です。ファイルには何も書き込みません。"""
 
     code: str
     operation: int | None
@@ -257,13 +252,13 @@ class CarryError(ValueError):
     code: str
 
 class DraftError(ValueError):
-    """A drawing spec that could not be drawn; nothing was written."""
+    """描画できない図面仕様です。ファイルには何も書き込みません。"""
 
     code: str
     path: str
 
 class Scene:
-    """A drawing in paper millimeters (Y up), the same model as ``@zumenjs/core``."""
+    """用紙上の mm（Y 軸は上向き）で表す図面です。ブラウザの @zumenjs/core と共通のモデルです。"""
 
     @property
     def format(self) -> str: ...
@@ -271,7 +266,7 @@ class Scene:
     def version(self) -> str: ...
     @property
     def unit(self) -> LengthUnit | None:
-        """The length unit of the drawing's own coordinates (the points and lengths in ``values``)."""
+        """図面自体の座標の長さの単位です。values 内の点と長さに適用します。"""
     @property
     def background(self) -> Literal["dark", "light"]: ...
     @property
@@ -358,7 +353,7 @@ class Scene:
         tolerance: float = 0.01,
         min_area: float = 0.0,
     ) -> list[Region]:
-        """The regions that drawn lines close (rooms, when a text names them), in reading order by placement."""
+        """線で囲まれた領域（室名があれば部屋）を、配置ごとに読み順で返します。"""
     def tables(
         self,
         *,
@@ -369,14 +364,14 @@ class Scene:
         min_cells: int = 2,
         empty: bool = False,
     ) -> list[Table]:
-        """The tables drawn with horizontal and vertical rules (schedules, title blocks), in reading order."""
+        """罫線で描かれた表（建具表・表題欄など）を読み順で返します。"""
     def check(self, rules: str | dict[str, Any] | None = None) -> CheckReport:
-        """Check the drawing against a rule set: a built-in name (``mlit-cad-2025`` by default), JSON text or a dict."""
+        """組み込み規則集（既定は mlit-cad-2025）、JSON 文字列、辞書で製図基準を確認します。"""
     def to_arrow(self, *, region: Box | None = None, hidden_layers: list[int] | None = None) -> Any:
-        """A ``pyarrow.Table`` of the entities (needs pyarrow)."""
+        """図形を pyarrow.Table で返します。pyarrow が必要です。"""
 
 class Rendering:
-    """A PNG of a scene, the conversion between pixels and paper millimeters, and the entities drawn."""
+    """図面の PNG、ピクセルと用紙上の mm の変換、描いた図形です。"""
 
     @property
     def png(self) -> bytes: ...
@@ -406,7 +401,7 @@ class ChangeRegion(TypedDict):
     changed: int
 
 class Comparison:
-    """Two revisions compared: entities matched by shape and text, not by id."""
+    """形と文字で図形を照合した 2 つの版の比較結果です。id では照合しません。"""
 
     @property
     def removed(self) -> list[Entity]: ...
@@ -435,7 +430,7 @@ def compare(
 ) -> Comparison: ...
 
 class Converted:
-    """A drawing written in another format, and the notices about what could not be written as it was."""
+    """別形式に書き出した図面と、元のまま書けなかった内容の注意事項です。"""
 
     @property
     def data(self) -> bytes: ...
@@ -459,7 +454,7 @@ def read(
 def convert(data: bytes, to: str, *, format: str | None = None, version: str | None = None) -> Converted: ...
 
 class Edited:
-    """An edited or new drawing, the ids of what was added and the notices about what was written differently."""
+    """編集・新規作成した図面、追加した図形の id、元のまま書けなかった内容の注意事項です。"""
 
     @property
     def data(self) -> bytes: ...

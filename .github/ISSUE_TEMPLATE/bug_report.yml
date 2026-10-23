@@ -1,40 +1,43 @@
-name: Bug report
-description: A drawing is read or shown incorrectly, or the viewer misbehaves
+name: 不具合の報告
+description: 図面の読み取り・表示・操作の不具合を報告する
 labels: [bug]
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for the report. **Do not attach confidential drawings.**
-        A small drawing made to reproduce the problem, or a description of the file, is enough.
+        不具合の状況を教えてください。**機密の図面は添付しないでください。**
+        問題を再現する最小の図面か、ファイルの形式・版などの説明で構いません。
   - type: dropdown
     id: format
     attributes:
-      label: Format
+      label: 図面の形式
       options:
         - SXF (SFC)
         - SXF (P21)
-        - JWW
-        - Not format-specific
+        - JWW / JWC / JWS
+        - DXF
+        - DWG
+        - PDF
+        - 形式によらない問題
     validations:
       required: true
   - type: input
     id: software
     attributes:
-      label: Authoring software and version
-      placeholder: e.g. Jw_cad 8.25a
+      label: 作成ソフトとバージョン
+      placeholder: 例：Jw_cad 8.25a
   - type: textarea
     id: problem
     attributes:
-      label: What happened, and what you expected
+      label: 起きたことと期待する動作
     validations:
       required: true
   - type: textarea
     id: notices
     attributes:
-      label: Notices shown by the viewer
-      description: The list of skipped or substituted content, if any.
+      label: ビューアに表示された注意事項
+      description: 省略・代替された内容の一覧があれば記載してください。
   - type: input
     id: environment
     attributes:
-      label: Package versions, browser and OS
+      label: パッケージのバージョン・ブラウザ・OS

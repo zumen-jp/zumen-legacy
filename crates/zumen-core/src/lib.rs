@@ -1,8 +1,7 @@
-//! The format-neutral drawing model of zumen (`Scene`) and the helpers that format readers share.
+//! zumen の形式に依存しない図面モデル（`Scene`）と、各形式の読み取りが共用する補助関数。
 //!
-//! This is the Rust counterpart of `@zumenjs/core`. A `Scene` serializes to the same JSON as the
-//! TypeScript `Scene` (`sceneToJson`), so the browser can draw what Rust reads and the two
-//! implementations can be compared on the same drawings (`tests/fixtures`).
+//! TypeScript の `@zumenjs/core` に対応する。`Scene` は `sceneToJson` と同じ JSON になるため、
+//! Rust が読んだ図面をブラウザで描き、同じテスト用図面（`tests/fixtures`）で両実装を比較できる。
 #![forbid(unsafe_code)]
 
 pub mod checks;

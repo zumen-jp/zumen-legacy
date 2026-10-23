@@ -1,6 +1,6 @@
 [package]
 name = "zumen-draft"
-description = "Draw complete sheets (views at scales, dimensions, hatches, tables, title blocks) from a JSON drawing spec into the AutoCAD drawing model"
+description = "JSON の図面仕様から、縮尺付きビュー・寸法・ハッチング・表・表題欄を備えた図面を作成する"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

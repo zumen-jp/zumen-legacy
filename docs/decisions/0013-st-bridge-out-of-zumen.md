@@ -1,56 +1,57 @@
-# 0013: Keep zumen free of formats that need permission and of non-permissive dependencies, and move ST-Bridge out
+# 0013: 許可が必要な形式と寛容でない依存を除き、ST-Bridge を外す
 
-| Item | Value |
+| 項目 | 内容 |
 | --- | --- |
-| Date | 2026-10-20 |
-| Status | Accepted |
+| 日付 | 2026-10-20 |
+| 状態 | 採用 |
 
-## Context
+このページは既存判断の日本語の要約です。詳細な条件と当時の議論は英語の補足資料に保持しています。
 
-- zumen is about to go public under MIT. [Decision 0001](0001-st-bridge-in-zumen.md) kept an ST-Bridge reader and 3D
-  view in zumen as `@zumenjs/stb`, and left the terms for publishing an implementation of the ST-Bridge specification
-  to be confirmed with buildingSMART Japan before the release ([releasing.md](../releasing.md)).
-- buildingSMART Japan holds the rights to ST-Bridge. Its web page and the specification do not state terms for
-  implementations. STB-KIT (Taisei, MPL-2.0) says that it publishes its implementation under a license agreement with
-  buildingSMART Japan, so publishing an implementation needs such an agreement, which zumen does not have.
-- Reading and writing every file that an application handles was planned next: every version of the drawing formats,
-  ST-Bridge in Rust with writing, and IFC through ifc-lite, which is MPL-2.0.
+## 背景
 
-## Options
+ST-Bridge の公開条件は権利者への確認が必要で、自由に導入できるライブラリの方針に合わない。
 
-1. **Apply for a license and keep ST-Bridge in zumen.** The release waits for the answer, and zumen's terms would
-   depend on an agreement with a third party.
-2. **Keep the code in zumen and only hold back the package.** Making the repository public publishes the
-   implementation anyway.
-3. **Move ST-Bridge to a private repository**, and keep zumen to what can be published without anyone's permission
-   and with permissive dependencies only.
+## 選択肢
 
-## Decision
+確認前に含める、機能を分離する、zumen から外す方法を比較した。
 
-Option 3.
+## 決定
 
-- `@zumenjs/stb` (the reader, `StructureModel`, the three.js view and the React component), its notes, its
-  verification record and the playground sample move to a private repository, from commit `1f3ccdf`.
-  The open pull request #24 (the `StructureViewer` engine) moves there with its whole diff.
-  [Decision 0001](0001-st-bridge-in-zumen.md) is superseded.
-- zumen adds no format whose publication needs a third party's permission, and no runtime dependency whose license is
-  not permissive (MIT, Apache-2.0, BSD, ISC, Zlib and the like): no MPL, LGPL or GPL. IFC through ifc-lite (MPL-2.0)
-  is not added either.
-- Either may come back later as our own implementation, or with a permission, through a new decision.
-- The work goes on with the drawing formats: every version of SXF, JWW, DXF and DWG, read and written.
+ST-Bridge を zumen の配布・公開 API から外す。許可が必要な形式や MPL・LGPL・GPL などの依存の追加は、先に設計判断を要する。
 
-## Consequences
+## 影響
 
-- zumen can be published without waiting for buildingSMART Japan.
-- The playground opens drawings only. Plan and elevation drawings of structural models, planned in decision 0001,
-  are not part of zumen.
-- `AGENTS.md` and the release checklist name the rule, so that a contribution does not bring such a format or
-  dependency back unnoticed.
-- That repository builds and tests on its own (pnpm, TypeScript, Vitest, Biome). Its browser tests are not set up there
-  yet.
+決定 0001 を置き換える。将来の再導入には buildingSMART Japan の同意など条件の確認が必要で、日本向けの方針だけを理由に復活させない。
 
-## References
+## 英語の補足資料
 
-- [STB-KIT](https://github.com/taisei-oss/stb-kit) README, section 3 (the license agreement with buildingSMART Japan),
-  read on 2026-10-20
-- [ifc-lite](https://github.com/LTplus-AG/ifc-lite) (MPL-2.0), read on 2026-10-20
+対応表・実装上の細則・従来のコード例は [0013-st-bridge-out-of-zumen.en.md](0013-st-bridge-out-of-zumen.en.md) にも保存しています。
+
+<details>
+<summary>従来の見出しから詳細を探す</summary>
+
+<a id="0013-keep-zumen-free-of-formats-that-need-permission-and-of-non-permissive-dependencies-and-move-st-bridge-out"></a>
+
+[0013-keep-zumen-free-of-formats-that-need-permission-and-of-non-permissive-dependencies-and-move-st-bridge-out](0013-st-bridge-out-of-zumen.en.md#0013-keep-zumen-free-of-formats-that-need-permission-and-of-non-permissive-dependencies-and-move-st-bridge-out)
+
+<a id="context"></a>
+
+[context](0013-st-bridge-out-of-zumen.en.md#context)
+
+<a id="options"></a>
+
+[options](0013-st-bridge-out-of-zumen.en.md#options)
+
+<a id="decision"></a>
+
+[decision](0013-st-bridge-out-of-zumen.en.md#decision)
+
+<a id="consequences"></a>
+
+[consequences](0013-st-bridge-out-of-zumen.en.md#consequences)
+
+<a id="references"></a>
+
+[references](0013-st-bridge-out-of-zumen.en.md#references)
+
+</details>

@@ -67,7 +67,7 @@ function linkedCrates(manifest, packageName, target) {
   const packages = new Map(metadata.packages.map((p) => [p.id, p]));
   const nodes = new Map(metadata.resolve.nodes.map((n) => [n.id, n]));
   const start = metadata.packages.find((p) => p.name === packageName);
-  if (!start) throw new Error(`${packageName} is not in ${manifest}`);
+  if (!start) throw new Error(`${manifest} に ${packageName} がありません`);
   const seen = new Set();
   const stack = [start.id];
   while (stack.length > 0) {
@@ -117,7 +117,7 @@ function render({ what, bindings, targets }) {
       // A crate published without its license file (alloc-stdlib) is covered by the license of its repository, which
       // another crate of the same repository ships
       const sibling = sorted.find(([, other]) => other.repository === p.repository && licenseFiles(other).length > 0);
-      if (!p.repository || !sibling) throw new Error(`${key} has no license file in ${dir}`);
+      if (!p.repository || !sibling) throw new Error(`${dir} に ${key} のライセンスファイルがありません`);
       dir = path.dirname(sibling[1].manifest_path);
       files = licenseFiles(sibling[1]);
       from = ` (the license of its repository, as ${sibling[0]} ships it)`;
@@ -170,13 +170,13 @@ for (const output of outputs) {
   if (check) {
     if (current !== generated) {
       failed = true;
-      console.error(`${output.file} is out of date with Cargo.lock. Run pnpm run notices and commit it.`);
+      console.error(`${output.file} が Cargo.lock と一致しません。pnpm run notices で更新してコミットしてください。`);
     } else {
       console.log(`ok   ${output.file}`);
     }
   } else if (current !== generated) {
     writeFileSync(file, generated);
-    console.log(`wrote ${output.file}`);
+    console.log(`書き込み: ${output.file}`);
   } else {
     console.log(`same ${output.file}`);
   }

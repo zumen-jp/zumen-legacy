@@ -1,6 +1,6 @@
 [package]
 name = "zumen-sxf"
-description = "Read SXF drawings (SFC and P21) of Japanese public works into the zumen scene model"
+description = "日本の電子納品で使う SXF（SFC・P21）図面を zumen の図面モデルに読み取る"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

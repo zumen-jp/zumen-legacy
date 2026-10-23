@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/zumenjs/zumen/crates/zumen-core/schema/markup.schema.json",
-  "title": "zumen markup",
-  "description": "Drawing markup beside a drawing (decision 0021, docs/markup.md). Points are paper millimeters of the item's view, with the Y axis up. Keys that a reader does not know are kept as they are.",
+  "title": "zumen のマークアップ",
+  "description": "図面に添えるマークアップ（決定 0021、docs/markup.md）。座標は項目のビューの用紙上の mm、Y 軸は上向き。未知のキーは保持します。",
   "type": "object",
   "required": ["format", "version", "drawing", "items"],
   "properties": {
@@ -14,18 +14,18 @@
     },
     "drawing": {
       "type": "object",
-      "description": "The drawing the markup was made on",
+      "description": "マークアップを付けた図面",
       "required": ["sha256", "format"],
       "properties": {
         "sha256": {
           "type": "string",
           "pattern": "^[0-9a-f]{64}$",
-          "description": "SHA-256 of the drawing's bytes, lowercase hexadecimal"
+          "description": "図面のバイト列の SHA-256（小文字の 16 進数）"
         },
         "format": {
           "type": "string",
           "minLength": 1,
-          "description": "Scene.format of the drawing (sfc, jww, dxf, dwg, pdf, ...)"
+          "description": "図面の Scene.format（sfc・jww・dxf・dwg・pdf など）"
         }
       }
     },
@@ -37,7 +37,7 @@
     },
     "data": {
       "type": "object",
-      "description": "For the application, kept as it is"
+      "description": "利用側の情報。そのまま保持します"
     }
   },
   "$defs": {
@@ -48,7 +48,7 @@
       },
       "minItems": 2,
       "maxItems": 2,
-      "description": "[x, y] in paper millimeters"
+      "description": "用紙上の mm の座標 [x, y]"
     },
     "points": {
       "type": "array",
@@ -63,7 +63,7 @@
         "id": {
           "type": "string",
           "minLength": 1,
-          "description": "Unique in the document"
+          "description": "文書内で一意の id"
         },
         "kind": {
           "enum": ["redline", "cloud", "text", "finding", "photo"]
@@ -71,22 +71,22 @@
         "view": {
           "type": "string",
           "minLength": 1,
-          "description": "The view id of the scene (Scene.view); left out for formats with one view"
+          "description": "Scene.view のビュー id。単一ビューの形式では省略"
         },
         "category": {
           "type": "string",
           "pattern": "^[a-z0-9-]+$",
-          "description": "A key of the application that chooses the color"
+          "description": "表示色を選ぶ利用側の分類キー"
         },
         "color": {
           "type": "string",
           "pattern": "^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
-          "description": "#rrggbb or #rrggbbaa, over the category's color"
+          "description": "#rrggbb または #rrggbbaa。カテゴリの色より優先"
         },
         "lineWidth": {
           "type": "number",
           "exclusiveMinimum": 0,
-          "description": "Paper millimeters; without it lines are 2 pixels wide"
+          "description": "用紙上の mm。省略時の線幅は 2 ピクセル"
         },
         "text": {
           "type": "string"
@@ -96,7 +96,7 @@
           "items": {
             "type": "string"
           },
-          "description": "Ids of the entities the item is about"
+          "description": "項目の対象となる図形の id"
         },
         "author": {
           "type": "string"
@@ -104,12 +104,12 @@
         "createdAt": {
           "type": "string",
           "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])[Tt]([01]\\d|2[0-3]):[0-5]\\d:([0-5]\\d|60)(\\.\\d+)?([Zz]|[+-]([01]\\d|2[0-3]):[0-5]\\d)$",
-          "description": "An RFC 3339 date and time"
+          "description": "RFC 3339 形式の日時"
         },
         "updatedAt": {
           "type": "string",
           "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])[Tt]([01]\\d|2[0-3]):[0-5]\\d:([0-5]\\d|60)(\\.\\d+)?([Zz]|[+-]([01]\\d|2[0-3]):[0-5]\\d)$",
-          "description": "An RFC 3339 date and time"
+          "description": "RFC 3339 形式の日時"
         },
         "carried": {
           "type": "object",
@@ -118,7 +118,7 @@
             "from": {
               "type": "string",
               "pattern": "^[0-9a-f]{64}$",
-              "description": "SHA-256 of the drawing the item was carried from"
+              "description": "移行元の図面の SHA-256"
             },
             "state": {
               "enum": ["unchanged", "changed", "removed"]
@@ -127,7 +127,7 @@
         },
         "data": {
           "type": "object",
-          "description": "For the application, kept as it is"
+          "description": "利用側の情報。そのまま保持します"
         }
       },
       "allOf": [
@@ -169,12 +169,12 @@
               "points": {
                 "$ref": "#/$defs/points",
                 "minItems": 3,
-                "description": "The closed outline"
+                "description": "閉じた外周"
               },
               "arcLength": {
                 "type": "number",
                 "exclusiveMinimum": 0,
-                "description": "The chord of an arc in paper millimeters, 10 by default"
+                "description": "円弧の弦の長さ（用紙上の mm、既定 10）"
               }
             }
           }
@@ -192,16 +192,16 @@
             "properties": {
               "position": {
                 "$ref": "#/$defs/point",
-                "description": "The lower left of the first line"
+                "description": "最初の行の左下"
               },
               "height": {
                 "type": "number",
                 "exclusiveMinimum": 0,
-                "description": "Paper millimeters, 3.5 by default"
+                "description": "用紙上の mm（既定 3.5）"
               },
               "angle": {
                 "type": "number",
-                "description": "Degrees counterclockwise, 0 by default"
+                "description": "反時計回りの度（既定 0）"
               }
             }
           }
@@ -219,7 +219,7 @@
             "properties": {
               "position": {
                 "$ref": "#/$defs/point",
-                "description": "The pin"
+                "description": "指摘のピンの位置"
               },
               "status": {
                 "enum": ["open", "resolved", "closed"]
@@ -227,11 +227,11 @@
               "points": {
                 "$ref": "#/$defs/points",
                 "minItems": 3,
-                "description": "The area, closed"
+                "description": "閉じた範囲"
               },
               "label": {
                 "type": "string",
-                "description": "Short text on the pin, such as its number"
+                "description": "番号など、ピン上の短い文字"
               }
             }
           }
@@ -249,20 +249,20 @@
             "properties": {
               "position": {
                 "$ref": "#/$defs/point",
-                "description": "Where the photo was taken"
+                "description": "写真の撮影位置"
               },
               "photo": {
                 "type": "string",
-                "description": "A reference that the application resolves, such as an id or a URL"
+                "description": "利用側で解決する id・URL などの参照"
               },
               "direction": {
                 "type": "number",
-                "description": "The camera's heading, degrees counterclockwise from +x"
+                "description": "カメラの方向。+X 軸から反時計回りの度"
               },
               "takenAt": {
                 "type": "string",
                 "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])[Tt]([01]\\d|2[0-3]):[0-5]\\d:([0-5]\\d|60)(\\.\\d+)?([Zz]|[+-]([01]\\d|2[0-3]):[0-5]\\d)$",
-                "description": "An RFC 3339 date and time"
+                "description": "RFC 3339 形式の日時"
               }
             }
           }

@@ -1,7 +1,7 @@
 {
   "name": "@zumenjs/reader",
   "version": "0.1.1",
-  "description": "Read every zumen format (SXF, JWW, DXF, DWG and PDF) in browsers and Node.js with zumen's Rust readers built to WebAssembly, on the page or in a Web Worker",
+  "description": "SXF・JWW・DXF・DWG・PDF をブラウザと Node.js で読み取る。Rust と共通の WebAssembly をページ内または Web Worker で実行",
   "keywords": [
     "cad",
     "drawing",
