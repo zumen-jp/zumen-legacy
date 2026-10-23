@@ -103,3 +103,16 @@ fn reads_file_schema_in_the_first_64_kib() {
     assert_eq!(detect_sxf(&quote_at(HEAD - 1)), None);
     assert_eq!(detect_sxf(&quote_at(HEAD)), Some("p21"));
 }
+
+/// HEADER のメタデータやコメントにある FILE_SCHEMA の文字は宣言ではない（ISO 10303-21, 6.2・8.2.3）。
+#[test]
+fn schema_names_in_comments_and_metadata_are_not_declarations() {
+    let bytes = step(b"/* FILE_SCHEMA(('IFC4')); */\nFILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING')); ");
+    assert_eq!(detect_sxf(&bytes), Some("p21"));
+    let bytes = replace(&step(SXF_SCHEMA.as_bytes()), "FILE_NAME('x'", "FILE_NAME('FILE_SCHEMA((''IFC4''))'");
+    assert_eq!(detect_sxf(&bytes), Some("p21"));
+    let bytes = step(b"/* FILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING')); */\nFILE_SCHEMA(('IFC4')); ");
+    assert_eq!(detect_sxf(&bytes), None);
+    assert_eq!(detect_sxf(&step(b"FILE_SCHEMA/* metadata */( /* metadata */ ('IFC4'));")), None);
+    assert_eq!(detect_sxf(&step(b"FILE_SCHEMA/* metadata */(('ASSOCIATIVE_DRAUGHTING'));")), Some("p21"));
+}

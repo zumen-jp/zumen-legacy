@@ -22,7 +22,13 @@ describe("SXF の判定", () => {
   });
 
   it("FILE_SCHEMA のないものと、大文字と小文字・空白・オブジェクト識別子の違う SXF のスキーマは SXF とみなす", () => {
-    for (const schema of [line, "", "file_schema (( ' associative_draughting { 1 0 10303 202 1 1 1 }' ));"]) {
+    for (const schema of [
+      line,
+      "",
+      "file_schema (( ' associative_draughting { 1 0 10303 202 1 1 1 }' ));",
+      `/* FILE_SCHEMA(('IFC4')); */\n${line}`,
+      `FILE_NAME('FILE_SCHEMA((''IFC4''))');\n${line}`,
+    ]) {
       expect(detectSxf(p21(schema))).toBe("p21");
       expect(detectSxf(sfc(schema))).toBe("sfc");
     }

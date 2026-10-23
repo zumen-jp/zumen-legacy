@@ -12,7 +12,8 @@ this repository; it can be obtained from the MLIT page listed under [References]
   subset of STEP AP202, whose schema is `ASSOCIATIVE_DRAUGHTING`, so a file whose `FILE_SCHEMA` (ISO 10303-21, 8.2.3)
   lists another schema first is not SXF: IFC (`IFC2X3`, `IFC4`, `IFC4X3_ADD2`) and other STEP files (AP203, AP214,
   AP242) get the error for a format no reader knows instead of being read as an empty P21. The keyword and the schema
-  name are compared without regard to case, and spaces and an object identifier after the name
+  name are compared without regard to case. The declaration is read outside strings and comments, so text in
+  `FILE_NAME` or a comment cannot replace it; comments between its tokens are treated as whitespace (6.2). Spaces and an object identifier after the name
   (`{ 1 0 10303 202 1 1 1 }`) are ignored. SXF writers put `FILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'))` in SFC and P21
   alike (every SXF drawing checked), but the readers do not use it, so a file without `FILE_SCHEMA` is still SXF, as
   before. P2Z and SFZ are told by the names in the archive, not by the header of the file in it.

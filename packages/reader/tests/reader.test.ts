@@ -201,6 +201,18 @@ describe("@zumenjs/reader", () => {
       ...sxfs.map((schema): [Uint8Array, string] => [step(schema), "p21"]),
       // ISO-10303-21 の前の空白と改行は、これまでどおり飛ばす
       [Uint8Array.from([...latin1(" \r\n"), ...step("FILE_SCHEMA(('IFC4'));")]), null],
+      [step("/* FILE_SCHEMA(('IFC4')); */\nFILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));"), "p21"],
+      [step("/* FILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING')); */\nFILE_SCHEMA(('IFC4'));"), null],
+      [
+        latin1(
+          Buffer.from(step("FILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));"))
+            .toString("latin1")
+            .replace("FILE_NAME('x'", "FILE_NAME('FILE_SCHEMA((''IFC4''))'"),
+        ),
+        "p21",
+      ],
+      [step("FILE_SCHEMA/* metadata */( /* metadata */ ('IFC4'));"), null],
+      [step("FILE_SCHEMA/* metadata */(('ASSOCIATIVE_DRAUGHTING'));"), "p21"],
       ...fixtures,
       [quoteAt(64 * 1024 - 1), null],
       [quoteAt(64 * 1024), "p21"],

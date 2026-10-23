@@ -197,26 +197,71 @@ fn is_feature_mode(head: &[u8]) -> bool {
     })
 }
 
-/// FILE_SCHEMA の 1 つ目のスキーマ名の文字列。`/FILE_SCHEMA\s*\(\s*\(\s*'([^']*)'/i` に最初に一致した所の組 1
-/// （1 バイトを 1 文字として読むので、i は ASCII の大文字と小文字だけを同じとみなす）。FILE_SCHEMA は、DATA 節の
-/// インスタンスを定める EXPRESS のスキーマを挙げるヘッダの実体（ISO 10303-21 の 8.2.3 file_schema）。キーワードの
-/// 大文字と小文字は、P21 の読み取りが型名を読むときと同じく区別しない
+/// 空白とコメント（ISO 10303-21, 6.2）を飛ばす。
+fn skip_schema_space(head: &[u8], mut at: usize) -> usize {
+    loop {
+        at = skip_space(head, at);
+        if !head[at..].starts_with(b"/*") {
+            return at;
+        }
+        at = match head[at + 2..].windows(2).position(|part| part == b"*/") {
+            Some(end) => at + 2 + end + 2,
+            None => return head.len(),
+        };
+    }
+}
+
+/// FILE_SCHEMA の 1 つ目のスキーマ名（ISO 10303-21, 8.2.3）。HEADER の文字列・コメントの中は宣言ではない。
+/// TypeScript の firstSchema と同じ順に、1 バイトを 1 文字としてトークンを読む。
 fn first_schema(head: &[u8]) -> Option<&[u8]> {
-    const NAME: &[u8] = b"FILE_SCHEMA";
-    head.windows(NAME.len()).enumerate().filter(|(_, window)| window.eq_ignore_ascii_case(NAME)).find_map(|(at, _)| {
-        let mut i = skip_space(head, at + NAME.len());
-        for _ in 0..2 {
-            if head.get(i) != Some(&b'(') {
-                return None;
+    let mut at = 0;
+    while at < head.len() {
+        at = skip_schema_space(head, at);
+        if matches!(head.get(at), Some(b'\'' | b'"')) {
+            let quote = head[at];
+            at += 1;
+            while at < head.len() {
+                let byte = head[at];
+                at += 1;
+                if byte != quote {
+                    continue;
+                }
+                if head.get(at) != Some(&quote) {
+                    break;
+                }
+                at += 1;
             }
-            i = skip_space(head, i + 1);
+            continue;
         }
-        if head.get(i) != Some(&b'\'') {
-            return None;
+        let start = at;
+        while head.get(at).is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_') {
+            at += 1;
         }
-        let rest = &head[i + 1..];
-        rest.iter().position(|byte| *byte == b'\'').map(|end| &rest[..end])
-    })
+        if at == start {
+            at += 1;
+            continue;
+        }
+        if !head[start..at].eq_ignore_ascii_case(b"FILE_SCHEMA") {
+            continue;
+        }
+        let mut value = skip_schema_space(head, at);
+        if head.get(value) != Some(&b'(') {
+            continue;
+        }
+        value = skip_schema_space(head, value + 1);
+        if head.get(value) != Some(&b'(') {
+            continue;
+        }
+        value = skip_schema_space(head, value + 1);
+        if head.get(value) != Some(&b'\'') {
+            continue;
+        }
+        let rest = &head[value + 1..];
+        if let Some(end) = rest.iter().position(|byte| *byte == b'\'') {
+            return Some(&rest[..end]);
+        }
+    }
+    None
 }
 
 /// SXF のスキーマ名か（`/^\s*ASSOCIATIVE_DRAUGHTING(?![^\s{])/i`）。SXF の P21 は STEP AP202 のサブセット（SXF Ver.3.1
