@@ -7,6 +7,15 @@ this repository; it can be obtained from the MLIT page listed under [References]
 
 ## Reading
 
+- **Detection** looks at the first 64 KiB, each byte read as one ISO 8859-1 character. SFC and P21 both start with
+  `ISO-10303-21`; a file with `/*SXF` comments or the `feature_mode` description is SFC, any other is P21. SXF is a
+  subset of STEP AP202, whose schema is `ASSOCIATIVE_DRAUGHTING`, so a file whose `FILE_SCHEMA` (ISO 10303-21, 8.2.3)
+  lists another schema first is not SXF: IFC (`IFC2X3`, `IFC4`, `IFC4X3_ADD2`) and other STEP files (AP203, AP214,
+  AP242) get the error for a format no reader knows instead of being read as an empty P21. The keyword and the schema
+  name are compared without regard to case, and spaces and an object identifier after the name
+  (`{ 1 0 10303 202 1 1 1 }`) are ignored. SXF writers put `FILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'))` in SFC and P21
+  alike (every SXF drawing checked), but the readers do not use it, so a file without `FILE_SCHEMA` is still SXF, as
+  before. P2Z and SFZ are told by the names in the archive, not by the header of the file in it.
 - Strings are CP932. Characters whose second byte is 0x5C (表, ソ, 能 …) are told apart from a `\` written as `\\`.
 - The codes of colors, line types, line widths, text fonts and layers are assigned in order of appearance, as the
   specification says. Line widths with predefined values have the fixed codes 1–9; only user-defined widths are numbered

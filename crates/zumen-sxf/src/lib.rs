@@ -143,7 +143,10 @@ use zumen_core::{DrawingReader, Property, ReadError, ReadOptions, Scene};
 
 /// 中身が SXF なら形式（sfc・p21、圧縮したものは sfz・p2z）を返す。SFC と P21 はどちらも ISO-10303-21 で始まり、
 /// SFC はフィーチャを /*SXF のコメントに書く（FILE_DESCRIPTION が feature_mode のものも SFC）。
-/// 圧縮したものは、名前が .p21・.sfc で終わるファイルを入れた ZIP の書庫
+/// FILE_SCHEMA の 1 つ目のスキーマが SXF の ASSOCIATIVE_DRAUGHTING でないもの（IFC、STEP の AP203・AP214・AP242
+/// など）は SXF ではない。FILE_SCHEMA が先頭の 64 KiB に見つからないファイルは、これまでどおり SXF とみなす（SXF の
+/// 読み取りは FILE_SCHEMA を使わないので、それを書かない図面も読めなくしない）。
+/// 圧縮したものは、名前が .p21・.sfc で終わるファイルを入れた ZIP の書庫（中のファイルの FILE_SCHEMA は見ない）
 pub fn detect_sxf(bytes: &[u8]) -> Option<&'static str> {
     if zip::is_zip(bytes) {
         return zip::find_sxf(bytes).map(|member| if member.format == "sfc" { "sfz" } else { "p2z" });
@@ -152,36 +155,80 @@ pub fn detect_sxf(bytes: &[u8]) -> Option<&'static str> {
     if !bytes[start..].starts_with(b"ISO-10303-21") {
         return None;
     }
+    // 先頭の 64 KiB を、1 バイトを 1 文字（ISO 8859-1）として見る。TypeScript の detectDrawing も同じ所で止める
     let head = &bytes[..bytes.len().min(64 * 1024)];
+    if first_schema(head).is_some_and(|schema| !is_sxf_schema(schema)) {
+        return None;
+    }
     if head.windows(5).any(|window| window == b"/*SXF") || is_feature_mode(head) {
         return Some("sfc");
     }
     Some("p21")
 }
 
+/// ISO 8859-1 の文字のうち、JavaScript の \s に当たるもの
+fn is_space(byte: u8) -> bool {
+    matches!(byte, 0x09..=0x0d | 0x20 | 0xa0)
+}
+
+/// i から \s を飛ばした位置
+fn skip_space(text: &[u8], mut i: usize) -> usize {
+    while text.get(i).copied().is_some_and(is_space) {
+        i += 1;
+    }
+    i
+}
+
 /// `/FILE_DESCRIPTION\s*\(\s*\(\s*'SCADEC level\d feature_mode'/`（1 バイトを 1 文字として読む）
 fn is_feature_mode(head: &[u8]) -> bool {
-    // ISO 8859-1 の文字のうち、JavaScript の \s に当たるもの
-    let skip = |mut i: usize| {
-        while head.get(i).is_some_and(|byte| matches!(byte, 0x09..=0x0d | 0x20 | 0xa0)) {
-            i += 1;
-        }
-        i
-    };
     const NAME: &[u8] = b"FILE_DESCRIPTION";
     head.windows(NAME.len()).enumerate().filter(|(_, window)| *window == NAME).any(|(at, _)| {
-        let mut i = skip(at + NAME.len());
+        let mut i = skip_space(head, at + NAME.len());
         for _ in 0..2 {
             if head.get(i) != Some(&b'(') {
                 return false;
             }
-            i = skip(i + 1);
+            i = skip_space(head, i + 1);
         }
         let rest = &head[i..];
         rest.starts_with(b"'SCADEC level")
             && rest.get(13).is_some_and(u8::is_ascii_digit)
             && rest[14..].starts_with(b" feature_mode'")
     })
+}
+
+/// FILE_SCHEMA の 1 つ目のスキーマ名の文字列。`/FILE_SCHEMA\s*\(\s*\(\s*'([^']*)'/i` に最初に一致した所の組 1
+/// （1 バイトを 1 文字として読むので、i は ASCII の大文字と小文字だけを同じとみなす）。FILE_SCHEMA は、DATA 節の
+/// インスタンスを定める EXPRESS のスキーマを挙げるヘッダの実体（ISO 10303-21 の 8.2.3 file_schema）。キーワードの
+/// 大文字と小文字は、P21 の読み取りが型名を読むときと同じく区別しない
+fn first_schema(head: &[u8]) -> Option<&[u8]> {
+    const NAME: &[u8] = b"FILE_SCHEMA";
+    head.windows(NAME.len()).enumerate().filter(|(_, window)| window.eq_ignore_ascii_case(NAME)).find_map(|(at, _)| {
+        let mut i = skip_space(head, at + NAME.len());
+        for _ in 0..2 {
+            if head.get(i) != Some(&b'(') {
+                return None;
+            }
+            i = skip_space(head, i + 1);
+        }
+        if head.get(i) != Some(&b'\'') {
+            return None;
+        }
+        let rest = &head[i + 1..];
+        rest.iter().position(|byte| *byte == b'\'').map(|end| &rest[..end])
+    })
+}
+
+/// SXF のスキーマ名か（`/^\s*ASSOCIATIVE_DRAUGHTING(?![^\s{])/i`）。SXF の P21 は STEP AP202 のサブセット（SXF Ver.3.1
+/// 仕様書・同解説 STEP/AP202 サブセット編）なので、FILE_SCHEMA は AP202 のスキーマ ASSOCIATIVE_DRAUGHTING。SFC も同じ
+/// ヘッダを書く（tests/fixtures の SFC・P21 と、確かめた SXF の図面のすべて）。名前の後ろにはスキーマのオブジェクト
+/// 識別子が付くことがあり（AP214 の `'AUTOMOTIVE_DESIGN { 1 0 10303 214 1 1 1 1 }'` など）、EXPRESS の名前は大文字と
+/// 小文字を区別しない（ISO 10303-11）ので、前の空白を飛ばし、空白か { の前までを比べる
+fn is_sxf_schema(schema: &[u8]) -> bool {
+    const NAME: &[u8] = b"ASSOCIATIVE_DRAUGHTING";
+    let rest = &schema[skip_space(schema, 0)..];
+    rest.get(..NAME.len()).is_some_and(|name| name.eq_ignore_ascii_case(NAME))
+        && rest.get(NAME.len()).is_none_or(|byte| is_space(*byte) || *byte == b'{')
 }
 
 /// 形式（sfc・p21、圧縮した sfz・p2z）ごとに SXF の図面を読む。表示用の図面にする前の、SXF のフィーチャの図面を返す

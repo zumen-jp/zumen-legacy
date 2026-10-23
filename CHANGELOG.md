@@ -4,6 +4,11 @@ All packages share one version during 0.x.
 
 ## Unreleased
 
+- Browsers, Rust, Python and the command line: files that start with `ISO-10303-21` but whose `FILE_SCHEMA` does not
+  begin with SXF's schema `ASSOCIATIVE_DRAUGHTING`, such as IFC (`IFC2X3`, `IFC4`, `IFC4X3_ADD2`) and STEP AP203, AP214
+  and AP242 files, are no longer detected as SXF P21. Reading them gives the error for a format no reader knows instead
+  of an empty drawing with the `no-sheet` notice. SXF files without `FILE_SCHEMA` are still detected
+  ([How SXF is handled](docs/formats/sxf.md#reading)).
 - Rust, Python and the command line: `edit` and `create` take `add-block` (with `"container": "block:<name>"` and
   `block-reference`), `"kind": "dimension"` and `"kind": "hatch"` for JWW and SXF too, as each format's own entities
   ([decision 0025](docs/decisions/0025-annotations-in-jww-and-sxf-edits.md)). JWW: a block definition named with

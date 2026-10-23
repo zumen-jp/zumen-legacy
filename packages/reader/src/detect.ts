@@ -45,7 +45,9 @@ function isDxf(bytes: Uint8Array): boolean {
 
 /**
  * SXF の形式（sfc・p21、圧縮したものは sfz・p2z）。SFC と P21 はどちらも ISO-10303-21 で始まり、SFC はフィーチャを
- * /*SXF のコメントに書く（FILE_DESCRIPTION が feature_mode のものも SFC）。圧縮したものは、名前が .p21・.sfc で終わる
+ * /*SXF のコメントに書く（FILE_DESCRIPTION が feature_mode のものも SFC）。FILE_SCHEMA の 1 つ目のスキーマが SXF の
+ * ASSOCIATIVE_DRAUGHTING でないもの（IFC、STEP の AP203・AP214・AP242 など）は SXF ではなく、FILE_SCHEMA が先頭の
+ * 64 KiB に見つからないものは SXF とみなす（Rust の detect_sxf）。圧縮したものは、名前が .p21・.sfc で終わる
  * ファイルを入れた ZIP の書庫
  */
 function detectSxf(bytes: Uint8Array): DrawingFormat | null {
@@ -57,10 +59,24 @@ function detectSxf(bytes: Uint8Array): DrawingFormat | null {
   while (start < bytes.length && (bytes[start] === 0x20 || bytes[start] === 0x0d || bytes[start] === 0x0a)) start++;
   if (!startsWith(bytes, "ISO-10303-21", start)) return null;
   const head = latin1(bytes, 0, Math.min(bytes.length, 64 * 1024));
+  const schema = FILE_SCHEMA.exec(head)?.[1];
+  if (schema !== undefined && !SXF_SCHEMA.test(schema)) return null;
   if (head.includes("/*SXF")) return "sfc";
   if (/FILE_DESCRIPTION\s*\(\s*\(\s*'SCADEC level\d feature_mode'/.test(head)) return "sfc";
   return "p21";
 }
+
+/**
+ * FILE_SCHEMA の 1 つ目のスキーマ名（ISO 10303-21 の 8.2.3 file_schema）。キーワードの大文字と小文字は区別しない。
+ * 1 バイトを 1 文字にした文字列なので、i は ASCII の大文字と小文字だけを同じとみなす（Rust の first_schema）
+ */
+const FILE_SCHEMA = /FILE_SCHEMA\s*\(\s*\(\s*'([^']*)'/i;
+
+/**
+ * SXF のスキーマ名。SXF の P21 は STEP AP202 のサブセットなので、AP202 の ASSOCIATIVE_DRAUGHTING。前の空白と、後ろの
+ * スキーマのオブジェクト識別子（{ … }）を除き、大文字と小文字を区別せずに比べる（Rust の is_sxf_schema）
+ */
+const SXF_SCHEMA = /^\s*ASSOCIATIVE_DRAUGHTING(?![^\s{])/i;
 
 const LOCAL_HEADER = 0x04034b50;
 const CENTRAL_HEADER = 0x02014b50;
