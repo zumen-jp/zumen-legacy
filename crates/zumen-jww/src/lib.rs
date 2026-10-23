@@ -8,6 +8,7 @@
 mod archive;
 mod create;
 mod edit;
+mod embedded;
 mod file;
 mod header;
 mod jwc;
@@ -19,6 +20,7 @@ mod sxf_tables;
 
 pub use create::{JWW_VERSION, write_jww};
 pub use edit::{edit_jww, new_jww};
+pub use embedded::embedded_images;
 pub use file::{JwwBlockRecord, JwwFile, JwwRecord, JwwWritten};
 pub use header::{
     JwwDisplaySettings, JwwGeneralSettings, JwwGroupState, JwwHeader, JwwLayerState, JwwLinePattern, JwwMarkJump,

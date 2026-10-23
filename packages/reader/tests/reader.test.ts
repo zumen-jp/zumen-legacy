@@ -1,4 +1,5 @@
 import { readdirSync, readFileSync } from "node:fs";
+import { gzipSync } from "node:zlib";
 import { readDrawing, sceneToJson } from "@zumenjs/core";
 import { describe, expect, it } from "vitest";
 import { compareScenes } from "../../../scripts/compare-scenes.mjs";
@@ -12,6 +13,7 @@ import {
   isPdfReaderReady,
   isReaderReady,
   LimitError,
+  readEmbeddedFiles,
   reader,
   readScene,
 } from "../src/index.js";
@@ -275,6 +277,34 @@ describe("@zumenjs/reader", () => {
     expect(scene.format).toBe("p21");
     expect(scene.metadata).toContainEqual({ key: "archive", label: "圧縮", value: "P2Z（図面.P21）" });
     expect(scene.entities).toEqual(plain.entities);
+  });
+
+  // JWW に同梱した画像と圧縮した SXF の画像のファイルは、図面の中にあるので、アプリケーションが画像の underlay に渡せる
+  it("JWW の同梱画像と圧縮した SXF の画像のファイルを、画像の underlay の file と同じ名前で返す", () => {
+    const bitmap = latin1("BM a tiny bitmap");
+    // 版 700 の図面の、同梱画像の件数（0）を、gzip の 1 枚に置き換える
+    const drawing = read("jww/images-v700.jww");
+    const name = "photo.bmp.gz";
+    const gz = new Uint8Array(gzipSync(bitmap));
+    const archive = [1, 0, 0, 0, 0xff, 0xfe, 0xff, name.length];
+    for (const char of name) archive.push(char.charCodeAt(0), 0);
+    archive.push(gz.length & 0xff, (gz.length >> 8) & 0xff, 0, 0, ...gz);
+    const jww = Uint8Array.from([...drawing.subarray(0, drawing.length - 4), ...archive]);
+    const scene = readScene(jww);
+    const embedded = readEmbeddedFiles(jww);
+    expect(embedded.files.map((file) => file.name)).toEqual(["%temp%photo.bmp"]);
+    expect(scene.underlays?.[0]?.file).toBe("%temp%photo.bmp");
+    expect(embedded.files[0]?.data).toEqual(bitmap);
+    expect(embedded.notices).toEqual([]);
+    const sxf = zip([
+      { name: "D0001.SFC", bytes: read("sfc/rasters.sfc") },
+      { name: "GENKYOU.TIF", bytes: latin1("II*") },
+    ]);
+    expect(readEmbeddedFiles(sxf).files).toEqual([{ name: "GENKYOU.TIF", data: latin1("II*") }]);
+    expect(readEmbeddedFiles(read("dxf/images.dxf")).files).toEqual([]);
+    // PDF は別の WebAssembly モジュールで読む。CAD の検出に任せても形式不明のエラーにしない。
+    expect(readEmbeddedFiles(read("pdf/drawing.pdf"))).toEqual({ files: [], notices: [] });
+    expect(() => readEmbeddedFiles(jww, { limits: { maxBytes: 100 } })).toThrow(LimitError);
   });
 
   // DrawingViewer は TypeScript の読み取りと同じ Scene を受け取る（JSON の数の配列ではなく Float64Array の点列）

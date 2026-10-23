@@ -314,6 +314,7 @@ class Scene:
         sheet_frame: bool = True,
         markup: object | None = None,
         markup_colors: dict[str, str] | None = None,
+        underlay_dpi: float = 150.0,
     ) -> str: ...
     def render_pdf(
         self,
@@ -325,6 +326,7 @@ class Scene:
         sheet_frame: bool = True,
         markup: object | None = None,
         markup_colors: dict[str, str] | None = None,
+        underlay_dpi: float = 150.0,
     ) -> bytes: ...
     def render(
         self,

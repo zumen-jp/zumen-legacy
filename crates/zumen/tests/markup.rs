@@ -125,3 +125,38 @@ fn maps_views_and_refuses_markup_of_another_drawing() {
     let error = zumen::carry_markup(&document, &before.bytes, b"not a drawing", &CarryOptions::default()).unwrap_err();
     assert_eq!(error.code, "unreadable");
 }
+
+/// CAD and its plotted PDF share paper coordinates, while their view and entity ids differ (decision 0021).
+#[cfg(feature = "pdf")]
+#[test]
+fn carries_cad_entity_references_to_the_plotted_pdf_page() {
+    // One line keeps one painted path in the plotted PDF, so the entity pair is unambiguous.
+    let operations =
+        zumen::edit::parse_operations(r#"[{"op":"add","kind":"line","start":[0,0],"end":[200,100]}]"#).unwrap();
+    let before = zumen::create("dxf", "mm", &operations).unwrap();
+    let scene = zumen::read(&before.bytes, &ReadDrawingOptions::default()).unwrap();
+    let (pdf, _) = zumen_render::render_pdf(&scene, None, &zumen_render::RenderOptions::default()).unwrap();
+    let after = zumen::read(&pdf, &ReadDrawingOptions::default()).unwrap();
+    assert!(after.entities.iter().all(|entity| !entity.drawn));
+    let document = MarkupDocument::from_value(&json!({
+        "format": "zumen-markup", "version": 1,
+        "drawing": {"sha256": drawing_hash(&before.bytes), "format": "dxf"},
+        "items": [{"id":"review", "kind":"finding", "view":"Model", "position":[100,50],
+                   "status":"open", "entities":[before.created[0]]}]
+    }))
+    .unwrap();
+    let options = CarryOptions {
+        views: [("Model".to_string(), "1".to_string())].into_iter().collect(),
+        ..CarryOptions::default()
+    };
+    let carried = zumen::carry_markup(&document, &before.bytes, &pdf, &options).unwrap();
+    let item = &carried.document.items[0];
+    assert_eq!(item.view.as_deref(), Some("1"));
+    assert_ne!(item.carried.as_ref().unwrap().state, CarriedState::Removed);
+    let ids = item.entities.as_ref().unwrap();
+    assert_eq!(ids.len(), 1);
+    assert_ne!(ids[0], before.created[0]);
+    assert!(after.entities.iter().any(|entity| entity.id == ids[0]));
+    assert_eq!(carried.document.drawing.format, "pdf");
+    assert_eq!(carried.document.drawing.sha256, drawing_hash(&pdf));
+}

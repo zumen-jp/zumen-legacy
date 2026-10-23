@@ -410,6 +410,50 @@ impl Default for CarryOptions {
     }
 }
 
+/// 図面のファイルが中に持つファイル（画像の underlay の `file` と同じ名前）
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EmbeddedFile {
+    pub name: String,
+    pub data: Vec<u8>,
+}
+
+/// 図面のファイルが中に持つファイルと、取り出せなかったもの（notices）
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct EmbeddedFiles {
+    pub files: Vec<EmbeddedFile>,
+    pub notices: Vec<Notice>,
+}
+
+/// 図面のファイルが中に持つファイルを、画像の underlay の `file` が指す名前で返す（決定 0022 の、アプリケーションが
+/// 描き手に渡す中身）。JWW（版 700 以降）は同梱画像（`%temp%<名前>`、展開したもの）、圧縮した SXF（P2Z・SFZ）は
+/// 書庫の SXF でないファイル（書庫の中の名前）。ほかの形式は空。展開した大きさの合計も読み取りの上限
+/// （`options.limits` のバイト数）まで
+pub fn embedded_files(bytes: &[u8], options: &ReadDrawingOptions) -> Result<EmbeddedFiles, ReadError> {
+    let limits = &options.limits;
+    if limits.max_bytes.is_some_and(|max| bytes.len() as u64 > max) {
+        return Err(limit_error(Limit::Bytes, limits));
+    }
+    let format = match options.format.as_deref() {
+        Some(format) => format,
+        None => detect(bytes).ok_or_else(|| ReadError::new("図面の形式が分かりません"))?,
+    };
+    let mut notices = NoticeList::new();
+    let (result, exceeded) = zumen_core::limits::with_limits(limits, || match format {
+        "jww" => zumen_jww::embedded_images(bytes, &mut notices),
+        "sfz" | "p2z" => zumen_sxf::archive_files(bytes, &mut notices),
+        _ => Ok(Vec::new()),
+    });
+    let files = match (exceeded, result) {
+        (Some(_), Err(error)) if error.exceeded().is_some() => return Err(error),
+        (Some(limit), _) => return Err(limit_error(limit, limits)),
+        (None, result) => result?,
+    };
+    Ok(EmbeddedFiles {
+        files: files.into_iter().map(|(name, data)| EmbeddedFile { name, data }).collect(),
+        notices: notices.into_vec(),
+    })
+}
+
 /// 新しい版へ移したマークアップの文書と、印（carried.state）ごとの項目の数
 #[derive(Debug, Clone, PartialEq)]
 pub struct CarriedMarkup {
