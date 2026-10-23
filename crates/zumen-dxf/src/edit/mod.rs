@@ -15,7 +15,7 @@ mod raw;
 
 use crate::colors::ACI;
 use crate::write::real;
-use dimension::{DimStyleValues, DimensionKind, Part, Role};
+use dimension::{DimStyleValues, DimensionInput, DimensionKind, Part, Role};
 use raw::{RawDxf, Tag};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use zumen_core::edit::{
@@ -1274,10 +1274,7 @@ impl<'a> Editor<'a> {
                 }
             }
             "dimension" => {
-                reader.allow(
-                    &keys(&["dimensionType", "start", "end", "position", "rotation", "dimensionStyle", "text"]),
-                    "寸法",
-                )?;
+                reader.allow(&keys(&dimension::KEYS), "寸法")?;
                 let common = self.common(index, &reader, true)?;
                 vec![self.dimension_record(index, &reader, &place, &common)?]
             }
@@ -1556,8 +1553,8 @@ impl<'a> Editor<'a> {
         Ok((name, values, style))
     }
 
-    /// 寸法（DXF Reference「DIMENSION」の Common Dimension Group Codes と Aligned・Linear Dimension Group Codes）
-    /// と、その表示の名前のないブロック（*D…）
+    /// 寸法（DXF Reference「DIMENSION」の Common Dimension Group Codes と、Aligned・Linear、Radial、Diametric、
+    /// Angular Dimension Group Codes）と、その表示の名前のないブロック（*D…）
     fn dimension_record(
         &mut self,
         index: usize,
@@ -1565,23 +1562,7 @@ impl<'a> Editor<'a> {
         place: &Place,
         common: &Common,
     ) -> Result<Vec<Tag>, EditError> {
-        let kind = match reader.text("dimensionType")?.unwrap_or("linear") {
-            "linear" => DimensionKind::Linear(reader.number("rotation")?.unwrap_or(0.0)),
-            "aligned" if reader.has("rotation") => {
-                return Err(EditError::at(index, "invalid-value", "平行寸法（aligned）に rotation は指定できません"));
-            }
-            "aligned" => DimensionKind::Aligned,
-            other => {
-                return Err(EditError::at(
-                    index,
-                    "unsupported-kind",
-                    format!("寸法の種類 {other} はまだ足せません（足せるのは linear、aligned）"),
-                ));
-            }
-        };
-        let start = reader.required("start", reader.point("start")?)?;
-        let end = reader.required("end", reader.point("end")?)?;
-        let position = reader.required("position", reader.point("position")?)?;
+        let input = DimensionInput::read(reader, index)?;
         let text = reader.text("text")?.unwrap_or("<>");
         let (style_name, style, text_style) = self.dimension_style(index, reader.name("dimensionStyle")?)?;
         if style.text_above == 3 {
@@ -1591,9 +1572,14 @@ impl<'a> Editor<'a> {
                 "寸法文字の JIS 配置（DIMTAD=3）は寸法線の上に置いて近似しました",
             );
         }
-        let layout = dimension::layout(kind, start, end, position, text, &style).ok_or_else(|| {
-            EditError::at(index, "invalid-value", "start と end は寸法の向きで離れた点にしてください")
-        })?;
+        if matches!(input, DimensionInput::Angular { .. }) && style.angle_unit != 0 {
+            self.notices.add(
+                NoticeLevel::Info,
+                "edit-dimension-angle-unit",
+                "角度寸法の単位（DIMAUNIT）が 10 進の度でないため、10 進の度で描きました",
+            );
+        }
+        let layout = input.layout(text, &style).map_err(|message| EditError::at(index, "invalid-value", message))?;
         // 表示のブロック: 名前のない *D の次の番号
         let next = self
             .blocks
@@ -1628,6 +1614,14 @@ impl<'a> Editor<'a> {
                     record.point(10, *from, true).point(11, *to, true);
                     record.tags
                 }
+                Part::Arc { center, radius, angle } => {
+                    let (mut record, _) = self.entity_record(index, "ARC", &inside, &part_common)?;
+                    self.subclass(&mut record, "AcDbCircle");
+                    record.point(10, *center, true).real(40, *radius);
+                    self.subclass(&mut record, "AcDbArc");
+                    record.real(50, angle[0]).real(51, angle[1]);
+                    record.tags
+                }
                 Part::Solid(points) => {
                     let (mut record, _) = self.entity_record(index, "SOLID", &inside, &part_common)?;
                     self.subclass(&mut record, "AcDbTrace");
@@ -1660,12 +1654,8 @@ impl<'a> Editor<'a> {
         }
         let (mut record, _) = self.entity_record(index, "DIMENSION", place, common)?;
         self.subclass(&mut record, "AcDbDimension");
-        let flags = match kind {
-            DimensionKind::Linear(_) => 32,
-            DimensionKind::Aligned => 33,
-        };
         record.tag(2, block_name).point(10, layout.definition, true).point(11, layout.text_midpoint, true);
-        record.int(70, flags);
+        record.int(70, input.flags());
         if self.r13 {
             record.int(71, 5).int(72, 1).real(41, 1.0).real(42, layout.measurement);
         }
@@ -1673,11 +1663,27 @@ impl<'a> Editor<'a> {
             record.tag(1, text.to_string());
         }
         record.tag(3, style_name);
-        self.subclass(&mut record, "AcDbAlignedDimension");
-        record.point(13, start, true).point(14, end, true);
-        if let DimensionKind::Linear(angle) = kind {
-            record.real(50, angle);
-            self.subclass(&mut record, "AcDbRotatedDimension");
+        match input {
+            DimensionInput::Linear { kind, start, end, .. } => {
+                self.subclass(&mut record, "AcDbAlignedDimension");
+                record.point(13, start, true).point(14, end, true);
+                if let DimensionKind::Linear(angle) = kind {
+                    record.real(50, angle);
+                    self.subclass(&mut record, "AcDbRotatedDimension");
+                }
+            }
+            DimensionInput::Angular { center, start, end, .. } => {
+                self.subclass(&mut record, "AcDb3PointAngularDimension");
+                record.point(13, start, true).point(14, end, true).point(15, center, true);
+            }
+            DimensionInput::Radius { point, .. } => {
+                self.subclass(&mut record, "AcDbRadialDimension");
+                record.point(15, point, true).real(40, 0.0);
+            }
+            DimensionInput::Diameter { point, .. } => {
+                self.subclass(&mut record, "AcDbDiametricDimension");
+                record.point(15, point, true).real(40, 0.0);
+            }
         }
         Ok(record.tags)
     }

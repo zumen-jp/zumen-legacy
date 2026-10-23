@@ -149,7 +149,9 @@ def edit(
     ...}``, ``{"op": "update-layer", "name": ..., "set": {...}}`` and ``{"op": "add-block", "name": ...,
     "basePoint": [x, y]}`` (an empty block definition that later operations fill with ``"container":
     "block:<name>"``; DXF and DWG only). DXF and DWG also take ``"kind": "dimension"`` (``dimensionType``
-    ``"linear"`` or ``"aligned"``, ``start``, ``end``, ``position``, ``rotation``, ``text``, ``dimensionStyle``) and the ops ``add-text-style``,
+    ``"linear"`` or ``"aligned"`` with ``start``, ``end``, ``position`` and ``rotation``, ``"angular-3-point"`` with
+    ``center``, ``start``, ``end`` and ``position``, ``"radius"`` or ``"diameter"`` with ``center`` and ``point``;
+    ``text``, ``dimensionStyle``) and the ops ``add-text-style``,
     ``add-line-type`` and ``add-dimension-style``, and ``"kind": "hatch"`` (``boundaries``, ``pattern``,
     ``patternScale``, ``patternAngle``, ``patternLines``); ``text`` takes ``justification``, ``lineSpacing``,
     ``multiline`` and ``widthFactor``; ``"kind": "attribute-definition"`` goes in a block and ``block-reference`` takes ``attributes``

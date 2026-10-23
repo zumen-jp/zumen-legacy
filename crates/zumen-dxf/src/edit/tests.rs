@@ -562,7 +562,7 @@ fn adds_linear_and_aligned_dimensions_with_their_blocks() {
             "invalid-value",
         ),
         (
-            r#"[{"op": "add", "kind": "dimension", "dimensionType": "radius", "start": [0, 0], "end": [1, 0], "position": [0, 1]}]"#,
+            r#"[{"op": "add", "kind": "dimension", "dimensionType": "ordinate", "start": [0, 0], "end": [1, 0], "position": [0, 1]}]"#,
             "unsupported-kind",
         ),
         (
@@ -573,6 +573,87 @@ fn adds_linear_and_aligned_dimensions_with_their_blocks() {
     for (operations, code) in errors {
         assert_eq!(edit(&bytes, operations).unwrap_err().code, code, "{operations}");
     }
+}
+
+/// 3 点角度寸法・半径寸法・直径寸法（DXF Reference「DIMENSION」の 70 の 5・4・3 と、Angular・Radial・Diametric
+/// Dimension Group Codes）。表示のブロックを読み直して描ける
+#[test]
+fn adds_angular_radius_and_diameter_dimensions() {
+    let bytes = drawing("");
+    let edited = edit(
+        &bytes,
+        r#"[
+            {"op": "add", "kind": "dimension", "dimensionType": "angular-3-point", "center": [0, 0], "start": [1000, 0], "end": [0, 1000], "position": [700, 700]},
+            {"op": "add", "kind": "dimension", "dimensionType": "radius", "center": [0, 0], "point": [600, 800]},
+            {"op": "add", "kind": "dimension", "dimensionType": "diameter", "center": [0, 0], "point": [1000, 0], "text": "<> 穴"}
+        ]"#,
+    )
+    .unwrap();
+    let doc = parse_dxf(&edited.bytes);
+    let scene = crate::dxf_to_scene(&doc, None);
+    for id in &edited.created {
+        let entity = scene.entities.iter().find(|entity| &entity.id == id).unwrap_or_else(|| panic!("{id}"));
+        assert_eq!(entity.kind.name(), "dimension");
+        assert!(!entity.primitives.is_empty(), "{id} draws nothing");
+    }
+    let dimensions: Vec<_> = doc
+        .entities
+        .iter()
+        .filter_map(|entity| match &entity.data {
+            DxfEntityData::Dimension(dimension) if entity.base.block.is_none() => Some(dimension),
+            _ => None,
+        })
+        .collect();
+    let types: Vec<f64> = dimensions.iter().map(|dimension| dimension.dimtype).collect();
+    assert_eq!(types, [37.0, 36.0, 35.0]);
+    let angular = dimensions[0];
+    assert_eq!(angular.defpoint, [700.0, 700.0, 0.0]);
+    assert_eq!(
+        (angular.defpoint2, angular.defpoint3, angular.defpoint4),
+        (Some([1000.0, 0.0, 0.0]), Some([0.0, 1000.0, 0.0]), Some([0.0; 3]))
+    );
+    // 角度寸法の計測値（42）はラジアン
+    assert!((angular.actual_measurement.unwrap() - std::f64::consts::FRAC_PI_2).abs() < 1e-9);
+    assert_eq!((dimensions[1].defpoint, dimensions[1].defpoint4), ([0.0; 3], Some([600.0, 800.0, 0.0])));
+    assert_eq!((dimensions[2].defpoint, dimensions[2].defpoint4), ([-1000.0, 0.0, 0.0], Some([1000.0, 0.0, 0.0])));
+    assert_eq!(dimensions[2].actual_measurement, Some(2000.0));
+    let labels: Vec<String> = doc
+        .entities
+        .iter()
+        .filter_map(|entity| match &entity.data {
+            DxfEntityData::MText(text) if entity.base.block.as_deref().is_some_and(|block| block.starts_with("*D")) => {
+                Some(text.raw_text.clone())
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(labels, ["90%%d", "R1000.0000", "%%c2000.0000 穴"]);
+    // Standard は DIMTAD が 0 なので、弧は文字のところで 2 つに切れる
+    let arcs =
+        doc.entities.iter().filter(|entity| entity.base.block.as_deref() == Some("*D1") && entity.base.kind == "ARC");
+    assert_eq!(arcs.count(), 2);
+    let errors = [
+        r#"[{"op": "add", "kind": "dimension", "dimensionType": "radius", "center": [0, 0], "point": [1, 0], "rotation": 0}]"#,
+        r#"[{"op": "add", "kind": "dimension", "dimensionType": "angular-3-point", "center": [0, 0], "start": [1, 0], "end": [2, 0], "position": [0, 1]}]"#,
+        r#"[{"op": "add", "kind": "dimension", "dimensionType": "diameter", "center": [0, 0], "point": [0, 0]}]"#,
+        r#"[{"op": "add", "kind": "dimension", "start": [0, 0], "end": [1, 0], "position": [0, 1], "center": [0, 0]}]"#,
+    ];
+    for operations in errors {
+        assert_eq!(edit(&bytes, operations).unwrap_err().code, "invalid-value", "{operations}");
+    }
+    // R12 にも書ける（サブクラスの印と計測値のない寸法）
+    let r12 = "0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n";
+    let operations = r#"[
+        {"op": "add", "kind": "dimension", "dimensionType": "angular-3-point", "center": [0, 0], "start": [10, 0], "end": [0, 10], "position": [7, 7]},
+        {"op": "add", "kind": "dimension", "dimensionType": "radius", "center": [0, 0], "point": [6, 8]}
+    ]"#;
+    let edited = edit(r12.as_bytes(), operations).unwrap();
+    let scene = crate::dxf_to_scene(&parse_dxf(&edited.bytes), None);
+    assert_eq!(scene.entities.len(), 2);
+    assert!(scene.entities.iter().all(|entity| entity.kind.name() == "dimension" && !entity.primitives.is_empty()));
+    let error = edit(&bytes, r#"[{"op": "add", "kind": "dimension", "dimensionType": "radius", "center": [0, 0]}]"#)
+        .unwrap_err();
+    assert_eq!(error.code, "invalid-value");
 }
 
 #[test]

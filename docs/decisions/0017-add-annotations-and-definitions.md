@@ -87,7 +87,21 @@ conformance test (`crates/zumen/tests/edit.rs`): the edited drawing is read agai
    editor writes the DIMENSION and an anonymous block `*D<n>` with the dimension line, the extension lines, closed
    filled arrowheads and the text, sized from the style's DIMSCALE, DIMTXT, DIMASZ, DIMEXO, DIMEXE, DIMGAP, DIMTAD,
    DIMDEC and DIMZIN; other variables (other arrowheads, tolerances, alternate units) are not drawn and are reported
-   as a notice. Angular, radial and diameter dimensions follow in the same way.
+   as a notice. Angular, radial and diameter dimensions follow in the same way, with the scene's keys for their
+   types and the points that define them:
+
+   ```json
+   [{"op": "add", "kind": "dimension", "dimensionType": "angular-3-point", "center": [0, 0], "start": [5000, 0],
+     "end": [0, 3000], "position": [1500, 1500]},
+    {"op": "add", "kind": "dimension", "dimensionType": "radius", "center": [0, 0], "point": [600, 800]},
+    {"op": "add", "kind": "dimension", "dimensionType": "diameter", "center": [0, 0], "point": [1000, 0]}]
+   ```
+
+   An angular dimension measures, at the vertex `center` (15), the angle between the rays through `start` and `end`
+   (13 and 14) that holds `position`, the point on the dimension arc (10); its text is in degrees (DIMADEC, DIMAZIN).
+   A radius dimension goes from `center` (10) to `point` on the circle (15), and a diameter dimension from the point
+   opposite `point` (10) to `point` (15); their texts carry `R` and `%%c` before the measured value. The two-line
+   angular dimension, which needs two lines, is not added: three points describe every angle it measures.
 3. **Styles**, as ops, because a dimension on a new drawing needs a style sized for its units and scale:
 
    ```json

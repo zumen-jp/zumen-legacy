@@ -692,8 +692,9 @@ drawing with `write_dwg` (`$INSUNITS` and `$MEASUREMENT` from the units), which 
   entities (R13 to R2000), and its BLOCK and ENDBLK entities on layer `0`, and adds it to BLOCK_CONTROL. Later
   operations add entities to it with `"container": "block:<name>"` and place it with `block-reference`, as for the
   blocks the drawing has. Existing names are `already-exists`, names starting with `*` `invalid-value`.
-- **Dimensions**: `kind: "dimension"` takes the keys of the DXF editor and writes DIMENSION_LINEAR (21) or
-  DIMENSION_ALIGNED (22) with the anonymous block `*D<n>` (BLOCK_HEADER named `*D`, anonymous), drawn with the same
+- **Dimensions**: `kind: "dimension"` takes the keys of the DXF editor and writes DIMENSION_LINEAR (21),
+  DIMENSION_ALIGNED (22), DIMENSION_ANG3PT (23), DIMENSION_RADIUS (25) or DIMENSION_DIAMETER (26) with the anonymous
+  block `*D<n>` (BLOCK_HEADER named `*D`, anonymous), drawn with the same
   code as DXF (`zumen_dxf::dimension`) from the values of the DIMSTYLE object; text is MTEXT with attachment 5. The
   style is `dimensionStyle`, else `$DIMSTYLE`, else `Standard` (`missing-definition` if the drawing has none). R13 and
   R14 hold no measurement value.
