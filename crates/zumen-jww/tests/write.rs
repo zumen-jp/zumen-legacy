@@ -117,6 +117,7 @@ fn drawing(version: u32) -> JwwDocument {
                 line(base(0, 1, 2, 1), 0.0, -1.0, 0.0, -12.0),
                 line(base(0, 1, 2, 1), 100.0, -1.0, 100.0, -12.0),
             ],
+            sxf_mode: 1,
             points: dimension_points,
         }),
         // 1/1 のグループの図枠
@@ -197,6 +198,7 @@ fn writes_what_older_versions_hold() {
         if version < 420 {
             for entity in &mut doc.entities {
                 if let JwwEntity::Dimension(dimension) = entity {
+                    dimension.sxf_mode = 0;
                     dimension.lines.clear();
                     dimension.points.clear();
                 }

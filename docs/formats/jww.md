@@ -132,8 +132,8 @@ kept bytes and from the typed values alone.
   follow the notes alone.
 - **Records** (`JwwRecord`, `JwwBlockRecord`): each entity keeps its values (`JwwEntity`, the same as `read_jww`) and the
   bytes of its body. A record whose entity has not changed is written from its bytes; a changed or added one is written
-  from its values, in the order of the class's `Serialize` in jwdatafmt.txt. A changed dimension keeps its SXF mode
-  from the original bytes. A block definition keeps its attributes, number, "referenced" flag, creation time (`CTime`,
+  from its values, in the order of the class's `Serialize` in jwdatafmt.txt. The SXF mode of a dimension (version 4.20
+  and later) is one of its values (`JwwDimension::sxf_mode`). A block definition keeps its attributes, number, "referenced" flag, creation time (`CTime`,
   4 bytes) and name; block references point to definitions by that number, not by position.
 - **Class tags** are numbered again on every write, as MFC's `CArchive::WriteObject` does: classes and objects share
   one counter from 1 across the entity list and the block definitions; the first object of a class registers it
@@ -228,7 +228,8 @@ all layer groups 1/1, lengths in millimeters).
   degrees, `parameter` radians.
 - **Where `add` puts an entity**: at the end of the entity list, on `layer`, or else on the write layer of the write
   layer group (Jw_cad's current layer). `container` `group:<number or name>` (0–F, or the name of the group) chooses the
-  layer group; `model` is the same as none.
+  layer group; `model` is the same as none. `block:<name>` adds the entity at the end of that block definition (see
+  Block definitions below).
 - **What `add` writes**:
 
   | `kind` | Record | Keys |
@@ -239,12 +240,69 @@ all layer groups 1/1, lengths in millimeters).
   | `point` | CDataTen | `position` |
   | `text` | CDataMoji | `position` (the start of the baseline), `text` (one line), `height`, `width` (the height if left out), `spacing`, `rotation`, `font` (ＭＳ ゴシック if left out) |
   | `block-reference` | CDataBlock | `block` (the name of a definition, with or without `@@SfigorgFlag@@n`), `position`, `scale` (a number or `[x, y]`), `rotation` |
+  | `dimension` | CDataSunpou | `dimensionType` (`linear`, `aligned`, `radius`, `diameter`), `start`, `end`, `position`, `rotation`, `center`, `point`, `text` (`<>` is the value), `dimensionStyle` (reported, not used) |
+  | `hatch` | CDataSolid, or CDataSen and CDataTen | `boundaries`, `pattern`, `patternScale`, `patternAngle`, `patternLines` |
 
-  Every kind takes `layer`. Lines, circles, arcs and ellipses also take `color`, `lineType` and `lineWidth`, points
-  `color` and `lineWidth`, and text `color`: in JWW the line type of a text is its anchor and its line width holds the
-  flags of dimension values, and the attributes of a block placement are not used. The end point of a new text is its
-  start plus the width of its characters (a full-width character is `width` wide, a half-width one half of it, with
-  `spacing` between them), as Jw_cad computes it. JWW has no polylines (`unsupported-kind`; add lines instead).
+  Every kind takes `layer`. Lines, circles, arcs, ellipses, dimensions and hatches also take `color`, `lineType` and
+  `lineWidth`, points `color` and `lineWidth`, and text `color`: in JWW the line type of a text is its anchor and its
+  line width holds the flags of dimension values, and the attributes of a block placement are not used. The end point
+  of a new text is its start plus the width of its characters (a full-width character is `width` wide, a half-width
+  one half of it, with `spacing` between them), as Jw_cad computes it. JWW has no polylines (`unsupported-kind`; add
+  lines instead).
+- **Block definitions** ([decision 0025](../decisions/0025-annotations-in-jww-and-sxf-edits.md)): `add-block` takes
+  `name` and `basePoint` and adds an empty definition (CDataList) numbered one above the largest number (0 in a drawing
+  without blocks, as Jw_cad numbers them), with the attributes Jw_cad writes and the time 0. From version 4.10 the name
+  is written with `@@SfigorgFlag@@4` (a drawing part), as Jw_cad saves the blocks it makes; names with
+  `@@SfigorgFlag@@`, control characters or nothing are `invalid-value`, and a name the drawing has (with or without the
+  suffix) is `already-exists`. JWW definitions have no base point (the origin of their coordinates is placed at the
+  block reference), so `basePoint` is subtracted from the coordinates of the entities added with
+  `"container": "block:<name>"` in the same edit; their coordinates are otherwise real millimeters of their layer
+  group, as at the top level, and `block-reference` places the block with its base point at `position`. `block:<name>`
+  takes any definition of the drawing (entities added to an existing definition change all its placements). A block
+  reference that would place a block inside itself, directly or through other blocks, is `invalid-value`. `created`
+  gives the name of a new block, and `block:<name>>#<n>` for an entity added into a block (`#<n>`, its place in the
+  definition, is the part after `>` in the ids of the scene, `#<reference>>#<n>`); the definition becomes referenced
+  when a block reference uses it.
+- **Dimensions** are one dimension figure (CDataSunpou) in SXF mode (1): the dimension line, the value text, the two
+  extension lines, the points at the ends of the dimension line and the two reference points. Its look follows the
+  drawing's dimension settings (`m_lnSunpou1`–`5` of the header, jwdatafmt.txt 寸法関係の設定), or Jw_cad's defaults
+  (`2002111, 5, 50150030, 11000000, 4100`) when the header stores none (all 0):
+  - colors: the dimension line color, the extension line (引出線) color and the point color; the value has the color of
+    its text style. `color` given in the operation applies to every part, `lineType` and `lineWidth` to the dimension
+    line and the extension lines (the line type of the value is its base point position and its line width its flags).
+  - the value: the text style (文字種) of the settings, with its width, height and spacing from the header's text
+    styles, in ＭＳ ゴシック, centered on the dimension line the settings' gap above it (the lower left of the text box
+    is the middle less half its width), turned to read from the left or from below unless the settings turn that off.
+    Its attribute flag is 0x4010 (0x4110 for radius values, 0x4210 for diameter values), its base point position (the
+    line type of a text) 2 (bottom center) and its line width the dimension value flags: 0x0002, the decimals × 0x1000,
+    0x0008 full-width, 0x0010 m, 0x0020 unit shown, 0x0040 commas, 0x0080 zeros of radius values, 0x0100 or 0x0200
+    rounding down or up, 0x0400 or 0x0800 `R` and `φ` before or after (the meaning of 0x0010 and 0x0020 is inferred
+    from their names in jwdatafmt.txt).
+  - the text of the value: `<>` in `text` (the default) is the measured length in millimeters, or meters when the
+    settings say so, rounded to the settings' decimals (0–3) as the settings say (round, down or up), without trailing
+    zeros, with a comma every three digits (a space or a full-width comma when the settings say so; radius values only
+    when the settings ask), with full-width digits, a full-width point and the unit (`ｍｍ`, `ｍ`, inferred from a sample's
+    `7.00ｍ`) when the settings ask, and `R` or `φ` before or after radius and diameter values, or none.
+  - the extension lines run from `start` and `end` to the dimension line and pass it by the settings' length (0 by
+    Jw_cad's defaults); an origin on the dimension line gives a line of length 0, which is not drawn. The points at the
+    ends of the dimension line are real points (attribute flag 0x0040); the center end of a radius dimension is a
+    temporary point. The reference points are temporary points at `start` and `end` (the line's ends for radius and
+    diameter dimensions).
+  - The dimension line and the extension lines have the attribute flag 0x2000, as Jw_cad's dimension lines. Settings
+    that ask for arrows or reverse arrows at the ends are written as points (a dimension figure holds points, and the
+    point codes of arrows are not described), and reported (`edit-dimension-end`). JWW has no named dimension styles:
+    `dimensionStyle` is reported (`edit-dimension-style`). Before version 4.20 a dimension figure holds only the line
+    and the value (`edit-dimension-parts`). Angular dimensions cannot be a dimension figure, which has no arc
+    (`unsupported-kind`).
+- **Hatches**: JWW has no hatch entity, so a hatch is written as Jw_cad writes fills and hatching. `SOLID` becomes
+  solids: the boundaries (the first the outside, the others holes) are split by the even-odd rule into horizontal
+  trapezoids (one solid for a convex quadrilateral), in the operation's color (`#rrggbb` is the solid's own color,
+  pen color 10). A pattern becomes hatch lines (CDataSen with the attribute flag 0x0020) cut to the boundaries, with
+  the pattern's dashes applied from its base point (a dash of length 0 is a point, CDataTen with the same flag), in the
+  operation's color, line type and line width. Pattern lengths are scaled by `patternScale` in real millimeters of the
+  layer group, as in DXF. `created` gives the first solid or line; the others follow it in the entity list
+  (`edit-fill-solids`, `edit-hatch-lines`). More than 20,000 pieces, a pattern line without spacing, a boundary without
+  area or a pattern with no line inside the boundary is `invalid-value`.
 - **Values**:
   - `layer`: a layer number `0-A` (the group and the layer in hexadecimal, as the scene names layers, followed by
     anything), the name of one layer, or the scene's raw layer number (group × 16 + layer + 1). A name the drawing lacks
@@ -272,13 +330,20 @@ all layer groups 1/1, lengths in millimeters).
   takes the same values and `name`, which renames the layer. JWW layers have no color, line type, line width, frozen or
   plot setting (`edit-layer-attributes`).
 - **Notices of the writer** come with the prefix `edit-`: `edit-text-encoding` for characters that Shift_JIS cannot
-  hold, in a file that writes Shift_JIS (versions before 7.00, and version 700 from Jw_cad before 10.01).
+  hold, in a file that writes Shift_JIS (versions before 7.00, and version 700 from Jw_cad before 10.01), and
+  `edit-dimension-parts` for the extension lines and points of dimensions before version 4.20.
+- **Notices of the editor**: `edit-dimension-style`, `edit-dimension-end`, `edit-fill-solids`, `edit-hatch-lines`,
+  `edit-unused-attributes` (the line type and width of a solid fill), besides those of the values above.
 - **Errors**: `unreadable` (not JWW, or a file that `JwwFile` cannot read to its end), `unsupported-kind`,
-  `unknown-key`, `invalid-value`, `not-found`, `inside-block`, `missing-definition`, `already-exists`.
+  `unknown-key`, `invalid-value`, `not-found`, `inside-block`, `missing-definition`, `already-exists`,
+  `name-exhausted` (no block number left).
 
 The shared conformance test (`crates/zumen/tests/edit.rs`) passes for the fixtures and the 9 local sample drawings
 when JWW is added to it, with the updated entity's layer compared by the end of the scene's layer value (`グループ 0 /
-0-3 ZUMEN-EDIT-CHECK`). Written and edited drawings have not yet been opened in Jw_cad; that check is pending.
+0-3 ZUMEN-EDIT-CHECK`). It also adds a block, its entities, a reference and a dimension, and hatches, to every
+fixture, and reads them back drawn. In `Ａマンション平面例.jww` a linear dimension added under one of Jw_cad's puts its
+value at the same place as Jw_cad's. Written and edited drawings have not yet been opened in Jw_cad; that check is
+pending.
 
 The AutoCAD-to-JWW mapper reports each omitted invisible entity as `invisible`, each array reduced to its first
 placement at the 10,000-placement bound as `block-array`, and each nonrectangular viewport treated as its bounding

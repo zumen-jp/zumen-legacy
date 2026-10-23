@@ -39,7 +39,7 @@ use zumen_core::edit::{
 };
 use zumen_core::{NoticeLevel, NoticeList};
 use zumen_dxf::attributes::{self, Definition, Placed};
-use zumen_dxf::dimension::{self, DimStyleValues, DimensionInput, DimensionKind, Part, Role};
+use zumen_dxf::dimension::{self, DimStyleValues, DimensionInput, DimensionKind, DxfDimension, Part, Role};
 
 /// 足せる図形の種類（DXF の編集と同じ）
 const ADDABLE: [&str; 15] = [

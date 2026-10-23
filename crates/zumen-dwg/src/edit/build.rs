@@ -337,7 +337,7 @@ pub(super) fn hatch(input: &zumen_dxf::hatch::HatchInput, name: RawText) -> Body
         associative: false,
         paths,
         style: 0,
-        pattern_type: input.pattern_type as i16,
+        pattern_type: zumen_dxf::hatch::pattern_type(input) as i16,
         pattern,
         pixel_size: None,
         seeds: Vec::new(),

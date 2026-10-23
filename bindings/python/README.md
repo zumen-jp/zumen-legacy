@@ -128,11 +128,14 @@ edited.save("plan.dxf")
   Every id in one edit names an entity of the drawing as it was read. Ids that are places in the file (`#12`, in DXF
   without handles) change when an edit adds or removes records before them, so read the edited drawing again.
 - `add` takes `container`: `"model"` (the default), `"layout:<name>"` or `"block:<name>"` in DXF and DWG,
-  `"group:<0-F or name>"` (a layer group) in JWW, and `"sheet"` (the default) or `"figure:<name>"` in SXF.
-- Kinds that can be added: `line`, `polyline` (`vertices`, `bulges`, `closed`), `arc`, `circle`, `ellipse`,
-  `ellipse-arc`, `point`, `text` (MTEXT when it has line breaks) and `block-reference` (`block`, `position`, `scale`,
-  `rotation`). Every kind takes `layer`, `color` (a color number, `"#rrggbb"`, `"bylayer"` or `"byblock"`),
-  `lineType` and `lineWidth` (millimeters).
+  `"group:<0-F or name>"` (a layer group) or `"block:<name>"` in JWW, and `"sheet"` (the default), `"figure:<name>"`
+  or `"block:<name>"` in SXF. `{"op": "add-block", "name": ..., "basePoint": [x, y]}` adds an empty block definition
+  (a drawing part in SXF) to fill with `"container": "block:<name>"`.
+- Kinds that can be added: `line`, `polyline` (`vertices`, `bulges`, `closed`; not in JWW), `arc`, `circle`,
+  `ellipse`, `ellipse-arc`, `point`, `text` (MTEXT when it has line breaks), `block-reference` (`block`, `position`,
+  `scale`, `rotation`), `dimension` (`dimensionType`: `linear`, `aligned`, `angular-3-point` (not in JWW), `radius`,
+  `diameter`) and `hatch` (`boundaries`, `pattern`; JWW writes solids and hatch lines). Every kind takes `layer`,
+  `color` (a color number, `"#rrggbb"`, `"bylayer"` or `"byblock"`), `lineType` and `lineWidth` (millimeters).
 - If any operation cannot be applied, nothing is written and `zumen.EditError` is raised with `code` (such as
   `"not-found"`, `"unknown-key"` or `"inside-block"`) and `operation`, the number of the operation from 0.
 - Values that the format cannot hold exactly, such as a true color in an old DXF, are written as the nearest one and

@@ -148,12 +148,13 @@ def edit(
     ``{"op": "update", "id": ..., "set": {...}}``, ``{"op": "delete", "id": ...}``, ``{"op": "add-layer", "name":
     ...}``, ``{"op": "update-layer", "name": ..., "set": {...}}`` and ``{"op": "add-block", "name": ...,
     "basePoint": [x, y]}`` (an empty block definition that later operations fill with ``"container":
-    "block:<name>"``; DXF and DWG only). DXF and DWG also take ``"kind": "dimension"`` (``dimensionType``
+    "block:<name>"``; a drawing part in SXF). Every format takes ``"kind": "dimension"`` (``dimensionType``
     ``"linear"`` or ``"aligned"`` with ``start``, ``end``, ``position`` and ``rotation``, ``"angular-3-point"`` with
-    ``center``, ``start``, ``end`` and ``position``, ``"radius"`` or ``"diameter"`` with ``center`` and ``point``;
-    ``text``, ``dimensionStyle``) and the ops ``add-text-style``,
-    ``add-line-type`` and ``add-dimension-style``, and ``"kind": "hatch"`` (``boundaries``, ``pattern``,
-    ``patternScale``, ``patternAngle``, ``patternLines``); ``text`` takes ``justification``, ``lineSpacing``,
+    ``center``, ``start``, ``end`` and ``position`` (not in JWW), ``"radius"`` or ``"diameter"`` with ``center`` and
+    ``point``; ``text``, ``dimensionStyle``) and ``"kind": "hatch"`` (``boundaries``, ``pattern``, ``patternScale``,
+    ``patternAngle``, ``patternLines``; JWW writes solids and hatch lines, and ``created`` names the first). DXF and
+    DWG also take the ops ``add-text-style``, ``add-line-type`` and ``add-dimension-style``; ``text`` takes
+    ``justification``, ``lineSpacing``,
     ``multiline`` and ``widthFactor``; ``"kind": "attribute-definition"`` goes in a block and ``block-reference`` takes ``attributes``
     (``{"TAG": "value"}``); ``add-layout`` (``paperSize`` and ``margins`` in mm) and ``"kind": "viewport"`` in ``"container":
     "layout:<name>"`` (``center``, ``width``, ``height``, ``viewCenter``, ``scale``) make sheets;
@@ -165,8 +166,9 @@ def edit(
     paper millimeters. The format, its version, its text encoding and everything that no operation names stay as they
     were, including what zumen cannot read. DXF, DWG, JWW and SXF can be edited.
 
-    ``Edited.data`` holds the bytes, ``Edited.created`` the ids of the entities and the names of the layers added (in
-    the order of the operations), and ``Edited.notices`` what was written differently, such as a color that the format
+    ``Edited.data`` holds the bytes, ``Edited.created`` the ids of the entities and the names of the layers and blocks
+    added (in the order of the operations; an entity added into a JWW block is ``block:<name>>#<n>``, its place in the
+    block), and ``Edited.notices`` what was written differently, such as a color that the format
     cannot hold. If any operation cannot be applied, nothing is written and ``EditError`` is raised, with ``code``
     (``"not-found"``, ``"unknown-key"`` and so on) and ``operation``, the number of the operation (from 0).
     """

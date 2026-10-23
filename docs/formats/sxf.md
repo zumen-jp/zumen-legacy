@@ -215,7 +215,8 @@ writes an empty drawing (an A3 landscape sheet) for `create`.
   ([decision 0008](../decisions/0008-sheets-and-scales-in-the-autocad-model.md)), so an id through their placements
   names the element itself (a sub-figure placed twice shows the change twice). Elements of drawing parts and drawing
   groups are refused (`inside-block`): changing them changes the definition and every placement.
-- **Containers** for `add`: `sheet` (the default) and `figure:<name>` (any composite figure).
+- **Containers** for `add`: `sheet` (the default), and `figure:<name>` or `block:<name>` (any composite figure; `block:`
+  is the name of decision 0017, for the drawing parts that `add-block` adds).
 - **Values** are in the drawing's own coordinates (sheet millimeters for the sheet, the sub-figure's coordinates inside
   it), the numbers that the `raw` of the properties gives; angles are degrees.
 
@@ -229,6 +230,8 @@ writes an empty drawing (an A3 landscape sheet) for `create`.
 | `point` | `position` | point_marker_feature (dot) |
 | `text` | `position`, `text` (one line), `height`, `rotation`, `textStyle` (font name), `width` (of the text box) | text_string_feature, base point at the lower left; without `width`, full-width characters are as wide as the height and half-width ones half of it |
 | `block-reference` | `block` (composite figure), `position`, `rotation`, `scale` (a number or `[x, y]`) | sfig_locate_feature |
+| `dimension` | `dimensionType` (`linear`, `aligned`, `angular-3-point`, `radius`, `diameter`), `start`, `end`, `position`, `rotation`, `center`, `point`, `text` (`<>` is the value, one line), `dimensionStyle` (reported, not used) | linear_dim_feature, angular_dim_feature, radius_dim_feature, diameter_dim_feature |
+| `hatch` | `boundaries`, `pattern`, `patternScale`, `patternAngle`, `patternLines` | composite_curve_org_feature (one invisible composite curve per boundary) with fill_area_style_colour_feature or fill_area_style_hatching_feature |
 
 - Every kind takes `layer` (a name; a missing layer is added, `edit-added-layer`), `color` (an SXF color code, or `"#rrggbb"`:
   a predefined color when equal, else an existing or new user-defined color), `lineType` (a predefined SXF name such as
@@ -236,6 +239,39 @@ writes an empty drawing (an A3 landscape sheet) for `create`.
   a user-defined width). New elements are black, continuous and 0.25 mm. SXF has no BYLAYER or BYBLOCK, so `bylayer` and
   `byblock` become black and 0.25 mm (`edit-color-by-layer`, `edit-width-by-layer`). Other elements (dimensions, leaders,
   hatches, splines, clothoids, symbols) can change their layer and style, not their shape.
+- **Drawing parts** ([decision 0025](../decisions/0025-annotations-in-jww-and-sxf-edits.md)): `add-block` takes
+  `name` and `basePoint` and adds an empty composite figure definition of kind 4 (作図部品). A composite figure has no
+  base point (the origin of its coordinates is placed at `sfig_locate`), so `basePoint` is subtracted from the
+  coordinates of what is added with `"container": "block:<name>"` in the same edit, and `block-reference` places the
+  part with its base point at `position`. A name the drawing has is `already-exists`; empty names, control characters
+  and names starting with `$$` (the attribute mechanism and the P21 prefixes) are `invalid-value`. A placement that
+  would put a composite figure inside itself, directly or through others, is `invalid-value`. `created` gives the name.
+- **Dimensions** are the dimension features with the style of the operation (`layer`, `color`, `lineType`,
+  `lineWidth`). SXF has no dimension styles, so the sizes are those of AutoCAD's metric dimensions (ISO-25), in sheet
+  millimeters: extension lines start 0.625 beyond their origin and pass the dimension line by 1.25, the arrows are
+  filled arrows (code 6, outward) 2.5 long (scale 1/3), and the value is 2.5 high, anchored at its bottom center
+  (anchor 2) 0.625 above the middle of the dimension line or arc, turned to read from the left or from below, with the
+  box width of `text` (full-width characters as wide as the height). Inside a composite figure the lengths are divided
+  by the scale of its first placement found from the sheet (nested placements multiply; drawing groups and figures
+  without a placement count as 1), so that they have these sizes on the sheet; arrows keep their scale, since SXF
+  draws arrows at sheet size. Values are rounded to whole numbers, with `R` before radius values, `φ` before diameter
+  values and `°` after angles. A linear or aligned dimension writes the dimension line between the feet of its
+  extension lines, the extension lines (none for an origin on the dimension line) and an arrow at each end; an angular
+  dimension the arc from `angle0` to `angle1` counterclockwise, extension lines only from origins inside the arc, as
+  in DXF, and arrows at its ends; a radius dimension the line from the center to `point` with an arrow at `point`; a
+  diameter dimension the line across the circle with an arrow at each end. `dimensionStyle` is reported
+  (`edit-dimension-style`).
+- **Hatches**: each boundary becomes an invisible composite curve (a closed polyline; the first is the outline, the
+  others holes) added after the composite curves of the drawing. `SOLID` is fill_area_style_colour in the operation's
+  color (`lineType` and `lineWidth` are reported as unused, `edit-unused-attributes`). A pattern is
+  fill_area_style_hatching with one hatching line for each line of the pattern, in the operation's color, line type and
+  width: its base point moved along the normal by whole spacings (and along the line, by whole dash periods) to near
+  the first boundary point, its spacing (the part of the pattern offset across the lines) and its angle. Dashes become
+  a user-defined line type in sheet millimeters (lengths in the figure × the scale of its placement; dots as 0.25 mm
+  dashes, the gap after them shorter by as much, as zumen-convert writes them), named after the pattern, or the
+  predefined or user-defined line type with the same lengths; when the 16 user-defined line types are taken, the line
+  is solid (`edit-hatch-dashes`). The shift of the dashes from one line to the next (the offset along the lines) cannot
+  be written, and is reported when it is not a whole number of dash periods (`edit-hatch-shift`).
 - Layers take `visible`; SXF layers have no color, line type or width, so those values are checked and left unused
   (`edit-layer-attributes`). A layer without elements cannot be written to P21.
 - The ids of added elements are their written instance numbers (`#n`); the ids of added layers are their names.
@@ -402,6 +438,10 @@ Names outside ASCII are Shift_JIS, or UTF-8 with the UTF-8 flag when Shift_JIS l
 - The local samples (`ZUMEN_SAMPLES=… cargo test -p zumen-sxf --release -- --ignored`), a 1,201-entity drawing as SFC
   and as P21: written anew as P21 they read back the same; written unchanged they give the same bytes; moving a line,
   deleting a dimension and adding a line in place reads back as the edited drawing (35 ms for the 1.4 MB P21).
+- `crates/zumen-sxf/tests/edit_operations.rs` and `crates/zumen/tests/edit.rs`: a drawing part with its elements and a
+  placement, the five kinds of dimension, a fill and two hatchings added to every SFC, P21, SFZ and P2Z fixture read
+  back drawn, with the other elements unchanged; a dimension added in a 1/20 sub-figure has a 2.5 mm value on the
+  sheet. The same operations on the 1,201-entity sample draw the same in SFC and P21.
 - Checking the written files with the SXF browser's checking function (SXF確認機能) is to come on a Windows host.
 
 ## References

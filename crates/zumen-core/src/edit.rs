@@ -9,6 +9,12 @@
 //!
 //! 操作は JSON の配列で受け取る（`parse_operations`）。すべての操作を確かめてから書き、1 つでも通らなければ
 //! 何も書かない。エラーは操作の番号（0 から）と、変わらない英語の code を持つ。
+//!
+//! 寸法とハッチングの値の読み方（`dimension`・`hatch`。docs/decisions/0017）も形式によらず、どの形式の編集も同じ
+//! キーを同じ規則で受け付ける。
+
+pub mod dimension;
+pub mod hatch;
 
 use crate::types::{EntityKind, Notice};
 use serde_json::Value as Json;

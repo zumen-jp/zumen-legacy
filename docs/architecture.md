@@ -464,7 +464,8 @@ and every DXF and DWG fixture converted to SFC, draw the scene of the drawing th
 
 Editing does not go through the model, which would lose what it does not hold
 ([decision 0012](decisions/0012-edit-in-place-and-write-every-format.md)). `zumen_core::edit` has the operations, the
-same for every format (`parse_operations` reads them from JSON, `ValueReader` checks their keys and values), and each
+same for every format (`parse_operations` reads them from JSON, `ValueReader` checks their keys and values, and
+`dimension` and `hatch` read the values of dimensions and hatches, with the built-in hatch patterns), and each
 format edits its own file: `zumen_dxf::edit_dxf` keeps the tags of a DXF with their bytes and changes, adds and removes
 only what the operations name ([How DXF is handled: Editing](formats/dxf.md#editing-edit_dxf)), and `edit_dwg`,
 `edit_jww` and `edit_sxf` do the same for the objects of a DWG, the records of a JWW and the instances of an SXF.

@@ -53,3 +53,4 @@ Choices made before this folder existed are described in [the architecture notes
 - [0022: Draw raster underlays through a region renderer that the application passes in, and keep the entities they show undrawn](0022-underlays-drawn-by-a-region-renderer.md) (2026-10-23, Proposed)
 - [0023: Resize existing layouts through an edit operation](0023-resize-existing-layouts.md) (2026-10-23, Accepted)
 - [0024: Keep the declared text height with each text primitive](0024-declared-text-height.md) (2026-10-23, Accepted)
+- [0025: Add block definitions, dimensions and hatches to JWW and SXF edits as each format's own entities](0025-annotations-in-jww-and-sxf-edits.md) (2026-10-23, Proposed)

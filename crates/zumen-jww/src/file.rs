@@ -10,8 +10,7 @@
 use crate::archive::{ClassTag, ReadTable, Reader, Result, WriteTable, Writer, unicode};
 use crate::header::{JwwHeader, strings_unicode};
 use crate::reader::{
-    JwwBase, JwwEntity, JwwLine, JwwPoint, JwwText, find_entity_list, is_jww, read_base, read_entity_body, read_line,
-    read_text,
+    JwwBase, JwwEntity, JwwLine, JwwPoint, JwwText, find_entity_list, is_jww, read_base, read_entity_body,
 };
 use zumen_core::{Notice, NoticeLevel, NoticeList, ReadError};
 
@@ -329,12 +328,7 @@ impl Context<'_> {
                 return;
             }
         }
-        // 寸法の SXF のモードは図形の値にないので、元の本体から引き継ぐ
-        let mode = match (&record.entity, source) {
-            (JwwEntity::Dimension(_), Some(source)) => dimension_mode(&source.body, self.version).unwrap_or(0),
-            _ => 0,
-        };
-        self.entity(out, &record.entity, mode);
+        self.entity(out, &record.entity);
     }
 
     fn block(&mut self, out: &mut Writer, block: &JwwBlockRecord) {
@@ -368,7 +362,7 @@ impl Context<'_> {
     }
 
     /// 図形の本体（jwdatafmt.txt の各クラスの Serialize と同じ並び）
-    fn entity(&mut self, out: &mut Writer, entity: &JwwEntity, mode: u16) {
+    fn entity(&mut self, out: &mut Writer, entity: &JwwEntity) {
         let version = self.version;
         match entity {
             JwwEntity::Line(e) => write_line(out, e, version),
@@ -407,7 +401,7 @@ impl Context<'_> {
                 write_line(out, &e.line, version);
                 write_text(out, &e.text, version);
                 if version >= 420 {
-                    out.u16(mode);
+                    out.u16(e.sxf_mode);
                     // 補助線 1・2、矢印（点）1・2、基準点 1・2。足りなければ、表示しない長さ 0 の線と仮点で補う
                     for index in 0..2 {
                         match e.lines.get(index) {
@@ -499,18 +493,6 @@ fn write_text(out: &mut Writer, text: &JwwText, version: u32) {
     out.f64s(&[text.size_x, text.size_y, text.spacing, text.angle]);
     out.cstring(&text.font, out.unicode);
     out.cstring(&text.content, out.unicode);
-}
-
-/// 寸法の本体から SXF のモード（版 420 以降）を読む
-fn dimension_mode(body: &[u8], version: u32) -> Option<u16> {
-    if version < 420 {
-        return None;
-    }
-    let mut reader = Reader::new(body, 0);
-    read_base(&mut reader, version).ok()?;
-    read_line(&mut reader, version).ok()?;
-    read_text(&mut reader, version).ok()?;
-    reader.u16().ok()
 }
 
 #[cfg(test)]

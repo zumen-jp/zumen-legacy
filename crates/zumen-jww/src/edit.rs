@@ -7,13 +7,22 @@
 //! - 座標は実寸（用紙の mm × 図形のレイヤグループの縮尺、用紙の中心が原点）。表示用の図面の property の raw と同じ。
 //!   文字の大きさ・間隔は Jw_cad と同じく用紙の mm。
 //! - レイヤは 16 のレイヤグループの 16 のレイヤ（「0-A」の番号か名前）。レイヤを足すと、名前も図形もないレイヤに名前を付ける。
+//! - ブロック定義を足し（add-block）、container の block:<名前> で中に図形を足せる。寸法は寸法図形、ハッチングは
+//!   ソリッドとハッチの線にする（docs/decisions/0025）。
+
+mod dimension;
+mod hatch;
 
 use crate::create::write_jww;
-use crate::file::{JwwFile, JwwRecord};
+use crate::file::{JwwBlockRecord, JwwFile, JwwRecord};
 use crate::header::{JwwSettings, JwwSxfSettings};
-use crate::reader::{JwwArc, JwwBase, JwwBlock, JwwDocument, JwwEntity, JwwLine, JwwPoint, JwwText, colorref, is_jww};
-use std::collections::BTreeSet;
+use crate::reader::{
+    JwwArc, JwwBase, JwwBlock, JwwDocument, JwwEntity, JwwLine, JwwPoint, JwwSolid, JwwText, colorref, is_jww,
+};
+use std::collections::{BTreeSet, HashMap};
 use std::f64::consts::TAU;
+use zumen_core::edit::dimension::{DimensionGeometry, DimensionInput};
+use zumen_core::edit::hatch::PatternLine;
 use zumen_core::edit::{
     BLOCK_REFERENCE, EditColor, EditError, EditLineWidth, EditOperation, EditValue, EditValues, Edited, ValueReader,
 };
@@ -21,7 +30,17 @@ use zumen_core::text::is_half_width;
 use zumen_core::{NoticeLevel, NoticeList};
 
 /// 足せる図形の種類（JWW）
-const ADDABLE: [&str; 8] = ["line", "arc", "circle", "ellipse", "ellipse-arc", "point", "text", BLOCK_REFERENCE];
+const ADDABLE: [&str; 10] =
+    ["line", "arc", "circle", "ellipse", "ellipse-arc", "point", "text", "dimension", "hatch", BLOCK_REFERENCE];
+
+/// 版 4.10 以降のブロック名の後ろの、複合図形の種別の印（jwdatafmt.txt「ブロック定義データ」）
+const SFIGORG: &str = "@@SfigorgFlag@@";
+
+/// ハッチの線・点の属性フラグ（jwdatafmt.txt「属性フラグ」: 線・実点の 0x0020 はハッチ）
+const HATCH_FLAG: u16 = 0x0020;
+
+/// 入れ子のブロックを辿る深さの上限
+const MAX_BLOCK_DEPTH: usize = 32;
 
 /// レイヤの値のキー。color・lineType・lineWidth・frozen・plot は JWW のレイヤにないので、書かずに知らせる
 const LAYER_KEYS: [&str; 9] =
@@ -60,9 +79,7 @@ pub fn edit_jww(bytes: &[u8], operations: &[EditOperation]) -> Result<Edited, Ed
                 editor.created.push(Created::Layer(scene_layer_name(group, layer, name)));
             }
             EditOperation::UpdateLayer { name, set } => editor.update_layer(index, name, set)?,
-            EditOperation::AddBlock { .. } => {
-                return Err(EditError::at(index, "unsupported-kind", "JWW の編集ではブロックの定義をまだ足せません"));
-            }
+            EditOperation::AddBlock { name, values } => editor.add_block(index, name, values)?,
             EditOperation::AddLayout { .. } | EditOperation::UpdateLayout { .. } => {
                 return Err(EditError::at(index, "unsupported-kind", "JWW の編集ではレイアウトを扱えません"));
             }
@@ -89,6 +106,19 @@ struct Slot {
 enum Created {
     Layer(String),
     Entity(usize),
+    /// ブロック定義の名前
+    Block(String),
+    /// ブロック定義の中の図形（定義の名前と、定義の中の何番目か）
+    Member(String, usize),
+}
+
+/// 図形を足す先
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Target {
+    /// 図形の一覧（container の group: で選んだレイヤグループ）
+    List(Option<usize>),
+    /// ブロック定義（file.blocks の添字）
+    Block(usize),
 }
 
 struct Editor {
@@ -98,6 +128,8 @@ struct Editor {
     notices: NoticeList,
     /// この編集で使った SXF 対応色の番号（線色 100〜356）
     allocated: BTreeSet<u16>,
+    /// この編集で足したブロック定義の基点（定義の通し番号から、実寸の座標）
+    block_bases: HashMap<u32, [f64; 2]>,
 }
 
 /// 「0-A」のようなレイヤの番号（グループとレイヤの 16 進の 1 桁）と、その後ろ
@@ -267,6 +299,7 @@ fn text_end(text: &mut JwwText) {
 }
 
 /// 図形の共通の値の指定
+#[derive(Debug, Clone, Copy)]
 struct Common {
     layer: Option<(usize, usize)>,
     color: Option<EditColor>,
@@ -281,7 +314,14 @@ impl Editor {
             .enumerate()
             .map(|(index, record)| Slot { record, origin: Some(index + 1), deleted: false })
             .collect();
-        Self { file, slots, created: Vec::new(), notices: NoticeList::new(), allocated: BTreeSet::new() }
+        Self {
+            file,
+            slots,
+            created: Vec::new(),
+            notices: NoticeList::new(),
+            allocated: BTreeSet::new(),
+            block_bases: HashMap::new(),
+        }
     }
 
     /// 書く。足した図形の id は、書いた図面の中の位置
@@ -298,8 +338,9 @@ impl Editor {
             .created
             .iter()
             .map(|created| match created {
-                Created::Layer(name) => name.clone(),
+                Created::Layer(name) | Created::Block(name) => name.clone(),
                 Created::Entity(slot) => format!("#{}", positions[*slot]),
+                Created::Member(block, position) => format!("block:{block}>#{position}"),
             })
             .collect();
         self.file.entities = self.slots.into_iter().filter(|slot| !slot.deleted).map(|slot| slot.record).collect();
@@ -475,19 +516,29 @@ impl Editor {
         Ok(layer)
     }
 
-    /// 足す先。省略・model は書込みレイヤグループ、group:<番号か名前> はそのレイヤグループ
-    fn container(&self, index: usize, container: Option<&str>) -> Result<Option<usize>, EditError> {
+    /// 足す先。省略・model は書込みレイヤグループ、group:<番号か名前> はそのレイヤグループ、block:<名前> はその
+    /// ブロック定義
+    fn container(&self, index: usize, container: Option<&str>) -> Result<Target, EditError> {
         let container = container.map(str::trim).unwrap_or("");
         if container.is_empty() || container.eq_ignore_ascii_case("model") {
-            return Ok(None);
+            return Ok(Target::List(None));
         }
         if let Some(group) = container.strip_prefix("group:") {
-            return self.group(index, &EditValue::Text(group.to_string())).map(Some);
+            return self.group(index, &EditValue::Text(group.to_string())).map(|group| Target::List(Some(group)));
+        }
+        if let Some(name) = container.strip_prefix("block:") {
+            return match self.find_blocks(name)[..] {
+                [block] => Ok(Target::Block(block)),
+                [] => Err(EditError::at(index, "missing-definition", format!("ブロック {name} は図面にありません"))),
+                _ => Err(EditError::at(index, "invalid-value", format!("ブロック {name} が 2 つ以上あります"))),
+            };
         }
         Err(EditError::at(
             index,
             "invalid-value",
-            format!("container の {container} は使えません（JWW は group:<レイヤグループの番号か名前>）"),
+            format!(
+                "container の {container} は使えません（JWW は group:<レイヤグループの番号か名前> と block:<ブロックの名前>）"
+            ),
         ))
     }
 
@@ -721,6 +772,8 @@ impl Editor {
             "ellipse" | "ellipse-arc" => (&["center", "majorAxis", "ratio", "parameter"], true, true),
             "point" => (&["position"], false, true),
             "text" => (&["position", "text", "height", "width", "spacing", "rotation", "font"], false, false),
+            "dimension" => (&zumen_core::edit::dimension::KEYS, true, true),
+            "hatch" => (&zumen_core::edit::hatch::KEYS, true, true),
             _ => (&["block", "position", "rotation", "scale"], false, false),
         };
         let mut keys: Vec<&str> = vec!["layer"];
@@ -735,22 +788,45 @@ impl Editor {
         }
         keys.extend_from_slice(own);
         reader.allow(&keys, &format!("JWW の {kind}"))?;
-        let group = self.container(index, container)?;
+        let target = self.container(index, container)?;
+        let group = match target {
+            Target::List(group) => group,
+            Target::Block(_) => None,
+        };
         let mut common = self.common(index, &reader, group)?;
-        let target = group.unwrap_or_else(|| self.write_group());
-        let layer = *common.layer.get_or_insert_with(|| (target, self.write_layer(target)));
+        let default_group = group.unwrap_or_else(|| self.write_group());
+        let layer = *common.layer.get_or_insert_with(|| (default_group, self.write_layer(default_group)));
         if group.is_some_and(|group| group != layer.0) {
             return Err(EditError::at(
                 index,
                 "invalid-value",
-                format!("レイヤ {:X}-{:X} は container のレイヤグループ {:X} にありません", layer.0, layer.1, target),
+                format!(
+                    "レイヤ {:X}-{:X} は container のレイヤグループ {:X} にありません",
+                    layer.0, layer.1, default_group
+                ),
             ));
         }
+        // 用紙の座標: 実寸をレイヤグループの縮尺で割る。ブロック定義の中は、定義の基点を原点にする
         let factor = 1.0 / self.scale(layer.0);
+        let origin = match target {
+            Target::Block(block) => self.block_bases.get(&self.file.blocks[block].number).copied().unwrap_or([0.0; 2]),
+            Target::List(_) => [0.0; 2],
+        };
+        let paper = move |p: [f64; 2]| [(p[0] - origin[0]) * factor, (p[1] - origin[1]) * factor];
         let point = |key: &str| -> Result<(f64, f64), EditError> {
             let point = reader.required(key, reader.point(key)?)?;
-            Ok((point[0] * factor, point[1] * factor))
+            let [x, y] = paper([point[0], point[1]]);
+            Ok((x, y))
         };
+        if kind == "dimension" || kind == "hatch" {
+            let entities = if kind == "dimension" {
+                vec![self.dimension(index, &reader, &common, layer, &paper)?]
+            } else {
+                self.hatch(index, &reader, &common, layer, &paper, factor)?
+            };
+            self.push(target, entities);
+            return Ok(());
+        }
         let mut base = JwwBase { pen_style: 1, pen_color: DEFAULT_PEN_COLOR, ..JwwBase::default() };
         self.apply_common(index, &mut base, &common, style)?;
         let entity = match kind {
@@ -832,6 +908,17 @@ impl Editor {
             _ => {
                 let name = reader.required("block", reader.name("block")?)?;
                 let definition = self.block(index, name)?;
+                // ブロックの中に、そのブロックを含むブロックは置けない（配置が循環する）
+                if let Target::Block(block) = target {
+                    let container = self.file.blocks[block].number;
+                    if definition == container || self.contains_block(definition, container, 0) {
+                        return Err(EditError::at(
+                            index,
+                            "invalid-value",
+                            format!("ブロック {name} はこのブロックを含むため、この中に置けません"),
+                        ));
+                    }
+                }
                 let (x, y) = point("position")?;
                 let (scale_x, scale_y) = block_scale(index, &reader)?.unwrap_or((1.0, 1.0));
                 let rotation = reader.number("rotation")?.unwrap_or(0.0).to_radians();
@@ -839,31 +926,275 @@ impl Editor {
                 JwwEntity::Block(JwwBlock { base, x, y, scale_x, scale_y, rotation, definition })
             }
         };
-        self.slots.push(Slot { record: JwwRecord::new(entity), origin: None, deleted: false });
-        self.created.push(Created::Entity(self.slots.len() - 1));
+        self.push(target, vec![entity]);
         Ok(())
+    }
+
+    /// 足した図形を、足す先の最後に入れる。created は最初の図形の id
+    fn push(&mut self, target: Target, entities: Vec<JwwEntity>) {
+        match target {
+            Target::List(_) => {
+                let first = self.slots.len();
+                let records = entities.into_iter().map(|entity| Slot {
+                    record: JwwRecord::new(entity),
+                    origin: None,
+                    deleted: false,
+                });
+                self.slots.extend(records);
+                self.created.push(Created::Entity(first));
+            }
+            Target::Block(block) => {
+                let definition = &mut self.file.blocks[block];
+                let first = definition.entities.len() + 1;
+                definition.entities.extend(entities.into_iter().map(JwwRecord::new));
+                let name = plain_name(&definition.name).to_string();
+                self.created.push(Created::Member(name, first));
+            }
+        }
+    }
+
+    /// 寸法図形（CDataSunpou）。大きさ・色・寸法値の書き方は図面の寸法の設定（docs/decisions/0025）
+    fn dimension(
+        &mut self,
+        index: usize,
+        reader: &ValueReader<'_>,
+        common: &Common,
+        layer: (usize, usize),
+        paper: &dyn Fn([f64; 2]) -> [f64; 2],
+    ) -> Result<JwwEntity, EditError> {
+        let input = DimensionInput::read(reader, index)?;
+        if matches!(input, DimensionInput::Angular { .. }) {
+            return Err(EditError::at(
+                index,
+                "unsupported-kind",
+                "JWW の寸法図形は直線の寸法線だけを持つため、角度寸法（angular-3-point）は足せません",
+            ));
+        }
+        let text = reader.text("text")?.unwrap_or("<>");
+        if reader.name("dimensionStyle")?.is_some() {
+            self.notices.add(
+                NoticeLevel::Info,
+                "edit-dimension-style",
+                "JWW は名前の付いた寸法スタイルを持たないため、図面の寸法の設定で描きました",
+            );
+        }
+        let geometry = input.geometry().map_err(|message| EditError::at(index, "invalid-value", message))?;
+        let (measurement, geometry) = match geometry {
+            DimensionGeometry::Linear { origins, feet, direction, measurement } => (
+                measurement,
+                DimensionGeometry::Linear {
+                    origins: origins.map(paper),
+                    feet: feet.map(paper),
+                    direction,
+                    measurement,
+                },
+            ),
+            DimensionGeometry::Radial { center, from, to, measurement, diameter } => (
+                measurement,
+                DimensionGeometry::Radial {
+                    center: paper(center),
+                    from: paper(from),
+                    to: paper(to),
+                    measurement,
+                    diameter,
+                },
+            ),
+            DimensionGeometry::Angular { .. } => unreachable!("角度寸法は上で断った"),
+        };
+        let settings = dimension::Settings::read(self.settings());
+        if settings.end != 0 {
+            self.notices.add(
+                NoticeLevel::Info,
+                "edit-dimension-end",
+                "JWW の寸法図形は寸法線の端に点を持ち矢印を持たないため、寸法の設定の矢印・逆矢印は点にしました",
+            );
+        }
+        let color = match common.color {
+            Some(color) => Some(self.pen_color(index, color)?),
+            None => None,
+        };
+        let width = match common.line_width {
+            Some(width) => self.pen_width(index, width)?,
+            None => None,
+        };
+        let look =
+            dimension::Look { layer: (layer.0 as u16, layer.1 as u16), color, line_type: common.line_type, width };
+        let entity = dimension::dimension(&settings, &geometry, measurement, text, &look, text_end);
+        check_text(index, &entity.text.content)?;
+        Ok(JwwEntity::Dimension(entity))
+    }
+
+    /// ハッチング。JWW にハッチングの図形はないので、塗りは台形のソリッド、模様は領域で切ったハッチの線と点に
+    /// する（docs/decisions/0025）
+    fn hatch(
+        &mut self,
+        index: usize,
+        reader: &ValueReader<'_>,
+        common: &Common,
+        layer: (usize, usize),
+        paper: &dyn Fn([f64; 2]) -> [f64; 2],
+        factor: f64,
+    ) -> Result<Vec<JwwEntity>, EditError> {
+        let input = zumen_core::edit::hatch::read(reader, index)?;
+        let rings: Vec<Vec<f64>> = input
+            .boundaries
+            .iter()
+            .map(|ring| ring.iter().flat_map(|point| paper([point[0], point[1]])).collect())
+            .collect();
+        let base = JwwBase {
+            pen_style: 1,
+            pen_color: DEFAULT_PEN_COLOR,
+            layer: layer.1 as u16,
+            layer_group: layer.0 as u16,
+            ..JwwBase::default()
+        };
+        if input.solid {
+            let quads = hatch::trapezoids(&rings).ok_or_else(|| {
+                EditError::at(index, "invalid-value", "boundaries の辺が多すぎて、ソリッドに分けられません")
+            })?;
+            if quads.is_empty() {
+                return Err(EditError::at(index, "invalid-value", "boundaries の境界が囲む面積がありません"));
+            }
+            // ソリッドの #rrggbb は任意色（線色 10 と RGB）
+            let (pen_color, color) = match common.color {
+                Some(EditColor::Rgb(rgb)) => (10, Some(((rgb >> 16) & 0xff) | (rgb & 0xff00) | ((rgb & 0xff) << 16))),
+                Some(color) => (self.pen_color(index, color)?, None),
+                None => (DEFAULT_PEN_COLOR, None),
+            };
+            if common.line_type.is_some() || common.line_width.is_some() {
+                self.notices.add(
+                    NoticeLevel::Info,
+                    "edit-unused-attributes",
+                    "JWW のソリッドは線種・線幅を持たないため、塗りのハッチングの線種・線幅の指定を使っていません",
+                );
+            }
+            if quads.len() > 1 {
+                self.notices.add(
+                    NoticeLevel::Info,
+                    "edit-fill-solids",
+                    "JWW にはハッチングの図形がないため、塗りを横の帯ごとの台形のソリッドに分けて書きました（created は最初のソリッドで、残りはその後に続きます）",
+                );
+            }
+            let base = JwwBase { pen_color, ..base };
+            return Ok(quads.into_iter().map(|points| JwwEntity::Solid(JwwSolid { base, points, color })).collect());
+        }
+        let lines: Vec<PatternLine> = input
+            .lines
+            .iter()
+            .map(|line| PatternLine {
+                angle: line.angle,
+                base: paper(line.base),
+                offset: [line.offset[0] * factor, line.offset[1] * factor],
+                dashes: line.dashes.iter().map(|dash| dash * factor).collect(),
+            })
+            .collect();
+        let pieces = hatch::pattern_pieces(&lines, &rings).ok_or_else(|| {
+            EditError::at(
+                index,
+                "invalid-value",
+                format!(
+                    "模様の線が {} 本を超えるか、間隔が 0 の線があります。patternScale を大きくしてください",
+                    hatch::MAX_PATTERN_ENTITIES
+                ),
+            )
+        })?;
+        if pieces.is_empty() {
+            return Err(EditError::at(
+                index,
+                "invalid-value",
+                "境界の内側に模様の線がありません。patternScale を小さくしてください",
+            ));
+        }
+        let mut base = JwwBase { flag: HATCH_FLAG, ..base };
+        self.apply_common(index, &mut base, common, true)?;
+        self.notices.add(
+            NoticeLevel::Info,
+            "edit-hatch-lines",
+            "JWW にはハッチングの図形がないため、模様を境界で切ったハッチの線と点にしました（created は最初の線で、残りはその後に続きます）",
+        );
+        Ok(pieces
+            .into_iter()
+            .map(|piece| match piece {
+                hatch::Piece::Line([x1, y1, x2, y2]) => JwwEntity::Line(JwwLine { base, x1, y1, x2, y2 }),
+                hatch::Piece::Point([x, y]) => JwwEntity::Point(JwwPoint {
+                    base: JwwBase { pen_style: 1, ..base },
+                    x,
+                    y,
+                    temporary: false,
+                    code: 0,
+                    angle: 0.0,
+                    scale: 0.0,
+                }),
+            })
+            .collect())
+    }
+
+    /// 空のブロック定義を足す（docs/decisions/0017）。JWW の定義は基点を持たない（定義の座標の原点が基点）ので、
+    /// basePoint は後の操作で中に足す図形の座標から引く。名前は Jw_cad と同じく、版 4.10 から作図部品の印
+    /// （"@@SfigorgFlag@@4"）を後ろに付けて書く
+    fn add_block(&mut self, index: usize, name: &str, values: &EditValues) -> Result<(), EditError> {
+        let reader = ValueReader::new(values, index);
+        reader.allow(&["basePoint"], "JWW のブロック定義")?;
+        let name = name.trim();
+        if name.is_empty() || name.chars().any(char::is_control) || name.contains(SFIGORG) {
+            return Err(EditError::at(
+                index,
+                "invalid-value",
+                format!("ブロックの名前 {name} は使えません（空、制御文字、{SFIGORG} を含む名前は使えません）"),
+            ));
+        }
+        if !self.find_blocks(name).is_empty() {
+            return Err(EditError::at(index, "already-exists", format!("ブロック {name} はすでにあります")));
+        }
+        let base = reader.point("basePoint")?.unwrap_or([0.0; 3]);
+        // 定義の通し番号は、ほかの定義と重ならない番号（Jw_cad は 0 から振る）
+        let number = match self.file.blocks.iter().map(|block| block.number).max() {
+            None => 0,
+            Some(max) => max.checked_add(1).ok_or_else(|| {
+                EditError::at(index, "name-exhausted", "新しいブロック定義の通し番号を割り当てられません")
+            })?,
+        };
+        let stored = if self.file.version >= 410 { format!("{name}{SFIGORG}4") } else { name.to_string() };
+        self.file.blocks.push(JwwBlockRecord::new(number, stored, Vec::new()));
+        self.block_bases.insert(number, [base[0], base[1]]);
+        self.created.push(Created::Block(name.to_string()));
+        Ok(())
+    }
+
+    /// 名前（後ろの "@@SfigorgFlag@@" と種別は省いてもよい）が合うブロック定義の添字
+    fn find_blocks(&self, name: &str) -> Vec<usize> {
+        let name = name.trim();
+        let exact: Vec<usize> =
+            (0..self.file.blocks.len()).filter(|&i| self.file.blocks[i].name.trim() == name).collect();
+        if !exact.is_empty() {
+            return exact;
+        }
+        (0..self.file.blocks.len()).filter(|&i| plain_name(&self.file.blocks[i].name) == plain_name(name)).collect()
+    }
+
+    /// 定義 definition の中（入れ子も）に、定義 target の配置があるか
+    fn contains_block(&self, definition: u32, target: u32, depth: usize) -> bool {
+        if depth > MAX_BLOCK_DEPTH {
+            return true;
+        }
+        self.file.blocks.iter().filter(|block| block.number == definition).any(|block| {
+            block.entities.iter().any(|record| match &record.entity {
+                JwwEntity::Block(inner) => {
+                    inner.definition == target || self.contains_block(inner.definition, target, depth + 1)
+                }
+                _ => false,
+            })
+        })
     }
 
     /// ブロック定義の通し番号。名前（後ろの "@@SfigorgFlag@@" と種別は省いてもよい）で選ぶ
     fn block(&self, index: usize, name: &str) -> Result<u32, EditError> {
-        let name = name.trim();
-        let plain = |text: &str| text.split("@@SfigorgFlag@@").next().unwrap_or(text).trim().to_string();
-        let exact: Vec<u32> =
-            self.file.blocks.iter().filter(|block| block.name.trim() == name).map(|block| block.number).collect();
-        let found = if exact.is_empty() {
-            self.file
-                .blocks
-                .iter()
-                .filter(|block| plain(&block.name) == plain(name))
-                .map(|block| block.number)
-                .collect()
-        } else {
-            exact
-        };
-        match found[..] {
-            [number] => Ok(number),
-            [] => Err(EditError::at(index, "missing-definition", format!("ブロック {name} は図面にありません"))),
-            _ => Err(EditError::at(index, "invalid-value", format!("ブロック {name} が 2 つ以上あります"))),
+        match self.find_blocks(name)[..] {
+            [block] => Ok(self.file.blocks[block].number),
+            [] => {
+                Err(EditError::at(index, "missing-definition", format!("ブロック {} は図面にありません", name.trim())))
+            }
+            _ => Err(EditError::at(index, "invalid-value", format!("ブロック {} が 2 つ以上あります", name.trim()))),
         }
     }
 
@@ -1235,6 +1566,11 @@ fn nearest_pen(pens: &[u32], rgb: u32) -> u16 {
 /// COLORREF を 0xRRGGBB にする
 fn colorref_rgb(value: u32) -> u32 {
     u32::from_str_radix(colorref(value).trim_start_matches('#'), 16).unwrap_or(0)
+}
+
+/// ブロック定義の名前から、後ろの複合図形の種別（"@@SfigorgFlag@@" と番号）を除いたもの
+fn plain_name(name: &str) -> &str {
+    name.split(SFIGORG).next().unwrap_or(name).trim()
 }
 
 /// 1 行の文字か（JWW の文字は 1 行。^@ で始まる文字は Jw_cad の画像などの指定）
