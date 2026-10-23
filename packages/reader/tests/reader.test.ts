@@ -244,7 +244,7 @@ describe("@zumenjs/reader", () => {
       expect(detect(bytes) ?? null, header).toBe(format);
     }
     // TypeScript の readDrawing も Rust の読み取り（readScene）も、どの読み取りも読めない形式のエラーにする
-    const message = "対応していない形式のファイルです（読める形式: SFC・P21・SFZ・P2Z・JWW・JWC・JWS・DXF・DWG）";
+    const message = "対応していない形式のファイルです";
     const ifc = step("FILE_SCHEMA(('IFC4'));");
     expect(() => readDrawing(ifc, [reader])).toThrow(message);
     expect(() => readScene(ifc)).toThrow(message);

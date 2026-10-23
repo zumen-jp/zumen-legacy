@@ -418,9 +418,7 @@ mod tests {
             DATA;\n#1=IFCPROJECT('0YvctVUKr0kugbFTf53O9L',$,'Project',$,$,$,$,$,$);\nENDSEC;\nEND-ISO-10303-21;\n";
         assert_eq!(detect(ifc), None);
         let error = read(ifc, &ReadDrawingOptions::default()).unwrap_err();
-        assert_eq!(
-            error.message(),
-            "対応していない形式のファイルです（読める形式: SFC・P21・SFZ・P2Z・JWW・JWC・JWS・DXF・DWG）"
-        );
+        // The supported formats differ between the CAD-only module and the facade with its PDF feature.
+        assert!(error.message().starts_with("対応していない形式のファイルです（読める形式:"));
     }
 }
