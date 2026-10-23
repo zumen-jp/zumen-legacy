@@ -185,6 +185,9 @@ made with (coordinates, scales, rotations, texts, layers, block names).
   ACAD_TABLE (its anonymous block, as for DXF).
 - Not read, counted and reported: HELIX and MPOLYGON (drawn from DXF), REGION, 3DSOLID, BODY, MESH, SURFACE, TOLERANCE,
   SHAPE, underlays, OLE frames, lights and proxy entities.
+- External references: the bits of BLOCK_HEADER for an attached and an overlaid reference (20.4.52) become the flags 4
+  and 8 of DXF, and its path the path (group 1), so references to them are counted in the `xref` notice as from DXF
+  ([Entities](dxf.md#entities)). The drawings they refer to are not read.
 - `$MEASUREMENT` follows the template's description (22). From R2007 the description is UTF-16 and its length counts
   characters: AutoCAD writes one NUL character there (the specification counts bytes, which would read 256 for a metric
   drawing).

@@ -558,6 +558,9 @@ struct Builder<'a> {
     /// SHX のフォント（加えた順で重複なし）
     shx_fonts: Vec<String>,
     shx_count: u64,
+    /// 外部参照の参照先（パス、なければブロックの名前。加えた順で重複なし）と、描いた参照の数
+    xrefs: Vec<String>,
+    xref_count: u64,
     /// ブロック参照・寸法の中で描いた図形の数
     expanded: u64,
     infinite: Vec<(DxfEntity, Ctx)>,
@@ -588,6 +591,8 @@ impl<'a> Builder<'a> {
             model: Rc::new(Vec::new()),
             shx_fonts: Vec::new(),
             shx_count: 0,
+            xrefs: Vec::new(),
+            xref_count: 0,
             expanded: 0,
             infinite: Vec::new(),
             pieces: None,
@@ -2011,6 +2016,14 @@ impl<'a> Builder<'a> {
             self.notices.add(NoticeLevel::Warning, "block-depth", "入れ子が深すぎるブロック参照を省きました");
             return;
         }
+        // 外部参照（DXF Reference「BLOCK」の 70 の 4 と 8、1 が参照先のパス）の図形は参照先の図面にあり、その図面は読まない
+        if let Some(xref) = block.filter(|block| js::to_int32(block.flags) & 12 != 0) {
+            let target = xref.xref_path.as_deref().filter(|path| !path.is_empty()).unwrap_or(&xref.name);
+            if !self.xrefs.iter().any(|known| known == target) {
+                self.xrefs.push(target.to_string());
+            }
+            self.xref_count += 1;
+        }
         let base_point = block.map_or([0.0, 0.0, 0.0], |block| block.base_point);
         let ocs = ocs_matrix(base.extrusion.as_ref(), point[2]);
         let columns = insert.map_or(1.0, |insert| insert.column_count);
@@ -3214,6 +3227,16 @@ impl<'a> Builder<'a> {
     }
 
     fn finish_notices(&mut self) {
+        if self.xref_count > 0 {
+            let mut xrefs = self.xrefs.clone();
+            xrefs.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
+            self.notices.add_count(
+                NoticeLevel::Warning,
+                "xref",
+                format!("外部参照（{}）は参照先の図面を読まないため、描いていません", xrefs.join("・")),
+                self.xref_count,
+            );
+        }
         if self.shx_count > 0 {
             let mut fonts = self.shx_fonts.clone();
             fonts.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));

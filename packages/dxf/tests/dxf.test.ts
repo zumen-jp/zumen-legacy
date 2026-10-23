@@ -37,6 +37,7 @@ import {
   R12_SHIFT_JIS,
   VERTICAL_TEXT,
   WESTERN,
+  XREFS,
 } from "./fixtures.js";
 
 function stroke(entity: SceneEntity | undefined): number[] {
@@ -108,6 +109,17 @@ describe("DXF の単位とブロックの入れ子", () => {
     const layerA = scene.layers.find((layer) => layer.name === "A");
     expect(line?.layers).toEqual([layerA?.id]);
     expect(line?.primitives[0]).toMatchObject({ kind: "stroke", color: "#ff0000" });
+  });
+
+  it("外部参照は参照先の図面を読まないので、ブロックの中の参照も数えて、参照先とともに notices で知らせる", () => {
+    const scene = readDrawing(XREFS, [dxf]);
+    expect(scene.entities.map((entity) => entity.id)).toEqual(["20", "24>B1"]);
+    expect(scene.notices.find((notice) => notice.code === "xref")).toEqual({
+      level: "warning",
+      code: "xref",
+      message: "外部参照（PLAN・grid.dxf・site.dwg）は参照先の図面を読まないため、描いていません",
+      count: 4,
+    });
   });
 });
 

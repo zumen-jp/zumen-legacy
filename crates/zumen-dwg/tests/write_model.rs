@@ -643,6 +643,20 @@ fn reports_what_older_versions_cannot_hold() {
     }
 }
 
+/// 外部参照（BLOCK_HEADER の参照とオーバーレイのビット、参照先のパス、20.4.52）は DXF の 70 の 4・8 と 1 として読み、
+/// DXF と同じく参照先の図面を読まないことを notices で知らせる
+#[test]
+fn external_references_are_reported_as_from_dxf() {
+    let doc = parse_dxf(&fs::read(fixtures().join("dxf/xrefs.dxf")).unwrap());
+    let expected = dxf_to_scene(&doc, None).notices.into_iter().find(|notice| notice.code == "xref");
+    assert_eq!(expected.as_ref().map(|notice| notice.count), Some(4));
+    for version in DwgVersion::ALL {
+        let again = zumen_dwg::read_dwg(&zumen_dwg::write_dwg_as(&doc, version).bytes).unwrap();
+        let notice = dxf_to_scene(&again, None).notices.into_iter().find(|notice| notice.code == "xref");
+        assert_eq!(notice, expected, "{}", version.name());
+    }
+}
+
 /// 画像の定義のファイルが分かる画像は、定義・リアクタ・辞書・クラスとともに書く。DXF・DWG のどちらから読んだ画像も
 /// 書け、同じ定義を指していた画像は 1 つの定義を共有する。R13 は省いて知らせる
 #[test]

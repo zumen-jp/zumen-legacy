@@ -451,6 +451,15 @@
       ]
     }
   },
+  "dxf/xrefs.dxf": {
+    "bytes": "9ba61ffe93a1e20e",
+    "views": {
+      "Model": [
+        "20",
+        "24>B1"
+      ]
+    }
+  },
   "jww/minimal-v200.jww": {
     "bytes": "d1e6e7c98ad603d1",
     "views": {
