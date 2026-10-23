@@ -1,0 +1,273 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/zumenjs/zumen/crates/zumen-core/schema/markup.schema.json",
+  "title": "zumen markup",
+  "description": "Drawing markup beside a drawing (decision 0021, docs/markup.md). Points are paper millimeters of the item's view, with the Y axis up. Keys that a reader does not know are kept as they are.",
+  "type": "object",
+  "required": ["format", "version", "drawing", "items"],
+  "properties": {
+    "format": {
+      "const": "zumen-markup"
+    },
+    "version": {
+      "const": 1
+    },
+    "drawing": {
+      "type": "object",
+      "description": "The drawing the markup was made on",
+      "required": ["sha256", "format"],
+      "properties": {
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "SHA-256 of the drawing's bytes, lowercase hexadecimal"
+        },
+        "format": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Scene.format of the drawing (sfc, jww, dxf, dwg, pdf, ...)"
+        }
+      }
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/item"
+      }
+    },
+    "data": {
+      "type": "object",
+      "description": "For the application, kept as it is"
+    }
+  },
+  "$defs": {
+    "point": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 2,
+      "maxItems": 2,
+      "description": "[x, y] in paper millimeters"
+    },
+    "points": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/point"
+      }
+    },
+    "item": {
+      "type": "object",
+      "required": ["id", "kind"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Unique in the document"
+        },
+        "kind": {
+          "enum": ["redline", "cloud", "text", "finding", "photo"]
+        },
+        "view": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The view id of the scene (Scene.view); left out for formats with one view"
+        },
+        "category": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]+$",
+          "description": "A key of the application that chooses the color"
+        },
+        "color": {
+          "type": "string",
+          "pattern": "^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+          "description": "#rrggbb or #rrggbbaa, over the category's color"
+        },
+        "lineWidth": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Paper millimeters; without it lines are 2 pixels wide"
+        },
+        "text": {
+          "type": "string"
+        },
+        "entities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Ids of the entities the item is about"
+        },
+        "author": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])[Tt]([01]\\d|2[0-3]):[0-5]\\d:([0-5]\\d|60)(\\.\\d+)?([Zz]|[+-]([01]\\d|2[0-3]):[0-5]\\d)$",
+          "description": "An RFC 3339 date and time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])[Tt]([01]\\d|2[0-3]):[0-5]\\d:([0-5]\\d|60)(\\.\\d+)?([Zz]|[+-]([01]\\d|2[0-3]):[0-5]\\d)$",
+          "description": "An RFC 3339 date and time"
+        },
+        "carried": {
+          "type": "object",
+          "required": ["from", "state"],
+          "properties": {
+            "from": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$",
+              "description": "SHA-256 of the drawing the item was carried from"
+            },
+            "state": {
+              "enum": ["unchanged", "changed", "removed"]
+            }
+          }
+        },
+        "data": {
+          "type": "object",
+          "description": "For the application, kept as it is"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "redline"
+              }
+            }
+          },
+          "then": {
+            "required": ["points"],
+            "properties": {
+              "points": {
+                "$ref": "#/$defs/points",
+                "minItems": 2
+              },
+              "closed": {
+                "type": "boolean"
+              },
+              "arrows": {
+                "enum": ["none", "start", "end", "both"]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "cloud"
+              }
+            }
+          },
+          "then": {
+            "required": ["points"],
+            "properties": {
+              "points": {
+                "$ref": "#/$defs/points",
+                "minItems": 3,
+                "description": "The closed outline"
+              },
+              "arcLength": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "description": "The chord of an arc in paper millimeters, 10 by default"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "text"
+              }
+            }
+          },
+          "then": {
+            "required": ["position", "text"],
+            "properties": {
+              "position": {
+                "$ref": "#/$defs/point",
+                "description": "The lower left of the first line"
+              },
+              "height": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "description": "Paper millimeters, 3.5 by default"
+              },
+              "angle": {
+                "type": "number",
+                "description": "Degrees counterclockwise, 0 by default"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "finding"
+              }
+            }
+          },
+          "then": {
+            "required": ["position", "status"],
+            "properties": {
+              "position": {
+                "$ref": "#/$defs/point",
+                "description": "The pin"
+              },
+              "status": {
+                "enum": ["open", "resolved", "closed"]
+              },
+              "points": {
+                "$ref": "#/$defs/points",
+                "minItems": 3,
+                "description": "The area, closed"
+              },
+              "label": {
+                "type": "string",
+                "description": "Short text on the pin, such as its number"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "photo"
+              }
+            }
+          },
+          "then": {
+            "required": ["position", "photo"],
+            "properties": {
+              "position": {
+                "$ref": "#/$defs/point",
+                "description": "Where the photo was taken"
+              },
+              "photo": {
+                "type": "string",
+                "description": "A reference that the application resolves, such as an id or a URL"
+              },
+              "direction": {
+                "type": "number",
+                "description": "The camera's heading, degrees counterclockwise from +x"
+              },
+              "takenAt": {
+                "type": "string",
+                "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])[Tt]([01]\\d|2[0-3]):[0-5]\\d:([0-5]\\d|60)(\\.\\d+)?([Zz]|[+-]([01]\\d|2[0-3]):[0-5]\\d)$",
+                "description": "An RFC 3339 date and time"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

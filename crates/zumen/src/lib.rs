@@ -365,6 +365,143 @@ fn unsupported_edit(format: &str) -> edit::EditError {
     )
 }
 
+/// `carry_markup` の指定
+#[derive(Debug, Clone)]
+pub struct CarryOptions {
+    /// 比べ方。既定では隠したレイヤの図形も比べる（項目はどのレイヤの図形も指せる）
+    pub compare: compare::CompareOptions,
+    /// 前の版のビューの id から、新しい版のビューの id への対応（DXF のレイアウトと、そこから印刷した PDF のページなど）。
+    /// 対応のないビューは同じ id のビューへ移す
+    pub views: std::collections::HashMap<String, String>,
+    /// 2 つの版を読む上限
+    pub limits: ReadLimits,
+    /// 文書の drawing.sha256 が前の版のバイトの SHA-256 と違っても移す。false なら `drawing-mismatch` の誤り
+    pub ignore_hash: bool,
+}
+
+impl Default for CarryOptions {
+    fn default() -> Self {
+        Self {
+            compare: compare::CompareOptions { all_layers: true, ..compare::CompareOptions::default() },
+            views: std::collections::HashMap::new(),
+            limits: ReadLimits::default(),
+            ignore_hash: false,
+        }
+    }
+}
+
+/// 新しい版へ移したマークアップの文書と、印（carried.state）ごとの項目の数
+#[derive(Debug, Clone, PartialEq)]
+pub struct CarriedMarkup {
+    pub document: markup::MarkupDocument,
+    pub unchanged: usize,
+    pub changed: usize,
+    pub removed: usize,
+}
+
+/// マークアップを新しい版へ移せなかった。code は drawing-mismatch（文書が前の版のものでない）、unreadable（読めない）、
+/// too-large（上限を超えた）
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CarryError {
+    pub code: &'static str,
+    pub message: String,
+}
+
+impl std::fmt::Display for CarryError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for CarryError {}
+
+/// 図面がビュー view を持つか。None は既定のビューで、どの図面にもある
+fn has_view(scene: &Scene, view: Option<&str>) -> bool {
+    match (view, &scene.views) {
+        (None, _) => true,
+        (Some(view), Some(views)) => views.iter().any(|candidate| candidate.id == view),
+        (Some(_), None) => false,
+    }
+}
+
+/// マークアップの文書 document を、それを付けた図面 before（バイト列）から新しい版 after へ移す（docs/decisions/0021 の
+/// Revisions）。項目のあるビューごとに、前の版のそのビューと、新しい版の同じ id のビュー（options.views で対応を
+/// 替えられる）を比べ（`compare::compare_scenes`）、`markup::carry_view` で項目を動かし、entities を付け替え、carried
+/// の印を付ける。新しい版にないビューの項目は動かさず removed にする。文書の drawing は新しい版のバイトの SHA-256 と
+/// 形式になり、項目の view は新しい版のビューの id になる。項目の順は変えない
+pub fn carry_markup(
+    document: &markup::MarkupDocument,
+    before: &[u8],
+    after: &[u8],
+    options: &CarryOptions,
+) -> Result<CarriedMarkup, CarryError> {
+    let from = markup::drawing_hash(before);
+    if !options.ignore_hash && from != document.drawing.sha256 {
+        return Err(CarryError {
+            code: "drawing-mismatch",
+            message: format!(
+                "マークアップは別の図面（SHA-256 {}）のものです。前の版の図面の SHA-256 は {from} です",
+                document.drawing.sha256
+            ),
+        });
+    }
+    let read_view = |bytes: &[u8], view: Option<&str>| {
+        read(bytes, &ReadDrawingOptions { format: None, view: view.map(str::to_string), limits: options.limits })
+            .map_err(|error| CarryError {
+                code: if error.exceeded().is_some() { "too-large" } else { "unreadable" },
+                message: error.to_string(),
+            })
+    };
+    let before_default = read_view(before, None)?;
+    let after_default = read_view(after, None)?;
+    let mut views: Vec<Option<&str>> = Vec::new();
+    for item in &document.items {
+        if !views.contains(&item.view.as_deref()) {
+            views.push(item.view.as_deref());
+        }
+    }
+    let mut carried: Vec<Option<markup::MarkupItem>> = vec![None; document.items.len()];
+    for view in views {
+        let positions: Vec<usize> =
+            (0..document.items.len()).filter(|&index| document.items[index].view.as_deref() == view).collect();
+        let items: Vec<markup::MarkupItem> = positions.iter().map(|&index| document.items[index].clone()).collect();
+        let target = view.map(|view| options.views.get(view).map_or(view, String::as_str));
+        let moved = if has_view(&before_default, view) && has_view(&after_default, target) {
+            let before_scene = if view.is_none() { before_default.clone() } else { read_view(before, view)? };
+            let after_scene = if target.is_none() { after_default.clone() } else { read_view(after, target)? };
+            let diff = compare::compare_scenes(&before_scene, &after_scene, &options.compare);
+            let mut moved = markup::carry_view(&items, &before_scene, &after_scene, &diff, &from);
+            for item in &mut moved {
+                item.view = after_scene.view.clone();
+            }
+            moved
+        } else {
+            markup::carry_removed(&items, &from)
+        };
+        for (index, item) in positions.into_iter().zip(moved) {
+            carried[index] = Some(item);
+        }
+    }
+    let items: Vec<markup::MarkupItem> = carried.into_iter().flatten().collect();
+    let count = |state: markup::CarriedState| {
+        items.iter().filter(|item| item.carried.as_ref().is_some_and(|carried| carried.state == state)).count()
+    };
+    let (unchanged, changed, removed) = (
+        count(markup::CarriedState::Unchanged),
+        count(markup::CarriedState::Changed),
+        count(markup::CarriedState::Removed),
+    );
+    let mut drawing = document.drawing.clone();
+    drawing.sha256 = markup::drawing_hash(after);
+    drawing.format = after_default.format.clone();
+    Ok(CarriedMarkup {
+        document: markup::MarkupDocument { drawing, items, ..document.clone() },
+        unchanged,
+        changed,
+        removed,
+    })
+}
+
 /// 図面のバイト列を読み、表示用の図面にする。上限（`options.limits`）を超えたら、途中でやめて上限のエラーを返す
 pub fn read(bytes: &[u8], options: &ReadDrawingOptions) -> Result<Scene, ReadError> {
     let read_options = ReadOptions { view: options.view.clone() };
