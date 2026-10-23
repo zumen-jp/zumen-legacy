@@ -49,7 +49,8 @@ and gives you a framework-agnostic drawing engine to embed in your own interface
 - Drafting in Rust, Python, the command line and the MCP server: draw complete sheets from one JSON drawing spec
   (border and title block, views at their scales, text, dimensions, hatches, tables, grid lines and symbols) and
   write them in every format ([Drafting](docs/drafting.md), [decision 0018](docs/decisions/0018-drafting-kit.md)).
-- No runtime dependencies; `@zumenjs/reader` ships its WebAssembly readers. Reading also runs in Node.js.
+- No runtime dependencies; `@zumenjs/reader` ships its WebAssembly readers, and `@zumenjs/pdf` draws PDF pages with
+  the pdf.js of the application. Reading also runs in Node.js.
 
 ## Packages
 
@@ -58,10 +59,12 @@ and gives you a framework-agnostic drawing engine to embed in your own interface
 | [`@zumenjs/core`](packages/core) | Format-neutral scene model, `readDrawing` and the `DrawingReader` interface, geometry, text layout and measurement (no DOM) |
 | [`@zumenjs/viewer`](packages/viewer) | The 2D engine to embed: Canvas renderer, hit testing and snapping, and `DrawingViewer` (view, state, input handlers, tools, style) |
 | [`@zumenjs/reader`](packages/reader) | Every format (SXF, JWW, DXF, DWG) with the Rust readers built to WebAssembly: the `reader` for `readDrawing` and `useDrawing`, read limits, and `ReaderWorker` for reading in a Web Worker |
+| [`@zumenjs/pdf`](packages/pdf) | PDF pages under the drawing with pdf.js: `pdfUnderlayRenderer`, an `UnderlayRenderer` for the pages of PDF drawings and the PDF underlays of DXF drawings, with optional content as layers |
 | [`@zumenjs/react`](packages/react) | Hooks: `useDrawingViewer`, `useViewerState`, `useViewerEvent` and `useDrawing` |
 
-Format packages and `@zumenjs/viewer` depend only on `@zumenjs/core`, `@zumenjs/react` on `@zumenjs/viewer` and
-`@zumenjs/core`, and `@zumenjs/core` knows nothing about formats and does not use the DOM.
+Format packages and `@zumenjs/viewer` depend only on `@zumenjs/core`, `@zumenjs/react` and `@zumenjs/pdf` on
+`@zumenjs/viewer` and `@zumenjs/core` (`@zumenjs/pdf` also on the types of pdf.js, a peer dependency), and
+`@zumenjs/core` knows nothing about formats and does not use the DOM.
 Formats are detected from the file contents, not from the file name. See [docs/architecture.md](docs/architecture.md).
 The TypeScript readers in `packages/sxf`, `packages/jww` and `packages/dxf` are kept in the repository as the reference
 that writes the expected scenes of the tests, and are not published.
@@ -309,7 +312,8 @@ Reading, rendering, converting and editing release the GIL in Python.
 
 Drawings are read from memory in the browser. The libraries make no network requests, except that `@zumenjs/reader`
 fetches its own WebAssembly file from where the application serves it, so confidential drawings can be viewed without
-sending them anywhere.
+sending them anywhere. `@zumenjs/pdf` draws with the pdf.js that the application sets up, which fetches its worker and
+data files from the URLs the application gives it.
 
 ## Supported environments
 
@@ -319,6 +323,7 @@ sending them anywhere.
   Playwright's WebKit is not Safari: Safari itself, iOS and Android browsers, and real input devices (touch screens,
   trackpads and mouse wheels) are not tested yet.
 - React 19.3 for the hooks of `@zumenjs/react`.
+- pdf.js 5 or 6 (`pdfjs-dist`) for `@zumenjs/pdf`; its tests draw with 5.0 and 6.4.
 - Node.js 24 for parsing and for development.
 
 ## Roadmap

@@ -25,9 +25,11 @@ npm install @zumenjs/core @zumenjs/viewer @zumenjs/reader @zumenjs/react
 | `@zumenjs/core` | `packages/core` | 表示用モデル（`Scene`）と JSON、`readDrawing` と読み取りの口（`DrawingReader`）、距離の計測、読み取りの注意。DOM を使わない。幾何は `/geometry`、文字の配置は `/text` |
 | `@zumenjs/viewer` | `packages/viewer` | 画面に組み込む 2D のエンジン。Canvas の描画、当たり判定と吸着、`DrawingViewer`（表示範囲・状態・操作のハンドラ・道具・見た目） |
 | `@zumenjs/reader` | `packages/reader` | どの形式（SXF・JWW・DXF・DWG）も、Rust の読み取りを WebAssembly にしたもので読む。`readDrawing`・`useDrawing` に渡す `reader`（`initReader` か `reader.load` で読み込む）、読み取りの上限、Web Worker で読む `ReaderWorker` |
+| `@zumenjs/pdf` | `packages/pdf` | PDF のページを pdf.js で図形の下に描く。PDF の図面のページと DXF の PDF の underlay を描く `UnderlayRenderer` の `pdfUnderlayRenderer`（optional content をレイヤで切り替える） |
 | `@zumenjs/react` | `packages/react` | フックだけ。`useDrawingViewer`・`useViewerState`・`useViewerEvent`・`useDrawing` |
 
-依存の向きは `@zumenjs/react` → `@zumenjs/viewer` → `@zumenjs/core`、`@zumenjs/reader` → `@zumenjs/core` だけ。
+依存の向きは `@zumenjs/react` → `@zumenjs/viewer` → `@zumenjs/core`、`@zumenjs/pdf` → `@zumenjs/viewer` → `@zumenjs/core`、
+`@zumenjs/reader` → `@zumenjs/core` だけ。`@zumenjs/pdf` は pdf.js の型も使い、pdf.js は利用側が入れる（peer dependency）。
 TypeScript の読み取り（`packages/sxf`・`packages/jww`・`packages/dxf`）は、テストの正解を書く参照としてリポジトリに残し、
 公開しない（DWG は Rust だけで読む）。パッケージは画面の文言と CSS を持たず、画面は利用側が作る
 （試用画面にサンプルがある）。
@@ -297,6 +299,7 @@ Python では、読み取り・描画・書き出し・編集の間 GIL を外�
   Playwright の WebKit は Safari そのものではない。Safari、iOS と Android のブラウザ、実際の入力機器（タッチ画面・
   トラックパッド・マウスのホイール）はまだ確かめていない。
 - `@zumenjs/react` のフックは React 19.3。
+- `@zumenjs/pdf` は pdf.js 5 か 6（`pdfjs-dist`）。テストは 5.0 と 6.4 で描く。
 - 読み取りと開発は Node.js 24。
 
 ## 文書

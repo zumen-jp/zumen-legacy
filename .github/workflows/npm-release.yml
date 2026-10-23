@@ -76,11 +76,11 @@ jobs:
         shell: bash
         run: |
           mkdir "$RUNNER_TEMP/tarballs"
-          for package in core viewer reader react; do
+          for package in core viewer reader pdf react; do
             pnpm --filter "@zumenjs/$package" pack --pack-destination "$RUNNER_TEMP/tarballs" | grep '\.tgz$' | xargs -n1 basename >> "$RUNNER_TEMP/tarballs/order.txt"
           done
           cat "$RUNNER_TEMP/tarballs/order.txt"
-          expected=4
+          expected=5
           actual="$(wc -l < "$RUNNER_TEMP/tarballs/order.txt")"
           if [ "$actual" -ne "$expected" ]; then
             echo "::error::Packed $actual packages, but packages/ has $expected."
