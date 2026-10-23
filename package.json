@@ -9,7 +9,7 @@
     "node": ">=24 <25"
   },
   "scripts": {
-    "build": "node scripts/clean.mjs && tsc -p packages/core/tsconfig.build.json && tsc -p packages/viewer/tsconfig.build.json && tsc -p packages/sxf/tsconfig.build.json && tsc -p packages/jww/tsconfig.build.json && tsc -p packages/dxf/tsconfig.build.json && tsc -p packages/reader/tsconfig.build.json && tsc -p packages/react/tsconfig.build.json",
+    "build": "node scripts/clean.mjs && tsc -p packages/core/tsconfig.build.json && tsc -p packages/viewer/tsconfig.build.json && tsc -p packages/sxf/tsconfig.build.json && tsc -p packages/jww/tsconfig.build.json && tsc -p packages/dxf/tsconfig.build.json && tsc -p packages/reader/tsconfig.build.json && tsc -p packages/pdf/tsconfig.build.json && tsc -p packages/react/tsconfig.build.json",
     "check": "pnpm run lint && pnpm run wasm && pnpm run typecheck && pnpm test && pnpm audit && pnpm run build && pnpm run playground:build && pnpm run check:rust && pnpm run check:scripts && pnpm run check:python",
     "check:scripts": "cargo build -p zumen-cli && node --test scripts/tests/*.test.mjs",
     "check:python": "uv run --project bindings/python --frozen ruff check bindings/python && uv run --project bindings/python --frozen ruff format --check bindings/python && uv run --project bindings/python --frozen maturin develop --uv -m bindings/python/Cargo.toml && uv run --project bindings/python --frozen pytest bindings/python/tests -q",
@@ -32,6 +32,7 @@
     "@zumenjs/reader": "workspace:*",
     "@zumenjs/dxf": "workspace:*",
     "@zumenjs/jww": "workspace:*",
+    "@zumenjs/pdf": "workspace:*",
     "@zumenjs/react": "workspace:*",
     "@zumenjs/sxf": "workspace:*",
     "@zumenjs/viewer": "workspace:*",
@@ -39,6 +40,7 @@
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@vitest/browser-playwright": "5.0.5",
+    "pdfjs-dist": "6.4.299",
     "playwright": "1.64.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
