@@ -9,7 +9,7 @@
 
 - zumen reads CAD drawings (SXF, JWW, DXF, and DWG next) into a format-neutral `Scene` and adds what drawings need on
   top of the picture: layers, scales and real-world lengths, snapping, measurement and notices.
-  Item 5 of the roadmap includes PDF drawings.
+  The roadmap includes PDF drawings.
 - Drawings also arrive as PDF: plotted sheets, scans of paper drawings, and PDF underlays that DXF drawings reference.
 - No reader draws raster content yet. DXF draws only the frame of an IMAGE and skips PDF, DWF and DGN underlays,
   SXF does not show raster images, and JWW does not show images embedded in text.
@@ -67,7 +67,7 @@ Option 3.
 
 ## Consequences
 
-- "PDF drawings" in item 5 of the roadmap means drawings that a PDF engine draws, with the snapping, measurement,
+- "PDF drawings" in the roadmap means drawings that a PDF engine draws, with the snapping, measurement,
   layers and markup of zumen on top.
 - The underlay in `@zumenjs/core` comes before `@zumenjs/pdf`. It also lets the DXF, SXF and JWW readers draw the
   raster content they skip today.

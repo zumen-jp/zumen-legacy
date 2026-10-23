@@ -3,7 +3,7 @@
 | Item | Value |
 | --- | --- |
 | Date | 2026-10-21 |
-| Status | Proposed |
+| Status | Accepted |
 
 ## Context
 
