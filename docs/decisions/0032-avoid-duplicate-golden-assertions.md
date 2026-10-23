@@ -1,4 +1,4 @@
-# 0030: Let golden tests own fixture scene values
+# 0032: Let golden tests own fixture scene values
 
 | Item | Value |
 | --- | --- |
