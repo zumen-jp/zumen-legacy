@@ -194,6 +194,59 @@ pub(crate) fn end_mark(
     }
 }
 
+/// 向き along の線の中点 middle の上（読む向きの上）に、読める向き（-90° より大きく 90° 以下）で寸法の値を置く。
+/// raw は TEXT の文字列（%% の制御コードを含んでよい）。文字の中点を返す
+#[allow(clippy::too_many_arguments)]
+fn put_value(
+    drafter: &mut Drafter,
+    inner: &Space,
+    style: &DimStyle,
+    s: f64,
+    middle: Point,
+    along: Point,
+    raw: String,
+    path: &str,
+) -> Point {
+    let mut reading = along[1].atan2(along[0]).to_degrees();
+    if reading > 90.0 + 1e-9 {
+        reading -= 180.0;
+    } else if reading <= -90.0 + 1e-9 {
+        reading += 180.0;
+    }
+    let up = unit(reading + 90.0);
+    let height = style.text_height * s;
+    let at = add(middle, mul(up, TEXT_GAP * s));
+    let text_style = drafter.text_style(None);
+    let placed = Placed {
+        at,
+        lines: &[],
+        height,
+        align: BOTTOM_CENTER,
+        rotation: reading,
+        width_factor: 1.0,
+        line_spacing: 1.0,
+        style: text_style,
+    };
+    text::put_line(drafter, inner, &Look::by_block(), placed, raw, path);
+    add(at, mul(up, height / 2.0))
+}
+
+/// 寸法の文字の TEXT の文字列。text の <> を value（制御コードを含む TEXT の文字列）にし、ほかはそのまま書く
+fn value_text(text: Option<&str>, value: &str) -> String {
+    match text {
+        Some(text) => text.split("<>").map(text::escape_text).collect::<Vec<_>>().join(value),
+        None => value.to_string(),
+    }
+}
+
+/// 利用者の文字（DIMENSION の 1）。<> だけなら空にし、AutoCAD が描き直すときも測った値を書かせる
+fn user_text(text: Option<&str>) -> String {
+    match text {
+        Some(text) if text != "<>" => text::escape_text(text),
+        _ => String::new(),
+    }
+}
+
 /// 1 つの寸法の値
 struct Linear<'a> {
     from: Point,
@@ -236,35 +289,12 @@ fn linear(drafter: &mut Drafter, ctx: &Ctx, look: &Look, style: &DimStyle, dim: 
     let e = if span > 1e-9 { mul(length, 1.0 / span) } else { u };
     end_mark(drafter, &inner, &by_block, style.arrow, style.arrow_size * s, q1, e, path);
     end_mark(drafter, &inner, &by_block, style.arrow, style.arrow_size * s, q2, mul(e, -1.0), path);
-    // 寸法の値。読める向きにし、寸法線の上（読む向きの上）に置く
-    let mut reading = e[1].atan2(e[0]).to_degrees();
-    if reading > 90.0 + 1e-9 {
-        reading -= 180.0;
-    } else if reading <= -90.0 + 1e-9 {
-        reading += 180.0;
-    }
-    let up = unit(reading + 90.0);
     let value = format_number(measured, style.precision, style.thousands);
     let shown = match dim.text {
         Some(text) => text.replace("<>", &value),
         None => value,
     };
-    let middle = mul(add(q1, q2), 0.5);
-    let height = style.text_height * s;
-    let at = add(middle, mul(up, TEXT_GAP * s));
-    let text_style = drafter.text_style(None);
-    let lines = [shown.clone()];
-    let placed = Placed {
-        at,
-        lines: &lines,
-        height,
-        align: BOTTOM_CENTER,
-        rotation: reading,
-        width_factor: 1.0,
-        line_spacing: 1.0,
-        style: text_style,
-    };
-    text::put(drafter, &inner, &by_block, placed, path);
+    let text_midpoint = put_value(drafter, &inner, style, s, mul(add(q1, q2), 0.5), e, text::escape_text(&shown), path);
     let dimstyle = dimension_style(drafter, s, style);
     let dimension = DxfDimension {
         anonymous_block_name: block,
@@ -275,7 +305,7 @@ fn linear(drafter: &mut Drafter, ctx: &Ctx, look: &Look, style: &DimStyle, dim: 
         defpoint3: Some(xyz(dim.to)),
         defpoint4: None,
         defpoint5: None,
-        text_midpoint: xyz(add(at, mul(up, height / 2.0))),
+        text_midpoint: xyz(text_midpoint),
         insert: None,
         // 測った値のまま（<> と同じ）なら空にし、AutoCAD が描き直すときも測った値を書かせる
         text: match dim.text {
@@ -329,18 +359,72 @@ pub(crate) fn draw(
     let default_layer = drafter.defaults.dimension_layer.clone();
     let look = drafter.look(ctx, item_style, default_layer.as_deref(), path)?;
     let style = style(drafter, &spec.look(), path)?;
-    let (from, to) = (point(spec.from, path)?, point(spec.to, path)?);
-    let aligned = match spec.kind.as_deref().unwrap_or("linear") {
-        "linear" => false,
-        "aligned" => true,
+    let kind = spec.kind.as_deref().unwrap_or("linear");
+    let used: &[&str] = match kind {
+        "linear" => &["from", "to", "offset", "at", "angle"],
+        "aligned" => &["from", "to", "offset", "at"],
+        "angular" => &["center", "from", "to", "at", "radius"],
+        "radius" | "diameter" => &["center", "radius", "angle"],
         other => {
             return Err(DraftError::new(
                 "invalid-value",
                 path,
-                format!("kind の {other} はまだありません（linear・aligned）"),
+                format!("kind の {other} はありません（linear・aligned・angular・radius・diameter）"),
             ));
         }
     };
+    let given = [
+        ("from", spec.from.is_some()),
+        ("to", spec.to.is_some()),
+        ("center", spec.center.is_some()),
+        ("radius", spec.radius.is_some()),
+        ("offset", spec.offset.is_some()),
+        ("at", spec.at.is_some()),
+        ("angle", spec.angle.is_some()),
+    ];
+    if let Some((key, _)) = given.iter().find(|(key, given)| *given && !used.contains(key)) {
+        return Err(DraftError::new("unknown-key", path, format!("{kind} の寸法に {key} は指定できません")));
+    }
+    let required = |value: Option<Point>, key: &str| -> Result<Point, DraftError> {
+        point(
+            value
+                .ok_or_else(|| DraftError::new("invalid-spec", path, format!("{kind} の寸法には {key} が要ります")))?,
+            path,
+        )
+    };
+    match kind {
+        "angular" => {
+            let (center, from, to) =
+                (required(spec.center, "center")?, required(spec.from, "from")?, required(spec.to, "to")?);
+            let at = spec.at.map(|at| point(at, path)).transpose()?;
+            let radius = spec.radius.map(|radius| positive(radius, "radius", path)).transpose()?;
+            if at.is_some() && radius.is_some() {
+                return Err(DraftError::new(
+                    "invalid-value",
+                    path,
+                    "angular の寸法の弧は at か radius のどちらかで指定してください",
+                ));
+            }
+            let dim = Angular { center, from, to, at, radius, text: spec.text.as_deref() };
+            return angular(drafter, ctx, &look, &style, dim, path);
+        }
+        "radius" | "diameter" => {
+            let center = required(spec.center, "center")?;
+            let radius = positive(
+                spec.radius.ok_or_else(|| {
+                    DraftError::new("invalid-spec", path, format!("{kind} の寸法には radius が要ります"))
+                })?,
+                "radius",
+                path,
+            )?;
+            let angle = number(spec.angle.unwrap_or(45.0), "angle", path)?;
+            radial(drafter, ctx, &look, &style, kind == "diameter", center, radius, angle, spec.text.as_deref(), path);
+            return Ok(());
+        }
+        _ => {}
+    }
+    let (from, to) = (required(spec.from, "from")?, required(spec.to, "to")?);
+    let aligned = kind == "aligned";
     let angle = if aligned {
         let d = sub(to, from);
         if d[0].hypot(d[1]) <= 0.0 {
@@ -357,6 +441,174 @@ pub(crate) fn draw(
     let dim = Linear { from, to, angle, through, aligned, text: spec.text.as_deref() };
     linear(drafter, ctx, &look, &style, dim, path);
     Ok(())
+}
+
+/// 角度寸法の値
+struct Angular<'a> {
+    center: Point,
+    from: Point,
+    to: Point,
+    /// 寸法の弧の上の点。その向きを含む角を測る
+    at: Option<Point>,
+    /// 寸法の弧の半径。at もなければ、center から from・to の近いほうまでの半分
+    radius: Option<f64>,
+    text: Option<&'a str>,
+}
+
+/// 3 点角度寸法を描く（DXF Reference「DIMENSION」の 70 の 5、13・14 は辺の上の点、15 は頂点、10 は弧の上の点）。
+/// 角は at の向きを含むほう、at がなければ from から反時計回りに to まで。寸法補助線は弧の内側の点からだけ描く
+/// （外の点は、その点までの線がもう弧に届いている）
+fn angular(
+    drafter: &mut Drafter,
+    ctx: &Ctx,
+    look: &Look,
+    style: &DimStyle,
+    dim: Angular<'_>,
+    path: &str,
+) -> Result<(), DraftError> {
+    use std::f64::consts::TAU;
+    let length = |p: Point| sub(p, dim.center)[0].hypot(sub(p, dim.center)[1]);
+    let (near_from, near_to) = (length(dim.from), length(dim.to));
+    if near_from <= 1e-9 || near_to <= 1e-9 {
+        return Err(DraftError::new("invalid-value", path, "angular の寸法の from・to は center から離してください"));
+    }
+    let direction = |p: Point| {
+        let d = sub(p, dim.center);
+        d[1].atan2(d[0])
+    };
+    let ccw = |from: f64, to: f64| (to - from).rem_euclid(TAU);
+    let (a, b) = (direction(dim.from), direction(dim.to));
+    let mut span = ccw(a, b);
+    if span <= 1e-9 || TAU - span <= 1e-9 {
+        return Err(DraftError::new("invalid-value", path, "angular の寸法の from と to は違う向きにしてください"));
+    }
+    let mut start = a;
+    let radius = match dim.at {
+        Some(at) => {
+            let radius = length(at);
+            if radius <= 1e-9 {
+                return Err(DraftError::new("invalid-value", path, "angular の寸法の at は center から離してください"));
+            }
+            if ccw(a, direction(at)) > span {
+                (start, span) = (b, TAU - span);
+            }
+            radius
+        }
+        None => dim.radius.unwrap_or(near_from.min(near_to) / 2.0),
+    };
+    let s = ctx.scale;
+    let block = drafter.builder.dimension_block();
+    let inner = Space::Block(block.clone());
+    let by_block = Look::by_block();
+    let at_angle = |angle: f64| add(dim.center, mul([angle.cos(), angle.sin()], radius));
+    // 寸法補助線
+    for (p, distance) in [(dim.from, near_from), (dim.to, near_to)] {
+        if distance >= radius {
+            continue;
+        }
+        let u = mul(sub(p, dim.center), 1.0 / distance);
+        let begin = if style.gap * s < radius - distance { distance + style.gap * s } else { distance };
+        let (begin, end) = (add(dim.center, mul(u, begin)), add(dim.center, mul(u, radius + style.beyond * s)));
+        drafter.add(&inner, &by_block, "LINE", DxfEntityData::Line { start: xyz(begin), end: xyz(end) }, path);
+    }
+    // 寸法の弧と端の記号（弧に接する向きに内側へ）
+    let end = start + span;
+    let arc = DxfEntityData::Arc {
+        center: xyz(dim.center),
+        radius,
+        start_angle: start.to_degrees().rem_euclid(360.0),
+        end_angle: end.to_degrees().rem_euclid(360.0),
+    };
+    drafter.add(&inner, &by_block, "ARC", arc, path);
+    let size = style.arrow_size * s;
+    end_mark(drafter, &inner, &by_block, style.arrow, size, at_angle(start), [-start.sin(), start.cos()], path);
+    end_mark(drafter, &inner, &by_block, style.arrow, size, at_angle(end), [end.sin(), -end.cos()], path);
+    // 寸法の値（度）は弧の中央に、弧に沿って置く
+    let middle = start + span / 2.0;
+    let value = format!("{}%%d", format_number(span.to_degrees(), style.precision, false));
+    let raw = value_text(dim.text, &value);
+    let tangent = [-middle.sin(), middle.cos()];
+    let text_midpoint = put_value(drafter, &inner, style, s, at_angle(middle), tangent, raw, path);
+    let dimstyle = dimension_style(drafter, s, style);
+    let dimension = DxfDimension {
+        anonymous_block_name: block,
+        dimtype: 37.0,
+        defpoint: xyz(at_angle(middle)),
+        defpoint2: Some(xyz(dim.from)),
+        defpoint3: Some(xyz(dim.to)),
+        defpoint4: Some(xyz(dim.center)),
+        defpoint5: None,
+        text_midpoint: xyz(text_midpoint),
+        insert: None,
+        text: user_text(dim.text),
+        // 角度寸法の計測値はラジアン
+        actual_measurement: Some(span),
+        attachment_point: Some(5.0),
+        text_rotation: None,
+        horizontal_direction: None,
+        angle: None,
+        oblique_angle: None,
+        dimstyle,
+    };
+    drafter.add(&ctx.space, look, "DIMENSION", DxfEntityData::Dimension(dimension), path);
+    Ok(())
+}
+
+/// 半径寸法（70 の 4: 10 は中心、15 は円の上の点）か直径寸法（70 の 3: 10 と 15 は円の上の向かい合う点）を描く。
+/// 寸法線は angle の向きに、中心（直径は向かいの点）から円の上の点まで引き、円の上の端に端の記号を付ける。値の前に
+/// R か直径の記号（%%c）を付ける
+#[allow(clippy::too_many_arguments)]
+fn radial(
+    drafter: &mut Drafter,
+    ctx: &Ctx,
+    look: &Look,
+    style: &DimStyle,
+    diameter: bool,
+    center: Point,
+    radius: f64,
+    angle: f64,
+    text: Option<&str>,
+    path: &str,
+) {
+    let u = unit(angle);
+    let on_circle = add(center, mul(u, radius));
+    let first = if diameter { sub(center, mul(u, radius)) } else { center };
+    let s = ctx.scale;
+    let block = drafter.builder.dimension_block();
+    let inner = Space::Block(block.clone());
+    let by_block = Look::by_block();
+    drafter.add(&inner, &by_block, "LINE", DxfEntityData::Line { start: xyz(first), end: xyz(on_circle) }, path);
+    let size = style.arrow_size * s;
+    end_mark(drafter, &inner, &by_block, style.arrow, size, on_circle, mul(u, -1.0), path);
+    if diameter {
+        end_mark(drafter, &inner, &by_block, style.arrow, size, first, u, path);
+    }
+    let measured = if diameter { radius * 2.0 } else { radius };
+    let prefix = if diameter { "%%c" } else { "R" };
+    let value = format!("{prefix}{}", text::escape_text(&format_number(measured, style.precision, style.thousands)));
+    let raw = value_text(text, &value);
+    let text_midpoint = put_value(drafter, &inner, style, s, mul(add(first, on_circle), 0.5), u, raw, path);
+    let dimstyle = dimension_style(drafter, s, style);
+    let dimension = DxfDimension {
+        anonymous_block_name: block,
+        dimtype: if diameter { 35.0 } else { 36.0 },
+        defpoint: xyz(first),
+        defpoint2: None,
+        defpoint3: None,
+        defpoint4: Some(xyz(on_circle)),
+        defpoint5: None,
+        text_midpoint: xyz(text_midpoint),
+        insert: None,
+        text: user_text(text),
+        actual_measurement: Some(measured),
+        attachment_point: Some(5.0),
+        text_rotation: None,
+        horizontal_direction: None,
+        angle: None,
+        oblique_angle: None,
+        dimstyle,
+    };
+    drafter.add(&ctx.space, look, "DIMENSION", DxfEntityData::Dimension(dimension), path);
 }
 
 /// 寸法の並びを描く。points は順に測る点で、隣り合う 2 点ごとに寸法を描く

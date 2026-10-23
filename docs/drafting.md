@@ -76,7 +76,7 @@ Every item is an object with a `type`, and may have `layer`, `color` (ACI 1–25
 | `point` | `at` | |
 | `text` | `at`, `text`, `height`, `align`, `rotation`, `width`, `fit`, `widthFactor`, `lineSpacing`, `font` | `align`: `top-left` … `bottom-right` (9) or `left`, `center`, `right` on the baseline; `bottom-left` by default. Line breaks or `width` (wrap) give MTEXT; `fit` shrinks the width factor to a width, then the height |
 | `hatch` | `boundaries`, `pattern`, `scale`, `angle`, `patternLines`, `outline` | The first boundary is the outside, the others holes. `SOLID` by default; built-in patterns `LINE`, `ANSI31`, `ANSI32`, `ANSI37`, `NET`, `DOTS`, `DASH`, `GROUND`, drawn at their paper spacing × `scale`; any other name with `patternLines` `[angle, x, y, dx, dy, dash, gap…]` as in a PAT file, in paper mm |
-| `dimension` | `kind` (`linear`, `aligned`), `from`, `to`, `offset` or `at`, `angle`, `text` | `offset` is the paper distance of the dimension line from the points, positive on the left of `from → to`; `at` is a point on the dimension line. A linear dimension is horizontal or vertical by default. `text` replaces `<>` with the measured value |
+| `dimension` | `kind` (`linear`, `aligned`, `angular`, `radius`, `diameter`), `from`, `to`, `offset` or `at`, `angle`, `center`, `radius`, `text` | `offset` is the paper distance of the dimension line from the points, positive on the left of `from → to`; `at` is a point on the dimension line. A linear dimension is horizontal or vertical by default. `angular` measures at `center` the angle from `from` counterclockwise to `to` on an arc of `radius` (model length; by default half the distance to the nearer point), or, with `at` (a point on the arc) instead of `radius`, the angle between the two sides that holds `at`; the value is in degrees with `precision` decimals. `radius` and `diameter` measure the circle of `center` and `radius` along the direction `angle` (45° by default), with `R` or `Ø` before the value. `text` replaces `<>` with the measured value |
 | `dimensionChain` | `points`, `angle`, `offset` or `at`, `total`, `totalOffset` | One dimension between each pair of points; `total` adds the overall dimension 8 mm further out |
 | `insert` | `block`, `at`, `scale` (number or `[x, y]`), `rotation`, `attributes` | `attributes` maps tags to values; tags the block lacks are an error |
 | `table` | `at` (top left), `columns`, `rows` or `rowHeight` (7), `cells`, `textHeight`, `padding` (1), `align` (`middle-left`), `columnAlign`, `fit` (`shrink`, `wrap`, `none`), `outerWidth` (0.35), `innerWidth` (0.13) | A cell is a string, a number, `null` or `{text, colspan, rowspan, align, height, diagonal}`. Rows list the cells not covered by a span from above. Rules are drawn only between different cells; text that does not fit is condensed (`shrink`) or wrapped (`wrap`), and lowered if the lines do not fit the height |
@@ -114,7 +114,8 @@ when there is a mistake.
 - **DXF R12**: one paper space, so only the first sheet; hatches become lines and solids, MTEXT becomes TEXT, line
   weights are dropped. The notices list each.
 - **JWW and SXF**: one sheet per file (`--sheet` / `sheet=`); dimensions become the lines and text they draw, viewports
-  become layer groups or sub-figures at their scales. The notices list what changed.
+  become layer groups or sub-figures at their scales. The notices list what changed. SXF writes text in CP932, which
+  has no `Ø`: diameter values carry `?` there and the writer reports it (`encoding`).
 
 Text widths are estimated (full-width characters as wide as the text is high divided by 0.88, half-width ones half
 that), so `fit`, wrapping and table cells leave room for fonts that differ from the estimate. Dimensions are drawn by
@@ -151,7 +152,9 @@ The MCP tool `draft_drawing` takes `into` for the same.
   font is added, preserving its TrueType family. The others are added.
 - **Dimensions** become DIMENSION operations, and the editor draws their blocks from a dimension style added for each
   scale and look. Dot and empty end marks have no dimension style variable and become arrowheads
-  (`draft-into-end-mark`); values with thousands separators are given as the dimension's text.
+  (`draft-into-end-mark`); values with thousands separators, and angles with decimals (the added style keeps
+  DIMADEC at 0), are given as the dimension's text. Angular dimensions become `angular-3-point`, radius and diameter
+  dimensions `radius` and `diameter`.
 - **Solids** (arrowheads, filled marks) become solid hatches.
 - The template must be in millimeters (`$INSUNITS` 4 or unitless), and layouts need AutoCAD 2000 or later. An
   operation that the drawing refuses is reported with the place in the spec it came from.

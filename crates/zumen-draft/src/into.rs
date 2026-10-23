@@ -512,30 +512,77 @@ impl Planner {
                 value
             }
             DxfEntityData::Dimension(dimension) => {
-                let (Some(start), Some(end)) = (dimension.defpoint2, dimension.defpoint3) else { return None };
-                let aligned = dimension.dimtype as i64 & 7 == 1;
-                let mut value = json!({
-                    "kind": "dimension",
-                    "dimensionType": if aligned { "aligned" } else { "linear" },
-                    "start": p2(&start),
-                    "end": p2(&end),
-                    "position": p2(&dimension.defpoint),
-                    "dimensionStyle": Self::mapped(&self.dimension_styles, &dimension.dimstyle),
-                });
-                if !aligned {
-                    value["rotation"] = json!(dimension.angle.unwrap_or(0.0));
-                }
-                // 3 桁ごとの区切りは寸法スタイルで表せないので、区切った値を文字で渡す
-                let text = if dimension.text.is_empty() {
-                    match (self.dimension_looks.get(&dimension.dimstyle), dimension.actual_measurement) {
-                        (Some((_, look)), Some(measured)) => {
-                            let shown = format_number(measured, look.precision, look.thousands);
-                            shown.contains(',').then_some(shown)
+                let look = self.dimension_looks.get(&dimension.dimstyle).map(|(_, look)| look);
+                let style = Self::mapped(&self.dimension_styles, &dimension.dimstyle);
+                let measured = dimension.actual_measurement;
+                // 寸法スタイルで表せない値（3 桁ごとの区切り、角度の小数）は、作図キットの値を文字で渡す
+                let (mut value, shown) = match dimension.dimtype as i64 & 7 {
+                    kind @ (0 | 1) => {
+                        let (Some(start), Some(end)) = (dimension.defpoint2, dimension.defpoint3) else { return None };
+                        let aligned = kind == 1;
+                        let mut value = json!({
+                            "kind": "dimension",
+                            "dimensionType": if aligned { "aligned" } else { "linear" },
+                            "start": p2(&start),
+                            "end": p2(&end),
+                            "position": p2(&dimension.defpoint),
+                        });
+                        if !aligned {
+                            value["rotation"] = json!(dimension.angle.unwrap_or(0.0));
                         }
-                        _ => None,
+                        let shown = look
+                            .zip(measured)
+                            .map(|(look, measured)| format_number(measured, look.precision, look.thousands));
+                        (value, shown.filter(|shown| shown.contains(',')))
                     }
-                } else {
-                    Some(dimension.text.clone())
+                    5 => {
+                        let (Some(start), Some(end), Some(center)) =
+                            (dimension.defpoint2, dimension.defpoint3, dimension.defpoint4)
+                        else {
+                            return None;
+                        };
+                        let value = json!({
+                            "kind": "dimension",
+                            "dimensionType": "angular-3-point",
+                            "center": p2(&center),
+                            "start": p2(&start),
+                            "end": p2(&end),
+                            "position": p2(&dimension.defpoint),
+                        });
+                        // 足す寸法スタイルの角度の小数（DIMADEC）は Standard の 0
+                        let shown =
+                            look.zip(measured).filter(|(look, _)| look.precision > 0).map(|(look, measured)| {
+                                format!("{}%%d", format_number(measured.to_degrees(), look.precision, false))
+                            });
+                        (value, shown)
+                    }
+                    kind @ (3 | 4) => {
+                        let point = dimension.defpoint4?;
+                        let diameter = kind == 3;
+                        let center = if diameter {
+                            [(dimension.defpoint[0] + point[0]) / 2.0, (dimension.defpoint[1] + point[1]) / 2.0, 0.0]
+                        } else {
+                            dimension.defpoint
+                        };
+                        let value = json!({
+                            "kind": "dimension",
+                            "dimensionType": if diameter { "diameter" } else { "radius" },
+                            "center": p2(&center),
+                            "point": p2(&point),
+                        });
+                        let prefix = if diameter { "%%c" } else { "R" };
+                        let shown = look
+                            .zip(measured)
+                            .map(|(look, measured)| format_number(measured, look.precision, look.thousands));
+                        (value, shown.filter(|shown| shown.contains(',')).map(|shown| format!("{prefix}{shown}")))
+                    }
+                    _ => return None,
+                };
+                value["dimensionStyle"] = json!(style);
+                let text = match (dimension.text.as_str(), shown) {
+                    ("", shown) => shown,
+                    (text, Some(shown)) => Some(text.replace("<>", &shown)),
+                    (text, None) => Some(text.to_string()),
                 };
                 if let Some(text) = text {
                     value["text"] = json!(text);
