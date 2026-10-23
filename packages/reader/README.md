@@ -1,7 +1,7 @@
 # @zumenjs/reader
 
 Reads every drawing format of [zumen](https://github.com/zumenjs/zumen) in browsers and Node.js: SXF (SFC, P21 and the
-compressed P2Z and SFZ), JWW (also JWC and JWS), DXF (ASCII and binary) and DWG (AutoCAD 1.0 to 2018). The readers are zumen's Rust
+compressed P2Z and SFZ), JWW (also JWC and JWS), DXF (ASCII and binary), DWG (AutoCAD 1.0 to 2018) and PDF. The readers are zumen's Rust
 readers built to WebAssembly, the same code that the Rust crates, the command line and the Python package run, so a
 drawing reads into the same scene everywhere.
 
@@ -14,6 +14,15 @@ const scene = readDrawing(bytes, [reader]); // any format, detected from the con
 const layout = readDrawing(bytes, [reader], { view: "Layout1" }); // a DXF or DWG layout; scene.views lists them
 ```
 
+PDF is read by a WebAssembly module of its own, loaded only when it is needed:
+
+```ts
+import { initPdfReader, reader } from "@zumenjs/reader";
+
+await initPdfReader(); // or await reader.load("pdf"), which useDrawing calls for a PDF
+const page = readDrawing(pdfBytes, [reader], { view: "2" }); // the second page; scene.views lists the pages
+```
+
 ## Loading
 
 - `initReader()` loads `wasm/zumen_wasm_bg.wasm` (1.6 MB, 507 KB with brotli) relative to the module: browsers fetch
@@ -22,10 +31,15 @@ const layout = readDrawing(bytes, [reader], { view: "Layout1" }); // a DXF or DW
   its bytes or a compiled `WebAssembly.Module`. Every call returns the same promise, and a failed load is retried by
   the next call.
 - `reader.detect` and `detectDrawing` tell the format from the contents without the WebAssembly module, with the rules
-  of the Rust readers, so an application can load the module only when a drawing is opened. `reader.load()` calls
-  `initReader()`, and `useDrawing` of `@zumenjs/react` waits for it. Reading before the module has loaded throws an
-  error that says so.
-- The drawing stays on the device; the only request is for the WebAssembly file. Under a Content Security Policy,
+  of the Rust readers, so an application can load the module only when a drawing is opened. `reader.load(format)` calls
+  `initPdfReader()` for `pdf` and `initReader()` otherwise, and `useDrawing` of `@zumenjs/react` waits for it with the
+  format it detected. Reading before the module has loaded throws an error that says so.
+- `initPdfReader()` loads `wasm/zumen_wasm_pdf_bg.wasm` (4.3 MB, 1.4 MB with brotli) the same way; serve
+  `@zumenjs/reader/zumen_wasm_pdf_bg.wasm` and pass its location when bundlers do not copy it. PDF has its own module
+  because it would triple the other one (the PDF interpreter, its fonts and CMaps,
+  [decision 0030](https://github.com/zumenjs/zumen/blob/main/docs/decisions/0030-pdf-in-a-webassembly-module-of-its-own.md)),
+  so applications that never open a PDF never download it.
+- The drawing stays on the device; the only requests are for the WebAssembly files. Under a Content Security Policy,
   `script-src` needs `'wasm-unsafe-eval'`.
 
 ## Limits for drawings you receive
@@ -72,7 +86,8 @@ const scene = await worker.read(bytes, { view: "Layout1", limits: { timeout: 10_
 - The function passed to `ReaderWorker` creates the worker, because a stopped worker is created again. The worker is a
   file of your own that imports `@zumenjs/reader/worker`, so that the bundler builds it as a worker
   (`new Worker(new URL(…, import.meta.url), { type: "module" })`, as Vite and webpack 5 do). Pass `wasm` (a URL or a
-  `WebAssembly.Module`) when the WebAssembly file is not where `initReader()` finds it.
+  `WebAssembly.Module`) when the WebAssembly file is not where `initReader()` finds it, and `pdfWasm` for the PDF
+  module. The worker loads each module the first time it reads a drawing of its format.
 
 ## Formats
 
@@ -83,6 +98,7 @@ const scene = await worker.read(bytes, { view: "Layout1", limits: { timeout: 10_
 | JWC / JWS | `jwc` / `jws` | Legacy Jw_cad drawings and registered figures. |
 | DXF | `dxf` | ASCII and binary; model space and layouts with viewports at their scale. |
 | DWG | `dwg` | AutoCAD 1.0 to 2018 (MC0.0 to AC1032), read into the same model as DXF. |
+| PDF | `pdf` | Each page is a view (`"1"`, `"2"` …) with the page as its underlay (`kind: "pdf"`, `page`, no `file`); the paths, texts and images are entities with `drawn: false`, for hit testing, snapping, measurement and analysis, while a PDF engine draws the page. Read by the PDF module. |
 
 How the formats are read is described in [docs/formats](https://github.com/zumenjs/zumen/tree/main/docs/formats), why
 the browser reads with WebAssembly in [decision 0005](https://github.com/zumenjs/zumen/blob/main/docs/decisions/0005-browser-packages-for-embedding.md),
