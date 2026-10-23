@@ -1,4 +1,4 @@
-import type { Scene, Underlay } from "@zumenjs/core";
+import { drawingHash, type MarkupDrawing, type Scene, type Underlay } from "@zumenjs/core";
 import { useDrawing } from "@zumenjs/react";
 import { reader } from "@zumenjs/reader";
 import { imageUnderlayRenderer } from "@zumenjs/viewer";
@@ -73,6 +73,27 @@ function App() {
     () => (drawing.scene && image ? withUnderlay(drawing.scene, image) : drawing.scene),
     [drawing.scene, image],
   );
+  // マークアップの文書は、図面のファイルのバイトの SHA-256 で図面を指す
+  const [hash, setHash] = useState<{ file: File; sha256: string } | null>(null);
+  useEffect(() => {
+    if (!file) return;
+    let cancelled = false;
+    file
+      .arrayBuffer()
+      .then(drawingHash)
+      .then((sha256) => {
+        if (!cancelled) setHash({ file, sha256 });
+      })
+      .catch((reason: unknown) => console.error(reason));
+    return () => {
+      cancelled = true;
+    };
+  }, [file]);
+  const format = drawing.scene?.format;
+  const markupDrawing = useMemo<MarkupDrawing | null>(
+    () => (hash && hash.file === file && format ? { sha256: hash.sha256, format } : null),
+    [hash, file, format],
+  );
   const openImage = (next: File | null) => {
     setImageError(null);
     if (!next) {
@@ -143,7 +164,13 @@ function App() {
       </header>
       <div style={{ minHeight: 0, outline: over ? "3px dashed #0031d8" : undefined }}>
         {scene ? (
-          <DrawingSample scene={scene} label={file?.name} onViewChange={setView} underlayRenderer={underlayRenderer} />
+          <DrawingSample
+            scene={scene}
+            label={file?.name}
+            onViewChange={setView}
+            underlayRenderer={underlayRenderer}
+            markupDrawing={markupDrawing}
+          />
         ) : null}
       </div>
     </main>

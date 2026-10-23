@@ -1,0 +1,145 @@
+{
+  "format": "zumen-markup",
+  "version": 1,
+  "drawing": { "sha256": "9f2c6d1a4b7e8f0312a5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b", "format": "dxf" },
+  "items": [
+    {
+      "id": "redline-arrows",
+      "kind": "redline",
+      "view": "Layout1",
+      "points": [[20, 20], [60, 20], [60, 20], [80, 45]],
+      "arrows": "both",
+      "category": "correction",
+      "author": "u-128",
+      "createdAt": "2026-10-23T09:12:00Z",
+      "updatedAt": "2026-10-23T09:15:30.250+09:00"
+    },
+    {
+      "id": "redline-rectangle",
+      "kind": "redline",
+      "view": "Layout1",
+      "points": [[100, 20], [140, 20], [140, 50], [100, 50]],
+      "closed": true,
+      "arrows": "end",
+      "lineWidth": 0.5,
+      "color": "#0055FF"
+    },
+    {
+      "id": "redline-highlighter",
+      "kind": "redline",
+      "view": "Layout1",
+      "points": [[20, 70], [35, 72], [50, 69], [65, 71]],
+      "lineWidth": 4,
+      "color": "#ffd40080",
+      "arrows": "none"
+    },
+    {
+      "id": "redline-thin-arrow",
+      "kind": "redline",
+      "view": "Layout1",
+      "points": [[160, 20], [200, 40]],
+      "arrows": "end",
+      "lineWidth": 0.35
+    },
+    {
+      "id": "cloud-rectangle",
+      "kind": "cloud",
+      "view": "Layout1",
+      "points": [[20, 100], [70, 100], [70, 130], [20, 130]],
+      "arcLength": 8,
+      "text": "変更箇所",
+      "entities": ["4C:2A>1F", "51"]
+    },
+    {
+      "id": "cloud-clockwise",
+      "kind": "cloud",
+      "view": "Layout1",
+      "points": [[100, 100], [110, 135], [150, 120], [150, 120]],
+      "category": "question"
+    },
+    {
+      "id": "text-note",
+      "kind": "text",
+      "view": "Layout1",
+      "position": [180, 100],
+      "text": "壁厚を 150 に\r\nW=150\n\n寸法を確認",
+      "height": 5,
+      "angle": 30
+    },
+    {
+      "id": "text-default",
+      "kind": "text",
+      "position": [180, 60],
+      "text": "ABC あいう"
+    },
+    {
+      "id": "0b6f6f1e-5d8a-4c8e-9a52-3f1d2c7e4b10",
+      "kind": "finding",
+      "view": "A3-平面図",
+      "position": [212.5, 140],
+      "points": [[200, 130], [225, 130], [225, 150], [200, 150]],
+      "label": "3",
+      "text": "壁厚が構造図と合わない",
+      "status": "open",
+      "category": "correction",
+      "entities": ["4C:2A>1F"],
+      "author": "u-128",
+      "createdAt": "2026-10-23T09:12:00Z",
+      "updatedAt": "2026-10-23T09:12:00Z",
+      "data": { "assignee": "u-7", "due": "2026-11-01", "replies": [{ "by": "u-7", "text": "確認します" }] }
+    },
+    {
+      "id": "finding-resolved",
+      "kind": "finding",
+      "view": "A3-平面図",
+      "position": [250, 140],
+      "label": "12",
+      "status": "resolved",
+      "carried": { "from": "0000000000000000000000000000000000000000000000000000000000000000", "state": "changed" }
+    },
+    {
+      "id": "finding-closed",
+      "kind": "finding",
+      "view": "A3-平面図",
+      "position": [280, 140],
+      "label": "A-104",
+      "status": "closed",
+      "lineWidth": 0.25
+    },
+    {
+      "id": "finding-unlabeled",
+      "kind": "finding",
+      "view": "A3-平面図",
+      "position": [300, 140],
+      "status": "open",
+      "color": "#00aa00"
+    },
+    {
+      "id": "photo-direction",
+      "kind": "photo",
+      "view": "A3-平面図",
+      "position": [320, 200],
+      "photo": "photos/IMG_0042.jpg",
+      "direction": 135,
+      "takenAt": "2026-10-20T14:03:11+09:00"
+    },
+    {
+      "id": "photo-plain",
+      "kind": "photo",
+      "view": "A3-平面図",
+      "position": [350, 200],
+      "photo": "p-981"
+    },
+    {
+      "id": "unknown-keys",
+      "kind": "redline",
+      "view": "Layout1",
+      "points": [[10, 280], [400, 280]],
+      "position": [1, 2],
+      "x-application": { "layer": "check", "visible": true },
+      "priority": 2
+    }
+  ],
+  "data": { "project": "p-12", "reviewRound": 2 },
+  "x-extension": [1, "two", { "three": 3 }]
+}
