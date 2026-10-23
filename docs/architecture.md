@@ -327,10 +327,11 @@ only. Measurements are from [Verification records](verification.md#the-readers-i
   `WebAssembly.instantiateStreaming` compiles it while it downloads. `initSync` needs the bytes at hand and compiles
   on the calling thread, so it is not used.
 - **Formats are detected without WebAssembly.** `detectDrawing` (the reader's `detect`) repeats in TypeScript the
-  rules of `zumen::detect`: the SXF header and its comments, the central directory of a P2Z or SFZ archive, the JWW
-  signature, the first tags of ASCII and binary DXF, and the DWG version string. A test compares the two on every
-  fixture and on edge cases. Before the module is loaded, `readDrawing` still gives the usual error for files no
-  reader knows, and an application can load the module only when a drawing is opened, as `useDrawing` does.
+  rules of `zumen::detect`: the SXF header (its `FILE_SCHEMA`, so that IFC and other STEP files are not SXF, and the
+  `feature_mode` description) and its comments, the central directory of a P2Z or SFZ archive, the JWW signature, the
+  first tags of ASCII and binary DXF, and the DWG version string. A test compares the two on every fixture and on edge
+  cases. Before the module is loaded, `readDrawing` still gives the usual error for files no reader knows, and an
+  application can load the module only when a drawing is opened, as `useDrawing` does.
 - **Limits.** `createReader({ limits })` and `readScene(bytes, { limits })` pass `maxBytes` and `maxEntities` to
   `zumen::read`, which stops as soon as one is exceeded. The binding throws a `ReadFailure` with the message and the
   name of the limit, and the package turns it into a `LimitError` (`limit` is `bytes` or `entities`) or an `Error`.
