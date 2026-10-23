@@ -228,6 +228,73 @@ export interface SceneView {
   name: string;
 }
 
+/**
+ * underlay の中身の種類の、形式によらない英語のキー。"image" は画素の画像（PNG・JPEG・TIFF など。中身の座標の
+ * 単位は画素）、"pdf" は PDF の 1 ページ（単位はページの pt、ページの回転を済ませた向き）
+ */
+export const UNDERLAY_KINDS = ["image", "pdf"] as const;
+
+export type UnderlayKind = (typeof UNDERLAY_KINDS)[number];
+
+/**
+ * 図形の下に描くラスタの中身（画像、PDF のページ）。中身のバイトは図面が持たず、アプリケーションが渡す描き手
+ * （@zumenjs/viewer の UnderlayRenderer）が、中身の一部の範囲をある縮尺で描く（docs/decisions/0022）。
+ * 中身の座標は、中身の左上を原点に右が x、下が y で、範囲は 0〜width × 0〜height。
+ * underlay は Scene.view の表示に属し、配置（ビューポート・部分図）は matrix と clip に解決済み
+ */
+export interface Underlay {
+  /** 図面の中で underlay を指す識別子。同じバイトからは同じ id になる（DXF・DWG は図形のハンドルなど） */
+  id: string;
+  kind: UnderlayKind;
+  /** 図面に書かれた、中身のファイルの名前（パスを含むことがある）。図面のファイルそのものの中身なら省く */
+  file?: string;
+  /** PDF のページ番号（1 から）。kind が "pdf" のときだけ持つ */
+  page?: number;
+  /** 中身の幅と高さ（中身の座標） */
+  width: number;
+  height: number;
+  /** 中身の座標から用紙の mm への変換 [a, b, c, d, e, f]（x' = a x + c y + e, y' = b x + d y + f） */
+  matrix: readonly [number, number, number, number, number, number];
+  /** 描く範囲を切り取る、用紙の mm の多角形。偶奇規則で、外形と中抜き。省略すると中身の全体を描く */
+  clip?: Float64Array[];
+  /** 不透明度（0〜1）。省略すると 1 */
+  opacity?: number;
+  /** 自分と、配置元のレイヤ。SceneEntity.layers と同じく、すべて表示のときだけ描く */
+  layers: readonly number[];
+  /**
+   * 中身の中で表示を切り替えるレイヤ（PDF の optional content group など）。このどれかの表示が変わると、描き手に
+   * 描き直しを求め、非表示のものを UnderlayRequest.hiddenLayers で渡す。省略すると、中身はレイヤで変わらない
+   */
+  contentLayers?: readonly number[];
+  /** 描く範囲（clip で切り取った後）の外接矩形（用紙の mm）。Scene.bounds はこれも含む */
+  bbox: Box;
+}
+
+/** 中身の座標の矩形。x・y が左上 */
+export interface UnderlayRegion {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * 描き手への要求: underlay の中身の範囲 region を、中身の座標の 1 を scale px にして、width × height px の
+ * 画像に描く。region の左上が画像の左上 (0, 0) になり、中身の点 (x, y) は画像の
+ * ((x − region.x) × scale, (y − region.y) × scale) に来る。取り消しの仕組みは描画側（@zumenjs/viewer）が持つ
+ */
+export interface UnderlayRequest {
+  readonly underlay: Underlay;
+  readonly region: Readonly<UnderlayRegion>;
+  /** 中身の座標の 1 あたりの px（縦横同じ） */
+  readonly scale: number;
+  /** 描く画像の大きさ（px）。region の大きさ × scale を切り上げた値 */
+  readonly width: number;
+  readonly height: number;
+  /** underlay.contentLayers のうち、非表示のレイヤ */
+  readonly hiddenLayers: readonly number[];
+}
+
 export interface Scene {
   format: DrawingFormat;
   /** 形式の版（SXF 3.1、JWW 700 など） */
@@ -243,10 +310,12 @@ export interface Scene {
   /** この図面が描いている表示の id（views の 1 つ） */
   view?: string;
   sheet: Sheet | null;
-  /** すべての図形の外接矩形（用紙の mm） */
+  /** すべての図形と underlay の外接矩形（用紙の mm） */
   bounds: Box;
   layers: SceneLayer[];
   entities: SceneEntity[];
+  /** 図形の下に、この順に描くラスタの中身。ない図面では省く */
+  underlays?: Underlay[];
   notices: Notice[];
   /** 表題欄・ファイルの情報 */
   metadata: Property[];

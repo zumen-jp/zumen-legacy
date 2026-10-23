@@ -795,22 +795,16 @@ fn run(args: Args) -> Result<(), String> {
                 if args.map.is_some() {
                     return Err("--map is for PNG output".into());
                 }
-                let (bytes, missing) = if extension.as_deref() == Some("svg") {
-                    let svg = zumen_render::render_svg(&scene, args.region, &options).map_err(|e| e.to_string())?;
-                    (svg.into_bytes(), Default::default())
+                let (bytes, report) = if extension.as_deref() == Some("svg") {
+                    let (svg, report) =
+                        zumen_render::render_svg(&scene, args.region, &options).map_err(|e| e.to_string())?;
+                    (svg.into_bytes(), report)
                 } else {
-                    let (pdf, report) =
-                        zumen_render::render_pdf(&scene, args.region, &options).map_err(|e| e.to_string())?;
-                    (pdf, report.missing_glyphs)
+                    zumen_render::render_pdf(&scene, args.region, &options).map_err(|e| e.to_string())?
                 };
                 std::fs::write(&output, bytes).map_err(|error| format!("{output}: {error}"))?;
-                if !missing.is_empty() {
-                    let chars: String = missing.iter().collect();
-                    eprintln!("warning: no glyph in the bundled font for: {chars}");
-                }
-                for notice in &scene.notices {
-                    eprintln!("notice ({:?}, {}): {} × {}", notice.level, notice.code, notice.message, notice.count);
-                }
+                print_report(&report);
+                print_notices(&scene.notices);
                 return Ok(());
             }
             let size = match args.size {
@@ -824,15 +818,21 @@ fn run(args: Args) -> Result<(), String> {
                 let json = serde_json::to_string(&map_json(&scene, &image, &options)).map_err(|e| e.to_string())?;
                 std::fs::write(map, json).map_err(|error| format!("{map}: {error}"))?;
             }
-            if !image.report.missing_glyphs.is_empty() {
-                let chars: String = image.report.missing_glyphs.iter().collect();
-                eprintln!("warning: no glyph in the bundled font for: {chars}");
-            }
+            print_report(&image.report);
         }
         other => return Err(format!("unknown command: {other}\n\n{USAGE}")),
     }
     print_notices(&scene.notices);
     Ok(())
+}
+
+/// 描けなかった文字と内容（underlay など）
+fn print_report(report: &zumen_render::RenderReport) {
+    if !report.missing_glyphs.is_empty() {
+        let chars: String = report.missing_glyphs.iter().collect();
+        eprintln!("warning: no glyph in the bundled font for: {chars}");
+    }
+    print_notices(&report.notices);
 }
 
 fn print_notices(notices: &[zumen::Notice]) {

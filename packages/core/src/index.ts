@@ -26,5 +26,9 @@ export type {
   StrokePrimitive,
   StrokeStyle,
   TextPrimitive,
+  Underlay,
+  UnderlayKind,
+  UnderlayRegion,
+  UnderlayRequest,
 } from "./types.js";
-export { BACKGROUND_COLOR, ENTITY_KINDS, LENGTH_UNITS } from "./types.js";
+export { BACKGROUND_COLOR, ENTITY_KINDS, LENGTH_UNITS, UNDERLAY_KINDS } from "./types.js";

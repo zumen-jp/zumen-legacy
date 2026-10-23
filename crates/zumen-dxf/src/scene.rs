@@ -3726,6 +3726,7 @@ pub fn dxf_to_scene(doc: &DxfDocument, layout: Option<&str>) -> Scene {
         bounds,
         layers,
         entities: builder.entities,
+        underlays: Vec::new(),
         notices: builder.notices.into_vec(),
         metadata,
         background,

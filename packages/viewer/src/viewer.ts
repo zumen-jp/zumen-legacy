@@ -33,6 +33,7 @@ import {
   type ViewerStylePatch,
 } from "./style.js";
 import { measureTool, panTool, selectTool, type ToolPointerEvent, type ViewerTool } from "./tools.js";
+import { UnderlayCache, type UnderlayContext, type UnderlayEvent, type UnderlayRenderer } from "./underlays.js";
 
 export interface Measurement {
   readonly start: MeasurePoint;
@@ -129,6 +130,8 @@ export interface ViewerEventMap {
   moveend: ViewEvent;
   /** ポインターが動いたとき。図面を動かしている間は送らない（ポインターの下の点は変わらない） */
   cursor: CursorEvent;
+  /** underlay の中身を描き手に求めた要求が終わったとき（描けた、描き手が拒否した） */
+  underlay: UnderlayEvent;
 }
 
 export interface DrawingViewerOptions {
@@ -144,6 +147,8 @@ export interface DrawingViewerOptions {
   tools?: readonly ViewerTool[];
   /** 最初に使う道具の名前。省略すると "select" */
   tool?: string;
+  /** underlay（Scene.underlays）の中身を描く処理。省略すると underlay は描かない。後から setUnderlayRenderer で替える */
+  underlayRenderer?: UnderlayRenderer;
 }
 
 /** 図面の上に重ねて描く処理（書き込みなど）。ctx は CSS px の座標で、view で用紙の mm と変換する */
@@ -186,6 +191,8 @@ const DRAG_PX = 4;
 const KEY_PAN_PX = 48;
 /** ホイールが止まってから moveend を送るまで（ms） */
 const WHEEL_END_MS = 200;
+/** 表示が止まってから、underlay の中身を今の表示の細かさで描き手に求めるまで（ms） */
+const UNDERLAY_SETTLE_MS = 120;
 /** 用紙の 1 mm を画面の 1 mm にする倍率（CSS px / mm） */
 const PX_PER_MM = 96 / 25.4;
 /** 拡大の範囲（CSS px / mm）。描画の zoomAt と同じ */
@@ -252,8 +259,11 @@ export class DrawingViewer {
     move: new Set(),
     moveend: new Set(),
     cursor: new Set(),
+    underlay: new Set(),
   };
   private readonly overlays = new Set<OverlayPainter>();
+  private readonly underlays: UnderlayCache;
+  private underlayTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly detachers: (() => void)[] = [];
   private readonly observer: ResizeObserver;
 
@@ -288,6 +298,12 @@ export class DrawingViewer {
       distance: null,
     };
     this.index = new HitIndex(scene);
+    this.underlays = new UnderlayCache(
+      doc,
+      () => this.schedule(true),
+      (event) => this.emit("underlay", event),
+    );
+    if (options.underlayRenderer) this.underlays.setRenderer(options.underlayRenderer);
     this.fitTarget = isEmpty(scene.bounds) ? null : { box: scene.bounds, padding: undefined };
     this.camera = this.initialCamera(scene.bounds);
     if (this.win.getComputedStyle(container).position === "static") container.style.position = "relative";
@@ -340,6 +356,7 @@ export class DrawingViewer {
   setScene(scene: Scene): void {
     this.tool.cancel?.(this);
     this.index = new HitIndex(scene);
+    this.underlays.clear();
     this.update({
       scene,
       background: this.options.background ?? scene.background,
@@ -354,6 +371,7 @@ export class DrawingViewer {
       this.fitTarget = null;
       this.setCamera(this.initialCamera(scene.bounds, this.camera.rotation), true, null);
     } else this.fitTo(scene.bounds, undefined, true, null);
+    this.settleUnderlays();
   }
 
   setBackground(background: ViewerBackground): void {
@@ -376,12 +394,14 @@ export class DrawingViewer {
     }
     this.update({ hiddenLayers: next });
     this.schedule(true);
+    this.settleUnderlays();
   }
 
   /** 非表示にするレイヤを置き換える（空ならすべて表示） */
   setHiddenLayers(ids: Iterable<number>): void {
     this.update({ hiddenLayers: new Set(ids) });
     this.schedule(true);
+    this.settleUnderlays();
   }
 
   /** 選択を置き換える（空なら選択を外す） */
@@ -608,6 +628,26 @@ export class DrawingViewer {
     this.schedule(false);
   }
 
+  /**
+   * underlay の中身を描く処理を替える（null で外し、underlay を描かない）。描いた画像を捨て、描き途中の要求を
+   * 取り消して、今の表示を描き直す
+   */
+  setUnderlayRenderer(renderer: UnderlayRenderer | null): void {
+    this.underlays.setRenderer(renderer);
+    this.schedule(true);
+    this.settleUnderlays();
+  }
+
+  /**
+   * underlay の中身を描き直す（中身のバイトが届いた、変わったときなど）。ids を省くとすべて。描いた画像を捨て、
+   * 描き手が拒否した underlay にも、もう一度求める
+   */
+  refreshUnderlays(ids?: Iterable<string>): void {
+    this.underlays.clear(ids === undefined ? undefined : new Set(ids));
+    this.schedule(true);
+    this.settleUnderlays();
+  }
+
   /** Canvas と監視を外す。以後は使えない */
   destroy(): void {
     if (this.destroyed) return;
@@ -617,6 +657,8 @@ export class DrawingViewer {
     this.tool.deactivate?.(this);
     if (this.frame) this.win.cancelAnimationFrame(this.frame);
     clearTimeout(this.wheelTimer);
+    clearTimeout(this.underlayTimer);
+    this.underlays.setRenderer(null);
     this.observer.disconnect();
     for (const detach of this.detachers) detach();
     this.base.remove();
@@ -686,6 +728,7 @@ export class DrawingViewer {
       return;
     this.camera = camera;
     this.schedule(true);
+    this.settleUnderlays();
     if (this.size.width === 0 || this.size.height === 0) return;
     const view = this.getView();
     this.emit("move", { view, originalEvent });
@@ -803,6 +846,7 @@ export class DrawingViewer {
     this.frame = 0;
     this.baseDirty = true;
     this.paint();
+    this.settleUnderlays();
     const changed =
       before.cx !== this.camera.cx ||
       before.cy !== this.camera.cy ||
@@ -837,7 +881,34 @@ export class DrawingViewer {
       ...(palette.sheetFrame === null ? {} : { sheetFrameColor: palette.sheetFrame }),
       devicePixelRatio: dpr,
       highlights: layers,
+      underlays: this.underlays.images(scene),
     });
+  }
+
+  private underlayContext(): UnderlayContext {
+    const { width, height, dpr } = this.size;
+    return {
+      scene: this.state.scene,
+      view: this.transform(),
+      width,
+      height,
+      dpr,
+      hiddenLayers: this.state.hiddenLayers,
+    };
+  }
+
+  /**
+   * 表示・レイヤ・図面が変わった。今の表示に合わなくなった underlay の要求を取り消し、表示が止まったら
+   * 今の表示に要る画像を求める
+   */
+  private settleUnderlays(): void {
+    if (this.destroyed || !this.underlays.hasRenderer || !this.state.scene.underlays?.length) return;
+    this.underlays.moved(this.underlayContext());
+    clearTimeout(this.underlayTimer);
+    this.underlayTimer = setTimeout(() => {
+      this.underlayTimer = undefined;
+      if (!this.destroyed) this.underlays.plan(this.underlayContext());
+    }, UNDERLAY_SETTLE_MS);
   }
 
   private drawOverlay(): void {

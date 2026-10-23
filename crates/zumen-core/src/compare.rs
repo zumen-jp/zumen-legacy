@@ -8,7 +8,8 @@
 use crate::extract::{entity_text, hidden_layers, is_entity_visible, layer_names};
 use crate::geometry::{empty_box, extend_box, is_empty_box, multiply, union_box};
 use crate::types::{
-    BACKGROUND_COLOR, BBox, Background, Placement, Primitive, Property, Scene, SceneEntity, SceneLayer, StrokePrimitive,
+    BACKGROUND_COLOR, BBox, Background, Notice, NoticeLevel, Placement, Primitive, Property, Scene, SceneEntity,
+    SceneLayer, StrokePrimitive,
 };
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -701,6 +702,16 @@ pub fn diff_scene(before: &Scene, after: &Scene, diff: &SceneDiff) -> Scene {
             .raw([ox, oy]),
         );
     }
+    let mut notices = Vec::new();
+    let underlays = before.underlays.len() + after.underlays.len();
+    if underlays > 0 {
+        notices.push(Notice {
+            level: NoticeLevel::Info,
+            code: "underlay-not-compared".into(),
+            message: "underlay（画像・PDF のページ）は比べず、差分の図面に描いていません".into(),
+            count: underlays as u64,
+        });
+    }
     Scene {
         format: "diff".into(),
         version: "比較".into(),
@@ -712,7 +723,9 @@ pub fn diff_scene(before: &Scene, after: &Scene, diff: &SceneDiff) -> Scene {
         bounds,
         layers: vec![layer(0, "変更なし"), layer(1, "削除・変更前"), layer(2, "追加・変更後")],
         entities,
-        notices: Vec::new(),
+        // 比べるのは図形だけで、underlay（画像・PDF のページ）は比べず、差分の図面にも描かない
+        underlays: Vec::new(),
+        notices,
         metadata,
         background: Background::Light,
     }
@@ -836,6 +849,7 @@ mod tests {
             bounds,
             layers: vec![SceneLayer { id: 0, name: "0".into(), visible: true, group: None }],
             entities,
+            underlays: Vec::new(),
             notices: Vec::new(),
             metadata: Vec::new(),
             background: Background::Light,

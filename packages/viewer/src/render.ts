@@ -6,6 +6,8 @@ import {
   type Scene,
   type SceneEntity,
   type StrokePrimitive,
+  type Underlay,
+  type UnderlayRegion,
 } from "@zumenjs/core";
 
 /**
@@ -56,6 +58,19 @@ export interface RenderOptions {
   devicePixelRatio: number;
   /** 図面の上に強調して重ね描きする図形の組。前の組から描き、後の組が上に重なる */
   highlights?: readonly HighlightLayer[];
+  /** 背景の上、図形の下に、この順に描く underlay の中身の画像。レイヤが非表示の underlay の画像は描かない */
+  underlays?: readonly UnderlayImage[];
+}
+
+/**
+ * 描き手（UnderlayRenderer）が描いた、underlay の中身の範囲の画像。画像の左上が中身の (region.x, region.y) で、
+ * 画像の 1 px が中身の座標の 1 / scale。underlay の中身の外と clip の外は描かない
+ */
+export interface UnderlayImage {
+  readonly underlay: Underlay;
+  readonly region: Readonly<UnderlayRegion>;
+  readonly scale: number;
+  readonly image: CanvasImageSource;
 }
 
 /** 強調して重ね描きする図形と、その色。塗りは描かず、線を 3 デバイス px 以上の太さで描く */
@@ -355,6 +370,35 @@ class Painter {
     this.flush();
   }
 
+  underlay({ underlay, region, scale, image }: UnderlayImage): void {
+    if (!(scale > 0) || !this.intersects(underlay.bbox)) return;
+    this.flush();
+    const ctx = this.ctx;
+    const m = underlay.matrix;
+    const b = this.base;
+    ctx.save();
+    this.resetTransform();
+    if (underlay.clip) ctx.clip(this.ringsPath(underlay.clip), "evenodd");
+    // 中身の座標 → デバイス px。中身の範囲の外（画像の端の切り上げた分）は描かない
+    ctx.setTransform(
+      b[0] * m[0] + b[2] * m[1],
+      b[1] * m[0] + b[3] * m[1],
+      b[0] * m[2] + b[2] * m[3],
+      b[1] * m[2] + b[3] * m[3],
+      b[0] * m[4] + b[2] * m[5] + b[4],
+      b[1] * m[4] + b[3] * m[5] + b[5],
+    );
+    ctx.beginPath();
+    ctx.rect(0, 0, underlay.width, underlay.height);
+    ctx.clip();
+    ctx.transform(1 / scale, 0, 0, 1 / scale, region.x, region.y);
+    ctx.globalAlpha = underlay.opacity ?? 1;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(image, 0, 0);
+    ctx.restore();
+  }
+
   highlights(layers: readonly HighlightLayer[]): void {
     this.resetTransform();
     for (const layer of layers) {
@@ -398,6 +442,9 @@ export function renderScene(
   ctx.lineJoin = "round";
   const painter = new Painter(ctx, view, options, width, height);
   painter.resetTransform();
+  for (const image of options.underlays ?? []) {
+    if (isEntityVisible(image.underlay, options.hiddenLayers)) painter.underlay(image);
+  }
   if (options.sheetFrame) painter.sheet(scene);
   for (const entity of scene.entities) {
     if (!painter.intersects(entity.bbox) || !isEntityVisible(entity, options.hiddenLayers)) continue;

@@ -110,6 +110,34 @@ overrides them in JavaScript. Without them, the viewer draws as zumen always has
 The properties are read when the viewer is created, when the element is resized and when the system color scheme
 changes. Call `refreshStyle()` after switching the theme of your application in another way.
 
+## Underlays
+
+Raster content in `scene.underlays` (images, PDF pages) is drawn under the entities by a renderer that your
+application passes in. The scene says where the content sits and what it is; the renderer draws a region of it at a
+scale into the canvas it is given, and stops when the request is aborted:
+
+```ts
+import { DrawingViewer, imageUnderlayRenderer } from "@zumenjs/viewer";
+
+// Images: load each one once (null or a rejection means it cannot be drawn)
+const images = imageUnderlayRenderer((underlay) => loadBitmap(underlay.file));
+const viewer = new DrawingViewer(element, scene, { underlayRenderer: images });
+
+// Any content: draw request.region at request.scale into request.width × request.height pixels
+viewer.setUnderlayRenderer(async (request, { context, signal }) => {
+  const task = drawRegion(request, context);
+  signal.addEventListener("abort", () => task.cancel());
+  await task.promise;
+});
+viewer.on("underlay", ({ underlay, error }) => error && console.warn(underlay.file, error));
+```
+
+Once the view settles the engine asks for the whole content coarsely and, when that is not sharp enough, for the
+visible region at the device resolution; while the view moves it stretches what it has, and it aborts the requests
+that the view no longer needs. A renderer that rejects is not asked again for that underlay until
+`refreshUnderlays(ids)`, which also redraws content that changed. `renderScene` draws rendered images passed in
+`options.underlays`.
+
 ## Queries and overlays
 
 - `entitiesAt(x, y, { tolerance })` returns the visible entities near a paper point, nearest first,

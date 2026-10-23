@@ -198,6 +198,7 @@ pub fn sxf_to_scene_with(drawing: &SxfDrawing, options: &SxfSceneOptions) -> Sce
         bounds,
         layers,
         entities: builder.entities,
+        underlays: Vec::new(),
         notices: builder.notices.into_vec(),
         background: builder.background,
     }

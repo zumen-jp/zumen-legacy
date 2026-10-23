@@ -21,9 +21,10 @@ use tiny_skia::{
     Color, FillRule, LineCap, LineJoin, Mask, Paint, Path, PathBuilder, Pixmap, Rect, Stroke, StrokeDash, Transform,
 };
 use ttf_parser::{Face, OutlineBuilder};
-use zumen_core::extract::{EntityFilter, select_entities};
+use zumen_core::extract::{EntityFilter, select_entities, select_underlays};
 use zumen_core::{
-    BACKGROUND_COLOR, BBox, Background, Matrix, Primitive, Scene, SceneEntity, StrokePrimitive, TextPrimitive,
+    BACKGROUND_COLOR, BBox, Background, Matrix, Notice, NoticeLevel, Primitive, Scene, SceneEntity, StrokePrimitive,
+    TextPrimitive,
 };
 
 pub use zumen_core::extract::is_entity_visible;
@@ -147,6 +148,24 @@ impl Default for RenderOptions {
 pub struct RenderReport {
     /// 同梱のフォントに字形がなく、描かなかった文字
     pub missing_glyphs: BTreeSet<char>,
+    /// 描かなかった内容の種類と件数（`underlay-not-drawn`: 範囲に写る underlay）
+    pub notices: Vec<Notice>,
+}
+
+/// 描く範囲 region に写り、表示するレイヤにある underlay（画像・PDF のページ）の notice。zumen-render は underlay の
+/// 中身（画像・PDF のバイト）を受け取らないので描かず、件数を返す（docs/decisions/0022）
+pub(crate) fn underlay_notices(scene: &Scene, region: BBox, options: &RenderOptions) -> Vec<Notice> {
+    let filter = EntityFilter { region: Some(region), hidden_layers: options.hidden_layers.clone() };
+    let count = select_underlays(scene, &filter).len();
+    if count == 0 {
+        return Vec::new();
+    }
+    vec![Notice {
+        level: NoticeLevel::Warning,
+        code: "underlay-not-drawn".into(),
+        message: "underlay（画像・PDF のページ）は中身を受け取らないので描いていません".into(),
+        count: count as u64,
+    }]
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -209,7 +228,8 @@ pub fn render(
         }
     }
     painter.flush(None);
-    let report = painter.report;
+    let mut report = painter.report;
+    report.notices = underlay_notices(scene, view.visible_region(width, height), options);
     Ok((pixmap, report))
 }
 
@@ -713,6 +733,7 @@ mod tests {
                 SceneLayer { id: 0, name: "表示".into(), visible: true, group: None },
                 SceneLayer { id: 1, name: "非表示".into(), visible: false, group: None },
             ],
+            underlays: Vec::new(),
             entities: vec![
                 line("a", vec![0], [0.0, 0.0, 100.0, 50.0]),
                 line("b", vec![1], [10.0, 10.0, 20.0, 10.0]),
@@ -774,7 +795,7 @@ mod vector_tests {
     use super::*;
     use zumen_core::geometry::placement;
     use zumen_core::text::{TextLayoutInput, layout_text};
-    use zumen_core::{ClippedPrimitive, DotPrimitive, FillPrimitive, SceneLayer, Sheet};
+    use zumen_core::{ClippedPrimitive, DotPrimitive, FillPrimitive, SceneLayer, Sheet, Underlay, UnderlayKind};
 
     fn entity(id: &str, layers: Vec<u32>, primitives: Vec<Primitive>) -> SceneEntity {
         SceneEntity {
@@ -834,6 +855,7 @@ mod vector_tests {
                 SceneLayer { id: 0, name: "0".into(), visible: true, group: None },
                 SceneLayer { id: 1, name: "非表示".into(), visible: false, group: None },
             ],
+            underlays: Vec::new(),
             entities: vec![
                 entity("1", vec![0], vec![Primitive::Stroke(stroke(&[0.0, 0.0, 420.0, 297.0], "#ff0000"))]),
                 entity(
@@ -866,7 +888,8 @@ mod vector_tests {
     #[test]
     fn writes_svg_in_paper_millimeters_with_searchable_text() {
         let scene = sheet_scene("平面図");
-        let svg = render_svg(&scene, None, &RenderOptions::default()).unwrap();
+        let (svg, report) = render_svg(&scene, None, &RenderOptions::default()).unwrap();
+        assert!(report.notices.is_empty());
         assert!(svg.starts_with(
             "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"420mm\" height=\"297mm\" viewBox=\"0 0 420 297\">"
         ));
@@ -882,12 +905,55 @@ mod vector_tests {
             Some(BBox { min_x: -10.0, min_y: -10.0, max_x: 90.0, max_y: 40.0 }),
             &RenderOptions::default(),
         )
-        .unwrap();
+        .unwrap()
+        .0;
         assert!(part.contains("viewBox=\"0 0 100 50\"") && part.contains("stroke-opacity=\"0.35\""));
         // 細い線は 1 px（0.265 mm）より細くしない
-        let thin =
+        let (thin, _) =
             render_svg(&scene, None, &RenderOptions { line_weights: false, ..RenderOptions::default() }).unwrap();
         assert!(thin.contains("stroke=\"#ff0000\" stroke-width=\"0.265\""));
+    }
+
+    #[test]
+    fn reports_the_underlays_it_does_not_draw() {
+        let underlay = |id: &str, layers: Vec<u32>, min_x: f64| Underlay {
+            id: id.into(),
+            kind: UnderlayKind::Image,
+            file: Some(format!("{id}.png")),
+            page: None,
+            width: 10.0,
+            height: 10.0,
+            matrix: [1.0, 0.0, 0.0, -1.0, min_x, 10.0],
+            clip: None,
+            opacity: None,
+            layers,
+            content_layers: None,
+            bbox: BBox { min_x, min_y: 0.0, max_x: min_x + 10.0, max_y: 10.0 },
+        };
+        // レイヤ 1 は非表示
+        let mut scene = sheet_scene("図");
+        scene.underlays = vec![
+            underlay("shown", vec![0], 0.0),
+            underlay("hidden", vec![1], 20.0),
+            underlay("outside", vec![0], 500.0),
+        ];
+        let options = RenderOptions::default();
+        let count = |report: &RenderReport| {
+            report.notices.iter().find(|notice| notice.code == "underlay-not-drawn").map(|notice| notice.count)
+        };
+        // 範囲に写り、表示するレイヤにある underlay だけを数える
+        let sheet = Some(BBox { min_x: 0.0, min_y: 0.0, max_x: 420.0, max_y: 297.0 });
+        let (_, png) = render_png(&scene, sheet, 2.54, &options).unwrap();
+        let (_, svg) = render_svg(&scene, None, &options).unwrap();
+        let (_, pdf) = render_pdf(&scene, None, &options).unwrap();
+        for report in [&png, &svg, &pdf] {
+            assert_eq!(count(report), Some(1));
+        }
+        let all = RenderOptions { hidden_layers: Some(HashSet::new()), ..RenderOptions::default() };
+        let wide = Some(BBox { min_x: 0.0, min_y: 0.0, max_x: 600.0, max_y: 297.0 });
+        assert_eq!(count(&render_svg(&scene, wide, &all).unwrap().1), Some(3));
+        let away = Some(BBox { min_x: 50.0, min_y: 20.0, max_x: 60.0, max_y: 30.0 });
+        assert_eq!(count(&render_png(&scene, away, 25.4, &options).unwrap().1), None);
     }
 
     #[test]

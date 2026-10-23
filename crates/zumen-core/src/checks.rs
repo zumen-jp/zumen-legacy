@@ -923,6 +923,7 @@ mod tests {
                 .map(|(id, name)| SceneLayer { id: id as u32, name: (*name).into(), visible: true, group: None })
                 .collect(),
             entities,
+            underlays: Vec::new(),
             notices: Vec::new(),
             metadata: Vec::new(),
             background: Background::Light,

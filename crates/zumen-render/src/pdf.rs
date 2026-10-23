@@ -4,7 +4,7 @@
 //! 字形の置き方は PNG と同じ（字送りの中央と em の中央をセルの中心に置く）。
 
 use crate::vector::{DOT_MM, Page, dash_lengths};
-use crate::{BUNDLED_FONT, RenderError, RenderOptions, RenderReport, background_rgb, resolve_color};
+use crate::{BUNDLED_FONT, RenderError, RenderOptions, RenderReport, background_rgb, resolve_color, underlay_notices};
 use pdf_writer::types::{CidFontType, FontFlags, LineCapStyle, LineJoinStyle, SystemInfo, UnicodeCmap};
 use pdf_writer::{Content, Filter, Finish, Name, Pdf, Rect, Ref, Str};
 use std::collections::BTreeMap;
@@ -33,7 +33,7 @@ pub fn render_pdf(
         glyphs: GlyphRemapper::new(),
         used: BTreeMap::new(),
         alphas: BTreeMap::new(),
-        report: RenderReport::default(),
+        report: RenderReport { notices: underlay_notices(scene, page.region, options), ..RenderReport::default() },
         batch: None,
     };
     let k = PT_PER_MM as f32;

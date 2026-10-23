@@ -4,6 +4,16 @@ All packages share one version during 0.x.
 
 ## Unreleased
 
+- Browsers, Rust and Python: scenes describe raster content drawn under the entities, `Scene.underlays` (images and
+  PDF pages: where they sit in paper millimeters, clip rings, opacity and layers, and the file and page they come
+  from), with the same JSON in `@zumenjs/core` and `zumen-core`
+  ([decision 0022](docs/decisions/0022-underlays-drawn-by-a-region-renderer.md)). `DrawingViewer` draws them through
+  an `UnderlayRenderer` that the application passes in (`underlayRenderer`, `setUnderlayRenderer`,
+  `refreshUnderlays`, the `underlay` event): it asks for the whole content coarsely and for the visible region sharply
+  once the view settles, and aborts the requests the view no longer needs. `imageUnderlayRenderer` draws images, and
+  `renderScene` draws rendered regions passed in `underlays`. `zumen-render` does not draw underlays and reports them
+  as `underlay-not-drawn` in the new `RenderReport.notices` (printed by the command line, a warning in Python);
+  `render_svg` returns the report too. No reader produces underlays yet.
 - Rust, Python, the command line and the MCP server: check a drawing against the rules of a CAD standard (layer
   names, colors, line types, line widths, text heights on the sheet, machine-dependent characters, the sheet size and
   orientation, and scales), with the CAD drafting standard of MLIT (CAD製図基準, December 2025) built in as
