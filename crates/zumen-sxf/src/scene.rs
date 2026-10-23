@@ -574,6 +574,7 @@ impl SceneBuilder<'_> {
             bbox,
             properties: all,
             placement: ctx.placement.clone(),
+            drawn: true,
         });
     }
 

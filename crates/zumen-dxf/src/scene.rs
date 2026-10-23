@@ -862,6 +862,7 @@ impl<'a> Builder<'a> {
             bbox,
             properties: common,
             placement: ctx.placement.clone(),
+            drawn: true,
         });
     }
 

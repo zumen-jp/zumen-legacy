@@ -280,6 +280,7 @@ mod tests {
             bbox,
             properties: Vec::new(),
             placement: None,
+            drawn: true,
         }
     }
 

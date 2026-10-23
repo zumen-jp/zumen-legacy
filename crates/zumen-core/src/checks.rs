@@ -875,6 +875,7 @@ mod tests {
             bbox: BBox { min_x: 0.0, min_y: 0.0, max_x: 10.0, max_y: 0.0 },
             properties,
             placement: None,
+            drawn: true,
         }
     }
 
@@ -901,6 +902,7 @@ mod tests {
             bbox: BBox { min_x: 0.0, min_y: 0.0, max_x: 10.0, max_y: 10.0 },
             properties: Vec::new(),
             placement: None,
+            drawn: true,
         }
     }
 
