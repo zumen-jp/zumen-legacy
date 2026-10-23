@@ -8,9 +8,9 @@ SHA-256 of its bytes, and items name the entities they are about by their ids
 
 `@zumenjs/core` reads, checks and writes the documents and computes the shapes of their items, `@zumenjs/viewer` draws
 and edits them on a `DrawingViewer` (`MarkupLayer` and its tools), and `@zumenjs/react` has hooks for both. The Rust
-crate `zumen-core` is to read the same documents and give the same shapes, checked against the fixtures in
-`tests/fixtures/markup/`, for Python, the command line and the MCP server
-([#93](https://github.com/zumenjs/zumen/issues/93)).
+crate `zumen-core` reads the same documents and gives the same shapes, checked against the fixtures in
+`tests/fixtures/markup/`; `zumen-render` draws them on servers and `zumen` carries them to new revisions, for Python,
+the command line and the MCP server ([On servers](#on-servers)).
 
 ```ts
 import { createMarkup, drawingHash, markupFromJson, markupToJson } from "@zumenjs/core";
@@ -87,8 +87,8 @@ and `MarkupLayer.update` keeps them.
 
 ### Checks
 
-`markupFromJson(json)` refuses a document with the first error met in this order, and the Rust reader is to give the
-same error: the JSON, `format`, `version`, `drawing` (`sha256`, then `format`), `items`, `data`,
+`markupFromJson(json)` (TypeScript) and `MarkupDocument::from_json` (Rust) refuse a document with the same error, the
+first one met in this order: the JSON, `format`, `version`, `drawing` (`sha256`, then `format`), `items`, `data`,
 then each item in order: that it is an object, `id`, a duplicate id, `kind`, the common keys in the order of the
 table above (`carried.from` before `carried.state`), then the keys of its kind in the order of the table of kinds. An
 error has:
@@ -107,16 +107,17 @@ the text as `json`.
 ## Shapes
 
 `markupShapes(item, { color, pixel })` returns the shapes drawn for an item, in paper millimeters, as primitives of the
-scene model (strokes, fills and texts), in drawing order. The viewer draws them with `renderPrimitives`, and servers
-are to draw the same primitives with `zumen-render`.
+scene model (strokes, fills and texts), in drawing order. The viewer draws them with `renderPrimitives`, and
+`zumen-render` draws the same primitives (`zumen_core::markup::shapes`, the same function in Rust).
 
 - The color is the item's `color`, else `options.color` (the color of its category, which the application or the
   viewer's style chooses), else `#ff0000`. Translucent parts multiply the alpha of `#rrggbb` and `#rrggbbaa` colors
   and are written `#rrggbbaa` in lowercase; the fill color `background` is the background of the view.
 - `pixel` is the paper length of one pixel of the parts drawn at a fixed size on screen: pins, photo symbols, lines
-  without `lineWidth` and their arrowheads. The viewer passes one CSS pixel at the current zoom. Servers use the
-  default, 25.4 / 96 mm, the size of a CSS pixel at zoom 1, so a picture drawn on a server looks like the viewer at
-  100%.
+  without `lineWidth` and their arrowheads. The viewer passes one CSS pixel at the current zoom. `zumen-render` passes
+  one pixel of the image in PNG (times the device pixel ratio), so pins are as many pixels as on screen whatever the
+  drawing's scale, and the default, 25.4 / 96 mm, the size of a CSS pixel at zoom 1, in SVG and PDF, whose pages are
+  the sheet at its real size.
 - `w` is the line width: `lineWidth`, or 2 pixels.
 
 | Kind | Shapes |
@@ -132,7 +133,8 @@ texts, without the parts drawn at a fixed size on screen, so a pin or a photo is
 a new revision compares this box with the regions that changed.
 
 `tests/fixtures/markup/kinds.markup.json` has every kind and key, and `kinds.shapes.json` its shapes with the default
-options and with `{ "color": "#336699", "pixel": 0.5 }`, written by the TypeScript side (`pnpm run golden`).
+options and with `{ "color": "#336699", "pixel": 0.5 }`, written by the TypeScript side (`pnpm run golden`) and
+checked by the Rust tests of `zumen-core`.
 
 ## Revisions
 
@@ -142,6 +144,50 @@ by the comparison of revisions (`zumen_core::compare`) view by view, as
 [decision 0021](decisions/0021-drawing-markup.md#revisions) describes. A sheet drawn as CAD and the PDF plotted from
 it share paper millimeters, but their views have other ids (a layout name, a page number); carrying with a map of
 views moves items from one to the other.
+
+## Carrying in detail
+
+`zumen::carry_markup(document, before, after, options)` takes the bytes of both revisions:
+
+- The document must name `before` (`drawing.sha256`), or `options.ignore_hash` is set; otherwise the error is
+  `drawing-mismatch`.
+- The items are taken view by view, in the order they first appear. A view is compared with the view of the same id
+  in `after`, or the one `options.views` names; items without a view use the default view of both. When a view is
+  not in `before` or `after`, its items are not moved and are `removed`.
+- The comparison is `compare_scenes` with `options.compare`, which compares every layer by default
+  (`all_layers: true`), since an item can be about an entity on a hidden layer. Its offset moves the items
+  (`after = before + offset`).
+- An id in `entities` becomes the id of the matched entity (unchanged or changed pairs); an id of a removed entity,
+  of an entity the comparison did not pair, or of no entity of `before` is dropped and counts as removed. `entities`
+  stays, empty, when every id is dropped.
+- The state is `removed` when the item named entities and none is left, `changed` when a named entity changed or was
+  dropped or `markupBox` (before moving) overlaps a region of the comparison, and `unchanged` otherwise. `updatedAt`
+  does not change: carrying is not an edit by a person.
+- The document's `drawing` becomes the SHA-256 and format of `after`, and each carried item's `view` the id of the
+  view of `after` it was compared with; everything else, unknown keys included, stays.
+
+## On servers
+
+- **Rust.** `zumen_core::markup` has `MarkupDocument` (`from_json`, `from_value`, `to_json`, `to_value`,
+  `items_in_view`), `MarkupItem` with its `MarkupBody` by kind (unknown keys in `extra`), `MarkupError`, `shapes`,
+  `markup_box`, `markup_entities` (the items as scene entities, `markup:<id>`, for drawing), `carry_view`,
+  `drawing_hash` (SHA-256 with the `sha2` crate) and `SCHEMA` (the JSON Schema of the document). `zumen::carry_markup`
+  carries a document over the bytes of two revisions (`CarryOptions`, `CarriedMarkup`, `CarryError`), and
+  `zumen_render::RenderOptions::markup` (`RenderMarkup`: the items and a `MarkupStyle` with the colors of categories)
+  draws items over the drawing in PNG, SVG and PDF, in the item's color, its category's or red.
+- **Python.** `zumen.read_markup(source)` returns `TypedDict` classes, `zumen.markup_schema()`,
+  `zumen.drawing_hash(source)`, `zumen.carry_markup(markup, before, after, views=…)`, and `markup=` with
+  `markup_colors=` on `Scene.render_png`, `render_svg`, `render_pdf` and `render`
+  ([the Python package](../bindings/python/README.md#markup)).
+- **The command line.** `zumen markup carry <markup> <before> <after> [-o <out.json>] [--view-map <old>=<new>]`
+  writes the carried document and the number of items in each state; `zumen render --markup <file>
+  [--markup-color <category>=<#rrggbb>]` draws the items of the view drawn.
+- **The MCP server.** `render_drawing` takes `markup` (a path); `read_markup` lists the items of a file with their
+  kind, box, text, status, carried state and entities, and whether a drawing has the bytes the markup was made on;
+  `write_markup` adds, updates and removes items (creating the file for a drawing, whose default view an item added
+  without one gets); `carry_markup` writes the carried
+  document to a new path and returns the number of items in each state. The two that write work under the roots like
+  `draft_drawing`.
 
 ## In the browser
 
