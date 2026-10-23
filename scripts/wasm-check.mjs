@@ -1,5 +1,5 @@
-// WebAssembly の読み取り（bindings/wasm を packages/reader/wasm に作ったもの）が、tests/fixtures の正解と同じ Scene を
-// 返すかを Node.js で確かめる。
+// WebAssembly の読み取り（bindings/wasm と bindings/wasm-pdf を packages/reader/wasm に作ったもの）が、tests/fixtures の
+// 正解と同じ Scene を返すかを Node.js で確かめる。PDF は PDF のモジュールで読む（決定 0030）。
 //
 //   node scripts/wasm.mjs
 //   node scripts/wasm-check.mjs [drawings…]
@@ -8,9 +8,11 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { performance } from "node:perf_hooks";
 import { detect, initSync, readSceneJson } from "../packages/reader/wasm/zumen_wasm.js";
+import * as pdf from "../packages/reader/wasm/zumen_wasm_pdf.js";
 import { compareScenes } from "./compare-scenes.mjs";
 
 initSync({ module: readFileSync(new URL("../packages/reader/wasm/zumen_wasm_bg.wasm", import.meta.url)) });
+pdf.initSync({ module: readFileSync(new URL("../packages/reader/wasm/zumen_wasm_pdf_bg.wasm", import.meta.url)) });
 
 const fixtures = new URL("../tests/fixtures/", import.meta.url);
 let failed = 0;
@@ -30,8 +32,11 @@ for (const format of readdirSync(fixtures, { withFileTypes: true }).filter((entr
         new URL(`${format.name}/${stem}${view ? `@${view}` : ""}.scene.json`, fixtures),
         "utf8",
       );
-      const actual = JSON.parse(readSceneJson(bytes, undefined, view));
-      const same = detect(bytes) === format.name && compareScenes(JSON.parse(golden), actual).length === 0;
+      const module = format.name === "pdf" ? pdf : { detect, readSceneJson };
+      const actual = JSON.parse(module.readSceneJson(bytes, undefined, view));
+      // 形式はどちらかのモジュールだけが認める
+      const detected = detect(bytes) ?? pdf.detect(bytes);
+      const same = detected === format.name && compareScenes(JSON.parse(golden), actual).length === 0;
       console.log(`${same ? "same" : "DIFF"}  ${format.name}/${name}${view ? ` @${view}` : ""}`);
       if (!same) failed++;
     }

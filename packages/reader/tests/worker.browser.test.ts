@@ -4,6 +4,7 @@ import r2000 from "../../../tests/fixtures/dwg/r2000.dwg?url";
 import r2018 from "../../../tests/fixtures/dwg/r2018.dwg?url";
 import r12 from "../../../tests/fixtures/dxf/r12.dxf?url";
 import jww from "../../../tests/fixtures/jww/minimal-v600.jww?url";
+import drawing from "../../../tests/fixtures/pdf/drawing.pdf?url";
 import { LimitError, ReaderWorker } from "../src/index.js";
 
 // ページから Web Worker（src/worker.ts）を作って読む。Vite は new Worker(new URL(…, import.meta.url)) を worker にする
@@ -14,6 +15,7 @@ const urls: Record<string, string> = {
   "dwg/r2018.dwg": r2018,
   "dxf/r12.dxf": r12,
   "jww/minimal-v600.jww": jww,
+  "pdf/drawing.pdf": drawing,
 };
 const fixture = async (name: string) => new Uint8Array(await (await fetch(urls[name] as string)).arrayBuffer());
 
@@ -119,6 +121,33 @@ describe("ReaderWorker", () => {
     reader.terminate();
     await expect(pending).rejects.toThrow(/terminate|止めました/);
     await expect(reader.read(bytes)).rejects.toThrow(/terminate/);
+  });
+
+  // PDF は PDF のモジュール（決定 0030）を、PDF を初めて読むときに Web Worker に読み込ませる
+  it("PDF を PDF のモジュールで読み、同じ Web Worker でほかの形式も読む", async () => {
+    const { reader, created } = open();
+    const scene = await reader.read(await fixture("pdf/drawing.pdf"), { view: "2" });
+    expect(scene.format).toBe("pdf");
+    expect(scene.underlays?.[0]).toMatchObject({ kind: "pdf", page: 2 });
+    expect((await reader.read(await fixture("dxf/r12.dxf"))).format).toBe("dxf");
+    const limited = reader.read(await fixture("pdf/drawing.pdf"), { limits: { maxEntities: 1 } });
+    await expect(limited).rejects.toMatchObject({ name: "LimitError", limit: "entities" });
+    expect(created()).toBe(1);
+  });
+
+  it("PDF のモジュールを読み込めなかったら PDF の読み取りを拒否し、次は Web Worker を作り直す", async () => {
+    let created = 0;
+    const reader = new ReaderWorker(
+      () => {
+        created++;
+        return createWorker();
+      },
+      { pdfWasm: "data:application/wasm;base64,AGFzbQ==" },
+    );
+    workers.push(reader);
+    await expect(reader.read(await fixture("pdf/drawing.pdf"))).rejects.toThrow();
+    expect((await reader.read(await fixture("dxf/r12.dxf"))).format).toBe("dxf");
+    expect(created).toBe(2);
   });
 
   it("WebAssembly を読み込めなかったら、その読み取りを拒否し、次は Web Worker を作り直す", async () => {
