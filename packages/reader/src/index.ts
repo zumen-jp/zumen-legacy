@@ -108,7 +108,14 @@ export function readScene(input: ArrayBuffer | Uint8Array, options: ReadSceneOpt
 /** readScene と同じく読み、Scene の JSON（sceneToJson と同じ形）を返す。Web Worker から JSON のまま渡すときなどに使う */
 export function readJson(bytes: Uint8Array, options: ReadSceneOptions = {}): string {
   const { format, view, limits } = options;
-  const isPdf = (format ?? detectDrawing(bytes)) === "pdf";
+  const detected = format ?? detectDrawing(bytes);
+  // どの形式でもない図面は、どちらのモジュールにも渡さずに断る（Rust の読み取りと同じ文で、PDF も含めた形式を挙げる）。
+  // 大きさの上限を超えた図面は、Rust の読み取りと同じく上限のエラーを先にする
+  if (detected === null && !(limits?.maxBytes !== undefined && bytes.length > limits.maxBytes)) {
+    const list = FORMATS.map((name) => name.toUpperCase()).join("・");
+    throw new Error(`対応していない形式のファイルです（読める形式: ${list}）`);
+  }
+  const isPdf = detected === "pdf";
   if (isPdf && !pdf.ready) {
     throw new Error("PDF を読む前に、initPdfReader() で PDF の読み取り（WebAssembly）を読み込んでください");
   }
