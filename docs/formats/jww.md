@@ -30,10 +30,30 @@ follows MFC (Technical Note 2, *Persistent Object Data Format*).
   rectangles cross themselves. This interpretation was checked in Jw_cad 10.3.6 on Windows with its sample plan;
   generated rectangles, oblique quadrilaterals and triangles cover versions 600 and 700. Only conversion to DXF
   SOLID changes to the DXF vertex order (1, 2, 4, 3).
-- Temporary points (not printed) and images embedded in text (`^@BM` …) are not drawn and are counted in notices.
-  Random (hand-drawn style) lines are drawn solid.
+- Temporary points (not printed) and control texts starting with `^@` other than images are not drawn and are counted
+  in notices. Images are drawn ([Images](#images)). Random (hand-drawn style) lines are drawn solid.
 - Settings that Jw_cad 8 and later store as text at (0, −1000), such as `Printer_Orientation = 0`, are not drawn as
   entities but shown in the drawing's metadata (drawing them would stretch the extents far beyond the sheet).
+
+### Images
+
+Jw_cad places an image with a text `^@BM<file>,<width>,<height>,<trimming and transparency>` (jwdatafmt.txt, 画像データ
+文字列; [ezjww](https://github.com/monozukuri-ai/ezjww/blob/main/docs/JWW_WRITE.md#images)). The width and height are
+sheet millimeters and the text's start point is the image's lower left corner.
+
+- The image becomes an underlay of `Scene.underlays`, a rectangle turned by the text's angle, with `file` as the text
+  gives it: a path (`C:\images\site.jpg`) or, for images embedded in the drawing (version 7.00 and later),
+  `%temp%<name>`, which Jw_cad resolves by extracting the files stored after the block definitions to its temporary
+  folder. zumen does not open either.
+- The text becomes an entity of the kind `image` kept for selection only (`drawn: false`, its outline), with the file
+  and the text as properties; the underlay has its id and layers. Jw_cad draws no frame around images.
+- JWW does not record the pixel count, so the content is measured in hundredths of a sheet millimeter
+  ([decision 0031](../decisions/0031-image-units-without-a-pixel-count.md)).
+- The values after the height (Jw_cad writes `0,0,1,0,255,255,255`) trim the image and make a color transparent;
+  their meaning is not documented, and other values are reported (`image-trim`). A placement whose file, width or
+  height cannot be read is not drawn (`image`).
+- Underlays are drawn under every entity. In which order Jw_cad draws images and lines is not known, so it is not
+  reported.
 
 <a id="dxf-への変換zumen-convert"></a>
 

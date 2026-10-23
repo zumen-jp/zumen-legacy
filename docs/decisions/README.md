@@ -56,3 +56,4 @@ Choices made before this folder existed are described in [the architecture notes
 - [0025: Add block definitions, dimensions and hatches to JWW and SXF edits as each format's own entities](0025-annotations-in-jww-and-sxf-edits.md) (2026-10-23, Proposed)
 - [0028: Read IFC building models with our own reader in Rust, on the ISO 10303-21 syntax shared with SXF, and keep ST-Bridge out until buildingSMART Japan agrees](0028-ifc-in-rust.md) (2026-10-23, Proposed)
 - [0029: Let the application own pdf.js, and draw the pdf.js documents it opens](0029-pdf-js-owned-by-the-application.md) (2026-10-23, Proposed)
+- [0031: Measure images whose drawing records no pixel count in hundredths of a sheet millimeter](0031-image-units-without-a-pixel-count.md) (2026-10-23, Proposed)

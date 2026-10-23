@@ -26,6 +26,13 @@ All packages share one version during 0.x.
   The application opens the documents with its own pdf.js (`pdfjs-dist` 5 or 6, a peer dependency) and passes them in
   ([decision 0029](docs/decisions/0029-pdf-js-owned-by-the-application.md)). It reads no entities; those come from
   the reader.
+- Browsers, Rust and Python: SXF raster images and JWW images draw as underlays of `Scene.underlays`. SXF images are
+  the drawing groups named `$$ATRU$$…$$画像$$<file>` or `$$RASTER$$<file>`, drawn over the polyline of the group;
+  JWW images are the `^@BM<file>,<width>,<height>` texts, turned with the text, and keep an entity of the kind `image`
+  for selection only (`drawn: false`). Neither format records the pixel count, so their content is measured in
+  hundredths of a sheet millimeter ([decision 0031](docs/decisions/0031-image-units-without-a-pixel-count.md)).
+  SXF images placed over earlier entities, image groups without a polyline, JWW trimming values and unreadable
+  placements are reported (`raster-order`, `raster`, `image-trim`, `image`).
 - Browsers, Rust and Python: DXF and DWG images (IMAGE) draw their picture as an underlay of `Scene.underlays`,
   named by the file of their IMAGEDEF, placed by their pixel vectors and clipped by their boundary (also inverted),
   by viewports and with the fade as opacity ([docs/formats/dxf.md](docs/formats/dxf.md#images)). The application

@@ -1,7 +1,8 @@
 import { measureDistance, readDrawing, type SceneEntity } from "@zumenjs/core";
+import { apply } from "@zumenjs/core/geometry";
 import { describe, expect, it } from "vitest";
 import { jww } from "../src/index.js";
-import { build, buildSolids } from "./fixture.js";
+import { build, buildImages, buildSolids } from "./fixture.js";
 
 function entity(entities: SceneEntity[], id: string): SceneEntity {
   const found = entities.find((item) => item.id === id);
@@ -76,5 +77,27 @@ describe("JWW の読み取り", () => {
   it.each([600, 700])("版 %i の文字列（CP932・UTF-16）を復号する", (version) => {
     const text = entity(readDrawing(build(version), [jww]).entities, "#3");
     expect(text.properties).toContainEqual({ key: "text", label: "文字列", value: "表示ソ能" });
+  });
+});
+
+describe("JWW の画像の配置（^@BM）", () => {
+  it("文字の始点を画像の左下に、文字の向きに回して置き、外形は選ぶためだけに残す", () => {
+    const scene = readDrawing(buildImages(700), [jww]);
+    const rotated = scene.underlays?.find((underlay) => underlay.file === "C:\\images\\site.jpg");
+    if (!rotated) throw new Error("回した画像の underlay がありません");
+    // 用紙 A3 の中心が原点。始点 (20, 10) を 30° 回した 30 × 15 mm
+    const [x0, y0] = [210 + 20, 148.5 + 10];
+    const [lowerLeftX, lowerLeftY] = apply(rotated.matrix, 0, rotated.height);
+    expect(lowerLeftX).toBeCloseTo(x0, 9);
+    expect(lowerLeftY).toBeCloseTo(y0, 9);
+    const [lowerRightX, lowerRightY] = apply(rotated.matrix, rotated.width, rotated.height);
+    expect(lowerRightX).toBeCloseTo(x0 + 30 * Math.cos(Math.PI / 6), 9);
+    expect(lowerRightY).toBeCloseTo(y0 + 30 * Math.sin(Math.PI / 6), 9);
+    expect(entity(scene.entities, rotated.id).drawn).toBe(false);
+    expect(scene.underlays?.map((underlay) => underlay.file)).toEqual([
+      "%temp%photo.bmp",
+      "C:\\images\\site.jpg",
+      "logo.png",
+    ]);
   });
 });

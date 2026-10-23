@@ -448,7 +448,8 @@ pub enum Background {
 }
 
 /// underlay の中身の種類の、形式によらない英語のキー（`@zumenjs/core` の UnderlayKind と同じ）。Image は画素の画像
-/// （PNG・JPEG・TIFF など。中身の座標の単位は画素）、Pdf は PDF の 1 ページ（単位はページの pt、ページの回転を済ませた向き）
+/// （PNG・JPEG・TIFF など。中身の座標の単位は図面が記録する画素。画素数を記録しない図面（SXF・JWW）では用紙の
+/// 0.01 mm、docs/decisions/0031）、Pdf は PDF の 1 ページ（単位はページの pt、ページの回転を済ませた向き）
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum UnderlayKind {
