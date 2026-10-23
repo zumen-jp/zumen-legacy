@@ -223,7 +223,7 @@ pub fn line_type_pitches(pattern: &[f64], max: usize) -> (Vec<f64>, bool) {
         0 => *length > 0.0,
         _ => *length < 0.0,
     });
-    let mut changed = if lengths.is_empty() {
+    let changed = if lengths.is_empty() {
         pattern.iter().any(|length| *length < 0.0)
     } else {
         shift != 0.0
@@ -231,12 +231,19 @@ pub fn line_type_pitches(pattern: &[f64], max: usize) -> (Vec<f64>, bool) {
             || lengths.len() != pattern.len()
             || lengths.iter().zip(pattern).any(|(length, dash)| *length != dash.abs())
     };
+    let cut = cut_pitches(&mut lengths, max);
+    (lengths, changed || cut)
+}
+
+/// 線から始まる線と空白の長さ（`pitches`）が max 個を超えるなら、初めの max 個（奇数なら 1 つ少なく）までを線と空白の
+/// 組ごとに残して切る。切ったかを返す
+pub fn cut_pitches(lengths: &mut Vec<f64>, max: usize) -> bool {
     let max = max - max % 2;
-    if lengths.len() > max {
-        lengths.truncate(max);
-        changed = true;
+    if lengths.len() <= max {
+        return false;
     }
-    (lengths, changed)
+    lengths.truncate(max);
+    true
 }
 
 #[cfg(test)]
@@ -320,5 +327,16 @@ mod tests {
         let long = [1.0, -1.0, 2.0, -1.0, 3.0, -1.0, 4.0, -1.0, 5.0, -1.0];
         assert_eq!(line_type_pitches(&long, 8), (vec![1.0, 1.0, 2.0, 1.0, 3.0, 1.0, 4.0, 1.0], true));
         assert!(!line_type_pitches(&long, 10).1);
+    }
+
+    #[test]
+    fn cuts_pitches_by_pairs_of_a_line_and_a_gap() {
+        let mut lengths = vec![1.0, 1.0, 2.0, 1.0, 3.0, 1.0, 4.0, 1.0, 5.0, 1.0];
+        assert!(cut_pitches(&mut lengths, 8));
+        assert_eq!(lengths, [1.0, 1.0, 2.0, 1.0, 3.0, 1.0, 4.0, 1.0]);
+        assert!(!cut_pitches(&mut lengths, 8));
+        // 奇数の上限は 1 つ少なく（線で終わらせない）
+        assert!(cut_pitches(&mut lengths, 5));
+        assert_eq!(lengths, [1.0, 1.0, 2.0, 1.0]);
     }
 }

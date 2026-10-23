@@ -681,3 +681,52 @@ fn adds_line_types_and_fonts_with_their_names() {
         "already-exists"
     );
 }
+
+/// 模様の破線の線と空白が 8 個を超えると、ユーザ定義線種（2・4・6・8 個）には初めの 8 個を書いて知らせる。既定義線種の
+/// 三点二短鎖線（10 個）と同じ長さは、既定義線種のまま。SFC・P21・SFZ・P2Z で読み直すと、その線種で描ける
+#[test]
+fn cuts_hatch_dashes_to_the_eight_lengths_of_a_user_line_type() {
+    for format in ["sfc", "p21", "sfz", "p2z"] {
+        let empty = new_sxf(format).unwrap();
+        let edited = edit_sxf(
+            &empty,
+            format,
+            &operations(json!([{
+                "op": "add",
+                "kind": "hatch",
+                "pattern": "STEPS",
+                "patternLines": [
+                    [0, 0, 0, 0, 5, 5, -1, 4, -1, 3, -1, 2, -1, 1, -1],
+                    [90, 0, 0, 0, 5, 6, -1.5, 6, -1.5, 0.25, -1.5, 0.25, -1.5, 0.25, -1.5]
+                ],
+                "boundaries": [[1000, 0], [1100, 0], [1100, 50], [1000, 50]]
+            }])),
+        )
+        .unwrap();
+        let codes: Vec<(&str, u64)> =
+            edited.notices.iter().map(|notice| (notice.code.as_str(), notice.count)).collect();
+        assert_eq!(codes, [("edit-hatch-dash-count", 1)], "{format}");
+        let doc = parse_sxf(&edited.bytes, format).unwrap().document;
+        let line_type = &doc.user_line_types[0];
+        assert_eq!(line_type.name.trim_start_matches("$$SXF_"), "STEPS", "{format}");
+        assert_eq!(line_type.pitch, [5.0, 1.0, 4.0, 1.0, 3.0, 1.0, 2.0, 1.0], "{format}");
+        let patterns = doc
+            .sheet_members
+            .iter()
+            .find_map(|feature| match feature {
+                SxfFeature::FillAreaStyleHatching { patterns, .. } => Some(patterns),
+                _ => None,
+            })
+            .unwrap();
+        // 基点は、書いた線種の繰り返しの長さ（18 mm）の倍数だけ境界の近くへ動かす
+        assert_eq!((patterns[0].line_type, patterns[0].x, patterns[0].y), (17.0, 990.0, 0.0), "{format}");
+        assert_eq!((doc.user_line_types.len(), patterns[1].line_type), (1, 15.0), "{format}");
+        let scene = read(&edited.bytes, format);
+        assert!(scene.notices.is_empty(), "{format}: {:?}", scene.notices);
+        let hatch = scene.entities.iter().find(|entity| entity.id == edited.created[0]).unwrap();
+        let Some(zumen_core::Primitive::Clipped(clipped)) = hatch.primitives.first() else { panic!("{format}") };
+        assert!(clipped.strokes.iter().all(|stroke| !stroke.points.is_empty()), "{format}");
+        assert_eq!(clipped.strokes[0].dashes, line_type.pitch, "{format}");
+        assert_eq!(clipped.strokes[1].dashes, [6.0, 1.5, 6.0, 1.5, 0.25, 1.5, 0.25, 1.5, 0.25, 1.5], "{format}");
+    }
+}

@@ -149,8 +149,10 @@ fn box_moved(line: &str) -> Option<f64> {
     (a.len() == 4 && b.len() == 4).then(|| a.iter().zip(&b).map(|(x, y)| (x - y).abs()).fold(0.0, f64::max))
 }
 
-/// 線種の点（長さ 0 の線分）は、SXF には 0.25 mm の線分にして書く（zumen-convert の pitch と同じ）
-fn sxf_dashes(dashes: &mut [f64]) {
+/// 線種の点（長さ 0 の線分）は、SXF には 0.25 mm の線分にして書き、線分・空白が 8 を超える線種は初めの 8 だけを書く
+/// （zumen-convert の pitch・line_type_code と同じ。既定義線種と同じ名前・10 個の長さの線種は切らないが、
+/// 試験の図面にはない）
+fn sxf_dashes(dashes: &mut Vec<f64>) {
     for i in (0..dashes.len()).step_by(2) {
         if dashes[i] <= 0.0 {
             dashes[i] = 0.25;
@@ -161,6 +163,7 @@ fn sxf_dashes(dashes: &mut [f64]) {
             }
         }
     }
+    dashes.truncate(8);
 }
 
 /// R12 の図面のようにハンドルのない図形に、zumen-convert と同じハンドルを振る
@@ -423,10 +426,10 @@ fn tags(pairs: &[(i32, &str)]) -> String {
     pairs.iter().map(|(code, value)| format!("{code}\n{value}\n")).collect()
 }
 
-/// ブロックと図形だけの DXF（表とレイアウトのない図面はモデル空間を開く）
-fn dxf(blocks: &str, entities: &str) -> DxfDocument {
+/// 表とブロックと図形だけの DXF（レイアウトのない図面はモデル空間を開く）
+fn dxf(tables: &str, blocks: &str, entities: &str) -> DxfDocument {
     let text = format!(
-        "0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nBLOCKS\n{blocks}0\nENDSEC\n0\nSECTION\n2\nENTITIES\n{entities}0\nENDSEC\n0\nEOF\n"
+        "0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nTABLES\n{tables}0\nENDSEC\n0\nSECTION\n2\nBLOCKS\n{blocks}0\nENDSEC\n0\nSECTION\n2\nENTITIES\n{entities}0\nENDSEC\n0\nEOF\n"
     );
     zumen::dxf::parse_dxf(text.as_bytes())
 }
@@ -444,6 +447,7 @@ fn codes(notices: &[zumen::Notice]) -> Vec<&str> {
 #[test]
 fn writes_model_space_as_a_one_to_one_sub_figure_on_a_sheet_of_its_size() {
     let doc = dxf(
+        "",
         "",
         &tags(&[(0, "LINE"), (5, "A1"), (8, "WALL"), (62, "1"), (10, "100"), (20, "100"), (11, "300"), (21, "200")]),
     );
@@ -486,7 +490,7 @@ fn writes_blocks_as_drawing_parts_and_a_copy_for_each_inherited_color() {
         (42, "2"),
         (50, "90"),
     ]);
-    let doc = dxf(&block, &(insert("I1", "1", "0") + &insert("I2", "5", "40") + &rotated));
+    let doc = dxf("", &block, &(insert("I1", "1", "0") + &insert("I2", "5", "40") + &rotated));
     let (drawing, mapped, _) = written_sxf(&doc);
     let document = &drawing.document;
     let model = document.sub_figures.get("モデル空間").unwrap();
@@ -536,6 +540,7 @@ fn writes_blocks_as_drawing_parts_and_a_copy_for_each_inherited_color() {
 fn writes_codes_and_text_in_cp932_and_reports_what_it_replaced() {
     let doc = dxf(
         "",
+        "",
         &(tags(&[(0, "TEXT"), (5, "T1"), (8, "0"), (10, "0"), (20, "0"), (40, "2.5"), (1, "直径 Ø50")])
             + &tags(&[
                 (0, "LINE"),
@@ -569,6 +574,51 @@ fn writes_codes_and_text_in_cp932_and_reports_what_it_replaced() {
     assert!(text.contains("'zumen$$3.1'"));
     assert!(text.contains("/*SXF\n#10 = pre_defined_colour_feature(\\'black\\')\nSXF*/\n"), "{text}");
     assert_eq!(drawing.version, "SXF 3.1");
+}
+
+/// 線分・空白が 8 を超える線種は、SXF のユーザ定義線種（2・4・6・8 個）に初めの 8 だけを書いて知らせる。読み直すと、
+/// その線種で描ける
+#[test]
+fn writes_line_types_of_more_than_eight_lengths_with_the_first_eight() {
+    let tables = tags(&[(0, "TABLE"), (2, "LTYPE"), (70, "1")])
+        + &tags(&[
+            (0, "LTYPE"),
+            (2, "STEPS"),
+            (70, "0"),
+            (3, "Steps"),
+            (72, "65"),
+            (73, "10"),
+            (40, "20"),
+            (49, "5"),
+            (49, "-1"),
+            (49, "4"),
+            (49, "-1"),
+            (49, "3"),
+            (49, "-1"),
+            (49, "2"),
+            (49, "-1"),
+            (49, "1"),
+            (49, "-1"),
+        ])
+        + &tags(&[(0, "ENDTAB")]);
+    let line = tags(&[(0, "LINE"), (5, "L1"), (8, "0"), (6, "STEPS"), (10, "0"), (20, "0"), (11, "100"), (21, "0")]);
+    let doc = dxf(&tables, "", &line);
+    let (drawing, mapped, _) = written_sxf(&doc);
+    assert!(codes(&mapped.notices).contains(&"linetype-long"), "{:?}", codes(&mapped.notices));
+    let line_type = &drawing.document.user_line_types[0];
+    assert_eq!(line_type.name, "STEPS");
+    assert_eq!(line_type.pitch, [5.0, 1.0, 4.0, 1.0, 3.0, 1.0, 2.0, 1.0]);
+    let (scene, _, _) = to_sxf(&doc);
+    let dashes: Vec<&[f64]> = scene
+        .entities
+        .iter()
+        .flat_map(|entity| &entity.primitives)
+        .filter_map(|primitive| match primitive {
+            zumen::Primitive::Stroke(stroke) => Some(stroke.dashes.as_slice()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(dashes, [line_type.pitch.as_slice()]);
 }
 
 #[test]
