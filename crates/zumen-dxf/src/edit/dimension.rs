@@ -6,6 +6,7 @@
 //! （長さ DIMASZ、幅はその 1/3）、DIMTSZ が 0 より大きければ斜線（ezdxf の ARCHITECTURAL_TICK と同じ形）。
 //! 文字は寸法線の中央に置き、DIMTAD の配置と DIMGAP に従う。0 なら寸法線を文字の幅と DIMGAP だけ切る。
 
+pub use zumen_core::edit::dimension::{DimensionInput, DimensionKind, KEYS};
 use zumen_core::edit::{EditError, ValueReader};
 
 /// 寸法スタイルの値（図面の単位。DIMSCALE を掛ける前）
@@ -168,89 +169,17 @@ pub fn style_variables(reader: &ValueReader<'_>, index: usize) -> Result<Vec<(&'
     Ok(out)
 }
 
-/// 寸法の種類
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum DimensionKind {
-    /// 回転寸法（寸法線の角度、度）
-    Linear(f64),
-    /// 平行寸法（寸法補助線の起点を結ぶ向き）
-    Aligned,
-}
-
-/// add の dimension の値のキー（docs/decisions/0017）
-pub const KEYS: [&str; 9] =
-    ["dimensionType", "start", "end", "position", "rotation", "center", "point", "dimensionStyle", "text"];
-
-/// 足す寸法の種類と定義点（WCS）
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum DimensionInput {
-    /// 回転寸法・平行寸法。start・end は寸法補助線の起点（13・14）、position は寸法線の上の点
-    Linear { kind: DimensionKind, start: [f64; 3], end: [f64; 3], position: [f64; 3] },
-    /// 3 点角度寸法。center は頂点（15）、start・end は寸法補助線の起点（13・14）、position は寸法の弧の上の点（10）。
-    /// 測る角は、2 本の半直線に挟まれた 2 つの角のうち position の向きを含むほう
-    Angular { center: [f64; 3], start: [f64; 3], end: [f64; 3], position: [f64; 3] },
-    /// 半径寸法。center は中心（10）、point は円の上の点（15）
-    Radius { center: [f64; 3], point: [f64; 3] },
-    /// 直径寸法。point は円の上の点（15）、その反対の点（10）を center から求める
-    Diameter { center: [f64; 3], point: [f64; 3] },
-}
-
-impl DimensionInput {
-    /// 値から読む。dimensionType は scene の寸法の種類のキー（linear、aligned、angular-3-point、radius、diameter）
-    pub fn read(reader: &ValueReader<'_>, index: usize) -> Result<Self, EditError> {
-        let kind = reader.text("dimensionType")?.unwrap_or("linear");
-        let used: &[&str] = match kind {
-            "linear" | "aligned" => &["start", "end", "position", "rotation"],
-            "angular-3-point" => &["center", "start", "end", "position"],
-            "radius" | "diameter" => &["center", "point"],
-            other => {
-                return Err(EditError::at(
-                    index,
-                    "unsupported-kind",
-                    format!(
-                        "寸法の種類 {other} はまだ足せません（足せるのは linear、aligned、angular-3-point、radius、diameter）"
-                    ),
-                ));
-            }
-        };
-        if kind == "aligned" && reader.has("rotation") {
-            return Err(EditError::at(index, "invalid-value", "平行寸法（aligned）に rotation は指定できません"));
-        }
-        for key in ["start", "end", "position", "rotation", "center", "point"] {
-            if !used.contains(&key) && reader.has(key) {
-                return Err(EditError::at(
-                    index,
-                    "invalid-value",
-                    format!("寸法の種類 {kind} に {key} は指定できません"),
-                ));
-            }
-        }
-        let point = |key: &str| reader.required(key, reader.point(key)?);
-        Ok(match kind {
-            "linear" | "aligned" => Self::Linear {
-                kind: if kind == "linear" {
-                    DimensionKind::Linear(reader.number("rotation")?.unwrap_or(0.0))
-                } else {
-                    DimensionKind::Aligned
-                },
-                start: point("start")?,
-                end: point("end")?,
-                position: point("position")?,
-            },
-            "angular-3-point" => Self::Angular {
-                center: point("center")?,
-                start: point("start")?,
-                end: point("end")?,
-                position: point("position")?,
-            },
-            "radius" => Self::Radius { center: point("center")?, point: point("point")? },
-            _ => Self::Diameter { center: point("center")?, point: point("point")? },
-        })
-    }
-
+/// 足す寸法の DXF・DWG の値（70 の種類と、表示のブロックの図形）
+pub trait DxfDimension {
     /// DXF の 70 の種類（DXF Reference「DIMENSION」の 70: 0 回転、1 平行、3 直径、4 半径、5 3 点角度）に、表示の
     /// ブロックをこの寸法だけが使う印（32）を足したもの
-    pub fn flags(&self) -> i64 {
+    fn flags(&self) -> i64;
+    /// 寸法の値と表示の図形。点が重なって寸法にならなければ、その理由
+    fn layout(&self, text: &str, style: &DimStyleValues) -> Result<DimensionLayout, &'static str>;
+}
+
+impl DxfDimension for DimensionInput {
+    fn flags(&self) -> i64 {
         32 + match self {
             Self::Linear { kind: DimensionKind::Linear(_), .. } => 0,
             Self::Linear { kind: DimensionKind::Aligned, .. } => 1,
@@ -260,8 +189,7 @@ impl DimensionInput {
         }
     }
 
-    /// 寸法の値と表示の図形。点が重なって寸法にならなければ、その理由
-    pub fn layout(&self, text: &str, style: &DimStyleValues) -> Result<DimensionLayout, &'static str> {
+    fn layout(&self, text: &str, style: &DimStyleValues) -> Result<DimensionLayout, &'static str> {
         match *self {
             Self::Linear { kind, start, end, position } => layout(kind, start, end, position, text, style)
                 .ok_or("start と end は寸法の向きで離れた点にしてください"),

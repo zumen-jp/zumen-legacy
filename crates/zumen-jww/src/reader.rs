@@ -111,7 +111,11 @@ pub struct JwwDimension {
     pub base: JwwBase,
     pub line: JwwLine,
     pub text: JwwText,
+    /// SXF のモード（版 420 以降。1 なら補助線・矢印の点・基準点も寸法図形の一部。jwdatafmt.txt「寸法データ」）
+    pub sxf_mode: u16,
+    /// 補助線 1・2（版 420 以降）
     pub lines: Vec<JwwLine>,
+    /// 矢印（点）1・2、基準点 1・2（版 420 以降）
     pub points: Vec<JwwPoint>,
 }
 
@@ -336,8 +340,9 @@ pub(crate) fn read_entity_body(reader: &mut Reader<'_>, class_name: &str, versio
             let text = read_text(reader, version)?;
             let mut lines = Vec::new();
             let mut points = Vec::new();
+            let mut sxf_mode = 0;
             if version >= 420 {
-                reader.u16()?;
+                sxf_mode = reader.u16()?;
                 for _ in 0..2 {
                     lines.push(read_line(reader, version)?);
                 }
@@ -345,7 +350,7 @@ pub(crate) fn read_entity_body(reader: &mut Reader<'_>, class_name: &str, versio
                     points.push(read_point(reader, version)?);
                 }
             }
-            Ok(JwwEntity::Dimension(JwwDimension { base, line, text, lines, points }))
+            Ok(JwwEntity::Dimension(JwwDimension { base, line, text, sxf_mode, lines, points }))
         }
         _ => Err(ReadError::new(format!("対応していないクラス {class_name}"))),
     }

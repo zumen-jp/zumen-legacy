@@ -9,22 +9,48 @@
 //! - 座標は図面自体の座標（用紙の要素は用紙の mm、部分図の要素は部分図の座標）で、読み取りの property の raw と同じ数。
 //!   角度は度（楕円弧の parameter だけは DXF と同じくラジアンで受け、SXF の度にする）。
 //! - SXF にない指定（レイヤから継ぐ色・線幅、レイヤの色・線種・線幅）は、いちばん近い値にして知らせる。
+//! - ブロック定義は作図部品（複合図形定義の種別 4）で、container の block:<名前> で中に要素を足せる。寸法は寸法の
+//!   フィーチャ、ハッチングは見えない複合曲線の上の塗り・ハッチング（ユーザ定義）にする（docs/decisions/0025）。
 
-use crate::document::{SubFigure, SxfDrawing};
+mod dimension;
+mod hatch;
+
+use crate::document::{CompositeCurve, SubFigure, SxfDrawing};
 use crate::features::{
-    Annotation, DrawingSheet, LayerDefinition, Styled, SxfFeature, TextFont, UserColour, WidthDefinition,
+    Annotation, CompositeCurveOrg, DrawingSheet, HatchPattern, LayerDefinition, Region, SfigOrg, Styled, SxfFeature,
+    TextFont, UserColour, UserLineType, WidthDefinition,
 };
 use crate::tables::{PREDEFINED_COLORS, PREDEFINED_LINE_TYPES, predefined_width_code};
 use crate::{SxfHeader, parse_sxf, write_sxf};
+use std::collections::HashMap;
 use std::f64::consts::PI;
+use zumen_core::edit::dimension::{DimensionGeometry, DimensionInput};
+use zumen_core::edit::hatch::PatternLine;
 use zumen_core::edit::{
     BLOCK_REFERENCE, EditColor, EditError, EditLineWidth, EditOperation, EditValues, Edited, ValueReader,
 };
 use zumen_core::{NoticeLevel, NoticeList, js};
 
 /// 足せる要素の種類
-const ADDABLE: [&str; 9] =
-    ["line", "polyline", "arc", "circle", "ellipse", "ellipse-arc", "point", "text", BLOCK_REFERENCE];
+const ADDABLE: [&str; 11] = [
+    "line",
+    "polyline",
+    "arc",
+    "circle",
+    "ellipse",
+    "ellipse-arc",
+    "point",
+    "text",
+    "dimension",
+    "hatch",
+    BLOCK_REFERENCE,
+];
+
+/// 入れ子の複合図形の配置を辿る深さの上限（読み取りの複合図形の配置と同じ）
+const MAX_DEPTH: usize = 32;
+
+/// ユーザ定義線種の数の上限（線種コード 17〜32）
+const MAX_USER_LINE_TYPES: usize = 16;
 
 /// 要素に共通する値のキー
 const COMMON: [&str; 4] = ["layer", "color", "lineType", "lineWidth"];
@@ -46,13 +72,15 @@ struct Editor {
     notices: NoticeList,
     /// 足した要素の仮の番号（負の数）。書いた後に書いた番号にする
     next: f64,
-    /// 足したもの（要素の仮の番号、またはレイヤの名前）を操作の順に
+    /// 足したもの（要素の仮の番号、またはレイヤ・作図部品の名前）を操作の順に
     created: Vec<Created>,
+    /// この編集で足した作図部品の基点（名前から、部品の座標）
+    bases: HashMap<String, [f64; 2]>,
 }
 
 enum Created {
     Feature(f64),
-    Layer(String),
+    Name(String),
 }
 
 /// SXF を編集する。すべての操作を確かめてから書き、1 つでも通らなければエラーを返して何も書かない。
@@ -66,7 +94,8 @@ pub fn edit_sxf(bytes: &[u8], format: &str, operations: &[EditOperation]) -> Res
     if operations.is_empty() {
         return Ok(Edited { bytes: bytes.to_vec(), created: Vec::new(), notices: Vec::new() });
     }
-    let mut editor = Editor { drawing, notices: NoticeList::new(), next: -1.0, created: Vec::new() };
+    let mut editor =
+        Editor { drawing, notices: NoticeList::new(), next: -1.0, created: Vec::new(), bases: HashMap::new() };
     for (index, operation) in operations.iter().enumerate() {
         match operation {
             EditOperation::Add { kind, container, values } => editor.add(index, kind, container.as_deref(), values)?,
@@ -74,9 +103,7 @@ pub fn edit_sxf(bytes: &[u8], format: &str, operations: &[EditOperation]) -> Res
             EditOperation::Delete { id } => editor.delete(index, id)?,
             EditOperation::AddLayer { name, values } => editor.add_layer(index, name, values)?,
             EditOperation::UpdateLayer { name, set } => editor.update_layer(index, name, set)?,
-            EditOperation::AddBlock { .. } => {
-                return Err(EditError::at(index, "unsupported-kind", "SXF の編集ではブロックの定義をまだ足せません"));
-            }
+            EditOperation::AddBlock { name, values } => editor.add_block(index, name, values)?,
             EditOperation::AddLayout { .. } | EditOperation::UpdateLayout { .. } => {
                 return Err(EditError::at(index, "unsupported-kind", "SXF の編集ではレイアウトを扱えません"));
             }
@@ -101,7 +128,7 @@ pub fn edit_sxf(bytes: &[u8], format: &str, operations: &[EditOperation]) -> Res
         .created
         .iter()
         .map(|created| match created {
-            Created::Layer(name) => name.clone(),
+            Created::Name(name) => name.clone(),
             Created::Feature(temporary) => {
                 let id = written.ids.iter().find(|(id, _)| id == temporary).map_or(*temporary, |(_, new)| *new);
                 format!("#{}", js::number_to_string(id))
@@ -198,10 +225,11 @@ impl Editor {
         Err(not_found())
     }
 
+    /// 足す先。sheet（省略したとき）は用紙、figure:<名前> と block:<名前> はその複合図形
     fn container(&self, index: usize, container: Option<&str>) -> Result<Option<String>, EditError> {
         match container {
             None | Some("sheet") => Ok(None),
-            Some(container) => match container.strip_prefix("figure:") {
+            Some(container) => match container.strip_prefix("figure:").or_else(|| container.strip_prefix("block:")) {
                 Some(name) if self.drawing.document.sub_figures.contains(name) => Ok(Some(name.to_string())),
                 Some(name) => {
                     Err(EditError::at(index, "missing-definition", format!("複合図形 {name} は図面にありません")))
@@ -209,10 +237,58 @@ impl Editor {
                 None => Err(EditError::at(
                     index,
                     "invalid-value",
-                    format!("container の {container} は使えません（sheet、figure:<複合図形の名前>）"),
+                    format!(
+                        "container の {container} は使えません（sheet、figure:<複合図形の名前>、block:<作図部品の名前>）"
+                    ),
                 )),
             },
         }
+    }
+
+    /// 入れ物の座標の 1 が用紙の何 mm か。用紙は 1、複合図形は用紙から辿った最初の配置の尺度（入れ子は掛ける）。
+    /// 配置のない複合図形は 1、作図グループは配置の値を使わない（フィーチャ仕様編 3-5 補足）
+    fn figure_scale(&self, figure: &Option<String>) -> f64 {
+        fn search(
+            doc: &crate::SxfDocument,
+            members: &[SxfFeature],
+            target: &str,
+            scale: f64,
+            depth: usize,
+        ) -> Option<f64> {
+            if depth > MAX_DEPTH {
+                return None;
+            }
+            for member in members {
+                let SxfFeature::SfigLocate { name, ratio_x, ratio_y, .. } = member else { continue };
+                let Some(figure) = doc.sub_figures.get(name) else { continue };
+                let ratio = if figure.feature.flag == 3.0 { 1.0 } else { (ratio_x.abs() * ratio_y.abs()).sqrt() };
+                if !(ratio.is_finite() && ratio > 0.0) {
+                    continue;
+                }
+                if name == target {
+                    return Some(scale * ratio);
+                }
+                if let Some(found) = search(doc, &figure.members, target, scale * ratio, depth + 1) {
+                    return Some(found);
+                }
+            }
+            None
+        }
+        let Some(name) = figure else { return 1.0 };
+        let doc = &self.drawing.document;
+        search(doc, &doc.sheet_members, name, 1.0, 0).unwrap_or(1.0)
+    }
+
+    /// 複合図形 figure の中（入れ子も）に、複合図形 target の配置があるか
+    fn places(&self, figure: &str, target: &str, depth: usize) -> bool {
+        if depth > MAX_DEPTH {
+            return true;
+        }
+        let Some(figure) = self.drawing.document.sub_figures.get(figure) else { return false };
+        figure.members.iter().any(|member| match member {
+            SxfFeature::SfigLocate { name, .. } => name == target || self.places(name, target, depth + 1),
+            _ => false,
+        })
     }
 
     // ---- 共通の値 ----
@@ -348,6 +424,10 @@ impl Editor {
         let figure = self.container(index, container)?;
         let reader = ValueReader::new(values, index);
         let keys = |own: &[&'static str]| -> Vec<&'static str> { COMMON.iter().chain(own).copied().collect() };
+        // この編集で足した作図部品の中は、部品の基点を原点にする（SXF の複合図形定義は基点を持たない）
+        let origin = figure.as_ref().and_then(|name| self.bases.get(name)).copied().unwrap_or([0.0; 2]);
+        let shift = |point: [f64; 3]| [point[0] - origin[0], point[1] - origin[1], point[2]];
+        let at = |key: &str| -> Result<[f64; 3], EditError> { Ok(shift(reader.required(key, reader.point(key)?)?)) };
         let id = self.temporary();
         let mut style = Styled {
             id,
@@ -359,14 +439,15 @@ impl Editor {
         let feature = match kind {
             "line" => {
                 reader.allow(&keys(&["start", "end"]), "線分")?;
-                let start = reader.required("start", reader.point("start")?)?;
-                let end = reader.required("end", reader.point("end")?)?;
+                let start = at("start")?;
+                let end = at("end")?;
                 self.apply_common(index, &reader, &mut style)?;
                 SxfFeature::Line { style, x1: start[0], y1: start[1], x2: end[0], y2: end[1] }
             }
             "polyline" => {
                 reader.allow(&keys(&["vertices", "closed", "bulges", "width"]), "折線")?;
-                let vertices = reader.required("vertices", reader.points("vertices", 2)?)?;
+                let vertices: Vec<[f64; 3]> =
+                    reader.required("vertices", reader.points("vertices", 2)?)?.into_iter().map(shift).collect();
                 no_bulges_or_width(index, &reader, vertices.len())?;
                 let closed = reader.bool("closed")?.unwrap_or(false);
                 self.apply_common(index, &reader, &mut style)?;
@@ -375,14 +456,14 @@ impl Editor {
             }
             "circle" => {
                 reader.allow(&keys(&["center", "radius"]), "円")?;
-                let center = reader.required("center", reader.point("center")?)?;
+                let center = at("center")?;
                 let r = reader.required("radius", reader.positive("radius")?)?;
                 self.apply_common(index, &reader, &mut style)?;
                 SxfFeature::Circle { style, cx: center[0], cy: center[1], r }
             }
             "arc" => {
                 reader.allow(&keys(&["center", "radius", "angle"]), "円弧")?;
-                let center = reader.required("center", reader.point("center")?)?;
+                let center = at("center")?;
                 let r = reader.required("radius", reader.positive("radius")?)?;
                 let angle = reader.required("angle", reader.numbers("angle", 2)?)?;
                 self.apply_common(index, &reader, &mut style)?;
@@ -390,7 +471,7 @@ impl Editor {
             }
             "ellipse" | "ellipse-arc" => {
                 reader.allow(&keys(&["center", "majorAxis", "ratio", "parameter"]), "楕円")?;
-                let center = reader.required("center", reader.point("center")?)?;
+                let center = at("center")?;
                 let (rx, ry, rotation) = ellipse_axes(index, &reader)?;
                 let parameter = match reader.numbers("parameter", 2)? {
                     Some(parameter) => Some(parameter),
@@ -415,7 +496,7 @@ impl Editor {
             }
             "point" => {
                 reader.allow(&keys(&["position"]), "点")?;
-                let position = reader.required("position", reader.point("position")?)?;
+                let position = at("position")?;
                 self.apply_common(index, &reader, &mut style)?;
                 // 点マーカは色だけを持つ（線種・線幅は持たない）。形は点（dot、コード 3）
                 SxfFeature::PointMarker {
@@ -431,7 +512,7 @@ impl Editor {
             }
             "text" => {
                 reader.allow(&keys(&["position", "text", "height", "rotation", "textStyle", "width"]), "文字")?;
-                let position = reader.required("position", reader.point("position")?)?;
+                let position = at("position")?;
                 let text = reader.required("text", reader.text("text")?)?;
                 if text.contains(['\n', '\r']) {
                     return Err(EditError::at(
@@ -467,6 +548,30 @@ impl Editor {
                     },
                 }
             }
+            "dimension" => {
+                reader.allow(&keys(&zumen_core::edit::dimension::KEYS), "寸法")?;
+                let input = DimensionInput::read(&reader, index)?;
+                let text = reader.text("text")?.unwrap_or("<>");
+                if text.contains(['\n', '\r']) {
+                    return Err(EditError::at(index, "invalid-value", "SXF の寸法値は 1 行です"));
+                }
+                if reader.name("dimensionStyle")?.is_some() {
+                    self.notices.add(
+                        NoticeLevel::Info,
+                        "edit-dimension-style",
+                        "SXF は寸法スタイルを持たないため、寸法を既定の大きさで描きました",
+                    );
+                }
+                let geometry = input.geometry().map_err(|message| EditError::at(index, "invalid-value", message))?;
+                let geometry = shifted(geometry, origin);
+                self.apply_common(index, &reader, &mut style)?;
+                let container = dimension::Container { scale: self.figure_scale(&figure) };
+                dimension::feature(&geometry, text, style, &container, natural_width)
+            }
+            "hatch" => {
+                reader.allow(&keys(&zumen_core::edit::hatch::KEYS), "ハッチング")?;
+                self.hatch(index, &reader, &figure, origin, style)?
+            }
             _ => {
                 reader.allow(&keys(&["block", "position", "rotation", "scale"]), "複合図形の配置")?;
                 let name = reader.required("block", reader.name("block")?)?;
@@ -477,7 +582,17 @@ impl Editor {
                         format!("複合図形 {name} は図面にありません"),
                     ));
                 }
-                let position = reader.required("position", reader.point("position")?)?;
+                // 複合図形の中に、その複合図形を含む複合図形は置けない（配置が循環する）
+                if let Some(container) = &figure
+                    && (name == container || self.places(name, container, 0))
+                {
+                    return Err(EditError::at(
+                        index,
+                        "invalid-value",
+                        format!("複合図形 {name} は {container} を含むため、その中に置けません"),
+                    ));
+                }
+                let position = at("position")?;
                 let rotation = reader.number("rotation")?.unwrap_or(0.0);
                 let (ratio_x, ratio_y) = scale(index, &reader)?.unwrap_or((1.0, 1.0));
                 self.apply_common(index, &reader, &mut style)?;
@@ -507,6 +622,129 @@ impl Editor {
         }
         self.members_mut(&figure, |members| members.push(feature));
         self.created.push(Created::Feature(id));
+        Ok(())
+    }
+
+    /// ハッチング。境界ごとに見えない複合曲線を作り、塗り（fill_area_style_colour）か、模様の線ごとのハッチング線を
+    /// 持つハッチング（ユーザ定義、fill_area_style_hatching）をその上に置く（docs/decisions/0025）
+    fn hatch(
+        &mut self,
+        index: usize,
+        reader: &ValueReader<'_>,
+        figure: &Option<String>,
+        origin: [f64; 2],
+        mut style: Styled,
+    ) -> Result<SxfFeature, EditError> {
+        let input = zumen_core::edit::hatch::read(reader, index)?;
+        self.apply_common(index, reader, &mut style)?;
+        let mut numbers = Vec::with_capacity(input.boundaries.len());
+        for boundary in &input.boundaries {
+            // 閉じた折線は最初の点を最後にも置く（SXF の折線は閉じる印を持たない）
+            let mut xs: Vec<f64> = boundary.iter().map(|point| point[0] - origin[0]).collect();
+            let mut ys: Vec<f64> = boundary.iter().map(|point| point[1] - origin[1]).collect();
+            xs.push(xs[0]);
+            ys.push(ys[0]);
+            let outline =
+                Styled { id: self.temporary(), layer: style.layer, color: 1.0, line_type: 1.0, line_width: 1.0 };
+            let id = self.temporary();
+            self.drawing.document.composite_curves.push(CompositeCurve {
+                feature: CompositeCurveOrg { id, color: 1.0, line_type: 1.0, line_width: 1.0, visible: false },
+                members: vec![SxfFeature::Polyline { style: outline, xs, ys }],
+            });
+            numbers.push(self.drawing.document.composite_curves.len() as f64);
+        }
+        let region = Region { out_id: numbers[0], in_ids: numbers[1..].to_vec() };
+        if input.solid {
+            if reader.has("lineType") || reader.has("lineWidth") {
+                self.notices.add(
+                    NoticeLevel::Info,
+                    "edit-unused-attributes",
+                    "SXF の塗りは線種・線幅を持たないため、塗りのハッチングの線種・線幅の指定を使っていません",
+                );
+            }
+            return Ok(SxfFeature::FillAreaStyleColour {
+                id: style.id,
+                layer: style.layer,
+                color: style.color,
+                region,
+            });
+        }
+        let scale = self.figure_scale(figure);
+        let near = [input.boundaries[0][0][0] - origin[0], input.boundaries[0][0][1] - origin[1]];
+        let mut patterns = Vec::with_capacity(input.lines.len());
+        for line in &input.lines {
+            let line = PatternLine { base: [line.base[0] - origin[0], line.base[1] - origin[1]], ..line.clone() };
+            let hatch = hatch::hatch_line(&line, scale, near).ok_or_else(|| {
+                EditError::at(index, "invalid-value", "模様の線の間隔（dx・dy の、線に直交する成分）が 0 です")
+            })?;
+            if hatch.shifted {
+                self.notices.add(
+                    NoticeLevel::Info,
+                    "edit-hatch-shift",
+                    "SXF のハッチング線は線ごとの破線のずれを持たないため、模様の破線を線ごとにずらさずに書きました",
+                );
+            }
+            let line_type =
+                if hatch.pitch.is_empty() { style.line_type } else { self.line_type_for(&input.pattern, hatch.pitch) };
+            patterns.push(HatchPattern {
+                color: style.color,
+                line_type,
+                line_width: style.line_width,
+                x: hatch.x,
+                y: hatch.y,
+                spacing: hatch.spacing,
+                angle: hatch.angle,
+            });
+        }
+        Ok(SxfFeature::FillAreaStyleHatching { id: style.id, layer: style.layer, patterns, region })
+    }
+
+    /// 破線のピッチ（用紙の mm）の線種コード。同じピッチの既定義線種・ユーザ定義線種、なければユーザ定義線種を足す。
+    /// ユーザ定義線種の数が上限（16）なら実線にして知らせる
+    fn line_type_for(&mut self, name: &str, pitch: Vec<f64>) -> f64 {
+        let same =
+            |other: &[f64]| other.len() == pitch.len() && other.iter().zip(&pitch).all(|(a, b)| (a - b).abs() < 1e-9);
+        if let Some(position) = PREDEFINED_LINE_TYPES.iter().position(|line_type| same(line_type.pitch)) {
+            return (position + 1) as f64;
+        }
+        let doc = &self.drawing.document;
+        if let Some(position) = doc.user_line_types.iter().position(|line_type| same(&line_type.pitch)) {
+            return (position + 17) as f64;
+        }
+        if doc.user_line_types.len() >= MAX_USER_LINE_TYPES {
+            self.notices.add(
+                NoticeLevel::Warning,
+                "edit-hatch-dashes",
+                "ユーザ定義線種が上限（16）に達しているため、模様の破線を実線にしました",
+            );
+            return DEFAULT_LINE_TYPE;
+        }
+        let id = self.temporary();
+        self.drawing.document.user_line_types.push(UserLineType { id, name: name.to_string(), pitch });
+        (self.drawing.document.user_line_types.len() + 16) as f64
+    }
+
+    /// 空のブロック定義を作図部品（複合図形定義の種別 4）として足す（docs/decisions/0017）。複合図形定義は基点を
+    /// 持たない（部品の座標の原点を配置の点に置く）ので、basePoint は後の操作で中に足す要素の座標から引く
+    fn add_block(&mut self, index: usize, name: &str, values: &EditValues) -> Result<(), EditError> {
+        let reader = ValueReader::new(values, index);
+        reader.allow(&["basePoint"], "作図部品")?;
+        if name.trim().is_empty() || name.chars().any(char::is_control) || name.starts_with("$$") {
+            return Err(EditError::at(
+                index,
+                "invalid-value",
+                format!("作図部品の名前 {name} は使えません（空、制御文字、$$ で始まる名前は使えません）"),
+            ));
+        }
+        if self.drawing.document.sub_figures.contains(name) {
+            return Err(EditError::at(index, "already-exists", format!("複合図形 {name} はすでにあります")));
+        }
+        let base = reader.point("basePoint")?.unwrap_or([0.0; 3]);
+        let id = self.temporary();
+        let feature = SfigOrg { id, name: name.to_string(), flag: 4.0 };
+        self.drawing.document.sub_figures.set(name.to_string(), SubFigure { feature, members: Vec::new() });
+        self.bases.insert(name.to_string(), [base[0], base[1]]);
+        self.created.push(Created::Name(name.to_string()));
         Ok(())
     }
 
@@ -692,7 +930,7 @@ impl Editor {
         let visible = reader.bool("visible")?.unwrap_or(true);
         let id = self.temporary();
         self.drawing.document.layers.push(LayerDefinition { id, name: name.to_string(), visible });
-        self.created.push(Created::Layer(name.to_string()));
+        self.created.push(Created::Name(name.to_string()));
         Ok(())
     }
 
@@ -707,6 +945,22 @@ impl Editor {
             self.drawing.document.layers[position].visible = visible;
         }
         Ok(())
+    }
+}
+
+/// 寸法の形を、作図部品の基点を原点にした座標にする
+fn shifted(geometry: DimensionGeometry, origin: [f64; 2]) -> DimensionGeometry {
+    let at = |point: [f64; 2]| [point[0] - origin[0], point[1] - origin[1]];
+    match geometry {
+        DimensionGeometry::Linear { origins, feet, direction, measurement } => {
+            DimensionGeometry::Linear { origins: origins.map(at), feet: feet.map(at), direction, measurement }
+        }
+        DimensionGeometry::Angular { center, radius, from, span, origins } => {
+            DimensionGeometry::Angular { center: at(center), radius, from, span, origins: origins.map(at) }
+        }
+        DimensionGeometry::Radial { center, from, to, measurement, diameter } => {
+            DimensionGeometry::Radial { center: at(center), from: at(from), to: at(to), measurement, diameter }
+        }
     }
 }
 

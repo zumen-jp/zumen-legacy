@@ -4,6 +4,18 @@ All packages share one version during 0.x.
 
 ## Unreleased
 
+- Rust, Python and the command line: `edit` and `create` take `add-block` (with `"container": "block:<name>"` and
+  `block-reference`), `"kind": "dimension"` and `"kind": "hatch"` for JWW and SXF too, as each format's own entities
+  ([decision 0025](docs/decisions/0025-annotations-in-jww-and-sxf-edits.md)). JWW: a block definition named with
+  Jw_cad's drawing part suffix, dimensions as one dimension figure (CDataSunpou) in SXF mode drawn with the drawing's
+  dimension settings and text style (linear, aligned, radius and diameter; angular dimensions are refused), and hatches
+  as trapezoid solids (`SOLID`) or hatch lines and points cut to the boundary (patterns). SXF: a drawing part
+  (composite figure of kind 4), the dimension features (linear, angular, radius and diameter, with ISO-25 sizes on the
+  sheet, divided by the placement's scale inside sub-figures), and fills and user-defined hatching over invisible
+  composite curves, with pattern dashes as a user-defined line type. The reading of dimension and hatch values and the
+  built-in hatch patterns move to `zumen_core::edit::dimension` and `zumen_core::edit::hatch` (re-exported by
+  zumen-dxf; `HatchInput::pattern_type` becomes `custom`, and a dimension's DXF flags and display block are the
+  `DxfDimension` trait), and `JwwDimension` keeps its SXF mode (`sxf_mode`).
 - Browsers, Rust and Python: entities can be kept for interaction only, with `drawn: false` (`SceneEntity.drawn` in
   `zumen-core`), for the content that an underlay already shows such as the paths and texts of a PDF page
   ([decision 0022](docs/decisions/0022-underlays-drawn-by-a-region-renderer.md)). `renderScene` and `zumen-render`
@@ -60,8 +72,8 @@ All packages share one version during 0.x.
   title block ([Drawing into a template](docs/drafting.md#drawing-into-a-template)).
 - Rust, Python and the command line: `edit` and `create` take `{"op": "add-block", "name": ..., "basePoint": [x, y]}`
   for DXF (R12 to 2018) and DWG (R13 to 2018), which creates an empty block definition; later operations of the same
-  edit fill it with `"container": "block:<name>"` and place it with `block-reference`. SXF and JWW refuse it
-  (`unsupported-kind`). First step of [decision 0017](docs/decisions/0017-add-annotations-and-definitions.md).
+  edit fill it with `"container": "block:<name>"` and place it with `block-reference` (JWW and SXF too, see above).
+  First step of [decision 0017](docs/decisions/0017-add-annotations-and-definitions.md).
 - Rust, Python and the command line: `add` takes `kind: "dimension"` (linear and aligned) for DXF and DWG, written as
   a DIMENSION with its `*D` block computed from the dimension style, so that zumen and other readers draw it.
 - Rust, Python and the command line: `kind: "dimension"` also takes `dimensionType` `angular-3-point` (`center`,

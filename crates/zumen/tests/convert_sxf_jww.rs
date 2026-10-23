@@ -402,6 +402,7 @@ fn places_jww_layer_groups_by_scale_in_model_space_and_one_to_one_groups_on_pape
                 jww_line(jww_base(0, 1, 2, 1), -100.0, -1.0, -100.0, -12.0),
                 jww_line(jww_base(0, 1, 2, 1), 0.0, -1.0, 0.0, -12.0),
             ],
+            sxf_mode: 0,
             points: Vec::new(),
         }),
         // 1/1: 図枠（紙空間）

@@ -306,8 +306,11 @@ fn values_sxf_cannot_hold_are_refused_or_reported() {
     .unwrap_err();
     assert_eq!(error.code, "unsupported-kind");
     let error =
-        edit_sxf(&bytes, "sfc", &operations(json!([{"op": "add", "kind": "hatch", "layer": "A"}]))).unwrap_err();
+        edit_sxf(&bytes, "sfc", &operations(json!([{"op": "add", "kind": "leader", "layer": "A"}]))).unwrap_err();
     assert_eq!(error.code, "unsupported-kind");
+    let error =
+        edit_sxf(&bytes, "sfc", &operations(json!([{"op": "add", "kind": "hatch", "layer": "A"}]))).unwrap_err();
+    assert_eq!(error.code, "invalid-value");
     let error = edit_sxf(
         &bytes,
         "sfc",
@@ -374,4 +377,173 @@ fn adding_non_curve_elements_reports_unused_line_attributes() {
         .unwrap();
         assert!(edited.notices.iter().any(|notice| notice.code == "edit-unused-attributes" && notice.count == 2));
     }
+}
+
+/// 作図部品を足して中に要素を足し、配置する。寸法と塗り・ハッチングを足す（docs/decisions/0017、0025）。
+/// SFC・P21・SFZ・P2Z のすべての fixtures で、読み直すと足したものが描け、ほかの要素はそのまま
+#[test]
+fn adds_parts_dimensions_and_hatches() {
+    let list = operations(json!([
+        {"op": "add-block", "name": "扉", "basePoint": [100, 0]},
+        {"op": "add", "kind": "line", "container": "block:扉", "start": [100, 0], "end": [190, 0]},
+        {"op": "add", "kind": "circle", "container": "block:扉", "center": [100, 0], "radius": 10},
+        {"op": "add", "kind": "block-reference", "block": "扉", "position": [50, 50], "rotation": 90},
+        {"op": "add", "kind": "dimension", "start": [0, 0], "end": [100, 0], "position": [0, -30]},
+        {"op": "add", "kind": "dimension", "dimensionType": "aligned", "start": [0, 0], "end": [60, 80], "position": [-10, 10]},
+        {"op": "add", "kind": "dimension", "dimensionType": "angular-3-point", "center": [0, 0], "start": [50, 0], "end": [0, 50], "position": [30, 30]},
+        {"op": "add", "kind": "dimension", "dimensionType": "radius", "center": [0, 0], "point": [40, 0], "color": 2},
+        {"op": "add", "kind": "dimension", "dimensionType": "diameter", "center": [0, 0], "point": [0, 40]},
+        {"op": "add", "kind": "hatch", "boundaries": [[0, 0], [100, 0], [100, 50], [0, 50]], "color": "#ff0000"},
+        {"op": "add", "kind": "hatch", "pattern": "ANSI31", "boundaries": [[[0, 100], [100, 100], [100, 150], [0, 150]], [[40, 110], [60, 110], [60, 140], [40, 140]]]},
+        {"op": "add", "kind": "hatch", "pattern": "DOTS", "patternScale": 2, "boundaries": [[200, 0], [300, 0], [300, 50], [200, 50]]}
+    ]));
+    let mut problems = Vec::new();
+    for (format, name) in common::FIXTURES {
+        let original = read_fixture(format, name);
+        let (archive, to) = compressed(&original, format);
+        for (bytes, format) in [(original, format), (archive, to)] {
+            let label = format!("{name}.{format}");
+            let edited = match edit_sxf(&bytes, format, &list) {
+                Ok(edited) => edited,
+                Err(error) => {
+                    problems.push(format!("{label}: {error}"));
+                    continue;
+                }
+            };
+            let (before, after) = (read(&bytes, format), read(&edited.bytes, format));
+            let reference = &edited.created[3];
+            let inside = after.entities.iter().filter(|entity| entity.id.starts_with(&format!("{reference}>"))).count();
+            if inside != 2 {
+                problems.push(format!("{label}: {inside} elements drawn through the new placement"));
+            }
+            for (position, kind) in [
+                (4, "dimension"),
+                (5, "dimension"),
+                (6, "dimension"),
+                (7, "dimension"),
+                (8, "dimension"),
+                (9, "hatch"),
+                (10, "hatch"),
+                (11, "hatch"),
+            ] {
+                let id = &edited.created[position];
+                match after.entities.iter().find(|entity| &entity.id == id) {
+                    Some(entity) if entity.kind.name() == kind && !entity.primitives.is_empty() => {}
+                    other => problems.push(format!("{label}: {id} is {:?}", other.map(|entity| entity.kind.name()))),
+                }
+            }
+            if after.entities.len() != before.entities.len() + 2 + 8 {
+                problems.push(format!(
+                    "{label}: {} elements before, {} after",
+                    before.entities.len(),
+                    after.entities.len()
+                ));
+            }
+            for notice in &after.notices {
+                if !before.notices.iter().any(|old| old.code == notice.code) {
+                    problems.push(format!("{label}: new notice {} ({})", notice.code, notice.message));
+                }
+            }
+        }
+    }
+    assert!(problems.is_empty(), "{problems:#?}");
+}
+
+#[test]
+fn writes_parts_dimensions_and_hatches_as_sxf_features() {
+    let bytes = read_fixture("sfc", "sample");
+    let edited = edit_sxf(
+        &bytes,
+        "sfc",
+        &operations(json!([
+            {"op": "add-block", "name": "扉", "basePoint": [100, 0]},
+            {"op": "add", "kind": "line", "container": "block:扉", "start": [100, 0], "end": [190, 0]},
+            {"op": "add", "kind": "dimension", "start": [0, 0], "end": [100, 0], "position": [0, -30], "dimensionStyle": "Standard"},
+            {"op": "add", "kind": "hatch", "boundaries": [[0, 0], [100, 0], [100, 50], [0, 50]], "color": "#ff0000", "lineType": "dashed"},
+            {"op": "add", "kind": "hatch", "pattern": "DOTS", "boundaries": [[200, 0], [300, 0], [300, 50], [200, 50]]}
+        ])),
+    )
+    .unwrap();
+    assert_eq!(edited.created[0], "扉");
+    let codes: Vec<&str> = edited.notices.iter().map(|notice| notice.code.as_str()).collect();
+    assert!(
+        ["edit-dimension-style", "edit-unused-attributes", "edit-hatch-shift"].iter().all(|code| codes.contains(code)),
+        "{codes:?}"
+    );
+    let before = parse_sxf(&bytes, "sfc").unwrap().document;
+    let doc = parse_sxf(&edited.bytes, "sfc").unwrap().document;
+    // 作図部品の座標は基点を原点に
+    let part = doc.sub_figures.get("扉").unwrap();
+    assert_eq!(part.feature.flag, 4.0);
+    assert!(matches!(part.members[..], [SxfFeature::Line { x1: 0.0, y1: 0.0, x2: 90.0, y2: 0.0, .. }]));
+    let find = |id: &str| doc.sheet_members.iter().find(|feature| format!("#{}", feature.id()) == id).unwrap();
+    let SxfFeature::LinearDim { line, ext1, arrow1, text, .. } = find(&edited.created[2]) else { panic!() };
+    assert_eq!(*line, [0.0, -30.0, 100.0, -30.0]);
+    assert_eq!(ext1.as_ref().unwrap().y2, -31.25);
+    assert_eq!(arrow1.as_ref().unwrap().code, 6.0);
+    let text = text.as_ref().unwrap();
+    assert_eq!((text.text.as_str(), text.height, text.x, text.y), ("100", 2.5, 50.0, -29.375));
+    // 塗りは見えない複合曲線の上に
+    let SxfFeature::FillAreaStyleColour { color, region, .. } = find(&edited.created[3]) else { panic!() };
+    assert_eq!(doc.color(*color).as_deref(), Some("#ff0000"));
+    let curve = &doc.composite_curves[region.out_id as usize - 1];
+    assert!(!curve.feature.visible && region.in_ids.is_empty());
+    assert_eq!(doc.composite_curves.len(), before.composite_curves.len() + 2);
+    // 点の模様は 0.25 mm の線のユーザ定義線種
+    let SxfFeature::FillAreaStyleHatching { patterns, .. } = find(&edited.created[4]) else { panic!() };
+    assert_eq!(patterns.len(), 1);
+    let line_type = &doc.user_line_types[patterns[0].line_type as usize - 17];
+    assert_eq!((line_type.name.as_str(), line_type.pitch.as_slice()), ("DOTS", [0.25, 1.3375].as_slice()));
+    let error = |list: Value| edit_sxf(&bytes, "sfc", &operations(list)).unwrap_err();
+    assert_eq!(
+        error(json!([{"op": "add-block", "name": "扉"}, {"op": "add-block", "name": "扉"}])).code,
+        "already-exists"
+    );
+    assert_eq!(error(json!([{"op": "add-block", "name": "$$SXF_P_扉"}])).code, "invalid-value");
+    let cycle = error(json!([
+        {"op": "add-block", "name": "A"},
+        {"op": "add-block", "name": "B"},
+        {"op": "add", "kind": "block-reference", "container": "block:A", "block": "B", "position": [0, 0]},
+        {"op": "add", "kind": "block-reference", "container": "block:B", "block": "A", "position": [0, 0]}
+    ]));
+    assert_eq!((cycle.code, cycle.operation), ("invalid-value", Some(3)));
+    let degenerate =
+        error(json!([{"op": "add", "kind": "dimension", "start": [0, 0], "end": [0, 0], "position": [0, -30]}]));
+    assert_eq!(degenerate.code, "invalid-value");
+}
+
+/// 部分図の中の寸法は、配置の尺度で割った大きさ（用紙の上で 2.5 mm の文字）
+#[test]
+fn sizes_dimensions_in_sub_figures_by_their_placement() {
+    let bytes = read_fixture("sfc", "features");
+    let drawing = parse_sxf(&bytes, "sfc").unwrap();
+    let (name, ratio) = drawing
+        .document
+        .sheet_members
+        .iter()
+        .find_map(|feature| match feature {
+            SxfFeature::SfigLocate { name, ratio_x, ratio_y, .. }
+                if drawing.document.sub_figures.get(name).is_some_and(|figure| figure.feature.flag == 1.0) =>
+            {
+                Some((name.clone(), (ratio_x.abs() * ratio_y.abs()).sqrt()))
+            }
+            _ => None,
+        })
+        .expect("a sub-figure placed on the sheet");
+    let edited = edit_sxf(
+        &bytes,
+        "sfc",
+        &operations(json!([{"op": "add", "kind": "dimension", "container": format!("figure:{name}"), "start": [0, 0], "end": [10, 0], "position": [0, -5]}])),
+    )
+    .unwrap();
+    let doc = parse_sxf(&edited.bytes, "sfc").unwrap().document;
+    let id = &edited.created[0];
+    let figure = doc.sub_figures.get(&name).unwrap();
+    let SxfFeature::LinearDim { text, arrow1, .. } =
+        figure.members.iter().find(|feature| format!("#{}", feature.id()) == *id).unwrap()
+    else {
+        panic!()
+    };
+    assert!((text.as_ref().unwrap().height * ratio - 2.5).abs() < 1e-9, "{ratio}");
+    assert!((arrow1.as_ref().unwrap().scale - 1.0 / 3.0).abs() < 1e-12);
 }

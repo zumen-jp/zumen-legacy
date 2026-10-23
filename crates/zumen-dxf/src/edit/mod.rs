@@ -15,7 +15,7 @@ mod raw;
 
 use crate::colors::ACI;
 use crate::write::real;
-use dimension::{DimStyleValues, DimensionInput, DimensionKind, Part, Role};
+use dimension::{DimStyleValues, DimensionInput, DimensionKind, DxfDimension, Part, Role};
 use raw::{RawDxf, Tag};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use zumen_core::edit::{
@@ -440,7 +440,7 @@ fn hatch_tags(record: &mut Record, input: &hatch::HatchInput) {
         }
         record.int(97, 0);
     }
-    record.int(75, 0).int(76, input.pattern_type);
+    record.int(75, 0).int(76, hatch::pattern_type(input));
     if !input.solid {
         record.real(52, input.angle).real(41, input.scale).int(77, 0).int(78, input.lines.len() as i64);
         for line in &input.lines {

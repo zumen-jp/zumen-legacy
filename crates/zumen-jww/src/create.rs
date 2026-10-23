@@ -133,7 +133,7 @@ const SXF_LINE_TYPE_NAMES: [&str; 15] = [
 const SXF_SPARE_COLOR: u32 = 0xc0c0c0;
 
 /// 文字種 1〜10 の幅・高さ・間隔（mm）・色番号
-const TEXT_STYLES: [(f64, f64, f64, u32); 10] = [
+pub(crate) const TEXT_STYLES: [(f64, f64, f64, u32); 10] = [
     (2.0, 2.0, 0.0, 1),
     (2.5, 2.5, 0.0, 1),
     (3.0, 3.0, 0.5, 2),
@@ -145,6 +145,10 @@ const TEXT_STYLES: [(f64, f64, f64, u32); 10] = [
     (9.0, 9.0, 1.0, 5),
     (10.0, 10.0, 1.0, 5),
 ];
+
+/// 寸法の設定（m_lnSunpou1〜5）の Jw_cad の既定（jwdatafmt.txt「寸法関係の設定」）。寸法線・引出線・寸法点の色 1、
+/// 小数点以下 2 桁、mm、端部は点、文字種 2、寸法値の離れ 0.5 mm、引出線の突出 0 mm、半径値の R は前に付ける
+pub(crate) const DIMENSION_SETTINGS: [u32; 5] = [2_002_111, 5, 50_150_030, 11_000_000, 4_100];
 
 /// 線描画の最大幅（ドット）。線幅を 1/100 mm 単位とするときは、版 600 以降は −(この値 + 200) を書く
 const MAX_DRAW_WIDTH: i32 = 100;
@@ -181,7 +185,7 @@ fn general_settings() -> JwwGeneralSettings {
     JwwGeneralSettings {
         dummy: [0; 14],
         // 寸法の設定（Jw_cad の既定）。環境設定で保存しない図面では読まれない
-        dimension: [2_002_111, 5, 50_150_030, 11_000_000, 4_100],
+        dimension: DIMENSION_SETTINGS,
         dummy2: 0,
         max_draw_width: MAX_DRAW_WIDTH,
         print_origin: [0.0, 0.0],

@@ -420,3 +420,205 @@ fn nonfinite_scalar_block_scales_are_refused() {
         assert_eq!(error.operation, Some(0));
     }
 }
+
+/// ブロック定義を足して中に図形を足し、配置する（docs/decisions/0017、0025）。中の図形の座標から基点を引き、
+/// 配置は基点を配置の点に置く
+#[test]
+fn adds_block_definitions_and_draws_them_through_references() {
+    for version in [200, 600, 700] {
+        let edited = edit(
+            &fixture(version),
+            r##"[
+                {"op": "add-block", "name": "扉", "basePoint": [1000, 0]},
+                {"op": "add", "kind": "line", "container": "block:扉", "start": [1000, 0], "end": [1900, 0]},
+                {"op": "add", "kind": "arc", "container": "block:扉", "center": [1000, 0], "radius": 900, "angle": [0, 90]},
+                {"op": "add", "kind": "block-reference", "block": "扉", "position": [5000, 5000], "rotation": 90},
+                {"op": "add", "kind": "block-reference", "container": "block:扉", "block": "部品", "position": [1000, 0]}
+            ]"##,
+        )
+        .unwrap();
+        assert_eq!(edited.created, ["扉", "block:扉>#1", "block:扉>#2", "#7", "block:扉>#3"], "{version}");
+        assert!(edited.notices.is_empty(), "{version}: {:?}", edited.notices);
+        let doc = read_jww(&edited.bytes).unwrap();
+        let block = doc.blocks.last().unwrap();
+        // Jw_cad と同じく、版 4.10 からは作図部品の印を名前の後ろに付ける
+        let name = if version >= 410 { "扉@@SfigorgFlag@@4" } else { "扉" };
+        assert_eq!((block.name.as_str(), block.number, block.entities.len()), (name, 8, 3), "{version}");
+        let JwwEntity::Line(line) = &block.entities[0] else { panic!("line") };
+        assert_eq!((line.x1, line.y1, line.x2, line.y2), (0.0, 0.0, 9.0, 0.0));
+        let scene = jww_to_scene(&doc);
+        let inside: Vec<&str> =
+            scene.entities.iter().map(|entity| entity.id.as_str()).filter(|id| id.starts_with("#7>")).collect();
+        assert_eq!(inside, ["#7>#1", "#7>#2", "#7>#3>#1"], "{version}");
+        // 基点は配置の点に、900 の線は 90° 回って上へ
+        let end = raw(&scene, "#7>#1", "end");
+        assert!((end[0].as_f64().unwrap() - 5000.0).abs() < 1e-9 && (end[1].as_f64().unwrap() - 5900.0).abs() < 1e-9);
+        let read = crate::JwwFile::read(&edited.bytes).unwrap();
+        assert!(read.blocks.last().unwrap().referenced && read.blocks[0].referenced);
+    }
+    let bytes = fixture(700);
+    let error = |operations: &str| edit(&bytes, operations).unwrap_err();
+    assert_eq!(error(r##"[{"op": "add-block", "name": "部品"}]"##).code, "already-exists");
+    assert_eq!(error(r##"[{"op": "add-block", "name": "a@@SfigorgFlag@@4"}]"##).code, "invalid-value");
+    assert_eq!(error(r##"[{"op": "add-block", "name": "a", "origin": [0, 0]}]"##).code, "unknown-key");
+    assert_eq!(
+        error(r##"[{"op": "add", "kind": "line", "container": "block:なし", "start": [0, 0], "end": [1, 0]}]"##).code,
+        "missing-definition"
+    );
+    // 配置の循環
+    let cycle = error(
+        r##"[{"op": "add-block", "name": "A"}, {"op": "add", "kind": "block-reference", "container": "block:A", "block": "A", "position": [0, 0]}]"##,
+    );
+    assert_eq!((cycle.code, cycle.operation), ("invalid-value", Some(1)));
+    let cycle = error(
+        r##"[{"op": "add-block", "name": "A"},
+            {"op": "add", "kind": "block-reference", "container": "block:A", "block": "部品", "position": [0, 0]},
+            {"op": "add", "kind": "block-reference", "container": "block:部品", "block": "A", "position": [0, 0]}]"##,
+    );
+    assert_eq!((cycle.code, cycle.operation), ("invalid-value", Some(2)));
+}
+
+/// 新しい 1/100 の図面に寸法を足す
+fn dimensions(operations: &str) -> (Edited, JwwDocument) {
+    let all = format!(r#"[{{"op": "add-layer", "name": "寸法", "group": 0, "scale": 100}}, {}]"#, operations);
+    let edited = edit(&new_jww(), &all).unwrap();
+    let doc = read_jww(&edited.bytes).unwrap();
+    (edited, doc)
+}
+
+/// 寸法は寸法図形（CDataSunpou）。大きさと寸法値は図面の寸法の設定（ここは Jw_cad の既定: 文字種 2、離れ 0.5 mm、
+/// 突出 0、小数点以下 2 桁、カンマ）に従う（docs/decisions/0025）
+#[test]
+fn adds_dimensions_as_dimension_figures() {
+    let (edited, doc) = dimensions(
+        r#"{"op": "add", "kind": "dimension", "layer": "寸法", "start": [0, 0], "end": [3700, 0], "position": [0, -800]},
+           {"op": "add", "kind": "dimension", "layer": "寸法", "dimensionType": "aligned", "start": [0, 0], "end": [0, 3000], "position": [-500, 0]},
+           {"op": "add", "kind": "dimension", "layer": "寸法", "dimensionType": "radius", "center": [0, 0], "point": [600, 0]},
+           {"op": "add", "kind": "dimension", "layer": "寸法", "dimensionType": "diameter", "center": [0, 0], "point": [0, 500], "color": 4, "text": "<>（内法）"}"#,
+    );
+    assert_eq!(edited.created, ["0-0 寸法", "#1", "#2", "#3", "#4"]);
+    assert!(edited.notices.is_empty(), "{:?}", edited.notices);
+    let JwwEntity::Dimension(linear) = &doc.entities[0] else { panic!("dimension") };
+    assert_eq!(linear.sxf_mode, 1);
+    assert_eq!((linear.line.x1, linear.line.y1, linear.line.x2, linear.line.y2), (0.0, -8.0, 37.0, -8.0));
+    assert_eq!((linear.lines[0].x1, linear.lines[0].y1, linear.lines[0].x2, linear.lines[0].y2), (0.0, 0.0, 0.0, -8.0));
+    let points: Vec<(f64, f64, bool)> = linear.points.iter().map(|point| (point.x, point.y, point.temporary)).collect();
+    assert_eq!(points, [(0.0, -8.0, false), (37.0, -8.0, false), (0.0, 0.0, true), (37.0, 0.0, true)]);
+    let text = &linear.text;
+    assert_eq!((text.content.as_str(), text.text_type, text.size_y, text.angle), ("3,700", 2, 2.5, 0.0));
+    assert_eq!((text.base.flag, text.base.pen_style, text.base.pen_width & 0x3042), (0x4010, 2, 0x2042));
+    // 寸法線の中央に、5 文字（半角）× 1.25 mm の幅で、離れ 0.5 mm の上
+    assert_eq!((text.x1, text.y1, text.x2), (18.5 - 3.125, -7.5, 18.5 + 3.125));
+    assert_eq!((linear.base.flag, linear.line.base.flag, linear.points[0].base.flag), (0x2000, 0x2000, 0x0040));
+    // 縦の寸法の値は下から上へ読み、寸法線の左に置く
+    let JwwEntity::Dimension(aligned) = &doc.entities[1] else { panic!("dimension") };
+    assert_eq!((aligned.text.angle, aligned.text.content.as_str()), (90.0, "3,000"));
+    assert!((aligned.text.x1 + 5.5).abs() < 1e-12 && (aligned.text.y1 - (15.0 - 3.125)).abs() < 1e-12);
+    let JwwEntity::Dimension(radius) = &doc.entities[2] else { panic!("dimension") };
+    assert_eq!((radius.text.content.as_str(), radius.text.base.flag), ("R600", 0x4110));
+    assert_eq!((radius.points[0].temporary, radius.points[1].temporary, radius.points[1].x), (true, false, 6.0));
+    let JwwEntity::Dimension(diameter) = &doc.entities[3] else { panic!("dimension") };
+    assert_eq!((diameter.text.content.as_str(), diameter.text.base.flag), ("φ1,000（内法）", 0x4210));
+    assert_eq!((diameter.line.y1, diameter.line.y2, diameter.points[0].temporary), (-5.0, 5.0, false));
+    let colors: Vec<u16> = [&diameter.line.base, &diameter.text.base, &diameter.points[1].base]
+        .iter()
+        .map(|base| base.pen_color)
+        .collect();
+    assert_eq!(colors, [4, 4, 4]);
+    let scene = jww_to_scene(&doc);
+    assert!(scene.entities.iter().all(|entity| entity.kind.name() == "dimension" && !entity.primitives.is_empty()));
+    assert_eq!(property(&scene, "#1", "dimensionText").value, "3,700");
+}
+
+#[test]
+fn draws_dimensions_with_the_settings_of_the_drawing() {
+    let bytes = {
+        let mut file = crate::JwwFile::read(&fixture(700)).unwrap();
+        // 寸法線の色 3、小数点以下 0 桁、端部は矢印、文字種 3、離れ 1 mm、突出 2 mm
+        file.header.settings.as_mut().unwrap().general.dimension = [3_100_333, 200_010, 50_150_030, 11_000_000, 4_100];
+        file.write().bytes
+    };
+    let edited = edit(
+        &bytes,
+        r#"[{"op": "add", "kind": "dimension", "start": [0, 0], "end": [1234.5, 0], "position": [0, 500], "dimensionStyle": "Standard"}]"#,
+    )
+    .unwrap();
+    assert_eq!(codes(&edited), ["edit-dimension-style", "edit-dimension-end"]);
+    let doc = read_jww(&edited.bytes).unwrap();
+    let JwwEntity::Dimension(dimension) = doc.entities.last().unwrap() else { panic!("dimension") };
+    // 1/100 のグループ 0 に。寸法線は y = 5 mm、補助線は起点から寸法線を 2 mm 越える
+    assert_eq!((dimension.line.base.pen_color, dimension.text.text_type, dimension.text.size_y), (3, 3, 3.0));
+    assert_eq!(dimension.text.content, "1,235");
+    assert_eq!((dimension.lines[0].y1, dimension.lines[0].y2, dimension.text.y1), (0.0, 7.0, 6.0));
+    // 角度寸法は寸法図形にできない
+    let error = edit(
+        &bytes,
+        r#"[{"op": "add", "kind": "dimension", "dimensionType": "angular-3-point", "center": [0, 0], "start": [1, 0], "end": [0, 1], "position": [1, 1]}]"#,
+    )
+    .unwrap_err();
+    assert_eq!(error.code, "unsupported-kind");
+    let error =
+        edit(&bytes, r#"[{"op": "add", "kind": "dimension", "start": [0, 0], "end": [0, 0], "position": [0, 5]}]"#)
+            .unwrap_err();
+    assert_eq!(error.code, "invalid-value");
+    // 版 420 より前の寸法図形は補助線と点を持たない
+    let edited = edit(
+        &fixture(200),
+        r#"[{"op": "add", "kind": "dimension", "start": [0, 0], "end": [1000, 0], "position": [0, -500]}]"#,
+    )
+    .unwrap();
+    assert_eq!(codes(&edited), ["edit-dimension-parts"]);
+    let doc = read_jww(&edited.bytes).unwrap();
+    let JwwEntity::Dimension(dimension) = doc.entities.last().unwrap() else { panic!("dimension") };
+    assert!(dimension.lines.is_empty() && dimension.text.content == "1,000");
+}
+
+/// JWW にハッチングの図形はないので、塗りは台形のソリッド、模様はハッチの線と点（docs/decisions/0025）
+#[test]
+fn adds_hatches_as_solids_and_hatch_lines() {
+    let (edited, doc) = dimensions(
+        r##"{"op": "add", "kind": "hatch", "layer": "寸法", "boundaries": [[0, 0], [1000, 0], [1000, 1000], [0, 1000]], "color": "#ff0000"},
+            {"op": "add", "kind": "hatch", "layer": "寸法", "boundaries": [[[0, 2000], [3000, 2000], [3000, 5000], [0, 5000]], [[1000, 3000], [2000, 3000], [2000, 4000], [1000, 4000]]], "color": 3},
+            {"op": "add", "kind": "hatch", "layer": "寸法", "pattern": "ANSI31", "patternScale": 100, "boundaries": [[5000, 0], [8000, 0], [8000, 3000], [5000, 3000]]},
+            {"op": "add", "kind": "line", "layer": "寸法", "start": [0, 0], "end": [1, 0]}"##,
+    );
+    let solids = doc.entities.iter().filter(|entity| matches!(entity, JwwEntity::Solid(_))).count();
+    let lines: Vec<&JwwLine> = doc
+        .entities
+        .iter()
+        .filter_map(|entity| match entity {
+            JwwEntity::Line(line) if line.base.flag == HATCH_FLAG => Some(line),
+            _ => None,
+        })
+        .collect();
+    // 1 つ目は 1 つのソリッド、2 つ目は穴の上下と左右の 4 つ
+    assert_eq!(solids, 1 + 4);
+    assert_eq!(edited.created[1..4], ["#1", "#2", "#6"]);
+    assert_eq!(edited.created[4], format!("#{}", 6 + lines.len()));
+    assert_eq!(codes(&edited), ["edit-fill-solids", "edit-hatch-lines"]);
+    let JwwEntity::Solid(solid) = &doc.entities[0] else { panic!("solid") };
+    assert_eq!(
+        (solid.points, solid.base.pen_color, solid.color),
+        ([0.0, 0.0, 10.0, 0.0, 10.0, 10.0, 0.0, 10.0], 10, Some(0xff))
+    );
+    // 30 mm 角に 45° で 3.175 mm 間隔: 13 本ほど
+    assert!((12..=14).contains(&lines.len()), "{}", lines.len());
+    assert!(lines.iter().all(|line| [line.x1, line.x2].iter().all(|x| (50.0 - 1e-9..=80.0 + 1e-9).contains(x))));
+    let scene = jww_to_scene(&doc);
+    assert_eq!(scene.entities.len(), doc.entities.len());
+    let bytes = new_jww();
+    let error = |operations: &str| edit(&bytes, operations).unwrap_err();
+    assert_eq!(
+        error(r#"[{"op": "add", "kind": "hatch", "boundaries": [[0, 0], [1, 0], [2, 0]]}]"#).code,
+        "invalid-value"
+    );
+    assert_eq!(
+        error(r#"[{"op": "add", "kind": "hatch", "pattern": "LINE", "patternScale": 0.001, "boundaries": [[0, 0], [1000, 0], [1000, 1000]]}]"#)
+            .code,
+        "invalid-value"
+    );
+    assert_eq!(
+        error(r#"[{"op": "add", "kind": "hatch", "pattern": "BRICK", "boundaries": [[0, 0], [1, 0], [1, 1]]}]"#).code,
+        "missing-definition"
+    );
+}

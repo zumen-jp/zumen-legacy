@@ -158,6 +158,7 @@ fn breaks_down_what_jwc_cannot_hold() {
             base: base(0, 0, 2, 1),
             line: JwwLine { base: base(0, 0, 2, 1), x1: 0.0, y1: -10.0, x2: 100.0, y2: -10.0 },
             text: text(base(0, 0, 2, 1), 45.0, -9.0, 3.0, "10000"),
+            sxf_mode: 0,
             lines: Vec::new(),
             points: Vec::new(),
         }),

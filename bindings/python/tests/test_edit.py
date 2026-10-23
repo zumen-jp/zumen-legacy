@@ -91,6 +91,25 @@ def test_edits_and_creates_every_editable_format():
     assert raised.value.code == "invalid-value"
 
 
+def test_adds_blocks_dimensions_and_hatches_to_jww_and_sxf():
+    """JWW and SXF take the block, dimension and hatch operations of DXF and DWG (decision 0025)."""
+    operations = [
+        {"op": "add-block", "name": "扉", "basePoint": [0, 0]},
+        {"op": "add", "kind": "line", "container": "block:扉", "start": [0, 0], "end": [900, 0]},
+        {"op": "add", "kind": "block-reference", "block": "扉", "position": [1000, 1000]},
+        {"op": "add", "kind": "dimension", "start": [0, 0], "end": [3600, 0], "position": [0, -500]},
+        {"op": "add", "kind": "hatch", "boundaries": [[0, 0], [1000, 0], [1000, 1000], [0, 1000]]},
+    ]
+    for to in ["jww", "sfc", "p21"]:
+        created = zumen.create(to, operations)
+        kinds = {entity["id"]: entity["kind"] for entity in zumen.read(created.data).entities()}
+        assert created.created[0] == "扉", to
+        assert any(entity_id.startswith(created.created[2] + ">") for entity_id in kinds), to
+        assert kinds[created.created[3]] == "dimension", to
+        # JWW has no hatch entity: a solid fill is written as solids
+        assert kinds[created.created[4]] == ("solid" if to == "jww" else "hatch"), to
+
+
 def test_edited_dxf_passes_the_audit_of_ezdxf(tmp_path):
     """Drawings that ezdxf audits without findings (every fixture converted to AutoCAD 2013 DXF, and a new drawing)
     still have none after adding, changing and deleting entities and layers."""
