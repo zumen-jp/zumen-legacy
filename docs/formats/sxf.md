@@ -159,7 +159,7 @@ the original drawing.
 | BYBLOCK colors, line types and lineweights, and layer 0 in blocks | Written with the values inherited from the placement. Each set of inherited values gets its own drawing part (with (2) … added to the name). Blocks with dashed lines also get one for each scale on the sheet (line type pitches are sheet millimeters) |
 | Layers | Layers of the same name. Layers that are off, frozen or not plotted, and DEFPOINTS, are hidden |
 | Colors | ACI 7 (the foreground) and the display's white are black, colors equal to a predefined color use it, and the rest are user-defined colors |
-| Line types | The dash and gap lengths the display draws (sheet millimeters). The same name and lengths as a predefined line type use it, others become a user-defined line type with the DXF name. Dots of length 0 are 0.25 mm |
+| Line types | The dash and gap lengths the display draws (sheet millimeters). The same name and lengths as a predefined line type use it, others become a user-defined line type with the DXF name. Dots of length 0 are 0.25 mm. A user-defined line type holds 2, 4, 6 or 8 lengths (the rule ezsxf checks), so one of more than 8 keeps the first 8 |
 | Lineweights | Values equal to a predefined width (0.13–2.0 mm) use its code, others become user-defined widths. The default (including the default of BYLAYER) is 0.25 mm |
 | Lines, circles, arcs, ellipses, elliptical arcs | As they are (OCS mapped to WCS; mirrored arcs and elliptical arcs run clockwise) |
 | Polylines | Polylines, with bulged segments as arcs. Wide polylines, meshes and curve-fit polylines become the fills and lines the display draws |
@@ -181,7 +181,7 @@ What cannot be written as it is, or is written in another shape, is returned as 
 | `model-sheet` | A drawing that opens in model space became a 1:1 sub-figure on a sheet the size of the extents |
 | `dimension`, `drawn-shapes`, `polyline-width`, `spline`, `wipeout` | Entities and styles that SXF lacks became the lines, fills and texts the display draws |
 | `text-mirror` | A mirrored text was written unmirrored in the same text box |
-| `linetype-dot`, `complex-linetype`, `transparency`, `gradient` | Dots of line types became 0.25 mm dashes, line types with texts or shapes became dashes and gaps, transparency became opaque, gradients became solid fills |
+| `linetype-dot`, `linetype-long`, `complex-linetype`, `transparency`, `gradient` | Dots of line types became 0.25 mm dashes, line types of more than 8 dashes and gaps kept the first 8, line types with texts or shapes became dashes and gaps, transparency became opaque, gradients became solid fills |
 | `hatch-dense` | Hatches without a pattern or with too many lines (more than 5,000) became their outline, as in the display |
 | `image`, `xline`, `minsert` | Images became their frame, construction lines and rays became cut segments, MINSERT became several placements |
 | `encoding` | Characters outside CP932 became ? (`write_sfc`) |
@@ -309,9 +309,12 @@ writes an empty drawing (an A3 landscape sheet) for `create`.
   the first boundary point, its spacing (the part of the pattern offset across the lines) and its angle. Dashes become
   a user-defined line type in sheet millimeters (lengths in the figure × the scale of its placement; dots as 0.25 mm
   dashes, the gap after them shorter by as much, as zumen-convert writes them), named after the pattern, or the
-  predefined or user-defined line type with the same lengths; when the 16 user-defined line types are taken, the line
-  is solid (`edit-hatch-dashes`). The shift of the dashes from one line to the next (the offset along the lines) cannot
-  be written, and is reported when it is not a whole number of dash periods (`edit-hatch-shift`).
+  predefined or user-defined line type with the same lengths. A user-defined line type holds 2, 4, 6 or 8 lengths, so
+  more than 8 that are not the lengths of a predefined line type (double-dashed triplicate-dotted has 10) are cut to
+  the first 8, and the base point moves by whole periods of those (`edit-hatch-dash-count`); when the 16 user-defined
+  line types are taken, the line is solid (`edit-hatch-dashes`). The shift of the dashes from one line to the next (the
+  offset along the lines) cannot be written, and is reported when it is not a whole number of dash periods
+  (`edit-hatch-shift`).
 - Layers take `visible`; SXF layers have no color, line type or width, so those values are checked and left unused
   (`edit-layer-attributes`). A layer without elements cannot be written to P21.
 - The ids of added elements are their written instance numbers (`#n`); the ids of added layers are their names.
@@ -484,7 +487,10 @@ Names outside ASCII are Shift_JIS, or UTF-8 with the UTF-8 flag when Shift_JIS l
   sheet. The same operations on the 1,201-entity sample draw the same in SFC and P21. Dimension styles change the
   value's height, font, decimals and trailing zeros, the arrows (slashes for `tickSize`) and the extension lines, on
   the sheet and with `scale` in a sub-figure; a text style and a line type added to every fixture are used by a text
-  and a line read back drawn.
+  and a line read back drawn. A hatch whose pattern line has 10 dash and gap lengths writes a user-defined line type
+  of the first 8, with its base point moved by whole periods of those 8, and one with the 10 lengths of
+  double-dashed triplicate-dotted keeps that predefined line type; in SFC, P21, SFZ and P2Z both read back drawn with
+  those dashes.
 - Checking the written files with the SXF browser's checking function (SXF確認機能) is to come on a Windows host.
 
 ## References

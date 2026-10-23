@@ -699,6 +699,13 @@ impl Editor {
                     "SXF のハッチング線は線ごとの破線のずれを持たないため、模様の破線を線ごとにずらさずに書きました",
                 );
             }
+            if hatch.cut {
+                self.notices.add(
+                    NoticeLevel::Info,
+                    "edit-hatch-dash-count",
+                    "線と空白が 8 を超える模様の破線は、SXF のユーザ定義線種（2・4・6・8 個）に書けないため、初めの 8 だけにしました",
+                );
+            }
             let line_type =
                 if hatch.pitch.is_empty() { style.line_type } else { self.line_type_for(&input.pattern, hatch.pitch) };
             patterns.push(HatchPattern {
@@ -714,16 +721,14 @@ impl Editor {
         Ok(SxfFeature::FillAreaStyleHatching { id: style.id, layer: style.layer, patterns, region })
     }
 
-    /// 破線のピッチ（用紙の mm）の線種コード。同じピッチの既定義線種・ユーザ定義線種、なければユーザ定義線種を足す。
-    /// ユーザ定義線種の数が上限（16）なら実線にして知らせる
+    /// 破線のピッチ（用紙の mm。既定義線種でなければ 8 個まで）の線種コード。同じピッチの既定義線種・ユーザ定義線種、
+    /// なければユーザ定義線種を足す。ユーザ定義線種の数が上限（16）なら実線にして知らせる
     fn line_type_for(&mut self, name: &str, pitch: Vec<f64>) -> f64 {
-        let same =
-            |other: &[f64]| other.len() == pitch.len() && other.iter().zip(&pitch).all(|(a, b)| (a - b).abs() < 1e-9);
-        if let Some(position) = PREDEFINED_LINE_TYPES.iter().position(|line_type| same(line_type.pitch)) {
-            return (position + 1) as f64;
+        if let Some(code) = predefined_line_type(&pitch) {
+            return code;
         }
         let doc = &self.drawing.document;
-        if let Some(position) = doc.user_line_types.iter().position(|line_type| same(&line_type.pitch)) {
+        if let Some(position) = doc.user_line_types.iter().position(|line_type| same_pitch(&line_type.pitch, &pitch)) {
             return (position + 17) as f64;
         }
         if doc.user_line_types.len() >= MAX_USER_LINE_TYPES {
@@ -1106,6 +1111,18 @@ impl Editor {
         }
         Ok(())
     }
+}
+
+/// 線と空白の長さ（用紙の mm）が同じ既定義線種のコード（既定義線種は 10 個の長さの三点二短鎖線まで）
+fn predefined_line_type(pitch: &[f64]) -> Option<f64> {
+    PREDEFINED_LINE_TYPES
+        .iter()
+        .position(|line_type| same_pitch(line_type.pitch, pitch))
+        .map(|position| (position + 1) as f64)
+}
+
+fn same_pitch(a: &[f64], b: &[f64]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-9)
 }
 
 /// 寸法の形を、作図部品の基点を原点にした座標にする
