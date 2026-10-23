@@ -458,7 +458,14 @@ def create_server(drawings: Drawings | None = None) -> Any:
         spec: Annotated[
             dict[str, Any],
             Field(
-                description="図面仕様 {units, font, defaults, layers, lineTypes, blocks, sheets}。用紙は図枠・表題欄・縮尺付きビュー・作図項目を持つ。座標は実寸、文字高などの大きさは用紙上の mm。詳しくは docs/drafting.md"
+                description="図面仕様 {units, font, defaults, layers, lineTypes, blocks, sheets}。用紙は name、"
+                "fields {TAG: value}（表題欄の属性）、paper（A0-A4・B1-B5 または [w,h]）、orientation、"
+                "frame {margins, titleBlock {placement: right/bottom-right, rows [{label,value,height}]}}、"
+                "views [{scale, viewport [x0,y0,x1,y1]（用紙上）, center, title {number,text}, items}]、"
+                "用紙上の items を持つ。項目の type は line・polyline・rectangle・circle・arc・ellipse・point・"
+                "text・hatch・dimension・dimensionChain・insert・table・grid・northArrow・scaleBar・levelMark・"
+                "spotLevel・leader・polygonLabel・viewTitle・group。layer・color・lineType・lineWidth も指定可。"
+                "ビュー内の座標は実寸の mm、文字高・矢印・表幅などの大きさは用紙上の mm。詳しくは docs/drafting.md"
             ),
         ],
         output: Annotated[
@@ -472,7 +479,10 @@ def create_server(drawings: Drawings | None = None) -> Any:
         into: Annotated[
             str | None,
             Field(
-                description="既存の図形・ハンドル・版を保って作図する DXF・DWG・JWW・SXF テンプレートの絶対パス。DXF・DWG は同名のレイアウトに描き、fields で表題欄を埋める。JWW・SXF は用紙を 1 枚選んで描く"
+                description="既存の図形・ハンドル・版を保って作図する DXF・DWG・JWW・SXF テンプレートの絶対パス。"
+                "DXF・DWG は同名のレイアウトに描き、fields {TAG: value} で表題欄の属性を埋める。"
+                "JWW・SXF は既存用紙に 1 枚を描き、ビューをその縮尺のレイヤグループ（JWW）・部分図（SXF）に置く。"
+                "output の拡張子はテンプレートと同じにする"
             ),
         ] = None,
     ) -> CallToolResult:
@@ -529,7 +539,12 @@ def create_server(drawings: Drawings | None = None) -> Any:
         add: Annotated[
             list[dict[str, Any]] | None,
             Field(
-                description="追加する項目 {kind, view, ...}。redline は points・closed・arrows（none/start/end/both）、cloud は外周の points、text は position・text・height、finding は position・status（open/resolved/closed）・text、photo は position・photo。座標は用紙上の mm"
+                description="追加する項目 {kind, view, ...}。redline は points [[x,y],...]・closed・"
+                "arrows（none/start/end/both）、cloud は閉じた外周の points、text は position・text・height、"
+                "finding はピンの position・status（open/resolved/closed）・text・label・範囲の points、"
+                "photo は position・photo・direction。任意で category・color（#rrggbb）・lineWidth・"
+                "entities（図形 id）・data を指定可。座標は open_drawing が返すビューの用紙上の mm。"
+                "drawing を指定して view を省略すると既定のビューを使う。id・createdAt・updatedAt は自動生成"
             ),
         ] = None,
         update: Annotated[
