@@ -17,6 +17,7 @@
 //!   線・塗り・文字を、JWW の線・ソリッド（台形に分けた塗り）・文字にする。写せない・形を変えた内容は notices で返す。
 
 use crate::shapes::{bulge_arc, decompose, inside, length_scale, mirrors, normalize};
+use crate::text::{is_vertical, text_height_box};
 use crate::to_sxf::{
     Paint, clip_segment, decompose_text, needs_handles, paint_of_aci, paint_of_hex, top_id, with_handles,
 };
@@ -2076,6 +2077,9 @@ impl<'a> Mapper<'a> {
     /// 文字。始点は文字範囲の左下、終点までの長さは文字範囲の幅、大きさの高さは文字範囲の高さ（表示の
     /// text_layout_input の逆）。文字の幅は、全角 1・半角 0.5 で割り振った 1 字の幅
     fn text(&mut self, index: usize, text: &TextPrimitive, m: &Matrix) -> Option<JwwEntity> {
+        // JWW の文字の大きさの高さは、TEXT の高さ（漢字・大文字の高さ）にする
+        let vertical = is_vertical(text);
+        let text = &text_height_box(text, vertical);
         let matrix = multiply(m, &text.matrix);
         let Some((x, y, angle, rx, (shear, ry))) = decompose_text(&matrix) else {
             self.notices.add(NoticeLevel::Warning, "text-skew", "ゆがんだ文字は書いていません");
@@ -2099,10 +2103,6 @@ impl<'a> Mapper<'a> {
                 "斜体の文字（傾き角）は、JWW の文字に書けないため、立てて書きました",
             );
         }
-        let vertical = match text.cells.as_slice() {
-            [first, second, ..] => (first.y - second.y).abs() > (first.x - second.x).abs(),
-            _ => (text.height - text.box_height).abs() > 1e-9 * text.box_height.max(1e-12),
-        };
         let width = text.box_width * rx;
         let height = text.box_height * ry;
         if !(width.is_finite() && height.is_finite() && width >= 0.0 && height > 0.0) {

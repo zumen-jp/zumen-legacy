@@ -190,7 +190,8 @@ fn with_handles(doc: &DxfDocument) -> DxfDocument {
 /// 切り取り）による違いと、1 つの線を折線と円弧に分けたことによる線の数の違いは除く
 fn check_dxf(name: &str, doc: &DxfDocument) -> (usize, Vec<String>) {
     let doc = &with_handles(doc);
-    let mut original = zumen::dxf::dxf_to_scene(doc, None);
+    // SXF の文字範囲の高さは TEXT の高さ（decision 0019）
+    let (mut original, distorted) = common::scale_texts(&zumen::dxf::dxf_to_scene(doc, None), false);
     let (again, sources, _) = to_sxf(doc);
     if original.view.as_deref() == Some("Model") {
         let (dx, dy) = (-original.bounds.min_x, -original.bounds.min_y);
@@ -293,7 +294,7 @@ fn check_dxf(name: &str, doc: &DxfDocument) -> (usize, Vec<String>) {
         .into_iter()
         .filter(|line| {
             let id = line.split(' ').next().unwrap_or("");
-            if skip.contains(id) {
+            if skip.contains(id) || common::is_text_place(line, &distorted) {
                 return false;
             }
             // 自分を配置するブロック（表示は 32 段まで描く）は、SXF では循環を断って 1 段だけ書く（block-depth）

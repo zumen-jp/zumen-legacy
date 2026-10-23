@@ -32,10 +32,14 @@ fn convert(bytes: &[u8]) -> (Scene, HashMap<String, String>, Vec<zumen::Notice>)
 
 /// 図面を DXF に書き直し、元と比べる。比べた図形の数と、違いを返す
 fn check(name: &str, bytes: &[u8]) -> (usize, Vec<String>) {
-    let original = zumen::read(bytes, &ReadDrawingOptions::default()).unwrap();
+    let (original, distorted) = common::scale_texts(&zumen::read(bytes, &ReadDrawingOptions::default()).unwrap(), true);
     let (again, sources, _) = convert(bytes);
-    let differences = common::differences(&original, &again, &sources);
-    (original.entities.len(), differences.into_iter().map(|line| format!("{name}: {line}")).collect())
+    let differences = common::differences(&original, &again, &sources)
+        .into_iter()
+        .filter(|line| !common::is_text_place(line, &distorted))
+        .map(|line| format!("{name}: {line}"))
+        .collect();
+    (original.entities.len(), differences)
 }
 
 fn drawings(folder: &Path) -> Vec<PathBuf> {
@@ -321,7 +325,7 @@ fn jww(entities: Vec<JwwEntity>, blocks: Vec<JwwBlockDefinition>) -> JwwDocument
 }
 
 fn jww_check(doc: &JwwDocument) -> Mapped {
-    let original = zumen::jww::jww_to_scene(doc);
+    let (original, _) = common::scale_texts(&zumen::jww::jww_to_scene(doc), true);
     let mapped = zumen::mapping::jww_to_dxf(doc);
     let again = zumen::dxf::dxf_to_scene(&written(&mapped), None);
     let differences = common::differences(&original, &again, &mapped.sources);

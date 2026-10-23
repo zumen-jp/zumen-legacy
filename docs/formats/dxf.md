@@ -251,7 +251,8 @@ mapping writes what zumen's reader draws the same way as the source scene, and w
   layer `VIEWPORTS` that is off and not plotted (ezdxf's name). The viewport rectangle is the extents of what the source
   draws there with a margin of 1 mm (or 0.5% of the size), so nothing is clipped.
 - TEXT is left-aligned on the baseline, with the height, width factor and oblique angle that draw the source's text box:
-  the box height is the em of the glyphs (the text height is 0.88 or 0.72 of it), and the insertion point is 0.12 em
+  the box height is the text height (the number people enter, [decision 0019](../decisions/0019-text-heights-between-formats.md)), so
+  the glyphs are 1/0.88 or 1/0.72 as large as in SXF and JWW, and the insertion point is 0.12 times the box height
   above the bottom of the box. Vertical text uses the `@` form of the font and a rotation of 270°.
 - Dimensions are DIMENSION entities whose anonymous block (`*D1`, `*D2` …) holds the drawn lines, arrows and text;
   the definition points come from the source's dimension line and extension lines.

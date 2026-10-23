@@ -14,6 +14,7 @@
 //!   ハッチングの模様は、HATCH の模様の線の組を SXF のハッチング（ユーザ定義）にする。
 
 use crate::shapes::{bezier, bulge_arc, decompose, is_similar, length_scale, map_arc, mirrors, normalize, regions};
+use crate::text::{is_vertical, text_height_box};
 use std::collections::{HashMap, HashSet};
 use std::f64::consts::PI;
 use zumen_core::geometry::{IDENTITY, apply, apply_vector, invert, multiply};
@@ -1689,6 +1690,9 @@ impl<'a> Mapper<'a> {
                 out.push((feature, source));
             }
             Primitive::Text(text) => {
+                // SXF の文字範囲の高さは、TEXT の高さ（漢字・大文字の高さ）にする
+                let vertical = is_vertical(text);
+                let text = &text_height_box(text, vertical);
                 let matrix = multiply(m, &text.matrix);
                 let Some((x, y, angle, rx, ry)) = decompose_text(&matrix) else {
                     self.notices.add(NoticeLevel::Warning, "text-skew", "ゆがんだ文字は書いていません");
@@ -1706,10 +1710,6 @@ impl<'a> Mapper<'a> {
                     (x, y)
                 };
                 let (shear, ry) = ry;
-                let vertical = match text.cells.as_slice() {
-                    [first, second, ..] => (first.y - second.y).abs() > (first.x - second.x).abs(),
-                    _ => (text.height - text.box_height).abs() > 1e-9 * text.box_height.max(1e-12),
-                };
                 let font = self.pending[index].font;
                 let color = self.color_code(paint_of_hex(&text.color));
                 let id = self.id();

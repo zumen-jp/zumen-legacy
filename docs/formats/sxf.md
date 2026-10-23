@@ -99,7 +99,7 @@ layout of the written DXF draws the same shapes at the same places as the SXF.
 | Line types | Predefined line types keep their SXF names (dashed, chain …, with the Japanese name as description); user-defined ones become an LTYPE of their name. Pitches are sheet millimeters (`$PSLTSCALE` 1, so they print at the same length whatever the viewport scale) |
 | Line widths | The DXF lineweight (370): the predefined widths 0.13–2.0 mm as they are, other widths the nearest lineweight |
 | Text fonts | A text style named after the font (TrueType; ＭＳ ゴシック and ＭＳ 明朝 with their file names). Texts without a font use Standard (ＭＳ ゴシック) |
-| Texts | TEXT. The height of the text box is the em of the glyphs, its width the width factor, and the left end of the baseline the insertion point (the same text box, base point and slant included). Vertical texts use the vertical font (@ＭＳ 明朝 …) rotated 270°. %% and ^ are written so that they do not become TEXT control codes |
+| Texts | TEXT. The height of the text box is the TEXT height ([decision 0019](../decisions/0019-text-heights-between-formats.md): DXF draws the glyphs 1/0.88 or 1/0.72 as large), the width of a character over its height the width factor, and the left end of the baseline the insertion point (the same base point and slant). Vertical texts use the vertical font (@ＭＳ 明朝 …) rotated 270°. %% and ^ are written so that they do not become TEXT control codes |
 | Lines, polylines, circles, arcs, ellipses, elliptical arcs | LINE, LWPOLYLINE, CIRCLE, ARC (clockwise arcs swap start and end angles), ELLIPSE (the longer axis is the major axis) |
 | Splines | Cubic NURBS (Bézier curves with triple knots at the segment ends). The points beyond 3n+1 become an LWPOLYLINE |
 | Clothoids | An LWPOLYLINE through the points the display draws (AutoCAD has no clothoid) |
@@ -156,7 +156,7 @@ the original drawing.
 | Splines | Non-rational splines of degree 1–3 that pass through their ends are split into cubic Bézier curves (spline_feature) by knot insertion (Boehm's method); others become the polyline the display draws |
 | Points | Point markers (dot) |
 | Dimensions | The lines, fills and texts of their display block (not SXF dimension features) |
-| Texts, attributes, MTEXT, leaders, multileaders, MLINE, fills (SOLID, TRACE), wipeouts, image frames | The lines (polylines), fills (fill_area_style_colour over invisible composite curves) and texts the display draws (text_string with the lower left corner as base point and the same width, height, rotation and slant of the text box; vertical fonts are vertical) |
+| Texts, attributes, MTEXT, leaders, multileaders, MLINE, fills (SOLID, TRACE), wipeouts, image frames | The lines (polylines), fills (fill_area_style_colour over invisible composite curves) and texts the display draws (text_string with the lower left corner as base point and the rotation and slant of the text box; its height is the TEXT height, so the box the display draws is shrunk by 0.88 or 0.72 about the start of the baseline, [decision 0019](../decisions/0019-text-heights-between-formats.md); vertical fonts are vertical) |
 | Hatches | Solid fills are fill_area_style_colour, patterns are fill_area_style_hatching for each set of lines (spacing, angle and base in the coordinates of the container, dashes in sheet millimeters). The boundary is a composite curve with the outline the display draws, with even-odd nesting as outer and inner boundaries |
 | Construction lines and rays | Line segments cut by the sheet (or the viewport frame), as in the display |
 
