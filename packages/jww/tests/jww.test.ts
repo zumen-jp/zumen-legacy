@@ -15,6 +15,8 @@ function points(item: SceneEntity): number[] {
   return Array.from(primitive.points, (value) => Math.round(value * 1e6) / 1e6);
 }
 
+// 用紙・レイヤ・線種・文字コード・円弧・ブロック・非表示の設定は golden.test.ts が各版の Scene 全体で確かめる。
+// ここではソリッドの面積と、計測との組み合わせを確かめる。
 describe("JWW の読み取り", () => {
   const scene = readDrawing(build(600), [jww]);
 
@@ -45,36 +47,5 @@ describe("JWW の読み取り", () => {
     expect(measureDistance({ x: 110, y: 148.5, entity: line }, { x: 210, y: 148.5, entity: line }).real).toBeCloseTo(
       10000,
     );
-  });
-
-  it("レイヤの名前と表示状態、線種のビット列を読む", () => {
-    expect(scene.layers).toContainEqual({ id: 1, name: "0-0 通り芯", visible: true, group: "平面" });
-    expect(scene.layers).toContainEqual(expect.objectContaining({ id: 3, visible: false }));
-    expect(entity(scene.entities, "#2").primitives[0]).toMatchObject({ dashes: [2, 2] });
-  });
-
-  it("Jw_cad が文字として保存した設定は描かず、全体表示の範囲を用紙から広げない", () => {
-    expect(scene.entities.map((item) => item.id)).not.toContain("#6");
-    expect(scene.bounds.minY).toBeGreaterThanOrEqual(0);
-  });
-
-  it("円弧角が負なら時計回りに描き、ブロックの中の図形を共有のクラス番号で読む", () => {
-    const arc = entity(scene.entities, "#4");
-    expect(arc.bbox.minY).toBeCloseTo(138.5, 6);
-    expect(arc.bbox.maxY).toBeCloseTo(148.5, 6);
-    expect(points(entity(scene.entities, "#5>#1"))).toEqual([260, 148.5, 262, 148.5]);
-  });
-
-  it("版 300 より前の図面も、ヘッダのレイヤ名・線色・線幅・線種を読む", () => {
-    const old = readDrawing(build(200), [jww]);
-    expect(old.layers).toContainEqual({ id: 1, name: "0-0 通り芯", visible: true, group: "平面" });
-    expect(entity(old.entities, "#1").primitives[0]).toMatchObject({ width: 0.25, dashes: [] });
-    expect(entity(old.entities, "#2").primitives[0]).toMatchObject({ dashes: [2, 2] });
-    expect(old.notices.map((notice) => notice.code)).not.toContain("default-palette");
-  });
-
-  it.each([600, 700])("版 %i の文字列（CP932・UTF-16）を復号する", (version) => {
-    const text = entity(readDrawing(build(version), [jww]).entities, "#3");
-    expect(text.properties).toContainEqual({ key: "text", label: "文字列", value: "表示ソ能" });
   });
 });
