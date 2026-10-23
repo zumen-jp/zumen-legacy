@@ -152,8 +152,10 @@ def edit(
     ``"linear"`` or ``"aligned"`` with ``start``, ``end``, ``position`` and ``rotation``, ``"angular-3-point"`` with
     ``center``, ``start``, ``end`` and ``position`` (not in JWW), ``"radius"`` or ``"diameter"`` with ``center`` and
     ``point``; ``text``, ``dimensionStyle``) and ``"kind": "hatch"`` (``boundaries``, ``pattern``, ``patternScale``,
-    ``patternAngle``, ``patternLines``; JWW writes solids and hatch lines, and ``created`` names the first). DXF and
-    DWG also take the ops ``add-text-style``, ``add-line-type`` and ``add-dimension-style``; ``text`` takes
+    ``patternAngle``, ``patternLines``; JWW writes solids and hatch lines, and ``created`` names the first), and the
+    ops ``add-text-style``, ``add-line-type`` and ``add-dimension-style`` (in JWW and SXF, which have no named
+    dimension or text styles, their names last for the edit: a dimension style sizes and formats the dimensions that
+    name it, a text style is a font, and a line type keeps its name). DXF and DWG ``text`` takes
     ``justification``, ``lineSpacing``,
     ``multiline`` and ``widthFactor``; ``"kind": "attribute-definition"`` goes in a block and ``block-reference`` takes ``attributes``
     (``{"TAG": "value"}``); ``add-layout`` (``paperSize`` and ``margins`` in mm) and ``"kind": "viewport"`` in ``"container":

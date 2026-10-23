@@ -228,9 +228,9 @@ writes an empty drawing (an A3 landscape sheet) for `create`.
 | `arc` | `center`, `radius`, `angle` (start and end, counterclockwise) | arc_feature |
 | `ellipse`, `ellipse-arc` | `center`, `majorAxis`, `ratio`, `parameter` (radians, as in DXF) | ellipse_feature, ellipse_arc_feature (degrees) |
 | `point` | `position` | point_marker_feature (dot) |
-| `text` | `position`, `text` (one line), `height`, `rotation`, `textStyle` (font name), `width` (of the text box) | text_string_feature, base point at the lower left; without `width`, full-width characters are as wide as the height and half-width ones half of it |
+| `text` | `position`, `text` (one line), `height`, `rotation`, `textStyle` (the font of a text style added in the edit, or else a font name, added when missing), `width` (of the text box) | text_string_feature, base point at the lower left; without `width`, full-width characters are as wide as the height and half-width ones half of it |
 | `block-reference` | `block` (composite figure), `position`, `rotation`, `scale` (a number or `[x, y]`) | sfig_locate_feature |
-| `dimension` | `dimensionType` (`linear`, `aligned`, `angular-3-point`, `radius`, `diameter`), `start`, `end`, `position`, `rotation`, `center`, `point`, `text` (`<>` is the value, one line), `dimensionStyle` (reported, not used) | linear_dim_feature, angular_dim_feature, radius_dim_feature, diameter_dim_feature |
+| `dimension` | `dimensionType` (`linear`, `aligned`, `angular-3-point`, `radius`, `diameter`), `start`, `end`, `position`, `rotation`, `center`, `point`, `text` (`<>` is the value, one line), `dimensionStyle` (a dimension style added in the edit; other names are reported) | linear_dim_feature, angular_dim_feature, radius_dim_feature, diameter_dim_feature |
 | `hatch` | `boundaries`, `pattern`, `patternScale`, `patternAngle`, `patternLines` | composite_curve_org_feature (one invisible composite curve per boundary) with fill_area_style_colour_feature or fill_area_style_hatching_feature |
 
 - Every kind takes `layer` (a name; a missing layer is added, `edit-added-layer`), `color` (an SXF color code, or `"#rrggbb"`:
@@ -259,8 +259,38 @@ writes an empty drawing (an A3 landscape sheet) for `create`.
   extension lines, the extension lines (none for an origin on the dimension line) and an arrow at each end; an angular
   dimension the arc from `angle0` to `angle1` counterclockwise, extension lines only from origins inside the arc, as
   in DXF, and arrows at its ends; a radius dimension the line from the center to `point` with an arrow at `point`; a
-  diameter dimension the line across the circle with an arrow at each end. `dimensionStyle` is reported
-  (`edit-dimension-style`).
+  diameter dimension the line across the circle with an arrow at each end. `dimensionStyle` names a style added
+  earlier in the same edit (see Styles below); other names are reported (`edit-dimension-style`) and drawn with these
+  sizes.
+- **Styles** ([decision 0026](../decisions/0026-styles-in-jww-and-sxf-edits.md)): SXF has no dimension styles, and its
+  fonts and user-defined line types hold only a name and lengths, so `add-dimension-style` and `add-text-style` keep
+  their names for the edit only, and later operations of the same edit use them. Names are compared without case; a
+  name added twice is `already-exists`, an empty one or one with control characters `invalid-value`, and `created`
+  gives the name.
+  - `add-dimension-style` takes the keys of decision 0017 and starts from `from`, a dimension style added earlier in
+    the edit, or else from the sizes above (another name in `from`, such as `Standard`, is reported with
+    `edit-dimension-style`). Its lengths are sheet millimeters, divided by the scale of the figure's placement as
+    above, or, with `scale` (above 0), the lengths times `scale` are coordinates of the figure the dimension is added
+    to, as DIMSCALE in DXF: a style with `scale` 100 draws in a 1/100 sub-figure what one without it draws everywhere.
+    `textHeight` (above 0) is the height of the value, `textGap` the gap between the value and the line,
+    `extensionOffset` and `extensionExtension` where the extension lines start and how far they pass the line, and
+    `arrowSize` the length of the filled arrows (scale `arrowSize` / 7.5 on the sheet; 0 draws no arrows). `tickSize`
+    above 0 writes slashes (code 10, 2.5 mm long at scale 1) instead, with scale `tickSize` × √2 / 2.5, the length of
+    DXF's oblique stroke.
+    `textAbove: false` puts the value centered on the dimension line, which a dimension feature cannot break
+    (`edit-dimension-text-position`). Values have `decimals` (0–8) and lose trailing zeros unless
+    `suppressTrailingZeros` is `false`; lengths, radii and diameters are multiplied by the absolute value of
+    `linearFactor`, and angles stay whole degrees. `textStyle` gives the value's font, as `textStyle` of `text` does.
+  - `add-text-style` adds the font `font` (the name when it is not given) to the font table unless the drawing has it;
+    the name stands for that font in `textStyle` of `text` and of dimension styles. A name that is a font of the
+    drawing is `already-exists`. `bigFont`, a `height` other than 0, a `widthFactor` other than 1 and an `oblique`
+    other than 0 are reported (`edit-style-values`).
+  - `add-line-type` adds a user-defined line type (code 17–32) with the name and `pattern` in sheet millimeters (dashes
+    positive, gaps negative, dots 0): the lengths start with a dash and alternate, dots become 0.25 mm dashes with the
+    following gap shorter by as much, a leading gap moves to the end, and more than 8 lengths are cut, as SXF holds 2,
+    4, 6 or 8 (`edit-line-type-pattern`). A pattern without gaps is a continuous line: the name stands for line type 1
+    in the edit and nothing is written. Predefined names and names of the drawing's line types are `already-exists`;
+    when the 16 user-defined line types are taken, `name-exhausted`. `description` is reported (`edit-style-values`).
 - **Hatches**: each boundary becomes an invisible composite curve (a closed polyline; the first is the outline, the
   others holes) added after the composite curves of the drawing. `SOLID` is fill_area_style_colour in the operation's
   color (`lineType` and `lineWidth` are reported as unused, `edit-unused-attributes`). A pattern is
@@ -441,7 +471,10 @@ Names outside ASCII are Shift_JIS, or UTF-8 with the UTF-8 flag when Shift_JIS l
 - `crates/zumen-sxf/tests/edit_operations.rs` and `crates/zumen/tests/edit.rs`: a drawing part with its elements and a
   placement, the five kinds of dimension, a fill and two hatchings added to every SFC, P21, SFZ and P2Z fixture read
   back drawn, with the other elements unchanged; a dimension added in a 1/20 sub-figure has a 2.5 mm value on the
-  sheet. The same operations on the 1,201-entity sample draw the same in SFC and P21.
+  sheet. The same operations on the 1,201-entity sample draw the same in SFC and P21. Dimension styles change the
+  value's height, font, decimals and trailing zeros, the arrows (slashes for `tickSize`) and the extension lines, on
+  the sheet and with `scale` in a sub-figure; a text style and a line type added to every fixture are used by a text
+  and a line read back drawn.
 - Checking the written files with the SXF browser's checking function (SXF確認機能) is to come on a Windows host.
 
 ## References

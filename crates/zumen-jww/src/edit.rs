@@ -9,6 +9,9 @@
 //! - レイヤは 16 のレイヤグループの 16 のレイヤ（「0-A」の番号か名前）。レイヤを足すと、名前も図形もないレイヤに名前を付ける。
 //! - ブロック定義を足し（add-block）、container の block:<名前> で中に図形を足せる。寸法は寸法図形、ハッチングは
 //!   ソリッドとハッチの線にする（docs/decisions/0025）。
+//! - 寸法スタイル・文字スタイルは編集の中だけの名前で、後の操作が名前で使う。寸法スタイルの大きさと書き方は寸法図形
+//!   ごとに書き、文字スタイルはフォントの名前になる。線種は SXF 対応線種のユーザー定義（47〜62）に足す
+//!   （docs/decisions/0026）。
 
 mod dimension;
 mod hatch;
@@ -23,8 +26,10 @@ use std::collections::{BTreeSet, HashMap};
 use std::f64::consts::TAU;
 use zumen_core::edit::dimension::{DimensionGeometry, DimensionInput};
 use zumen_core::edit::hatch::PatternLine;
+use zumen_core::edit::style::{DimensionStyleInput, LineTypeInput, TextStyleInput, line_type_pitches};
 use zumen_core::edit::{
-    BLOCK_REFERENCE, EditColor, EditError, EditLineWidth, EditOperation, EditValue, EditValues, Edited, ValueReader,
+    BLOCK_REFERENCE, EditColor, EditError, EditLineWidth, EditOperation, EditValue, EditValues, Edited, StyleKind,
+    ValueReader,
 };
 use zumen_core::text::is_half_width;
 use zumen_core::{NoticeLevel, NoticeList};
@@ -41,6 +46,12 @@ const HATCH_FLAG: u16 = 0x0020;
 
 /// 入れ子のブロックを辿る深さの上限
 const MAX_BLOCK_DEPTH: usize = 32;
+
+/// 線種を足す SXF 対応線種のユーザー定義の欄（線種 47〜62。31〜45 は既定義線種、46 は undefined）
+const USER_LINE_TYPES: std::ops::RangeInclusive<usize> = 47..=62;
+
+/// SXF 対応線種の線と空白の長さの数の上限（jwdatafmt.txt「SXF対応拡張線種定義」の 10 個）
+const MAX_LINE_TYPE_SEGMENTS: usize = 10;
 
 /// レイヤの値のキー。color・lineType・lineWidth・frozen・plot は JWW のレイヤにないので、書かずに知らせる
 const LAYER_KEYS: [&str; 9] =
@@ -83,13 +94,7 @@ pub fn edit_jww(bytes: &[u8], operations: &[EditOperation]) -> Result<Edited, Ed
             EditOperation::AddLayout { .. } | EditOperation::UpdateLayout { .. } => {
                 return Err(EditError::at(index, "unsupported-kind", "JWW の編集ではレイアウトを扱えません"));
             }
-            EditOperation::AddStyle { kind, .. } => {
-                return Err(EditError::at(
-                    index,
-                    "unsupported-kind",
-                    format!("JWW の編集では {} をまだ使えません", kind.op()),
-                ));
-            }
+            EditOperation::AddStyle { kind, name, values } => editor.add_style(index, *kind, name, values)?,
         }
     }
     Ok(editor.finish())
@@ -110,6 +115,8 @@ enum Created {
     Block(String),
     /// ブロック定義の中の図形（定義の名前と、定義の中の何番目か）
     Member(String, usize),
+    /// 寸法スタイル・文字スタイル・線種の名前
+    Style(String),
 }
 
 /// 図形を足す先
@@ -130,6 +137,12 @@ struct Editor {
     allocated: BTreeSet<u16>,
     /// この編集で足したブロック定義の基点（定義の通し番号から、実寸の座標）
     block_bases: HashMap<u32, [f64; 2]>,
+    /// この編集で足した寸法スタイル（大文字の名前から。JWW には書かない。docs/decisions/0026）
+    dimension_styles: HashMap<String, dimension::Settings>,
+    /// この編集で足した文字スタイルのフォント（大文字の名前から。JWW には書かない）
+    text_styles: HashMap<String, String>,
+    /// この編集で足した、空白のない（実線の）線種の線種の番号（大文字の名前から。JWW には書かない）
+    line_type_aliases: HashMap<String, u8>,
 }
 
 /// 「0-A」のようなレイヤの番号（グループとレイヤの 16 進の 1 桁）と、その後ろ
@@ -321,6 +334,9 @@ impl Editor {
             notices: NoticeList::new(),
             allocated: BTreeSet::new(),
             block_bases: HashMap::new(),
+            dimension_styles: HashMap::new(),
+            text_styles: HashMap::new(),
+            line_type_aliases: HashMap::new(),
         }
     }
 
@@ -338,7 +354,7 @@ impl Editor {
             .created
             .iter()
             .map(|created| match created {
-                Created::Layer(name) | Created::Block(name) => name.clone(),
+                Created::Layer(name) | Created::Block(name) | Created::Style(name) => name.clone(),
                 Created::Entity(slot) => format!("#{}", positions[*slot]),
                 Created::Member(block, position) => format!("block:{block}>#{position}"),
             })
@@ -569,6 +585,10 @@ impl Editor {
             EditValue::Text(text) => match text.trim().parse::<f64>() {
                 Ok(number) => Some(number),
                 Err(_) => {
+                    // この編集で足した実線の線種
+                    if let Some(style) = self.line_type_aliases.get(&text.trim().to_uppercase()) {
+                        return Ok(*style);
+                    }
                     // SXF 対応線種の名前（dashed など）
                     let names = self.settings().and_then(|settings| settings.sxf.as_ref());
                     let found = names.and_then(|sxf| {
@@ -771,7 +791,9 @@ impl Editor {
             "arc" => (&["center", "radius", "angle"], true, true),
             "ellipse" | "ellipse-arc" => (&["center", "majorAxis", "ratio", "parameter"], true, true),
             "point" => (&["position"], false, true),
-            "text" => (&["position", "text", "height", "width", "spacing", "rotation", "font"], false, false),
+            "text" => {
+                (&["position", "text", "height", "width", "spacing", "rotation", "font", "textStyle"], false, false)
+            }
             "dimension" => (&zumen_core::edit::dimension::KEYS, true, true),
             "hatch" => (&zumen_core::edit::hatch::KEYS, true, true),
             _ => (&["block", "position", "rotation", "scale"], false, false),
@@ -887,7 +909,7 @@ impl Editor {
                 let height = reader.required("height", reader.positive("height")?)?;
                 let size_x = reader.positive("width")?.unwrap_or(height);
                 let spacing = non_negative(index, &reader, "spacing")?.unwrap_or(0.0);
-                let font = reader.name("font")?.unwrap_or(DEFAULT_FONT);
+                let font = self.font(index, &reader)?.unwrap_or_else(|| DEFAULT_FONT.to_string());
                 let mut text = JwwText {
                     base,
                     x1,
@@ -899,7 +921,7 @@ impl Editor {
                     size_y: height,
                     spacing,
                     angle: reader.number("rotation")?.unwrap_or(0.0),
-                    font: font.to_string(),
+                    font,
                     content: content.to_string(),
                 };
                 text_end(&mut text);
@@ -953,7 +975,8 @@ impl Editor {
         }
     }
 
-    /// 寸法図形（CDataSunpou）。大きさ・色・寸法値の書き方は図面の寸法の設定（docs/decisions/0025）
+    /// 寸法図形（CDataSunpou）。大きさ・色・寸法値の書き方は図面の寸法の設定（docs/decisions/0025）と、dimensionStyle
+    /// がこの編集で足した寸法スタイルならその値（docs/decisions/0026）
     fn dimension(
         &mut self,
         index: usize,
@@ -971,13 +994,10 @@ impl Editor {
             ));
         }
         let text = reader.text("text")?.unwrap_or("<>");
-        if reader.name("dimensionStyle")?.is_some() {
-            self.notices.add(
-                NoticeLevel::Info,
-                "edit-dimension-style",
-                "JWW は名前の付いた寸法スタイルを持たないため、図面の寸法の設定で描きました",
-            );
-        }
+        let settings = match reader.name("dimensionStyle")? {
+            Some(name) => self.dimension_style(name),
+            None => dimension::Settings::read(self.settings()),
+        };
         let geometry = input.geometry().map_err(|message| EditError::at(index, "invalid-value", message))?;
         let (measurement, geometry) = match geometry {
             DimensionGeometry::Linear { origins, feet, direction, measurement } => (
@@ -1001,7 +1021,6 @@ impl Editor {
             ),
             DimensionGeometry::Angular { .. } => unreachable!("角度寸法は上で断った"),
         };
-        let settings = dimension::Settings::read(self.settings());
         if settings.end != 0 {
             self.notices.add(
                 NoticeLevel::Info,
@@ -1019,7 +1038,9 @@ impl Editor {
         };
         let look =
             dimension::Look { layer: (layer.0 as u16, layer.1 as u16), color, line_type: common.line_type, width };
-        let entity = dimension::dimension(&settings, &geometry, measurement, text, &look, text_end);
+        // 尺度のあるスタイルの長さは、その尺度を掛けた実寸。レイヤグループの縮尺で用紙の mm にする
+        let factor = settings.scale.map_or(1.0, |scale| scale / self.scale(layer.0));
+        let entity = dimension::dimension(&settings, &geometry, measurement, text, &look, factor, text_end);
         check_text(index, &entity.text.content)?;
         Ok(JwwEntity::Dimension(entity))
     }
@@ -1129,6 +1150,213 @@ impl Editor {
             .collect())
     }
 
+    /// 寸法スタイル・文字スタイル・線種を足す（docs/decisions/0026）。名前は大文字・小文字を区別せずに比べる
+    fn add_style(&mut self, index: usize, kind: StyleKind, name: &str, values: &EditValues) -> Result<(), EditError> {
+        let name = name.trim();
+        if name.is_empty() || name.chars().any(char::is_control) {
+            return Err(EditError::at(
+                index,
+                "invalid-value",
+                format!("名前 {name} は使えません（空、制御文字を含む名前は使えません）"),
+            ));
+        }
+        let reader = ValueReader::new(values, index);
+        match kind {
+            StyleKind::Dimension => self.add_dimension_style(index, name, &reader)?,
+            StyleKind::Text => self.add_text_style(index, name, &reader)?,
+            StyleKind::LineType => self.add_line_type(index, name, &reader)?,
+        }
+        self.created.push(Created::Style(name.to_string()));
+        Ok(())
+    }
+
+    /// 寸法スタイル。JWW は名前の付いた寸法スタイルを持たないので、編集の中だけに持ち、dimensionStyle で名前を
+    /// 指す寸法図形にその大きさと書き方を書く。from（この編集で足した寸法スタイル）か図面の寸法の設定から始める
+    fn add_dimension_style(&mut self, index: usize, name: &str, reader: &ValueReader<'_>) -> Result<(), EditError> {
+        let input = DimensionStyleInput::read(reader, index)?;
+        let key = name.to_uppercase();
+        if self.dimension_styles.contains_key(&key) {
+            return Err(EditError::at(index, "already-exists", format!("寸法スタイル {name} はすでにあります")));
+        }
+        if input.text_height == Some(0.0) {
+            return Err(EditError::at(
+                index,
+                "invalid-value",
+                "textHeight は 0 より大きい数にしてください（JWW は高さ 0 の寸法値を書けません）",
+            ));
+        }
+        let mut style = match input.from.as_deref() {
+            Some(from) => self.dimension_style(from),
+            None => dimension::Settings::read(self.settings()),
+        };
+        let font = input.text_style.as_deref().map(|style| self.text_font(style));
+        style.apply(&input, font);
+        if input.decimals.is_some_and(|decimals| decimals > 3) {
+            self.notices.add(
+                NoticeLevel::Info,
+                "edit-dimension-decimals",
+                "JWW の寸法値設定のフラグは小数点以下 3 桁までなので、寸法スタイルの decimals を 3 にしました",
+            );
+        }
+        if input.arrow_size.is_some() || input.tick_size.is_some_and(|size| size > 0.0) {
+            self.notices.add(
+                NoticeLevel::Info,
+                "edit-dimension-end",
+                "JWW の寸法図形は寸法線の端に点を持ち矢印・斜線を持たないため、寸法スタイルの arrowSize・tickSize を使っていません",
+            );
+        }
+        if input.text_above == Some(false) {
+            self.notices.add(
+                NoticeLevel::Info,
+                "edit-dimension-text-position",
+                "寸法図形の寸法線は 1 本で寸法値のところで切れないため、寸法線の上に置かない寸法値は寸法線に重ねて中央に置きました",
+            );
+        }
+        self.dimension_styles.insert(key, style);
+        Ok(())
+    }
+
+    /// 名前の寸法スタイル（この編集で足したもの）。ほかの名前は図面の寸法の設定にして知らせる
+    fn dimension_style(&mut self, name: &str) -> dimension::Settings {
+        if let Some(style) = self.dimension_styles.get(&name.trim().to_uppercase()) {
+            return style.clone();
+        }
+        self.notices.add(
+            NoticeLevel::Info,
+            "edit-dimension-style",
+            "JWW は名前の付いた寸法スタイルを持たないため、この編集で足していない寸法スタイルは図面の寸法の設定にしました",
+        );
+        dimension::Settings::read(self.settings())
+    }
+
+    /// 文字スタイル。JWW の文字はフォントの名前を持ち、フォントの表はないので、書かずに編集の中だけに持つ。後の操作の
+    /// textStyle はこのフォントになる。フォントのほかの値は持てないので知らせる
+    fn add_text_style(&mut self, index: usize, name: &str, reader: &ValueReader<'_>) -> Result<(), EditError> {
+        let input = TextStyleInput::read(reader, index)?;
+        let key = name.to_uppercase();
+        if self.text_styles.contains_key(&key) {
+            return Err(EditError::at(index, "already-exists", format!("文字スタイル {name} はすでにあります")));
+        }
+        if input.has_more_than_font() {
+            self.notices.add(
+                NoticeLevel::Info,
+                "edit-style-values",
+                "JWW の文字スタイルはフォントの名前だけ、線種は名前と線・空白の長さだけを持つため、ほかの値（bigFont・height・widthFactor・oblique・description）を書きませんでした",
+            );
+        }
+        self.text_styles.insert(key, input.font.unwrap_or_else(|| name.to_string()));
+        Ok(())
+    }
+
+    /// 文字スタイルの名前のフォント。この編集で足した文字スタイルでなければ、その名前のフォント
+    fn text_font(&self, name: &str) -> String {
+        self.text_styles.get(&name.trim().to_uppercase()).cloned().unwrap_or_else(|| name.trim().to_string())
+    }
+
+    /// 文字の font か textStyle（文字スタイルのフォント）。どちらもなければ None
+    fn font(&self, index: usize, reader: &ValueReader<'_>) -> Result<Option<String>, EditError> {
+        match (reader.name("font")?, reader.name("textStyle")?) {
+            (Some(_), Some(_)) => {
+                Err(EditError::at(index, "invalid-value", "font と textStyle は一緒に指定できません"))
+            }
+            (Some(font), None) => Ok(Some(font.to_string())),
+            (None, Some(style)) => Ok(Some(self.text_font(style))),
+            (None, None) => Ok(None),
+        }
+    }
+
+    /// 線種を SXF 対応線種のユーザー定義（47〜62）の、名前も長さもなく図形も使っていない最初の欄に足す。長さは
+    /// 用紙の mm で、線から始まる線と空白の長さ（点は 0.25 mm の線）にし、10 を超える分は切る。空白のない模様は実線で、
+    /// 名前は編集の中で線種 1 を指す
+    fn add_line_type(&mut self, index: usize, name: &str, reader: &ValueReader<'_>) -> Result<(), EditError> {
+        let input = LineTypeInput::read(reader, index)?;
+        if name.parse::<f64>().is_ok() {
+            return Err(EditError::at(
+                index,
+                "invalid-value",
+                format!("線種の名前 {name} は線種の番号と紛れるため使えません"),
+            ));
+        }
+        let key = name.to_uppercase();
+        let used = self.used_line_types();
+        let Some(sxf) = self.file.header.settings.as_mut().and_then(|settings| settings.sxf.as_mut()) else {
+            return Err(EditError::at(
+                index,
+                "unsupported-kind",
+                "版 420 より前の JWW は SXF 対応線種を持たないため、線種を足せません",
+            ));
+        };
+        if self.line_type_aliases.contains_key(&key)
+            || sxf.user_line_types.iter().any(|line_type| line_type.name.trim().to_uppercase() == key)
+        {
+            return Err(EditError::at(index, "already-exists", format!("線種 {name} はすでにあります")));
+        }
+        let (lengths, changed) = line_type_pitches(&input.pattern, MAX_LINE_TYPE_SEGMENTS);
+        if lengths.is_empty() {
+            self.line_type_aliases.insert(key, 1);
+        } else {
+            let slot = USER_LINE_TYPES
+                .map(|style| style - 30)
+                .find(|&slot| {
+                    sxf.user_line_types.get(slot).is_some_and(|line_type| {
+                        line_type.name.trim().is_empty()
+                            && line_type.segments == 0
+                            && !used.contains(&((slot + 30) as u8))
+                    })
+                })
+                .ok_or_else(|| {
+                    EditError::at(
+                        index,
+                        "name-exhausted",
+                        "SXF 対応線種のユーザー定義（線種 47〜62）に空きがないため、線種を足せません",
+                    )
+                })?;
+            let line_type = &mut sxf.user_line_types[slot];
+            line_type.name = name.to_string();
+            line_type.segments = lengths.len() as u32;
+            line_type.pitches = [0.0; 10];
+            line_type.pitches[..lengths.len()].copy_from_slice(&lengths);
+        }
+        if changed {
+            self.notices.add(
+                NoticeLevel::Info,
+                "edit-line-type-pattern",
+                "JWW の SXF 対応線種は線から始まる線と空白の長さ（10 個まで）なので、線種の模様をいちばん近い長さにしました（点は 0.25 mm の線）",
+            );
+        }
+        if !input.description.is_empty() {
+            self.notices.add(
+                NoticeLevel::Info,
+                "edit-style-values",
+                "JWW の文字スタイルはフォントの名前だけ、線種は名前と線・空白の長さだけを持つため、ほかの値（bigFont・height・widthFactor・oblique・description）を書きませんでした",
+            );
+        }
+        Ok(())
+    }
+
+    /// 図形が使う線種（線・円弧・寸法の線。文字の線種の欄は基点の位置。消したものは除く。ブロック定義の中も）
+    fn used_line_types(&self) -> BTreeSet<u8> {
+        let top = self.slots.iter().filter(|slot| !slot.deleted).map(|slot| &slot.record.entity);
+        let inside = self.file.blocks.iter().flat_map(|block| block.entities.iter()).map(|record| &record.entity);
+        let mut used = BTreeSet::new();
+        for entity in top.chain(inside) {
+            match entity {
+                JwwEntity::Line(line) => {
+                    used.insert(line.base.pen_style);
+                }
+                JwwEntity::Arc(arc) => {
+                    used.insert(arc.base.pen_style);
+                }
+                JwwEntity::Dimension(dimension) => {
+                    used.insert(dimension.line.base.pen_style);
+                    used.extend(dimension.lines.iter().map(|line| line.base.pen_style));
+                }
+                _ => {}
+            }
+        }
+        used
+    }
+
     /// 空のブロック定義を足す（docs/decisions/0017）。JWW の定義は基点を持たない（定義の座標の原点が基点）ので、
     /// basePoint は後の操作で中に足す図形の座標から引く。名前は Jw_cad と同じく、版 4.10 から作図部品の印
     /// （"@@SfigorgFlag@@4"）を後ろに付けて書く
@@ -1234,7 +1462,12 @@ impl Editor {
             "ellipse" => (&["center", "majorAxis", "ratio"], true, true, true),
             "ellipse-arc" => (&["center", "majorAxis", "ratio", "parameter"], true, true, true),
             "point" => (&["position"], true, false, true),
-            "text" => (&["position", "text", "height", "width", "spacing", "rotation", "font"], true, false, false),
+            "text" => (
+                &["position", "text", "height", "width", "spacing", "rotation", "font", "textStyle"],
+                true,
+                false,
+                false,
+            ),
             "solid" | "dimension" => (&[], true, false, false),
             _ => (&["block", "position", "rotation", "scale"], false, false, false),
         };
@@ -1367,8 +1600,8 @@ impl Editor {
                     e.angle = rotation;
                     resized = true;
                 }
-                if let Some(font) = reader.name("font")? {
-                    e.font = font.to_string();
+                if let Some(font) = self.font(index, &reader)? {
+                    e.font = font;
                 }
                 if resized {
                     text_end(e);

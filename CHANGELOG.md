@@ -16,6 +16,18 @@ All packages share one version during 0.x.
   built-in hatch patterns move to `zumen_core::edit::dimension` and `zumen_core::edit::hatch` (re-exported by
   zumen-dxf; `HatchInput::pattern_type` becomes `custom`, and a dimension's DXF flags and display block are the
   `DxfDimension` trait), and `JwwDimension` keeps its SXF mode (`sxf_mode`).
+- Rust, Python and the command line: JWW and SXF edits take `add-dimension-style`, `add-text-style` and
+  `add-line-type` too ([decision 0026](docs/decisions/0026-styles-in-jww-and-sxf-edits.md)). Neither format has named
+  dimension or text styles, so their names last for the edit: a dimension style sizes and formats each dimension that
+  names it (the value's height and font, its gap from the line, the extension lines, decimals, trailing zeros and the
+  linear factor; in SXF also the arrows, or slashes for `tickSize`), with lengths in paper millimeters or, with
+  `scale`, times `scale` in the drawing's own coordinates, as DIMSCALE in DXF. A text style is a font (an SXF font,
+  a JWW font name; JWW `text` gains `textStyle`), and a line type becomes an SXF user-defined line type or a free
+  JWW SXF line type (47–62), with its pattern in paper millimeters. What a format cannot hold is written the nearest
+  way and reported (`edit-dimension-decimals`, `edit-dimension-text-position`, `edit-dimension-end`,
+  `edit-style-values`, `edit-line-type-pattern`). Every editor reads the values of the three ops with
+  `zumen_core::edit::style`, which also holds the conversion of dashes to SXF line lengths; DXF, DWG and SXF hatch
+  output is unchanged.
 - Browsers, Rust and Python: entities can be kept for interaction only, with `drawn: false` (`SceneEntity.drawn` in
   `zumen-core`), for the content that an underlay already shows such as the paths and texts of a PDF page
   ([decision 0022](docs/decisions/0022-underlays-drawn-by-a-region-renderer.md)). `renderScene` and `zumen-render`
