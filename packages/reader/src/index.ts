@@ -1,5 +1,5 @@
-import { type DrawingReader, type ReadDrawingOptions, type Scene, sceneFromJson } from "@zumenjs/core";
-import init, { ReadFailure, readSceneJson } from "../wasm/zumen_wasm.js";
+import { type DrawingReader, type Notice, type ReadDrawingOptions, type Scene, sceneFromJson } from "@zumenjs/core";
+import init, { embeddedFiles, ReadFailure, readSceneJson } from "../wasm/zumen_wasm.js";
 import initPdf, { ReadFailure as PdfReadFailure, readSceneJson as readPdfSceneJson } from "../wasm/zumen_wasm_pdf.js";
 import { detectDrawing, FORMATS } from "./detect.js";
 import { type Limit, LimitError, type ReadLimits } from "./limits.js";
@@ -130,6 +130,61 @@ export function readJson(bytes: Uint8Array, options: ReadSceneOptions = {}): str
     const { message, limit } = error;
     error.free();
     throw limit ? new LimitError(message, limit as Limit) : new Error(message);
+  }
+}
+
+/** 図面のファイルが中に持つファイル。name は、それを指す画像の underlay の file と同じ */
+export interface EmbeddedFile {
+  name: string;
+  /** 中身（それだけの ArrayBuffer に写したもの。Blob や createImageBitmap にそのまま渡せる） */
+  data: Uint8Array<ArrayBuffer>;
+}
+
+export interface EmbeddedFiles {
+  files: EmbeddedFile[];
+  /** 取り出せなかったファイル（壊れたもの、途中で終わる一覧） */
+  notices: Notice[];
+}
+
+export interface ReadEmbeddedFilesOptions {
+  /** 分かっている場合の形式。省略すると中身から判定する */
+  format?: string;
+  /** maxBytes は図面と、展開した中身の合計の上限 */
+  limits?: Pick<ReadLimits, "maxBytes">;
+}
+
+/**
+ * 図面のファイルが中に持つファイルを、画像の underlay の file と同じ名前で返す。JWW（版 700 以降）は同梱画像
+ * （%temp%<名前>、展開したもの）、圧縮した SXF（P2Z・SFZ）は書庫の SXF でないファイル（書庫の中の名前）、ほかの形式は
+ * 空。アプリケーションは imageUnderlayRenderer（@zumenjs/viewer）の load で、underlay.file の名前のファイルを返す。
+ * 読む前に initReader を待つ。呼んだスレッドで読む
+ */
+export function readEmbeddedFiles(
+  input: ArrayBuffer | Uint8Array,
+  options: ReadEmbeddedFilesOptions = {},
+): EmbeddedFiles {
+  if (!cad.ready) throw new Error("図面を読む前に、initReader() で読み取り（WebAssembly）を読み込んでください");
+  const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
+  let result: ReturnType<typeof embeddedFiles>;
+  try {
+    result = embeddedFiles(bytes, options.format ?? detectDrawing(bytes) ?? undefined, options.limits?.maxBytes);
+  } catch (error) {
+    if (!(error instanceof ReadFailure)) throw error;
+    const { message, limit } = error;
+    error.free();
+    throw limit ? new LimitError(message, limit as Limit) : new Error(message);
+  }
+  try {
+    const files: EmbeddedFile[] = [];
+    for (let i = 0; i < result.length; i++) {
+      const name = result.name(i);
+      const data = result.data(i);
+      // wasm-bindgen は中身を新しい ArrayBuffer に写して返す
+      if (name !== undefined && data !== undefined) files.push({ name, data: data as Uint8Array<ArrayBuffer> });
+    }
+    return { files, notices: JSON.parse(result.noticesJson) as Notice[] };
+  } finally {
+    result.free();
   }
 }
 

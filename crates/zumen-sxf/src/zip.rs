@@ -3,8 +3,8 @@
 //! 展開した後の大きさは読み取りの上限（`zumen_core::limits`）まで、上限がなければ 2 GiB までにする（ZIP 爆弾）。
 //! 書き出しは、SXF のファイルを deflate で入れた書庫を作るか、元の書庫の SXF だけを置き換える（ほかのファイルはそのまま）。
 
-use zumen_core::ReadError;
 use zumen_core::limits::{self, Limit};
+use zumen_core::{NoticeLevel, NoticeList, ReadError};
 
 const LOCAL_HEADER: u32 = 0x0403_4b50;
 const CENTRAL_HEADER: u32 = 0x0201_4b50;
@@ -12,9 +12,9 @@ const END_OF_CENTRAL: u32 = 0x0605_4b50;
 /// 上限を指定しないときの、展開した後の大きさの上限
 const DEFAULT_MAX_BYTES: u64 = 2 << 30;
 
-/// 書庫の中の SXF のファイル
+/// 書庫の中のファイル
 pub(crate) struct Member {
-    /// 中身の形式（p21・sfc）
+    /// 中身の形式（p21・sfc）。SXF でなければ空
     pub format: &'static str,
     /// 書庫の中の名前
     pub name: String,
@@ -41,58 +41,78 @@ pub(crate) fn is_zip(bytes: &[u8]) -> bool {
 
 /// 書庫の中の、名前が .p21・.sfc で終わる最初のファイル。書庫でないか、SXF がなければ None
 pub(crate) fn find_sxf(bytes: &[u8]) -> Option<Member> {
+    members(bytes).into_iter().find(|member| !member.format.is_empty())
+}
+
+/// 中央ディレクトリのファイルを順に。書庫でなければ空、途中で壊れていればそこまで
+pub(crate) fn members(bytes: &[u8]) -> Vec<Member> {
+    let mut out = Vec::new();
     if !is_zip(bytes) {
-        return None;
+        return out;
     }
     // 中央ディレクトリの終わり（後ろの 22 バイト以降、コメントは 65535 バイトまで）
     let earliest = bytes.len().saturating_sub(22 + 65_535);
-    let end = (earliest..=bytes.len().checked_sub(22)?).rev().find(|&at| u32_at(bytes, at) == Some(END_OF_CENTRAL))?;
-    let count = u16_at(bytes, end + 10)?;
-    let mut at = u32_at(bytes, end + 16)? as usize;
+    let Some(last) = bytes.len().checked_sub(22) else { return out };
+    let Some(end) = (earliest..=last).rev().find(|&at| u32_at(bytes, at) == Some(END_OF_CENTRAL)) else {
+        return out;
+    };
+    let (Some(count), Some(start)) = (u16_at(bytes, end + 10), u32_at(bytes, end + 16)) else { return out };
+    let mut at = start as usize;
     for _ in 0..count {
-        if u32_at(bytes, at)? != CENTRAL_HEADER {
-            return None;
+        if limits::tick() {
+            break;
         }
-        let flags = u16_at(bytes, at + 8)?;
-        let method = u16_at(bytes, at + 10)?;
-        let crc = u32_at(bytes, at + 16)?;
-        let compressed = u32_at(bytes, at + 20)?;
-        let size = u32_at(bytes, at + 24)?;
-        let name_length = usize::from(u16_at(bytes, at + 28)?);
-        let extra_length = usize::from(u16_at(bytes, at + 30)?);
-        let comment_length = usize::from(u16_at(bytes, at + 32)?);
-        let local = u32_at(bytes, at + 42)?;
-        let raw_name = bytes.get(at + 46..at + 46 + name_length)?;
-        at += 46 + name_length + extra_length + comment_length;
-        let lower: Vec<u8> = raw_name.to_ascii_lowercase();
-        let format = if lower.ends_with(b".p21") {
-            "p21"
-        } else if lower.ends_with(b".sfc") {
-            "sfc"
-        } else {
-            continue;
-        };
-        // 名前は UTF-8 の印（汎用フラグの 11 ビット目）がなければ Shift_JIS
-        let name = if flags & 0x800 != 0 {
-            String::from_utf8_lossy(raw_name).into_owned()
-        } else {
-            encoding_rs::SHIFT_JIS.decode_without_bom_handling(raw_name).0.into_owned()
-        };
-        return Some(Member {
-            format,
-            name,
-            method,
-            flags,
-            crc,
-            compressed: u64::from(compressed),
-            size: u64::from(size),
-            local: u64::from(local),
-        });
+        let Some((member, next)) = member_at(bytes, at) else { break };
+        out.push(member);
+        at = next;
     }
-    None
+    out
 }
 
-/// 書庫の中の SXF を展開する
+/// at の中央ディレクトリのファイルと、次のファイルの位置
+fn member_at(bytes: &[u8], at: usize) -> Option<(Member, usize)> {
+    if u32_at(bytes, at)? != CENTRAL_HEADER {
+        return None;
+    }
+    let flags = u16_at(bytes, at + 8)?;
+    let method = u16_at(bytes, at + 10)?;
+    let crc = u32_at(bytes, at + 16)?;
+    let compressed = u32_at(bytes, at + 20)?;
+    let size = u32_at(bytes, at + 24)?;
+    let name_length = usize::from(u16_at(bytes, at + 28)?);
+    let extra_length = usize::from(u16_at(bytes, at + 30)?);
+    let comment_length = usize::from(u16_at(bytes, at + 32)?);
+    let local = u32_at(bytes, at + 42)?;
+    let raw_name = bytes.get(at + 46..at + 46 + name_length)?;
+    let next = at + 46 + name_length + extra_length + comment_length;
+    let lower: Vec<u8> = raw_name.to_ascii_lowercase();
+    let format = if lower.ends_with(b".p21") {
+        "p21"
+    } else if lower.ends_with(b".sfc") {
+        "sfc"
+    } else {
+        ""
+    };
+    // 名前は UTF-8 の印（汎用フラグの 11 ビット目）がなければ Shift_JIS
+    let name = if flags & 0x800 != 0 {
+        String::from_utf8_lossy(raw_name).into_owned()
+    } else {
+        encoding_rs::SHIFT_JIS.decode_without_bom_handling(raw_name).0.into_owned()
+    };
+    let member = Member {
+        format,
+        name,
+        method,
+        flags,
+        crc,
+        compressed: u64::from(compressed),
+        size: u64::from(size),
+        local: u64::from(local),
+    };
+    Some((member, next))
+}
+
+/// 書庫の中のファイルを展開する
 pub(crate) fn extract(bytes: &[u8], member: &Member) -> Result<Vec<u8>, ReadError> {
     if member.flags & 0x1 != 0 {
         return Err(ReadError::new("暗号化した圧縮ファイルは読めません"));
@@ -139,6 +159,48 @@ pub(crate) fn extract(bytes: &[u8], member: &Member) -> Result<Vec<u8>, ReadErro
         return Err(broken());
     }
     Ok(content)
+}
+
+/// 書庫の SXF でないファイル（画像・属性のファイル）を、書庫の中の名前で展開する（フォルダは除く）。展開した大きさの
+/// 合計も 1 つのファイルと同じ上限まで。展開できないファイルは飛ばして notices で知らせる
+pub(crate) fn extract_others(bytes: &[u8], notices: &mut NoticeList) -> Result<Vec<(String, Vec<u8>)>, ReadError> {
+    let max = limits::max_bytes().unwrap_or(DEFAULT_MAX_BYTES);
+    let mut total: u64 = 0;
+    let mut out = Vec::new();
+    for member in members(bytes) {
+        if limits::tick() {
+            break;
+        }
+        if !member.format.is_empty() || member.name.ends_with('/') {
+            continue;
+        }
+        let content = match extract(bytes, &member) {
+            Ok(content) => content,
+            Err(error) if error.exceeded().is_some() => return Err(error),
+            Err(error) => {
+                notices.add(
+                    NoticeLevel::Warning,
+                    "archive-file",
+                    format!(
+                        "圧縮ファイルの中のファイルを展開できないため、省きました（{} {}）",
+                        member.name,
+                        error.message()
+                    ),
+                );
+                continue;
+            }
+        };
+        total = total.saturating_add(content.len() as u64);
+        if total > max {
+            limits::exceed(Limit::Bytes);
+            return Err(ReadError::limit(
+                Limit::Bytes,
+                format!("圧縮ファイルのファイルを展開すると上限の {max} バイトを超えるため、読みませんでした"),
+            ));
+        }
+        out.push((member.name, content));
+    }
+    Ok(out)
 }
 
 /// CRC-32（ZIP と同じ多項式 0xEDB88320）
@@ -433,6 +495,27 @@ mod tests {
         assert!(replace_sxf(b"ISO-10303-21;", &content).is_none());
     }
 
+    #[test]
+    fn extracts_the_files_beside_the_sxf_by_their_names() {
+        let sxf = zip(b"DRAWING/D0001.SFC", b"ISO-10303-21;", 8, 0);
+        let image = zip(b"DRAWING/GENKYOU.TIF", b"II*\0 tiff bytes", 8, 0);
+        let archive = join(&sxf, &image);
+        let mut notices = NoticeList::new();
+        let files = extract_others(&archive, &mut notices).unwrap();
+        assert_eq!(files, [("DRAWING/GENKYOU.TIF".to_string(), b"II*\0 tiff bytes".to_vec())]);
+        assert!(notices.into_vec().is_empty());
+        // 展開できないファイルは飛ばして知らせ、合計の大きさも上限まで
+        let mut broken = join(&sxf, &zip(b"broken.jpg", b"jpeg", 8, 0));
+        let at = broken.len() - 22 - (46 + 10) + 16;
+        broken[at] ^= 1;
+        let mut notices = NoticeList::new();
+        assert!(extract_others(&broken, &mut notices).unwrap().is_empty());
+        assert_eq!(notices.into_vec()[0].code, "archive-file");
+        let limits = ReadLimits { max_bytes: Some(10), ..ReadLimits::default() };
+        let (result, _) = limits::with_limits(&limits, || extract_others(&archive, &mut NoticeList::new()));
+        assert_eq!(result.unwrap_err().exceeded(), Some(Limit::Bytes));
+    }
+
     /// 2 つの書庫（1 つずつファイルを入れたもの）を 1 つにする
     fn join(first: &[u8], second: &[u8]) -> Vec<u8> {
         let split = |archive: &[u8]| {
@@ -473,5 +556,12 @@ mod tests {
         assert_eq!(extract(&broken, &member).unwrap_err().message(), "圧縮ファイルが壊れています");
         let encrypted = zip(b"a.p21", b"x", 0, 1);
         assert!(extract(&encrypted, &find_sxf(&encrypted).unwrap()).is_err());
+    }
+    #[test]
+    fn embedded_files_stop_at_the_time_limit() {
+        let archive = join(&zip(b"drawing.sfc", b"ISO-10303-21;", 8, 0), &zip(b"photo.bmp", b"bitmap", 8, 0));
+        let limits = zumen_core::ReadLimits { max_duration: Some(std::time::Duration::ZERO), ..Default::default() };
+        let (_, exceeded) = limits::with_limits(&limits, || extract_others(&archive, &mut NoticeList::new()));
+        assert_eq!(exceeded, Some(Limit::Time));
     }
 }

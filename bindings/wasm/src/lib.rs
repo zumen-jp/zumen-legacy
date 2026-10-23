@@ -58,3 +58,50 @@ pub fn read_scene_json(
     let scene = zumen::read(bytes, &ReadDrawingOptions { format, view, limits })?;
     serde_json::to_string(&scene).map_err(|error| ReadFailure { message: error.to_string(), limit: None })
 }
+
+/// 図面のファイルが中に持つファイル（JWW の同梱画像、圧縮した SXF の画像のファイルなど）。length 個のファイルの
+/// name(i) と data(i)、取り出せなかったものの notices（JSON）を持つ
+#[wasm_bindgen(js_name = EmbeddedFiles)]
+pub struct EmbeddedFiles {
+    files: Vec<zumen::EmbeddedFile>,
+    notices: String,
+}
+
+#[wasm_bindgen(js_class = EmbeddedFiles)]
+impl EmbeddedFiles {
+    #[wasm_bindgen(getter)]
+    pub fn length(&self) -> usize {
+        self.files.len()
+    }
+
+    /// i 番目のファイルの名前（画像の underlay の file と同じ）
+    pub fn name(&self, index: usize) -> Option<String> {
+        self.files.get(index).map(|file| file.name.clone())
+    }
+
+    /// i 番目のファイルの中身
+    pub fn data(&self, index: usize) -> Option<Vec<u8>> {
+        self.files.get(index).map(|file| file.data.clone())
+    }
+
+    /// 取り出せなかったファイルの notices（Scene の notices と同じ形の JSON の配列）
+    #[wasm_bindgen(getter, js_name = noticesJson)]
+    pub fn notices_json(&self) -> String {
+        self.notices.clone()
+    }
+}
+
+/// 図面のファイルが中に持つファイルを、画像の underlay の file が指す名前で返す。format は分かっている場合の形式、
+/// max_bytes は図面と、展開した中身の合計の上限で、超えたら ReadFailure を投げる
+#[wasm_bindgen(js_name = embeddedFiles)]
+pub fn embedded_files(
+    bytes: &[u8],
+    format: Option<String>,
+    max_bytes: Option<f64>,
+) -> Result<EmbeddedFiles, ReadFailure> {
+    let limits = ReadLimits { max_bytes: max_bytes.map(|max| max as u64), max_entities: None, max_duration: None };
+    let embedded = zumen::embedded_files(bytes, &ReadDrawingOptions { format, view: None, limits })?;
+    let notices = serde_json::to_string(&embedded.notices)
+        .map_err(|error| ReadFailure { message: error.to_string(), limit: None })?;
+    Ok(EmbeddedFiles { files: embedded.files, notices })
+}
