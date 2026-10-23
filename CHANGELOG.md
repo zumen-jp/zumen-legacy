@@ -4,6 +4,17 @@ All packages share one version during 0.x.
 
 ## Unreleased
 
+- Rust, Python, the command line and the MCP server: drawing markup on servers
+  ([decision 0021](docs/decisions/0021-drawing-markup.md), [Drawing markup](docs/markup.md)). `zumen_core::markup`
+  reads and writes the documents with the same checks and JSON as `@zumenjs/core` (unknown keys kept) and gives the
+  same shapes, checked against `tests/fixtures/markup`; `drawing_hash` uses the `sha2` crate. `zumen::carry_markup`
+  carries a document to a new revision view by view through `compare_scenes`: items move by the offset, `entities`
+  point at the matching entities, and `carried` marks them `unchanged`, `changed` or `removed`, with a map of views
+  (a DXF layout to a PDF page). `zumen_render::RenderOptions::markup` draws items over PNG, SVG and PDF. Python has
+  `read_markup` (with `TypedDict` classes), `markup_schema`, `drawing_hash`, `carry_markup`, `MarkupError`,
+  `CarryError` and `markup=` on the `render_*` methods; the command line `zumen markup carry` and
+  `zumen render --markup`; `zumen.tools` `list_markup`, `write_markup` and `carry_markup_revision`; and the MCP server
+  `markup` on `render_drawing`, `read_markup`, `write_markup` and `carry_markup`.
 - Browsers, Rust, Python and the command line: files that start with `ISO-10303-21` but whose `FILE_SCHEMA` does not
   begin with SXF's schema `ASSOCIATIVE_DRAUGHTING`, such as IFC (`IFC2X3`, `IFC4`, `IFC4X3_ADD2`) and STEP AP203, AP214
   and AP242 files, are no longer detected as SXF P21. Reading them gives the error for a format no reader knows instead

@@ -17,17 +17,20 @@ pub use svg::render_svg;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt;
 use std::rc::Rc;
+use std::sync::Arc;
 use tiny_skia::{
     Color, FillRule, LineCap, LineJoin, Mask, Paint, Path, PathBuilder, Pixmap, Rect, Stroke, StrokeDash, Transform,
 };
 use ttf_parser::{Face, OutlineBuilder};
 use zumen_core::extract::{EntityFilter, select_entities, select_underlays};
+use zumen_core::markup::{MarkupItem, markup_entities};
 use zumen_core::{
     BACKGROUND_COLOR, BBox, Background, Matrix, Notice, NoticeLevel, Primitive, Scene, SceneEntity, StrokePrimitive,
     TextPrimitive,
 };
 
 pub use zumen_core::extract::is_entity_visible;
+pub use zumen_core::markup::MarkupStyle;
 
 /// 同梱の日本語フォント（BIZ UDゴシック Regular、SIL Open Font License 1.1。fonts/OFL.txt）
 pub const BUNDLED_FONT: &[u8] = include_bytes!("../fonts/BIZUDGothic-Regular.ttf");
@@ -135,12 +138,36 @@ pub struct RenderOptions {
     pub sheet_frame: bool,
     /// 画像の px と CSS px の比（ブラウザの devicePixelRatio）。点の大きさと、字形を描く最小の文字の大きさに使う
     pub device_pixel_ratio: f64,
+    /// 図面に重ねて描くマークアップ。None なら描かない
+    pub markup: Option<Arc<RenderMarkup>>,
 }
 
 impl Default for RenderOptions {
     fn default() -> Self {
-        Self { theme: None, line_weights: true, hidden_layers: None, sheet_frame: true, device_pixel_ratio: 1.0 }
+        Self {
+            theme: None,
+            line_weights: true,
+            hidden_layers: None,
+            sheet_frame: true,
+            device_pixel_ratio: 1.0,
+            markup: None,
+        }
     }
+}
+
+/// 図面に重ねて描くマークアップの項目と色（docs/markup.md）。項目は書いた順に、図形の上へ、レイヤによらず描く。
+/// ピン・写真の印と lineWidth のない線は、PNG では画像の決まった px（device_pixel_ratio を掛けた CSS px）で、
+/// SVG と PDF では決まった用紙の大きさ（1 CSS px = 25.4 / 96 mm）で描く
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct RenderMarkup {
+    /// 描く項目。描く図面のビュー（Scene.view）の項目を選んで渡す（`MarkupDocument::items_in_view`）
+    pub items: Vec<MarkupItem>,
+    pub style: MarkupStyle,
+}
+
+/// マークアップを、1 CSS px が用紙の pixel mm の図形にする
+pub(crate) fn markup_entities_for(options: &RenderOptions, pixel: f64) -> Vec<SceneEntity> {
+    options.markup.as_ref().map_or_else(Vec::new, |markup| markup_entities(&markup.items, &markup.style, pixel))
 }
 
 /// 描いた結果と、描けなかった内容
@@ -223,6 +250,11 @@ pub fn render(
         painter.sheet(scene);
     }
     for entity in drawn_entities(scene, view, width, height, options) {
+        for primitive in &entity.primitives {
+            painter.primitive(primitive, None);
+        }
+    }
+    for entity in markup_entities_for(options, painter.device_pixel_ratio / view.scale) {
         for primitive in &entity.primitives {
             painter.primitive(primitive, None);
         }
@@ -745,6 +777,56 @@ mod tests {
             metadata: Vec::new(),
             background: Background::Light,
         }
+    }
+
+    fn markup(items: serde_json::Value) -> Option<Arc<RenderMarkup>> {
+        let document = serde_json::json!({
+            "format": "zumen-markup",
+            "version": 1,
+            "drawing": { "sha256": "a".repeat(64), "format": "test" },
+            "items": items,
+        });
+        let document = zumen_core::markup::MarkupDocument::from_value(&document).unwrap();
+        let style =
+            MarkupStyle { categories: HashMap::from([("question".to_string(), "#0000ff".to_string())]), color: None };
+        Some(Arc::new(RenderMarkup { items: document.items, style }))
+    }
+
+    #[test]
+    fn draws_markup_over_the_drawing_with_pins_of_a_fixed_pixel_size() {
+        let scene = scene();
+        let options = RenderOptions {
+            markup: markup(serde_json::json!([
+                { "id": "pin", "kind": "finding", "position": [50, 25], "status": "open" },
+                { "id": "ask", "kind": "finding", "position": [20, 40], "status": "open", "category": "question" },
+                { "id": "line", "kind": "redline", "points": [[60, 5], [95, 5]], "lineWidth": 2 },
+            ])),
+            ..RenderOptions::default()
+        };
+        for scale in [2.0, 4.0] {
+            let view = View { scale, offset_x: 0.0, offset_y: 50.0 * scale };
+            let (width, height) = ((100.0 * scale) as u32, (50.0 * scale) as u32);
+            let (pixmap, _) = render(&scene, &view, width, height, &options).unwrap();
+            let color = |x: f64, y: f64| {
+                let (px, py) = view.to_pixel(x, y);
+                let pixel = pixmap.pixel(px as u32, py as u32).unwrap();
+                [pixel.red(), pixel.green(), pixel.blue()]
+            };
+            // ピンは半径 10 px（倍率によらない）。中心から 8 px は塗り、12 px は塗らない
+            assert_eq!(color(50.0, 25.0), [255, 0, 0], "{scale}");
+            assert_eq!(color(50.0 + 8.0 / scale, 25.0), [255, 0, 0], "{scale}");
+            assert_eq!(color(50.0 + 12.0 / scale, 25.0), [255, 255, 255], "{scale}");
+            assert_eq!(color(20.0, 40.0), [0, 0, 255], "{scale}");
+            // 太さ 2 mm の線は用紙の太さ
+            assert_eq!(color(80.0, 5.0 + 0.8), [255, 0, 0], "{scale}");
+        }
+        let (svg, _) = render_svg(&scene, None, &options).unwrap();
+        assert!(svg.contains("#0000ff"));
+        let (plain, _) = render_svg(&scene, None, &RenderOptions::default()).unwrap();
+        assert!(!plain.contains("#ff0000"));
+        let (pdf, _) = render_pdf(&scene, None, &options).unwrap();
+        let (plain_pdf, _) = render_pdf(&scene, None, &RenderOptions::default()).unwrap();
+        assert!(pdf.len() > plain_pdf.len());
     }
 
     #[test]

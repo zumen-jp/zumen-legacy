@@ -3,8 +3,11 @@
 //! 使った字形だけを埋め込み（CID フォント、Identity-H）、ToUnicode を付けて検索・コピーできるようにする。
 //! 字形の置き方は PNG と同じ（字送りの中央と em の中央をセルの中心に置く）。
 
-use crate::vector::{DOT_MM, Page, dash_lengths};
-use crate::{BUNDLED_FONT, RenderError, RenderOptions, RenderReport, background_rgb, resolve_color, underlay_notices};
+use crate::vector::{DOT_MM, PX_MM, Page, dash_lengths};
+use crate::{
+    BUNDLED_FONT, RenderError, RenderOptions, RenderReport, background_rgb, markup_entities_for, resolve_color,
+    underlay_notices,
+};
 use pdf_writer::types::{CidFontType, FontFlags, LineCapStyle, LineJoinStyle, SystemInfo, UnicodeCmap};
 use pdf_writer::{Content, Filter, Finish, Name, Pdf, Rect, Ref, Str};
 use std::collections::BTreeMap;
@@ -65,6 +68,11 @@ pub fn render_pdf(
         painter.end_alpha(color[3]);
     }
     for entity in page.entities(scene, options) {
+        for primitive in &entity.primitives {
+            painter.primitive(primitive);
+        }
+    }
+    for entity in markup_entities_for(options, PX_MM) {
         for primitive in &entity.primitives {
             painter.primitive(primitive);
         }
