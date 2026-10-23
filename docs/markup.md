@@ -162,7 +162,8 @@ queries the viewer like any application would.
   (`rectangle`, `polygon`), `textTool`, `findingTool`, `photoTool` and `markupEditTool` (select, move, move a point,
   delete with Delete or Backspace, pan where there is nothing). Each takes `name`, `category`, `color` and
   `lineWidth`, and a tool that creates an item passes the draft to `create(draft, layer)`, which returns the item with
-  its text and fields (it may wait for the application's own interface) or `null` to cancel. The pin of a finding
+  its text and fields (it may wait for the application's own interface) or `null` to cancel. A pending result is
+  discarded after cancellation, a tool or scene change, or replacement of the markup document. The pin of a finding
   placed with a click takes the entity under it as its `entities`, and its `label` is the next number. Ctrl or ⌘ with
   Z undoes and with Shift redoes. `setPreview(items)` draws items that are not in the document, as the tools do for
   drafts and moves.

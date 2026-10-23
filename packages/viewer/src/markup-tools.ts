@@ -132,28 +132,41 @@ function base<K extends MarkupKind>(
 /** 下書きを create に渡して加える。create が終わるまで下書きを描き、道具は入力を受けない */
 class Creator<K extends MarkupKind> {
   pending = false;
+  private revision = 0;
 
   constructor(
     private readonly layer: MarkupLayer,
     private readonly create: MarkupCreate<K> | undefined,
   ) {}
 
+  cancel(): void {
+    this.revision++;
+    this.pending = false;
+    this.layer.setPreview(null);
+  }
+
   finish(draft: MarkupDraft<K>): void {
+    const revision = ++this.revision;
+    const drawing = this.layer.document.drawing;
+    const current = () => revision === this.revision && this.layer.document.drawing === drawing;
     const result = this.create ? this.create(draft, this.layer) : draft;
     if (!(result instanceof Promise)) {
-      this.layer.setPreview(null);
-      if (result) this.layer.add(result);
+      if (current()) {
+        this.layer.setPreview(null);
+        if (result) this.layer.add(result);
+      }
       return;
     }
     this.pending = true;
     this.layer.setPreview(draft);
     result
       .then((item) => {
-        if (item) this.layer.add(item);
+        if (item && current()) this.layer.add(item);
       })
       .finally(() => {
+        if (revision !== this.revision) return;
         this.pending = false;
-        this.layer.setPreview(null);
+        if (current()) this.layer.setPreview(null);
       });
   }
 }
@@ -173,7 +186,7 @@ function twoPointTool<K extends MarkupKind>(
     start = null;
     down = null;
     waiting = false;
-    if (!creator.pending) layer.setPreview(null);
+    creator.cancel();
   };
   return {
     name,
@@ -222,7 +235,7 @@ function pointsTool<K extends MarkupKind>(
   let points: MarkupPoint[] = [];
   const reset = () => {
     points = [];
-    if (!creator.pending) layer.setPreview(null);
+    creator.cancel();
   };
   const finish = (closed: boolean, viewer: DrawingViewer) => {
     const done = points;
@@ -305,7 +318,7 @@ export function redlineTool(layer: MarkupLayer, options: RedlineToolOptions = {}
       let points: MarkupPoint[] | null = null;
       const reset = () => {
         points = null;
-        if (!creator.pending) layer.setPreview(null);
+        creator.cancel();
       };
       return {
         name,
@@ -382,6 +395,8 @@ function placeTool<K extends MarkupKind>(
   return {
     name,
     cursor: "crosshair",
+    deactivate: () => creator.cancel(),
+    cancel: () => creator.cancel(),
     // 指で押すと離すまでに少し動くので、離した位置に置く
     pointerUp(event, viewer) {
       if (event.event.button !== 0 || creator.pending) return;
@@ -430,7 +445,7 @@ export function findingTool(layer: MarkupLayer, options: FindingToolOptions = {}
   const reset = () => {
     start = null;
     area = null;
-    if (!creator.pending) layer.setPreview(null);
+    creator.cancel();
   };
   const finding = (position: MarkupPoint, viewer: DrawingViewer, extra: object): MarkupDraft<"finding"> =>
     ({
@@ -488,7 +503,7 @@ export function photoTool(layer: MarkupLayer, options: PhotoToolOptions = {}): V
   const reset = () => {
     start = null;
     direction = null;
-    if (!creator.pending) layer.setPreview(null);
+    creator.cancel();
   };
   const photo = (position: MarkupPoint, viewer: DrawingViewer): MarkupDraft<"photo"> =>
     ({

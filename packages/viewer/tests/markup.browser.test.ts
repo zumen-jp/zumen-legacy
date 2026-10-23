@@ -588,6 +588,32 @@ describe("道具", () => {
     ]);
   });
 
+  it("入力待ちの下書きは、取消・道具・図面・文書の切替後に加えない", async () => {
+    const { viewer, layer } = await mount();
+    let finish = () => {};
+    viewer.addTool(
+      textTool(layer, {
+        create: (draft) =>
+          new Promise((resolve) => {
+            finish = () => resolve({ ...draft, text: "前の図面へのメモ" });
+          }),
+      }),
+    );
+    for (const cancel of [
+      () => key(viewer, "Escape"),
+      () => viewer.setTool("select"),
+      () => viewer.setScene(drawing({ view: "v2" })),
+      () => layer.setDocument(markup()),
+    ]) {
+      viewer.setTool("markup-text");
+      click(viewer, 20, 20);
+      cancel();
+      finish();
+      await frames();
+      expect(layer.document.items).toEqual([]);
+    }
+  });
+
   it("編集の道具は選び、動かし、点を動かし、消す。動かした結果は 1 回で取り消せる", async () => {
     const { viewer, layer, events } = await mount({
       document: markup([

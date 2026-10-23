@@ -322,6 +322,7 @@ export class MarkupLayer {
     markupFromJson(document);
     this.undoStack.length = 0;
     this.redoStack.length = 0;
+    this.preview = [];
     const ids = new Set(document.items.map((item) => item.id));
     this.setState({
       document,
