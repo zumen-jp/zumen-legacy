@@ -289,6 +289,16 @@ DXF（R12〜2018、テキストとバイナリ）・DWG（R13〜2018）・JWW・
 
 Python では、読み取り・描画・書き出し・編集の間 GIL を外す。
 
+## 対応環境
+
+- Canvas 2D と WebAssembly を使えるブラウザ。ブラウザのテストは Playwright の Chromium・Firefox・WebKit で動かし、
+  試用画面も macOS のこの 3 つで実際の図面を開いて確かめた（Canvas の文字、WebAssembly の読み込み、Web Worker での読み取り、
+  ポインター・ホイール・キーの操作。[記録（英語）](docs/verification.md#firefox-and-webkit)）。
+  Playwright の WebKit は Safari そのものではない。Safari、iOS と Android のブラウザ、実際の入力機器（タッチ画面・
+  トラックパッド・マウスのホイール）はまだ確かめていない。
+- `@zumenjs/react` のフックは React 19.3。
+- 読み取りと開発は Node.js 24。
+
 ## 文書
 
 - [構成と拡張の口（英語）](docs/architecture.md)
@@ -306,7 +316,7 @@ Python では、読み取り・描画・書き出し・編集の間 GIL を外�
 
 ```bash
 pnpm install --frozen-lockfile
-pnpm exec playwright install --only-shell chromium
+pnpm exec playwright install --only-shell chromium firefox webkit
 pnpm run check
 ```
 
@@ -317,8 +327,8 @@ WebAssembly の読み取りは `scripts/wasm.mjs` が cargo と wasm-bindgen-cli
 `packages/reader/wasm` に作る。`pnpm dev` と `check` は最初にこれを走らせる。
 Rust は `rust-toolchain.toml`、Python は uv と `bindings/python/.python-version` に固定する。
 TS の読み取りを変えたら `pnpm run golden` で `tests/fixtures` の正解を作り直し、Rust の読み取りも同じ結果に直す。
-エンジンと React のフックのテスト（`*.browser.test.*`）は Canvas とポインターのイベントを使うので、Playwright の
-Chromium（headless shell）で動かす。
+エンジン・React のフック・Web Worker のテスト（`*.browser.test.*`）は Canvas とポインターのイベントを使うので、Playwright の
+Chromium（headless shell）・Firefox・WebKit で動かす。`ZUMEN_BROWSERS=chromium` のように指定すると、そのブラウザだけで動かす。
 開発中は、パッケージ同士が `package.json` の exports の `@zumenjs/source` 条件で `src` を読むため、ビルドしなくても変更がすぐ反映される。
 Node.js は `.node-version`、pnpm は `package.json` の `packageManager` に固定する。
 

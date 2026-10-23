@@ -14,10 +14,20 @@ concurrency:
 
 jobs:
   check:
+    # The names of the required checks of main
+    name: check (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        # The browser tests (*.browser.test.*) run in Chromium, Firefox and WebKit on Ubuntu, and in Chromium only on
+        # Windows: the Windows job already takes twice as long (installing the Chromium headless shell alone takes about
+        # three minutes there), and these tests check the browser engines (Canvas, input events, the worker and
+        # WebAssembly) rather than the system, which Chromium still covers on Windows
+        include:
+          - os: ubuntu-latest
+            browsers: chromium firefox webkit
+          - os: windows-latest
+            browsers: chromium
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     steps:
@@ -42,10 +52,13 @@ jobs:
       # astral-sh/setup-uv v10.3.0 (Python comes from bindings/python/.python-version)
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
       - run: pnpm install --frozen-lockfile
-      # The tests of the drawing engine and the React hooks (*.browser.test.*) run in the Chromium headless shell of
-      # the Playwright version in package.json
-      - run: pnpm exec playwright install --with-deps --only-shell chromium
+      # The tests of the drawing engine, the React hooks and the reader's worker (*.browser.test.*) run in the browsers
+      # of the Playwright version in package.json (the headless shell for Chromium); ZUMEN_BROWSERS selects them in
+      # vitest.config.ts
+      - run: pnpm exec playwright install --with-deps --only-shell ${{ matrix.browsers }}
       - run: pnpm run check
+        env:
+          ZUMEN_BROWSERS: ${{ matrix.browsers }}
       # Exercise the installed wheel too: maturin develop alone does not verify wheel packaging.
       - run: uv run --project bindings/python --frozen maturin build --release -m bindings/python/Cargo.toml --out target/wheels
       - run: node scripts/check-wheel.mjs
