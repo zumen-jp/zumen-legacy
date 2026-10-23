@@ -5,6 +5,9 @@
 //! 重い繰り返しのたびに `tick` を呼び、上限を超えたら繰り返しをやめる。途中までの結果は呼び出し側が捨てる。
 //! `with_limits` の外では何もしないので、上限を指定しなければ結果は TypeScript の読み取りと変わらない。
 
+use crate::js;
+use crate::read::{DrawingReader, ReadError, ReadOptions, read_drawing};
+use crate::types::Scene;
 use std::cell::Cell;
 use std::time::Duration;
 #[cfg(not(target_arch = "wasm32"))]
@@ -148,6 +151,43 @@ pub fn tick() -> bool {
 /// 上限を超えて止めているか
 pub fn stopped() -> bool {
     ACTIVE.get() && EXCEEDED.get().is_some()
+}
+
+/// 上限を超えたときのエラー（利用者に見せる文）
+pub fn limit_error(limit: Limit, limits: &ReadLimits) -> ReadError {
+    let count = |value: Option<u64>| value.map_or_else(String::new, |value| js::format_ja(value as f64, 0));
+    let message = match limit {
+        Limit::Bytes => format!("図面が上限の {} バイトより大きいため、読みませんでした", count(limits.max_bytes)),
+        Limit::Entities => {
+            format!("図形が上限の {} 個を超えたため、読むのを途中でやめました", count(limits.max_entities))
+        }
+        Limit::Time => {
+            let seconds = limits.max_duration.map_or(0.0, |duration| duration.as_secs_f64());
+            format!("読み取りが上限の {} 秒を超えたため、途中でやめました", js::number_to_string(seconds))
+        }
+    };
+    ReadError::limit(limit, message)
+}
+
+/// 渡した読み取りで図面を読む（`read_drawing`）。limits の上限を超えたら、途中でやめて上限のエラーを返す。
+/// zumen::read と、形式ごとの WebAssembly のモジュールが使う
+pub fn read_drawing_with_limits(
+    bytes: &[u8],
+    readers: &[&dyn DrawingReader],
+    format: Option<&str>,
+    options: &ReadOptions,
+    limits: &ReadLimits,
+) -> Result<Scene, ReadError> {
+    if limits.max_bytes.is_some_and(|max| bytes.len() as u64 > max) {
+        return Err(limit_error(Limit::Bytes, limits));
+    }
+    let (result, exceeded) = with_limits(limits, || read_drawing(bytes, readers, format, options));
+    // 上限を超えたときは、途中までの結果や、途中でやめたために起きた読み取りのエラーより上限のエラーを返す
+    match (exceeded, result) {
+        (Some(_), Err(error)) if error.exceeded().is_some() => Err(error),
+        (Some(limit), _) => Err(limit_error(limit, limits)),
+        (None, result) => result,
+    }
 }
 
 #[cfg(test)]

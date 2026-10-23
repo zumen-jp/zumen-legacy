@@ -50,7 +50,10 @@ Usage:
 Every command that reads takes --max-bytes <n>, --max-entities <n> and --timeout <seconds>, to stop
 reading an untrusted drawing that is too large (P2Z and SFZ after unpacking), too complex or too slow.
 
-Reads SXF, JWW (also JWC and JWS), DXF and DWG drawings into zumen's scene model.
+Reads SXF, JWW (also JWC and JWS), DXF, DWG and PDF drawings into zumen's scene model. A PDF page is a view
+(--view 2 for the second page) whose paths, texts and images are read for texts, entities, regions, tables, title,
+check and compare, but not drawn: the page shows them, and render reports it as underlay-not-drawn. convert, edit
+and draft do not take PDF.
 texts and entities write one JSON object per line, in paper millimeters (Y up) rounded to 0.001.
 --geometry adds the shapes drawn to each entity (polylines, segments, fills, hatches, points and text
 parts; curves as the polyline drawn), with real for the same coordinates in real-world millimeters

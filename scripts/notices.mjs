@@ -1,5 +1,6 @@
 // Writes the license texts of the Rust crates that are compiled into what zumen ships: the extension module of the
-// Python package (bindings/python) and the WebAssembly reader of @zumenjs/reader (bindings/wasm). The licenses of MIT,
+// Python package (bindings/python) and the two WebAssembly modules of @zumenjs/reader (bindings/wasm, and
+// bindings/wasm-pdf for PDF, decision 0030). The licenses of MIT,
 // BSD, Apache-2.0 and the like ask every copy of a binary to carry the copyright notices and the license texts of
 // the code in it, and zumen's own LICENSE covers only zumen.
 //
@@ -9,6 +10,8 @@
 // The crates are those that are linked: the normal dependencies of the binding for the platforms it is built for,
 // without build scripts, procedural macros and development dependencies, which run at build time and are not in the
 // binary. Each crate's license files are copied as they are, and a text that several crates share is written once.
+// Crates that embed data under licenses of its own keep those licenses in assets/ (the fonts and CMaps of hayro), and
+// they are copied too.
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -20,8 +23,7 @@ const outputs = [
   {
     file: "bindings/python/licenses/THIRD_PARTY_LICENSES.txt",
     what: "the extension module of the Python package zumen",
-    manifest: "bindings/python/Cargo.toml",
-    package: "zumen-python",
+    bindings: [{ manifest: "bindings/python/Cargo.toml", package: "zumen-python" }],
     // The platforms of the wheels (.github/workflows/python-wheels.yml)
     targets: [
       "x86_64-unknown-linux-gnu",
@@ -32,14 +34,18 @@ const outputs = [
   },
   {
     file: "packages/reader/THIRD_PARTY_LICENSES.txt",
-    what: "the WebAssembly reader of @zumenjs/reader",
-    manifest: "bindings/wasm/Cargo.toml",
-    package: "zumen-wasm",
+    what: "the WebAssembly modules of @zumenjs/reader (zumen_wasm_bg.wasm and zumen_wasm_pdf_bg.wasm)",
+    bindings: [
+      { manifest: "bindings/wasm/Cargo.toml", package: "zumen-wasm" },
+      { manifest: "bindings/wasm-pdf/Cargo.toml", package: "zumen-wasm-pdf" },
+    ],
     targets: ["wasm32-unknown-unknown"],
   },
 ];
 
 const LICENSE_FILE = /^(licen[sc]e|copying|notice|unlicense|copyright)/i;
+/** The license of data that a crate embeds, in its assets/ folder (LICENSE_FOXIT, CGATS_LICENSE.txt …) */
+const ASSET_LICENSE_FILE = /licen[sc]e/i;
 
 function cargo(args) {
   return execFileSync("cargo", args, {
@@ -88,25 +94,48 @@ function readText(file) {
     .replace(/\n+$/, "");
 }
 
-function render({ what, manifest, package: packageName, targets }) {
+function render({ what, bindings, targets }) {
   const crates = new Map();
-  for (const target of targets) {
-    for (const p of linkedCrates(manifest, packageName, target)) crates.set(`${p.name} ${p.version}`, p);
+  for (const { manifest, package: packageName } of bindings) {
+    for (const target of targets) {
+      for (const p of linkedCrates(manifest, packageName, target)) crates.set(`${p.name} ${p.version}`, p);
+    }
   }
   const sorted = [...crates.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   /** text -> the crates that carry it */
   const texts = new Map();
-  for (const [key, p] of sorted) {
-    const dir = path.dirname(p.manifest_path);
-    const files = readdirSync(dir, { withFileTypes: true })
+  const licenseFiles = (/** @type {{ manifest_path: string }} */ p) =>
+    readdirSync(path.dirname(p.manifest_path), { withFileTypes: true })
       .filter((e) => e.isFile() && LICENSE_FILE.test(e.name))
       .map((e) => e.name)
       .sort();
-    if (files.length === 0) throw new Error(`${key} has no license file in ${dir}`);
+  for (const [key, p] of sorted) {
+    let dir = path.dirname(p.manifest_path);
+    let files = licenseFiles(p);
+    let from = "";
+    if (files.length === 0) {
+      // A crate published without its license file (alloc-stdlib) is covered by the license of its repository, which
+      // another crate of the same repository ships
+      const sibling = sorted.find(([, other]) => other.repository === p.repository && licenseFiles(other).length > 0);
+      if (!p.repository || !sibling) throw new Error(`${key} has no license file in ${dir}`);
+      dir = path.dirname(sibling[1].manifest_path);
+      files = licenseFiles(sibling[1]);
+      from = ` (the license of its repository, as ${sibling[0]} ships it)`;
+    }
+    const assets = path.join(dir, "assets");
+    if (existsSync(assets)) {
+      files.push(
+        ...readdirSync(assets, { withFileTypes: true })
+          .filter((e) => e.isFile() && ASSET_LICENSE_FILE.test(e.name))
+          // The name is written into the file, so it uses / on every platform
+          .map((e) => `assets/${e.name}`)
+          .sort(),
+      );
+    }
     for (const name of files) {
       const text = readText(path.join(dir, name));
       if (!texts.has(text)) texts.set(text, []);
-      texts.get(text).push(key);
+      texts.get(text).push(name.startsWith("assets") ? `${key} (${name}, the data it embeds)` : `${key}${from}`);
     }
   }
   const rule = "=".repeat(78);
@@ -114,7 +143,8 @@ function render({ what, manifest, package: packageName, targets }) {
     `Licenses of the Rust crates that are compiled into ${what}.`,
     "",
     "zumen itself is under the MIT license (LICENSE). The crates below are linked into the binary, from",
-    `${manifest} for ${targets.join(", ")}; build scripts, procedural macros and development dependencies are not in it.`,
+    `${bindings.map((binding) => binding.manifest).join(" and ")} for ${targets.join(", ")}; build scripts, procedural`,
+    "macros and development dependencies are not in it.",
     "Generated by scripts/notices.mjs from Cargo.lock (pnpm run notices). Do not edit.",
     "",
     `Crates (${sorted.length}), with the license that each declares:`,

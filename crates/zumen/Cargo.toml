@@ -1,6 +1,6 @@
 [package]
 name = "zumen"
-description = "Read 2D drawings (SXF, JWW, DXF and DWG) into one scene model, and convert them to DXF"
+description = "Read 2D drawings (SXF, JWW, DXF, DWG and PDF) into one scene model, and convert them to DXF"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -14,11 +14,18 @@ zumen-draft.workspace = true
 zumen-dxf.workspace = true
 zumen-dwg.workspace = true
 zumen-jww.workspace = true
+zumen-pdf = { workspace = true, optional = true }
 zumen-sxf.workspace = true
 serde_json.workspace = true
 
+[features]
+default = ["pdf"]
+# PDF の読み取り（hayro-interpret）。ブラウザの CAD のモジュール（bindings/wasm）は入れない（決定 0030）
+pdf = ["dep:zumen-pdf"]
+
 [dev-dependencies]
 encoding_rs.workspace = true
+zumen-render.workspace = true
 
 [lints]
 workspace = true

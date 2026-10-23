@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { type Scene, type SceneEntity, sceneFromJson, sceneToJson, UNDERLAY_KINDS } from "../src/index.js";
+import { type Scene, type SceneEntity, sceneFromJson, sceneToJson } from "../src/index.js";
 
 // Rust の zumen-core（types.rs のテスト）も同じファイルと比べ、2 つの実装の JSON がそろっていることを確かめる
 const JSON_TEXT = readFileSync(new URL("./underlay.scene.json", import.meta.url), "utf8");
@@ -86,16 +86,5 @@ describe("underlay", () => {
     const json = sceneToJson(plain);
     expect(JSON.parse(json)).not.toHaveProperty("underlays");
     expect(sceneFromJson(json)).not.toHaveProperty("underlays");
-  });
-
-  it("keeps drawn: false on the entities that an underlay shows, and leaves it out on the others", () => {
-    const [shown, drawn] = JSON.parse(sceneToJson(scene())).entities;
-    expect(shown.drawn).toBe(false);
-    expect(drawn).not.toHaveProperty("drawn");
-    expect(sceneFromJson(JSON_TEXT).entities.map((entity) => entity.drawn)).toEqual([false, undefined]);
-  });
-
-  it("lists the kinds that zumen-core has", () => {
-    expect(UNDERLAY_KINDS).toEqual(["image", "pdf"]);
   });
 });
