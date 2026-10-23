@@ -66,6 +66,10 @@ bytes ─▶ format reader ─▶ native model ─▶ toScene ─▶ Scene
   (`kind`, the `file` named in the drawing, the PDF `page`), not its bytes: a renderer that the application passes to
   `DrawingViewer` draws regions of it on request ([decision 0022](decisions/0022-underlays-drawn-by-a-region-renderer.md)).
   Scenes without underlays leave the field out.
+- Entities with `drawn: false` stand for content that an underlay already shows, such as the paths and texts of a PDF
+  page. `renderScene` and `zumen-render` do not draw them, but hit testing, snapping, measurement, `texts`,
+  `entities` and the analyses use them like any other entity, and the viewer's highlights draw them when they are
+  selected. Entities that are drawn leave the field out.
 - `notices` list what was not drawn or was drawn differently, by kind and count. Nothing is dropped silently.
 - Colors are `#rrggbb`, or `#rrggbbaa` with opacity. On a light background, near-white colors are drawn black,
   and on a dark background near-black colors are drawn white.

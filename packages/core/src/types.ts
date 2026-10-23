@@ -187,6 +187,11 @@ export interface SceneEntity {
   properties: Property[];
   /** 部分図・部品の中の図形は、元の座標から用紙への縮尺を持つ（実寸の計測に使う） */
   placement?: Placement;
+  /**
+   * false なら描かない（underlay が見せている内容の図形。PDF のページの線と文字など）。選択・吸着・計測と、文字・図形の
+   * 取り出しには使い、選択・強調の重ね描きでは描く。省略すると描く（docs/decisions/0022）
+   */
+  drawn?: false;
 }
 
 /** 部分図・部品の配置。scaleX・scaleY は元の座標 1 mm が用紙で何 mm になるか */

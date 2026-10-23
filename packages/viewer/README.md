@@ -138,6 +138,9 @@ that the view no longer needs. A renderer that rejects is not asked again for th
 `refreshUnderlays(ids)`, which also redraws content that changed. `renderScene` draws rendered images passed in
 `options.underlays`.
 
+Entities with `drawn: false` stand for what an underlay shows (the paths and texts of a PDF page): they are not
+drawn, but `entitiesAt`, `snapAt`, the tools and measurement use them, and the selection is drawn over the underlay.
+
 ## Queries and overlays
 
 - `entitiesAt(x, y, { tolerance })` returns the visible entities near a paper point, nearest first,
