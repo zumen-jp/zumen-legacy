@@ -27,6 +27,9 @@ def test_wraps_the_functions_of_zumen_tools():
         "find_tables",
         "check_drawing",
         "draft_drawing",
+        "list_markup",
+        "write_markup",
+        "carry_markup_revision",
     ]:
         assert getattr(mcp, name) is getattr(tools, name)
     assert (mcp.Drawings, mcp.DrawingError, mcp.normalize) == (tools.Drawings, tools.DrawingError, tools.normalize)
@@ -55,10 +58,13 @@ def test_serves_the_tools_over_mcp():
                 "check_drawing",
                 "compare_drawings",
                 "draft_drawing",
+                "read_markup",
+                "write_markup",
+                "carry_markup",
             }
-            # draft_drawing writes a file; every other tool only reads
+            # draft_drawing, write_markup and carry_markup write files; every other tool only reads
             writing = {name for name, tool in listed.items() if not tool.annotations.read_only_hint}
-            assert writing == {"draft_drawing"}
+            assert writing == {"draft_drawing", "write_markup", "carry_markup"}
 
             opened = await client.call_tool("open_drawing", {"path": SFC})
             assert not opened.is_error
@@ -128,5 +134,53 @@ def test_compares_revisions_over_mcp(tmp_path):
             )
             image, text = result.content
             assert image.type == "image" and json.loads(text.text)["changed"] == 1
+
+    anyio.run(session)
+
+
+def test_writes_reads_draws_and_carries_markup_over_mcp(tmp_path):
+    sdk = pytest.importorskip("mcp")
+    import anyio
+
+    plan = tmp_path / "rooms.dxf"
+    plan.write_bytes((FIXTURES / "dxf" / "rooms.dxf").read_bytes())
+    markup = tmp_path / "rooms.markup.json"
+
+    async def session():
+        server = mcp.create_server(mcp.Drawings([tmp_path]))
+        async with sdk.Client(server) as client:
+            view = (await client.call_tool("open_drawing", {"path": str(plan)})).structured_content["view"]
+            written = await client.call_tool(
+                "write_markup",
+                {
+                    "markup": str(markup),
+                    "drawing": str(plan),
+                    "author": "agent",
+                    "add": [
+                        {"kind": "finding", "view": view, "position": [1000, 1000], "status": "open", "text": "確認"},
+                        {"kind": "cloud", "view": view, "points": [[0, 0], [2000, 0], [2000, 1500]]},
+                    ],
+                },
+            )
+            assert not written.is_error and written.structured_content["items"] == 2
+            read = await client.call_tool("read_markup", {"markup": str(markup), "drawing": str(plan)})
+            page = read.structured_content
+            assert page["matches"] is True and [item["kind"] for item in page["items"]] == ["finding", "cloud"]
+            rendered = await client.call_tool("render_drawing", {"path": str(plan), "size": 300, "markup": str(markup)})
+            assert json.loads(rendered.content[1].text)["markup_items"] == 2
+            wrong = await client.call_tool("write_markup", {"markup": str(markup), "add": [{"kind": "stamp"}]})
+            assert wrong.is_error and "kind" in wrong.content[0].text
+            carried = await client.call_tool(
+                "carry_markup",
+                {
+                    "markup": str(markup),
+                    "before": str(plan),
+                    "after": str(plan),
+                    "output": str(tmp_path / "carried.json"),
+                },
+            )
+            assert carried.structured_content["unchanged"] == 2
+            outside = await client.call_tool("read_markup", {"markup": "/etc/hosts"})
+            assert outside.is_error and "outside" in outside.content[0].text
 
     anyio.run(session)

@@ -34,17 +34,38 @@ A ``Scene`` does not change after it is read, so the functions can run in thread
 kept between calls.
 """
 
+import datetime
+import json
 import math
 import os
 import threading
 import unicodedata
+import uuid
 from collections import Counter, OrderedDict
 from collections.abc import Sequence
 from numbers import Real
 from pathlib import Path
 from typing import Any, Literal, TypedDict, cast
 
-from . import DraftError, LimitError, ReadError, RenderError, Scene, compare, draft, draft_into, read
+from . import (
+    CarryError,
+    DraftError,
+    LimitError,
+    MarkupDocument,
+    MarkupDrawing,
+    MarkupError,
+    ReadError,
+    RenderError,
+    Scene,
+    carry_markup,
+    compare,
+    draft,
+    draft_into,
+    drawing_hash,
+    read,
+    read_markup,
+)
+from ._zumen import markup_boxes
 
 #: Long edge of a rendered image when the caller does not ask for a size (pixels). Vision models see about this much
 #: detail; a larger image costs more and is often scaled down by the client.
@@ -232,13 +253,7 @@ class DrawnTextInfo(_DrawnTextInfo, total=False):
     truncated: bool
 
 
-class RenderInfo(TypedDict):
-    """How the pixels of an image map to the drawing (``render``).
-
-    ``region`` is the part of the sheet shown (paper millimeters) and ``frame_region`` the same as fractions of the
-    frame (``None`` for a drawing without a frame); ``scale`` is pixels per paper millimeter. ``texts`` stops at
-    ``text_limit`` of ``texts_drawn``."""
-
+class _RenderInfo(TypedDict):
     width: int
     height: int
     region: list[float]
@@ -248,6 +263,17 @@ class RenderInfo(TypedDict):
     entities_drawn: int
     texts_drawn: int
     texts: list[DrawnTextInfo]
+
+
+class RenderInfo(_RenderInfo, total=False):
+    """How the pixels of an image map to the drawing (``render``).
+
+    ``region`` is the part of the sheet shown (paper millimeters) and ``frame_region`` the same as fractions of the
+    frame (``None`` for a drawing without a frame); ``scale`` is pixels per paper millimeter. ``texts`` stops at
+    ``text_limit`` of ``texts_drawn``. ``markup_items`` is the number of markup items of the view drawn over the
+    drawing, when markup was given."""
+
+    markup_items: int
 
 
 class _TextInfo(TypedDict):
@@ -573,6 +599,67 @@ class DraftInfo(TypedDict):
     bytes: int
     sheets: list[str]
     notices: list[NoticeInfo]
+
+
+class _MarkupItemInfo(TypedDict):
+    id: str
+    kind: str
+    box: list[float]
+
+
+class MarkupItemInfo(_MarkupItemInfo, total=False):
+    """An item of a markup document. ``box`` is in paper millimeters of its ``view`` (a pin or a photo is the box of
+    its position); ``carried`` is ``unchanged``, ``changed`` or ``removed`` after the markup was carried to a new
+    revision, and ``entities`` the ids of the entities the item is about."""
+
+    view: str
+    category: str
+    text: str
+    truncated: bool
+    status: str
+    label: str
+    photo: str
+    carried: str
+    entities: list[str]
+    author: str
+    updatedAt: str
+
+
+class MarkupPage(TypedDict):
+    """Items of a markup document (``list_markup``). ``matches`` tells whether the drawing given has the bytes that
+    the markup was made on (``None`` without a drawing); ``views`` counts the items of each view (``""`` for items
+    without a view)."""
+
+    path: str
+    drawing: MarkupDrawing
+    matches: bool | None
+    views: dict[str, int]
+    total: int
+    offset: int
+    items: list[MarkupItemInfo]
+
+
+class MarkupWriteInfo(TypedDict):
+    """A markup document written by ``write_markup``: whether it was created, its number of items, and the ids of
+    the items added, updated and removed."""
+
+    path: str
+    created: bool
+    items: int
+    added: list[str]
+    updated: list[str]
+    removed: list[str]
+
+
+class MarkupCarryInfo(TypedDict):
+    """A markup document carried to a new revision and written to ``path`` (``carry_markup_revision``): the drawing
+    it now names and the number of items in each state."""
+
+    path: str
+    drawing: MarkupDrawing
+    unchanged: int
+    changed: int
+    removed: int
 
 
 class ChangeRegionInfo(TypedDict):
@@ -904,6 +991,16 @@ class Drawings:
             raise DrawingError(f"{path} is a directory")
         return resolved
 
+    def markup(self, path: str | os.PathLike[str]) -> MarkupDocument:
+        """Read and check a markup document from the allowed directories."""
+        resolved = self.resolve(path)
+        try:
+            return read_markup(resolved)
+        except MarkupError as error:
+            raise DrawingError(f"{path}: {error} ({error.code})") from error
+        except UnicodeDecodeError as error:
+            raise DrawingError(f"{path} is not UTF-8 JSON") from error
+
     def scene(self, path: str | os.PathLike[str], view: str | None = None) -> Scene:
         """Read a drawing, or return the scene read before if the file has not changed."""
         resolved = self.resolve(path)
@@ -1050,11 +1147,14 @@ def render(
     theme: str | None = None,
     text_limit: int = 200,
     max_text_length: int | None = DEFAULT_TEXT_LENGTH,
+    markup: MarkupDocument | None = None,
+    markup_colors: dict[str, str] | None = None,
 ) -> tuple[bytes, RenderInfo]:
     """A PNG of the frame or a region (``region`` in paper millimeters or ``frame_region`` as fractions of the frame),
     ``size`` pixels on the long edge, and how its pixels map to the drawing: the region shown, the scale and the texts
     drawn with their pixel boxes (at most ``text_limit``, itself at most ``MAX_LIMIT``). ``theme`` is ``light`` or
-    ``dark``, the drawing's own background when omitted."""
+    ``dark``, the drawing's own background when omitted. ``markup`` draws the items of a markup document that belong
+    to the view drawn over the drawing, in the colors of ``markup_colors`` by category (red otherwise)."""
     if not 16 <= size <= MAX_IMAGE_SIZE:
         raise DrawingError(f"size must be between 16 and {MAX_IMAGE_SIZE} pixels")
     if theme not in (None, "light", "dark"):
@@ -1069,9 +1169,18 @@ def render(
     # A hair under size, so that rounding up does not add a pixel to the long edge
     dpi = size * (1 - 1e-12) * 25.4 / max(width, height, 1e-6)
     try:
-        image = scene.render(dpi=dpi, region=tuple(box), theme=theme, hidden_layers=[] if all_layers else None)
+        image = scene.render(
+            dpi=dpi,
+            region=tuple(box),
+            theme=theme,
+            hidden_layers=[] if all_layers else None,
+            markup=markup,
+            markup_colors=markup_colors,
+        )
     except RenderError as error:
         raise DrawingError(f"cannot render: {error}") from error
+    except MarkupError as error:
+        raise DrawingError(f"cannot read the markup: {error} ({error.code})") from error
     drawn = image.entities
     texts = [entity for entity in drawn if entity["text"] is not None]
     shown = image.region
@@ -1099,6 +1208,8 @@ def render(
         "texts_drawn": len(texts),
         "texts": items,
     }
+    if markup is not None:
+        info["markup_items"] = sum(1 for item in markup["items"] if item.get("view") == scene.view)
     return image.png, info
 
 
@@ -1778,4 +1889,204 @@ def draft_drawing(
             }
             for notice in drafted.notices
         ],
+    }
+
+
+# --- Markup -----------------------------------------------------------------------------------------------------
+
+
+def list_markup(
+    drawings: Drawings,
+    markup: str | os.PathLike[str],
+    *,
+    drawing: str | os.PathLike[str] | None = None,
+    view: str | None = None,
+    kind: str | None = None,
+    status: str | None = None,
+    limit: int = DEFAULT_LIMIT,
+    offset: int = 0,
+    max_text_length: int | None = DEFAULT_TEXT_LENGTH,
+) -> MarkupPage:
+    """The items of a markup document (docs/markup.md), in their order: those of ``view`` only when given (``""``
+    for items without a view), of a ``kind`` and of a finding ``status``. With ``drawing``, ``matches`` tells whether
+    its bytes are those the markup was made on, so that its entity ids name the drawing's entities."""
+    limit, offset = _page(limit, offset)
+    length = _text_length(max_text_length)
+    document = drawings.markup(markup)
+    boxes = markup_boxes(json.dumps(document, ensure_ascii=False))
+    matches = None if drawing is None else drawing_hash(drawings.resolve(drawing)) == document["drawing"]["sha256"]
+    views = Counter(str(item.get("view", "")) for item in document["items"])
+    chosen = [
+        (item, box)
+        for item, box in zip(document["items"], boxes, strict=True)
+        if (view is None or item.get("view", "") == view)
+        and (kind is None or item["kind"] == kind)
+        and (status is None or item.get("status") == status)
+    ]
+    items: list[MarkupItemInfo] = []
+    for item, box in chosen[offset : offset + limit]:
+        info: MarkupItemInfo = {"id": item["id"], "kind": item["kind"], "box": _box(box)}
+        data = cast(dict[str, Any], item)
+        for key in ("view", "category", "status", "label", "photo", "author", "updatedAt"):
+            if key in data:
+                info[key] = data[key]  # type: ignore[literal-required]
+        if "text" in data:
+            text, cut = _clip(str(data["text"]), length)
+            info["text"] = text
+            if cut:
+                info["truncated"] = True
+        if "carried" in data:
+            info["carried"] = data["carried"]["state"]
+        if "entities" in data:
+            info["entities"] = list(data["entities"])[:MAX_LIMIT]
+        items.append(info)
+    return {
+        "path": str(drawings.resolve(markup)),
+        "drawing": dict(document["drawing"]),  # type: ignore[typeddict-item]
+        "matches": matches,
+        "views": dict(views),
+        "total": len(chosen),
+        "offset": offset,
+        "items": items,
+    }
+
+
+def _now() -> str:
+    return datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def write_markup(
+    drawings: Drawings,
+    path: str | os.PathLike[str],
+    *,
+    drawing: str | os.PathLike[str] | None = None,
+    add: Sequence[dict[str, Any]] = (),
+    update: Sequence[dict[str, Any]] = (),
+    remove: Sequence[str] = (),
+    author: str | None = None,
+) -> MarkupWriteInfo:
+    """Add, update and remove items of the markup document at ``path`` and write it, so that people see an agent's
+    findings on the drawing. Without a document at ``path``, ``drawing`` names the drawing to create one for.
+
+    ``add`` takes items without ``id`` (a UUID is made), ``createdAt`` and ``updatedAt`` (now) or ``author`` (the
+    ``author`` given); ``update`` takes ``{"id": ..., "set": {...}}``, where a key set to ``None`` is removed and
+    ``updatedAt`` becomes now; ``remove`` takes ids. Points are paper millimeters of the item's ``view`` (a view id of
+    the drawing); with ``drawing``, an item added without a view gets the drawing's default view. The document is
+    checked before it is written; a mistake names the item and the key."""
+    target = drawings.writable(path)
+    created = not target.exists()
+    scene = None if drawing is None else drawings.scene(drawing)
+    if created:
+        if drawing is None or scene is None:
+            raise DrawingError(f"{path} does not exist; give the drawing to create markup for")
+        document: dict[str, Any] = {
+            "format": "zumen-markup",
+            "version": 1,
+            "drawing": {"sha256": drawing_hash(drawings.resolve(drawing)), "format": scene.format},
+            "items": [],
+        }
+    else:
+        document = cast(dict[str, Any], drawings.markup(target))
+    now = _now()
+    items: list[dict[str, Any]] = list(document["items"])
+    ids = {item["id"] for item in items}
+    added: list[str] = []
+    for value in add:
+        if not isinstance(value, dict):
+            raise DrawingError("add takes items (objects)")
+        item = dict(value)
+        item.setdefault("id", str(uuid.uuid4()))
+        if scene is not None and scene.view is not None:
+            item.setdefault("view", scene.view)
+        if item["id"] in ids:
+            raise DrawingError(f"an item with id {item['id']} exists")
+        if author is not None:
+            item.setdefault("author", author)
+        item.setdefault("createdAt", now)
+        item.setdefault("updatedAt", item["createdAt"])
+        ids.add(item["id"])
+        items.append(item)
+        added.append(item["id"])
+    updated: list[str] = []
+    for change in update:
+        if not isinstance(change, dict) or "id" not in change or not isinstance(change.get("set"), dict):
+            raise DrawingError('update takes {"id": ..., "set": {...}}')
+        index = next((i for i, item in enumerate(items) if item["id"] == change["id"]), None)
+        if index is None:
+            raise DrawingError(f"no item has id {change['id']}")
+        item = dict(items[index])
+        for key, value in change["set"].items():
+            if key in ("id", "kind"):
+                raise DrawingError(f"the {key} of an item cannot change")
+            if value is None:
+                item.pop(key, None)
+            else:
+                item[key] = value
+        if "updatedAt" not in change["set"]:
+            item["updatedAt"] = now
+        items[index] = item
+        updated.append(item["id"])
+    removing = set(remove)
+    missing = removing - ids
+    if missing:
+        raise DrawingError(f"no item has id {', '.join(sorted(missing))}")
+    items = [item for item in items if item["id"] not in removing]
+    document["items"] = items
+    try:
+        checked = read_markup(document)
+    except MarkupError as error:
+        raise DrawingError(f"{error} ({error.code})") from error
+    target.write_text(json.dumps(checked, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return {
+        "path": str(target),
+        "created": created,
+        "items": len(items),
+        "added": added,
+        "updated": updated,
+        "removed": sorted(removing),
+    }
+
+
+def carry_markup_revision(
+    drawings: Drawings,
+    markup: str | os.PathLike[str],
+    before: str | os.PathLike[str],
+    after: str | os.PathLike[str],
+    output: str | os.PathLike[str],
+    *,
+    views: dict[str, str] | None = None,
+    tolerance: float = 0.01,
+    style: bool = False,
+    align: bool = True,
+) -> MarkupCarryInfo:
+    """Carry the markup document made on ``before`` to the revision ``after`` (``zumen.carry_markup``) and write it to
+    ``output``: items move by the offset of the revision, their entities point at the matching entities, and each
+    is marked ``unchanged``, ``changed`` or ``removed``. ``views`` maps views of ``before`` to views of ``after``
+    (a DXF layout to the page of a PDF plotted from it)."""
+    document = drawings.markup(markup)
+    target = drawings.writable(output)
+    try:
+        carried = carry_markup(
+            document,
+            drawings.resolve(before),
+            drawings.resolve(after),
+            views=views,
+            tolerance=tolerance,
+            style=style,
+            align=align,
+            max_bytes=drawings.max_bytes,
+            max_entities=drawings.max_entities,
+            timeout=drawings.timeout,
+        )
+    except CarryError as error:
+        raise DrawingError(f"{error} ({error.code})") from error
+    except ValueError as error:
+        raise DrawingError(str(error)) from error
+    target.write_text(json.dumps(carried["markup"], ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return {
+        "path": str(target),
+        "drawing": carried["markup"]["drawing"],
+        "unchanged": carried["unchanged"],
+        "changed": carried["changed"],
+        "removed": carried["removed"],
     }

@@ -36,6 +36,8 @@ const MAX_DEPTH: usize = 32;
 const DEFAULT_LINEWEIGHT: f64 = 0.25;
 /// 点の長さ 0 の線種の線分を書く長さ（用紙の mm。SXF の既定義線種の点と同じ）
 const DOT: f64 = 0.25;
+/// ユーザ定義線種の線分・空白の数の上限（2・4・6・8 個。ezsxf の検証と同じ）
+const MAX_SEGMENTS: usize = 8;
 
 /// 写した SXF の図面と、写せなかった・形を変えて写した内容
 #[derive(Debug, Clone, PartialEq)]
@@ -765,12 +767,13 @@ impl<'a> Mapper<'a> {
         code
     }
 
-    /// 線種（線分・空白の長さは用紙の mm）。実線は 1。既定義線種と同じ名前・長さなら既定義線種
+    /// 線種（線分・空白の長さは用紙の mm）。実線は 1。既定義線種と同じ名前・長さなら既定義線種。線分・空白が 8 を
+    /// 超えるユーザ定義線種は、初めの 8 だけにする
     fn line_type_code(&mut self, name: &str, dashes: &[f64]) -> f64 {
         if dashes.is_empty() {
             return 1.0;
         }
-        let pitch = self.pitch(dashes);
+        let mut pitch = self.pitch(dashes);
         if pitch.is_empty() {
             return 1.0;
         }
@@ -780,6 +783,14 @@ impl<'a> Mapper<'a> {
                 && kind.pitch.iter().zip(&pitch).all(|(a, b)| (a - b).abs() < 1e-6)
         }) {
             return index as f64 + 1.0;
+        }
+        if pitch.len() > MAX_SEGMENTS {
+            self.notices.add(
+                NoticeLevel::Info,
+                "linetype-long",
+                "線分・空白が 8 を超える線種は、SXF の線種に書けないため、初めの 8 だけにしました",
+            );
+            pitch.truncate(MAX_SEGMENTS);
         }
         let name = if name.trim().is_empty() { "line type" } else { name };
         let key = (name.to_uppercase(), pitch.iter().map(|value| value.to_bits()).collect::<Vec<_>>());

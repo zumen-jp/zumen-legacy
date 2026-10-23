@@ -1,11 +1,11 @@
 //! 足すハッチングの模様を SXF のハッチング（ユーザ定義、fill_area_style_hatching）の線にする（docs/decisions/0025）。
 //! SXF のハッチング線は、色・線種・線幅、基点、間隔、角度を持つ（附属書 SFC 編 1-2「ハッチング（ユーザ定義）」）。
-//! PAT の線の破線は線種にし、線ごとの破線のずれ（線の向きのオフセット）は持てない。
+//! PAT の線の破線は線種（既定義線種でなければ、線と空白の長さは 8 個まで）にし、線ごとの破線のずれ（線の向きの
+//! オフセット）は持てない。
 
+use super::{MAX_LINE_TYPE_SEGMENTS, predefined_line_type};
 use zumen_core::edit::hatch::PatternLine;
-
-/// 線種の点（長さ 0 の線分）の長さ（用紙の mm。zumen-convert の DXF → SXF と同じ）
-const DOT: f64 = 0.25;
+use zumen_core::edit::style::{cut_pitches, pitches};
 
 /// SXF のハッチング線にする模様の線
 #[derive(Debug, Clone, PartialEq)]
@@ -15,50 +15,12 @@ pub(super) struct HatchLine {
     pub(super) spacing: f64,
     /// 度（0 以上 360 未満）
     pub(super) angle: f64,
-    /// 線種のピッチ（用紙の mm、線と空白の組）。実線は空
+    /// 線種のピッチ（用紙の mm、線と空白の組。既定義線種でなければ 8 個まで）。実線は空
     pub(super) pitch: Vec<f64>,
     /// 線ごとの破線のずれを持てずになくした
     pub(super) shifted: bool,
-}
-
-/// PAT の線・空白（用紙の mm。正は線、負は空白、0 は点）を、SXF のユーザ定義線種のピッチ（線から始まる、線と空白の
-/// 正の長さの組）にする。点は 0.25 mm の線にし、続く空白をその分だけ短くする。最初の空白を後ろに回したり、最後の
-/// 線を前につないだりしたときは、基点を線の向きにずらす長さも返す。線だけの模様は実線（空）
-fn pitch(dashes: &[f64]) -> (Vec<f64>, f64) {
-    let mut items: Vec<(bool, f64)> = Vec::new();
-    for (position, dash) in dashes.iter().enumerate() {
-        let item = if *dash > 0.0 {
-            (true, *dash)
-        } else if *dash == 0.0 {
-            (true, DOT)
-        } else {
-            (false, -dash)
-        };
-        // 点の後の空白は、点の長さの分だけ短くする（長さは変えず、繰り返しの長さを保つ）
-        let item = match (item, dashes.get(position.wrapping_sub(1))) {
-            ((false, gap), Some(previous)) if *previous == 0.0 && gap > DOT * 2.0 => (false, gap - DOT),
-            (item, _) => item,
-        };
-        match items.last_mut() {
-            Some(last) if last.0 == item.0 => last.1 += item.1,
-            _ => items.push(item),
-        }
-    }
-    let mut shift = 0.0;
-    if items.len() > 1 && items[0].0 == items[items.len() - 1].0 {
-        let (_, length) = items.pop().expect("2 つ以上");
-        items[0].1 += length;
-        shift -= length;
-    }
-    if items.first().is_some_and(|first| !first.0) {
-        let gap = items.remove(0);
-        shift += gap.1;
-        items.push(gap);
-    }
-    if items.len() < 2 {
-        return (Vec::new(), 0.0);
-    }
-    (items.into_iter().map(|(_, length)| length).collect(), shift)
+    /// 既定義線種にない 8 個を超える線と空白の長さを切った
+    pub(super) cut: bool,
 }
 
 /// 模様の線（入れ物の座標）を SXF のハッチング線にする。scale は入れ物の座標の 1 が用紙の何 mm か、near は領域の
@@ -72,7 +34,11 @@ pub(super) fn hatch_line(line: &PatternLine, scale: f64, near: [f64; 2]) -> Opti
         return None;
     }
     let paper: Vec<f64> = line.dashes.iter().map(|dash| dash * scale).collect();
-    let (pitch, shift) = pitch(&paper);
+    // PAT の線・空白（用紙の mm）を、SXF の線種のピッチにする（docs/decisions/0026）。既定義線種（10 個の三点二短鎖線
+    // まで）にない長さは、ユーザ定義線種の 2・4・6・8 個に切る。基点は書く線種の繰り返しの長さで動かすので、
+    // その前に切る
+    let (mut pitch, shift) = pitches(&paper);
+    let cut = predefined_line_type(&pitch).is_none() && cut_pitches(&mut pitch, MAX_LINE_TYPE_SEGMENTS);
     let period: f64 = pitch.iter().sum::<f64>() / scale;
     // 線ごとのずれ（線の向きのオフセット）は、破線の繰り返しの長さの倍数でなければ描き方が変わる
     let along = dot(line.offset, direction);
@@ -96,6 +62,7 @@ pub(super) fn hatch_line(line: &PatternLine, scale: f64, near: [f64; 2]) -> Opti
         angle: line.angle.rem_euclid(360.0),
         pitch,
         shifted,
+        cut,
     })
 }
 
@@ -103,18 +70,6 @@ pub(super) fn hatch_line(line: &PatternLine, scale: f64, near: [f64; 2]) -> Opti
 mod tests {
     use super::*;
     use zumen_core::edit::hatch::{built_in, pattern_lines};
-
-    #[test]
-    fn turns_dashes_into_pitches_that_start_with_a_line() {
-        assert_eq!(pitch(&[]), (Vec::new(), 0.0));
-        assert_eq!(pitch(&[2.0, -1.0]), (vec![2.0, 1.0], 0.0));
-        // 空白から始まる模様は、空白を後ろに回して基点を進める
-        assert_eq!(pitch(&[-1.0, 2.0]), (vec![2.0, 1.0], 1.0));
-        // 点は 0.25 mm の線
-        assert_eq!(pitch(&[0.0, -1.5]), (vec![0.25, 1.25], 0.0));
-        // 最後の線は最初の線につなぐ
-        assert_eq!(pitch(&[1.0, -1.0, 2.0]), (vec![3.0, 1.0], -2.0));
-    }
 
     #[test]
     fn keeps_the_lines_and_moves_the_base_near_the_region() {
@@ -129,6 +84,23 @@ mod tests {
         let dots = pattern_lines(&built_in("DOTS").unwrap(), 1.0, 0.0);
         let line = hatch_line(&dots[0], 1.0, [0.0, 0.0]).unwrap();
         assert_eq!(line.pitch, [0.25, 1.3375]);
-        assert!(line.shifted);
+        assert!(line.shifted && !line.cut);
+    }
+
+    #[test]
+    fn cuts_the_dashes_before_moving_the_base_by_their_period() {
+        let dashes = vec![5.0, -1.0, 4.0, -1.0, 3.0, -1.0, 2.0, -1.0, 1.0, -1.0];
+        let line = PatternLine { angle: 0.0, base: [0.0, 0.0], offset: [0.0, 5.0], dashes };
+        let line = hatch_line(&line, 1.0, [1000.0, 0.0]).unwrap();
+        assert_eq!(line.pitch, [5.0, 1.0, 4.0, 1.0, 3.0, 1.0, 2.0, 1.0]);
+        assert!(line.cut && !line.shifted);
+        // 書く線種の繰り返しの長さ（18 mm。切る前は 20 mm）の倍数だけ動かす
+        assert_eq!((line.x, line.y), (990.0, 0.0));
+        // 既定義線種の三点二短鎖線（10 個）と同じ長さは切らない
+        let dashes = vec![6.0, -1.5, 6.0, -1.5, 0.25, -1.5, 0.25, -1.5, 0.25, -1.5];
+        let line = PatternLine { angle: 0.0, base: [0.0, 0.0], offset: [0.0, 5.0], dashes };
+        let line = hatch_line(&line, 1.0, [0.0, 0.0]).unwrap();
+        assert_eq!(line.pitch, [6.0, 1.5, 6.0, 1.5, 0.25, 1.5, 0.25, 1.5, 0.25, 1.5]);
+        assert!(!line.cut);
     }
 }

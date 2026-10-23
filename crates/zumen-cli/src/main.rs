@@ -7,16 +7,18 @@ use serde_json::{Map, Value, json};
 use std::collections::HashSet;
 use std::io::{BufWriter, Write};
 use std::process::ExitCode;
+use std::sync::Arc;
 use zumen::checks::{CheckLevel, RuleSet, check_scene};
 use zumen::compare::{CompareOptions, compare_scenes, diff_scene};
 use zumen::extract::{
     EntityFilter, EntityText, Shape, entity_shapes, entity_text, layer_names, real_shapes, scene_texts, select_entities,
 };
+use zumen::markup::{MarkupDocument, drawing_hash};
 use zumen::regions::{ClosedRegion, RegionOptions, RegionShape, closed_regions};
 use zumen::tables::{RuledTable, TableOptions, ruled_tables};
 use zumen::title::{TitleKey, title_block, title_fields};
 use zumen::{BBox, Background, ReadDrawingOptions, ReadLimits, Scene, SceneEntity};
-use zumen_render::{ImageSize, RenderOptions, RenderedImage};
+use zumen_render::{ImageSize, MarkupStyle, RenderMarkup, RenderOptions, RenderedImage};
 
 const USAGE: &str = "\
 Usage:
@@ -34,6 +36,7 @@ Usage:
   zumen render <file> -o <out.png|out.svg|out.pdf> [--dpi <n> | --size <w>x<h> [--margin <px>]] [--dpr <n>]
                [--region <x0>,<y0>,<x1>,<y1>] [--all-layers] [--map <out.json>]
                [--theme light|dark] [--thin] [--format <name>] [--view <id>]
+               [--markup <markup.json> [--markup-color <category>=<#rrggbb>]...]
   zumen compare <before> <after> [--tolerance <mm>] [--style] [--all-layers] [--no-align]
                 [-o <overlay.png> [--dpi <n> | --size <w>x<h>]] [--format <name>] [--view <id>]
   zumen convert <file> -o <out.dxf|.dwg|.jww|.sfc|.p21|.sfz|.p2z> [--target-version <version>] [--format <name>]
@@ -41,6 +44,8 @@ Usage:
   zumen create <operations.json> -o <out.dxf|.dwg|.jww|.sfc|.p21|.sfz|.p2z> [--units mm|cm|m|inch|foot|unitless]
   zumen draft <spec.json> -o <out.dxf|.dwg|.jww|.sfc|.p21|.sfz|.p2z> [--target-version <version>] [--sheet <name>]
               [--into <template.dxf|.dwg>]
+  zumen markup carry <markup.json> <before> <after> [-o <out.json>] [--view-map <before view>=<after view>]...
+                     [--tolerance <mm>] [--style] [--no-align] [--ignore-hash]
 
 Every command that reads takes --max-bytes <n>, --max-entities <n> and --timeout <seconds>, to stop
 reading an untrusted drawing that is too large (P2Z and SFZ after unpacking), too complex or too slow.
@@ -70,6 +75,10 @@ with text that can be searched. --dpi, --size, --dpr and --map are for PNG only.
 --region selects a part of the sheet in paper millimeters, and --all-layers includes the layers
 that the drawing hides. --map writes the size of the image,
 the conversion between pixels and paper millimeters, and the pixel box of every entity drawn.
+--markup draws the items of a markup document (docs/markup.md) that belong to the view drawn, over the drawing:
+in the color of the item, of its category (--markup-color), or red; pins and photo symbols at a fixed size in
+pixels in PNG and at the paper size of a CSS pixel in SVG and PDF. A warning tells when the markup was made on
+other bytes than the drawing's (its items are drawn at their points).
 compare matches entities by shape and text (not by id) and writes the removed, added and changed
 entities and the regions that changed as JSON; -o draws them over the unchanged ones (red before,
 blue after, gray unchanged).
@@ -90,7 +99,13 @@ format of the output (JWW and SXF hold one sheet: --sheet chooses it, else the f
 --into draws the spec into a DXF or DWG template in place, through the operations of edit, so that the template's
 entities, handles and data stay: a sheet named after a layout of the template is drawn into it, other sheets become
 new layouts, and the fields of a sheet fill the attributes of its title block. The output keeps the template's
-format and version.";
+format and version.
+markup carry moves a markup document made on <before> to the revision <after> (decision 0021): for each view
+with items it compares the two revisions (every layer, like compare with --all-layers), moves the items by the
+offset of the revision, points their entities at the matching entities and marks each item unchanged, changed or
+removed in carried. --view-map carries the items of a view to another view of <after>, such as a DXF layout to
+the page of a PDF plotted from it. The markup must have been made on <before> (its drawing.sha256), unless
+--ignore-hash. It writes the document to -o (or standard output) and the number of items in each state as JSON.";
 
 struct Args {
     command: String,
@@ -123,6 +138,18 @@ struct Args {
     empty: bool,
     rules: Option<String>,
     limits: ReadLimits,
+    markup: Option<String>,
+    markup_colors: Vec<(String, String)>,
+    view_map: Vec<(String, String)>,
+    ignore_hash: bool,
+    /// markup の、サブコマンドと 3 つのファイル
+    positionals: Vec<String>,
+}
+
+/// <名前>=<値>
+fn parse_pair(name: &str, text: &str) -> Result<(String, String), String> {
+    let (key, value) = text.split_once('=').ok_or_else(|| format!("{name} needs <name>=<value>: {text}"))?;
+    Ok((key.to_string(), value.to_string()))
 }
 
 fn parse_region(text: &str) -> Result<BBox, String> {
@@ -179,6 +206,11 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
         empty: false,
         rules: None,
         limits: ReadLimits::default(),
+        markup: None,
+        markup_colors: Vec::new(),
+        view_map: Vec::new(),
+        ignore_hash: false,
+        positionals: Vec::new(),
     };
     while let Some(arg) = args.next() {
         let mut value = |name: &str| args.next().ok_or_else(|| format!("{name} needs a value"));
@@ -221,6 +253,10 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
             "--csv" => parsed.csv = true,
             "--empty" => parsed.empty = true,
             "--rules" => parsed.rules = Some(value("--rules")?),
+            "--markup" => parsed.markup = Some(value("--markup")?),
+            "--markup-color" => parsed.markup_colors.push(parse_pair("--markup-color", &value("--markup-color")?)?),
+            "--view-map" => parsed.view_map.push(parse_pair("--view-map", &value("--view-map")?)?),
+            "--ignore-hash" => parsed.ignore_hash = true,
             "--max-bytes" => {
                 parsed.limits.max_bytes = Some(value("--max-bytes")?.parse().map_err(|_| "--max-bytes needs a count")?)
             }
@@ -235,12 +271,19 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
                 parsed.limits.max_duration = Some(duration);
             }
             _ if arg.starts_with('-') => return Err(format!("unknown option: {arg}\n\n{USAGE}")),
+            _ if parsed.command == "markup" => parsed.positionals.push(arg),
             _ if parsed.file.is_empty() => parsed.file = arg,
             _ if matches!(parsed.command.as_str(), "compare" | "edit") && parsed.other.is_none() => {
                 parsed.other = Some(arg)
             }
             _ => return Err(format!("unexpected argument: {arg}")),
         }
+    }
+    if parsed.command == "markup" {
+        if parsed.positionals.len() != 4 || parsed.positionals[0] != "carry" {
+            return Err(USAGE.into());
+        }
+        return Ok(parsed);
     }
     if parsed.file.is_empty() {
         return Err(USAGE.into());
@@ -630,9 +673,48 @@ fn extension(output: &str) -> String {
         .unwrap_or_default()
 }
 
+/// マークアップの文書のファイルを読む
+fn read_markup(path: &str) -> Result<MarkupDocument, String> {
+    let text = std::fs::read_to_string(path).map_err(|error| format!("{path}: {error}"))?;
+    MarkupDocument::from_json(&text).map_err(|error| format!("{path}: {error} ({})", error.code))
+}
+
+/// markup carry: マークアップの文書を新しい版へ移し、文書と、印ごとの項目の数を書く
+fn markup_command(args: &Args) -> Result<(), String> {
+    let [_, markup, before, after] = &args.positionals[..] else {
+        return Err(USAGE.into());
+    };
+    let document = read_markup(markup)?;
+    let before_bytes = std::fs::read(before).map_err(|error| format!("{before}: {error}"))?;
+    let after_bytes = std::fs::read(after).map_err(|error| format!("{after}: {error}"))?;
+    let options = zumen::CarryOptions {
+        compare: CompareOptions { tolerance: args.tolerance, style: args.style, all_layers: true, align: args.align },
+        views: args.view_map.iter().cloned().collect(),
+        limits: args.limits,
+        ignore_hash: args.ignore_hash,
+    };
+    let carried = zumen::carry_markup(&document, &before_bytes, &after_bytes, &options)
+        .map_err(|error| format!("{error} ({})", error.code))?;
+    let json = format!("{}\n", carried.document.to_json(true));
+    match &args.output {
+        Some(output) => std::fs::write(output, json).map_err(|error| format!("{output}: {error}"))?,
+        None => print!("{json}"),
+    }
+    let counts = json!({ "unchanged": carried.unchanged, "changed": carried.changed, "removed": carried.removed });
+    if args.output.is_some() {
+        println!("{counts}");
+    } else {
+        eprintln!("{counts}");
+    }
+    Ok(())
+}
+
 fn run(args: Args) -> Result<(), String> {
     if args.command == "compare" {
         return compare(&args);
+    }
+    if args.command == "markup" {
+        return markup_command(&args);
     }
     if args.command == "draft" {
         let output = args.output.as_deref().ok_or("draft needs -o <out.dxf|out.dwg|out.jww|out.sfc|...>")?;
@@ -783,11 +865,27 @@ fn run(args: Args) -> Result<(), String> {
         )?,
         "render" => {
             let output = args.output.ok_or("render needs -o <out.png>")?;
+            let markup = match &args.markup {
+                Some(path) => {
+                    let document = read_markup(path)?;
+                    if document.drawing.sha256 != drawing_hash(&bytes) {
+                        eprintln!(
+                            "warning: {path} was made on another revision (SHA-256 {}); its items are drawn at their points",
+                            document.drawing.sha256
+                        );
+                    }
+                    let items = document.items_in_view(scene.view.as_deref()).cloned().collect();
+                    let style = MarkupStyle { categories: args.markup_colors.iter().cloned().collect(), color: None };
+                    Some(Arc::new(RenderMarkup { items, style }))
+                }
+                None => None,
+            };
             let options = RenderOptions {
                 theme: args.theme,
                 line_weights: !args.thin,
                 device_pixel_ratio: args.dpr,
                 hidden_layers: filter.hidden_layers.clone(),
+                markup,
                 ..RenderOptions::default()
             };
             let extension = output.rsplit_once('.').map(|(_, extension)| extension.to_ascii_lowercase());

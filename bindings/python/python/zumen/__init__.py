@@ -13,6 +13,9 @@ format-neutral ``Scene`` in paper millimeters (Y up), the same model as the
 >>> zumen.convert("plan.jww", "dxf").save("plan.dxf")  # every format can be written as DXF
 >>> zumen.edit("plan.dxf", [{"op": "add", "kind": "line", "start": [0, 0], "end": [1000, 0]}]).save("plan.dxf")
 >>> zumen.draft("sheets.json", "dwg").save("sheets.dwg")  # draw sheets from a drawing spec (docs/drafting.md)
+>>> markup = zumen.read_markup("plan.markup.json")  # redlines, clouds and findings beside the drawing (docs/markup.md)
+>>> png = scene.render_png(markup=markup, markup_colors={"question": "#0050c8"})
+>>> carried = zumen.carry_markup(markup, "plan-rev1.jww", "plan.jww")  # the markup moved to the new revision
 """
 
 from __future__ import annotations
@@ -20,13 +23,32 @@ from __future__ import annotations
 import json
 import os
 
+from ._markup import (
+    CarriedState,
+    CloudItem,
+    FindingItem,
+    MarkupArrows,
+    MarkupCarried,
+    MarkupCarry,
+    MarkupDocument,
+    MarkupDrawing,
+    MarkupItem,
+    MarkupKind,
+    MarkupPoint,
+    MarkupStatus,
+    PhotoItem,
+    RedlineItem,
+    TextItem,
+)
 from ._zumen import (
+    CarryError,
     Comparison,
     Converted,
     DraftError,
     Edited,
     EditError,
     LimitError,
+    MarkupError,
     ReadError,
     RenderError,
     Rendering,
@@ -36,25 +58,47 @@ from ._zumen import (
     create,
     detect,
 )
+from ._zumen import carry_markup as _carry_markup
 from ._zumen import convert as _convert
 from ._zumen import draft as _draft
 from ._zumen import draft_into as _draft_into
 from ._zumen import draft_schema as _draft_schema
+from ._zumen import drawing_hash as _drawing_hash
 from ._zumen import edit as _edit
+from ._zumen import markup_schema as _markup_schema
 from ._zumen import read as _read
+from ._zumen import read_markup as _read_markup
 
 __all__ = [
+    "CarriedState",
+    "CarryError",
+    "CloudItem",
     "Comparison",
     "Converted",
     "DraftError",
     "EditError",
     "Edited",
+    "FindingItem",
     "LimitError",
+    "MarkupArrows",
+    "MarkupCarried",
+    "MarkupCarry",
+    "MarkupDocument",
+    "MarkupDrawing",
+    "MarkupError",
+    "MarkupItem",
+    "MarkupKind",
+    "MarkupPoint",
+    "MarkupStatus",
+    "PhotoItem",
     "ReadError",
+    "RedlineItem",
     "RenderError",
     "Rendering",
     "Scene",
+    "TextItem",
     "__version__",
+    "carry_markup",
     "compare",
     "convert",
     "create",
@@ -62,8 +106,11 @@ __all__ = [
     "draft",
     "draft_into",
     "draft_schema",
+    "drawing_hash",
     "edit",
+    "markup_schema",
     "read",
+    "read_markup",
 ]
 
 
@@ -152,8 +199,10 @@ def edit(
     ``"linear"`` or ``"aligned"`` with ``start``, ``end``, ``position`` and ``rotation``, ``"angular-3-point"`` with
     ``center``, ``start``, ``end`` and ``position`` (not in JWW), ``"radius"`` or ``"diameter"`` with ``center`` and
     ``point``; ``text``, ``dimensionStyle``) and ``"kind": "hatch"`` (``boundaries``, ``pattern``, ``patternScale``,
-    ``patternAngle``, ``patternLines``; JWW writes solids and hatch lines, and ``created`` names the first). DXF and
-    DWG also take the ops ``add-text-style``, ``add-line-type`` and ``add-dimension-style``; ``text`` takes
+    ``patternAngle``, ``patternLines``; JWW writes solids and hatch lines, and ``created`` names the first), and the
+    ops ``add-text-style``, ``add-line-type`` and ``add-dimension-style`` (in JWW and SXF, which have no named
+    dimension or text styles, their names last for the edit: a dimension style sizes and formats the dimensions that
+    name it, a text style is a font, and a line type keeps its name). DXF and DWG ``text`` takes
     ``justification``, ``lineSpacing``,
     ``multiline`` and ``widthFactor``; ``"kind": "attribute-definition"`` goes in a block and ``block-reference`` takes ``attributes``
     (``{"TAG": "value"}``); ``add-layout`` (``paperSize`` and ``margins`` in mm) and ``"kind": "viewport"`` in ``"container":
@@ -223,3 +272,74 @@ def _spec(spec: object) -> object:
 def draft_schema() -> dict[str, object]:
     """The JSON Schema (draft 2020-12) of the drawing spec that ``draft`` takes."""
     return json.loads(_draft_schema())
+
+
+def _markup_json(markup: object) -> str:
+    """The markup document as JSON text: a dict, a JSON string, or the path of a file (a path, or a string that does
+    not start like JSON with ``{`` or ``[``)."""
+    if isinstance(markup, os.PathLike) or (isinstance(markup, str) and not markup.lstrip().startswith(("{", "["))):
+        with open(markup, encoding="utf-8") as file:
+            return file.read()
+    if isinstance(markup, (bytes, bytearray, memoryview)):
+        return bytes(markup).decode("utf-8")
+    return markup if isinstance(markup, str) else json.dumps(markup, ensure_ascii=False)
+
+
+def read_markup(source: object) -> MarkupDocument:
+    """Read and check a markup document (docs/markup.md): a dict, a JSON string, the bytes of the JSON, or the path of
+    a file. Keys that zumen does not know are kept. A mistake raises ``MarkupError`` with ``code`` (``json``,
+    ``format``, ``version``, ``missing``, ``type``, ``value`` or ``duplicate``), ``item`` (the index of the item, or
+    ``None``), ``id`` and ``key`` (such as ``drawing.sha256`` or ``points``), the same checks as ``markupFromJson`` of
+    ``@zumenjs/core``."""
+    return json.loads(_read_markup(_markup_json(source)))
+
+
+def markup_schema() -> dict[str, object]:
+    """The JSON Schema (draft 2020-12) of markup documents."""
+    return json.loads(_markup_schema())
+
+
+def drawing_hash(source: bytes | bytearray | memoryview | str | os.PathLike[str]) -> str:
+    """The SHA-256 of a drawing's bytes (or of the file at a path) in lowercase hexadecimal, which a markup document
+    names in ``drawing.sha256``."""
+    return _drawing_hash(_load(source))
+
+
+def carry_markup(
+    markup: object,
+    before: bytes | bytearray | memoryview | str | os.PathLike[str],
+    after: bytes | bytearray | memoryview | str | os.PathLike[str],
+    *,
+    views: dict[str, str] | None = None,
+    tolerance: float = 0.01,
+    style: bool = False,
+    align: bool = True,
+    ignore_hash: bool = False,
+    max_bytes: int | None = None,
+    max_entities: int | None = None,
+    timeout: float | None = None,
+) -> MarkupCarry:
+    """Carry a markup document made on the drawing ``before`` to the new revision ``after`` (bytes or file paths).
+
+    For each view with items, the two revisions are compared like ``compare`` with ``all_layers=True`` (``tolerance``,
+    ``style`` and ``align`` as there): the items move by the offset of the revision, their ``entities`` point at the
+    matching entities of the new revision, and ``carried`` marks each item ``unchanged``, ``changed`` (an entity it
+    names changed or was removed, or its box overlaps a region that changed) or ``removed`` (every entity it named was
+    removed, or its view is gone). ``views`` maps a view of ``before`` to a view of ``after``, such as a DXF layout to
+    the page of the PDF plotted from it. The document then names the new bytes. It must have been made on ``before``
+    (its ``drawing.sha256``) unless ``ignore_hash``; otherwise ``CarryError`` is raised, whose ``code`` is
+    ``drawing-mismatch``, ``unreadable`` or ``too-large``."""
+    text, unchanged, changed, removed = _carry_markup(
+        _markup_json(markup),
+        _load(before),
+        _load(after),
+        views=views,
+        tolerance=tolerance,
+        style=style,
+        align=align,
+        ignore_hash=ignore_hash,
+        max_bytes=max_bytes,
+        max_entities=max_entities,
+        timeout=timeout,
+    )
+    return {"markup": json.loads(text), "unchanged": unchanged, "changed": changed, "removed": removed}
