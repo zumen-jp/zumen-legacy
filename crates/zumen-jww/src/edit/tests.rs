@@ -211,6 +211,46 @@ fn adds_and_changes_layers_of_the_fixed_slots() {
 }
 
 #[test]
+fn keeps_layer_names_per_layer_group() {
+    // Jw_cad と同じく、レイヤの名前はレイヤグループごと。ほかのグループにある名前も付けられ、container のレイヤ
+    // グループがあれば、その中で探す（なければその中に足す）
+    let edited = edit(
+        &fixture(700),
+        r##"[
+            {"op": "add-layer", "name": "通り芯", "group": 2},
+            {"op": "add", "kind": "line", "container": "group:2", "layer": "通り芯", "start": [0, 0], "end": [100, 0]},
+            {"op": "add", "kind": "line", "container": "group:3", "layer": "通り芯", "start": [0, 0], "end": [100, 0]},
+            {"op": "update-layer", "name": "3-0", "set": {"name": "基準線"}},
+            {"op": "update-layer", "name": "2-1", "set": {"name": "基準線"}}
+        ]"##,
+    )
+    .unwrap();
+    assert_eq!(edited.created[0], "2-0 通り芯");
+    assert_eq!(codes(&edited), ["edit-added-layer"]);
+    let doc = read_jww(&edited.bytes).unwrap();
+    let names = |group: usize| -> Vec<&str> { doc.groups[group].layers[..2].iter().map(|l| l.name.as_str()).collect() };
+    assert_eq!(
+        (doc.groups[0].layers[0].name.as_str(), names(2), names(3)),
+        ("通り芯", vec!["通り芯", "基準線"], vec!["基準線", "3-1"])
+    );
+    let lines: Vec<(u16, u16)> = doc.entities[6..]
+        .iter()
+        .map(|entity| match entity {
+            JwwEntity::Line(line) => (line.base.layer_group, line.base.layer),
+            _ => panic!("line"),
+        })
+        .collect();
+    assert_eq!(lines, [(2, 0), (3, 0)]);
+    // 同じグループの中では重ならず、グループを決めない名前は 2 つあれば番号で選ぶ
+    let two = r##"{"op": "add-layer", "name": "通り芯", "group": 2}"##;
+    let error = |operation: &str| edit(&fixture(700), &format!("[{two}, {operation}]")).unwrap_err();
+    assert_eq!(error(two).code, "already-exists");
+    assert_eq!(error(r##"{"op": "update-layer", "name": "2-1", "set": {"name": "通り芯"}}"##).code, "already-exists");
+    let ambiguous = error(r##"{"op": "add", "kind": "line", "layer": "通り芯", "start": [0, 0], "end": [1, 0]}"##);
+    assert_eq!(ambiguous.code, "invalid-value");
+}
+
+#[test]
 fn explains_what_cannot_be_edited() {
     let bytes = fixture(700);
     let error = |operations: &str| edit(&bytes, operations).unwrap_err();
@@ -571,6 +611,139 @@ fn draws_dimensions_with_the_settings_of_the_drawing() {
     let doc = read_jww(&edited.bytes).unwrap();
     let JwwEntity::Dimension(dimension) = doc.entities.last().unwrap() else { panic!("dimension") };
     assert!(dimension.lines.is_empty() && dimension.text.content == "1,000");
+}
+
+/// この編集で足した寸法スタイルの値で寸法図形を描く（docs/decisions/0026）。尺度のないスタイルの長さは用紙の mm、
+/// 尺度のあるスタイルは尺度を掛けた実寸を、レイヤグループの縮尺（ここは 1/100）で用紙の mm にする
+#[test]
+fn draws_dimensions_with_styles_added_in_the_edit() {
+    let (edited, doc) = dimensions(
+        r#"{"op": "add-text-style", "name": "明朝", "font": "ＭＳ 明朝"},
+           {"op": "add-dimension-style", "name": "DIM-100", "scale": 100, "textHeight": 3.5, "extensionOffset": 1, "extensionExtension": 2, "textGap": 1, "decimals": 1, "suppressTrailingZeros": false, "textStyle": "明朝"},
+           {"op": "add-dimension-style", "name": "DIM-50", "from": "dim-100", "scale": 50},
+           {"op": "add-dimension-style", "name": "中央", "textHeight": 3, "textAbove": false, "linearFactor": 0.001},
+           {"op": "add", "kind": "dimension", "layer": "寸法", "dimensionStyle": "dim-100", "start": [0, 0], "end": [3700, 0], "position": [0, -800]},
+           {"op": "add", "kind": "dimension", "layer": "寸法", "dimensionStyle": "DIM-50", "start": [0, 0], "end": [3700, 0], "position": [0, -800]},
+           {"op": "add", "kind": "dimension", "layer": "寸法", "dimensionStyle": "中央", "dimensionType": "radius", "center": [0, 0], "point": [600, 0]},
+           {"op": "add", "kind": "text", "layer": "寸法", "position": [0, 0], "text": "注", "height": 3, "textStyle": "明朝"}"#,
+    );
+    assert_eq!(edited.created, ["0-0 寸法", "明朝", "DIM-100", "DIM-50", "中央", "#1", "#2", "#3", "#4"]);
+    assert_eq!(codes(&edited), ["edit-dimension-text-position"]);
+    let JwwEntity::Dimension(scaled) = &doc.entities[0] else { panic!("dimension") };
+    // 尺度 100 の 1/100 のグループなので、長さは用紙の mm のまま。文字種 2（2.5 mm 角）の比で 3.5 mm 角、任意サイズ
+    let text = &scaled.text;
+    assert_eq!((text.size_x, text.size_y, text.spacing, text.text_type), (3.5, 3.5, 0.0, 0));
+    assert_eq!((text.content.as_str(), text.font.as_str()), ("3,700.0", "ＭＳ 明朝"));
+    // 小数点以下 1 桁（0x1000）、後ろの 0 を残す（0x0080）、カンマ（0x0040）
+    assert_eq!(text.base.pen_width & 0x30c2, 0x10c2);
+    assert_eq!(text.y1, -8.0 + 1.0);
+    // 補助線は起点から 1 mm 離して始め、寸法線を 2 mm 越える
+    let extension = &scaled.lines[0];
+    assert_eq!((extension.x1, extension.y1, extension.x2, extension.y2), (0.0, -1.0, 0.0, -10.0));
+    assert_eq!((scaled.points[2].x, scaled.points[2].y, scaled.points[2].temporary), (0.0, 0.0, true));
+    // 尺度 50 は 1/100 のグループで半分の大きさ
+    let JwwEntity::Dimension(half) = &doc.entities[1] else { panic!("dimension") };
+    assert_eq!((half.text.size_y, half.text.y1, half.lines[0].y2), (1.75, -7.5, -9.0));
+    // 寸法線の上に置かない寸法値は、寸法線に高さの中央を重ねる。倍率 0.001 で 0.6（小数点以下 2 桁、後ろの 0 は省く）
+    let JwwEntity::Dimension(centered) = &doc.entities[2] else { panic!("dimension") };
+    assert_eq!((centered.text.content.as_str(), centered.text.size_y, centered.text.y1), ("R0.6", 3.0, -1.5));
+    let JwwEntity::Text(note) = &doc.entities[3] else { panic!("text") };
+    assert_eq!(note.font, "ＭＳ 明朝");
+    let scene = jww_to_scene(&doc);
+    assert!(scene.entities.iter().all(|entity| !entity.primitives.is_empty()));
+    assert_eq!(property(&scene, "#1", "dimensionText").value, "3,700.0");
+}
+
+#[test]
+fn reports_what_dimension_styles_cannot_be_in_jww() {
+    let (edited, doc) = dimensions(
+        r#"{"op": "add-dimension-style", "name": "A", "from": "Standard", "arrowSize": 2.5, "tickSize": 1, "decimals": 5},
+           {"op": "add-text-style", "name": "JP", "font": "MS Gothic", "widthFactor": 0.8},
+           {"op": "add", "kind": "dimension", "layer": "寸法", "dimensionStyle": "A", "start": [0, 0], "end": [1234.56789, 0], "position": [0, -800]},
+           {"op": "add", "kind": "dimension", "layer": "寸法", "dimensionStyle": "なし", "start": [0, 0], "end": [1000, 0], "position": [0, -800]}"#,
+    );
+    assert_eq!(
+        codes(&edited),
+        ["edit-dimension-style", "edit-dimension-decimals", "edit-dimension-end", "edit-style-values"]
+    );
+    // 小数点以下は寸法値設定のフラグに書ける 3 桁まで
+    let JwwEntity::Dimension(dimension) = &doc.entities[0] else { panic!("dimension") };
+    assert_eq!((dimension.text.content.as_str(), dimension.text.base.pen_width & 0x3000), ("1,234.568", 0x3000));
+    let JwwEntity::Dimension(plain) = &doc.entities[1] else { panic!("dimension") };
+    assert_eq!((plain.text.content.as_str(), plain.text.text_type), ("1,000", 2));
+    let bytes = new_jww();
+    let error = |operations: &str| edit(&bytes, operations).unwrap_err();
+    let cases = [
+        (
+            r#"[{"op": "add-dimension-style", "name": "A"}, {"op": "add-dimension-style", "name": "a"}]"#,
+            "already-exists",
+        ),
+        (r#"[{"op": "add-dimension-style", "name": "A", "textHeight": 0}]"#, "invalid-value"),
+        (r#"[{"op": "add-dimension-style", "name": "A", "dimscale": 1}]"#, "unknown-key"),
+        (r#"[{"op": "add-text-style", "name": " "}]"#, "invalid-value"),
+        (
+            r#"[{"op": "add", "kind": "text", "position": [0, 0], "text": "a", "height": 3, "font": "a", "textStyle": "b"}]"#,
+            "invalid-value",
+        ),
+    ];
+    for (operations, code) in cases {
+        assert_eq!(error(operations).code, code, "{operations}");
+    }
+}
+
+/// 線種は SXF 対応線種のユーザー定義（47〜62）の空いた欄に、名前と用紙の mm の長さで足す（docs/decisions/0026）
+#[test]
+fn adds_line_types_to_the_free_sxf_line_types() {
+    let edited = edit(
+        &new_jww(),
+        r#"[
+            {"op": "add-line-type", "name": "破線2", "description": "__ __", "pattern": [6, -3]},
+            {"op": "add-line-type", "name": "一点鎖線2", "pattern": [12, -1.5, 0, -1.5]},
+            {"op": "add-line-type", "name": "実線2", "pattern": []},
+            {"op": "add", "kind": "line", "lineType": "破線2", "start": [0, 0], "end": [100, 0]},
+            {"op": "add", "kind": "line", "lineType": "一点鎖線2", "start": [0, 10], "end": [100, 10]},
+            {"op": "add", "kind": "line", "lineType": "実線2", "start": [0, 20], "end": [100, 20]}
+        ]"#,
+    )
+    .unwrap();
+    assert_eq!(edited.created, ["破線2", "一点鎖線2", "実線2", "#1", "#2", "#3"]);
+    assert_eq!(codes(&edited), ["edit-style-values", "edit-line-type-pattern"]);
+    let doc = read_jww(&edited.bytes).unwrap();
+    let styles: Vec<u8> = doc.entities.iter().map(|entity| entity.base().pen_style).collect();
+    assert_eq!(styles, [47, 48, 1]);
+    // 点は 0.25 mm の線にし、続く空白をその分だけ短くする
+    assert_eq!(doc.line_types[&47], [6.0, 3.0]);
+    assert_eq!(doc.line_types[&48], [12.0, 1.5, 0.25, 1.25]);
+    let file = crate::JwwFile::read(&edited.bytes).unwrap();
+    let sxf = file.header.settings.as_ref().unwrap().sxf.as_ref().unwrap();
+    assert_eq!((sxf.user_line_types[17].name.as_str(), sxf.user_line_types[17].segments), ("破線2", 2));
+    // 図形が使う欄と名前のある欄は使わない
+    let error = |bytes: &[u8], operations: &str| edit(bytes, operations).unwrap_err();
+    assert_eq!(error(&new_jww(), r#"[{"op": "add-line-type", "name": "Dashed"}]"#).code, "already-exists");
+    assert_eq!(error(&new_jww(), r#"[{"op": "add-line-type", "name": "47"}]"#).code, "invalid-value");
+    assert_eq!(
+        error(&fixture(200), r#"[{"op": "add-line-type", "name": "a", "pattern": [1, -1]}]"#).code,
+        "unsupported-kind"
+    );
+    let all: Vec<String> =
+        (0..17).map(|n| format!(r#"{{"op": "add-line-type", "name": "線種{n}", "pattern": [1, -1]}}"#)).collect();
+    let exhausted = error(&new_jww(), &format!("[{}]", all.join(",")));
+    assert_eq!((exhausted.code, exhausted.operation), ("name-exhausted", Some(16)));
+    let used = {
+        let mut file = crate::JwwFile::read(&new_jww()).unwrap();
+        file.entities.push(crate::JwwRecord::new(JwwEntity::Line(JwwLine {
+            base: JwwBase { pen_style: 47, pen_color: 2, ..JwwBase::default() },
+            x1: 0.0,
+            y1: 0.0,
+            x2: 1.0,
+            y2: 0.0,
+        })));
+        file.write().bytes
+    };
+    let edited = edit(&used, r#"[{"op": "add-line-type", "name": "a", "pattern": [1, -1]}]"#).unwrap();
+    let file = crate::JwwFile::read(&edited.bytes).unwrap();
+    let sxf = file.header.settings.as_ref().unwrap().sxf.as_ref().unwrap();
+    assert_eq!((sxf.user_line_types[17].name.as_str(), sxf.user_line_types[18].name.as_str()), ("", "a"));
 }
 
 /// JWW にハッチングの図形はないので、塗りは台形のソリッド、模様はハッチの線と点（docs/decisions/0025）

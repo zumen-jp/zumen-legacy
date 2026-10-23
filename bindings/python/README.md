@@ -130,12 +130,19 @@ edited.save("plan.dxf")
 - `add` takes `container`: `"model"` (the default), `"layout:<name>"` or `"block:<name>"` in DXF and DWG,
   `"group:<0-F or name>"` (a layer group) or `"block:<name>"` in JWW, and `"sheet"` (the default), `"figure:<name>"`
   or `"block:<name>"` in SXF. `{"op": "add-block", "name": ..., "basePoint": [x, y]}` adds an empty block definition
-  (a drawing part in SXF) to fill with `"container": "block:<name>"`.
+  (a drawing part in SXF) to fill with `"container": "block:<name>"`. In SXF, `"kind": "viewport"` (`name`, `center`,
+  `viewCenter`, `scale`) adds an empty sub-figure placed on the sheet at that scale, to fill with
+  `"container": "figure:<name>"` at real size. JWW layer names belong to their layer group, as in Jw_cad.
 - Kinds that can be added: `line`, `polyline` (`vertices`, `bulges`, `closed`; not in JWW), `arc`, `circle`,
   `ellipse`, `ellipse-arc`, `point`, `text` (MTEXT when it has line breaks), `block-reference` (`block`, `position`,
   `scale`, `rotation`), `dimension` (`dimensionType`: `linear`, `aligned`, `angular-3-point` (not in JWW), `radius`,
   `diameter`) and `hatch` (`boundaries`, `pattern`; JWW writes solids and hatch lines). Every kind takes `layer`,
   `color` (a color number, `"#rrggbb"`, `"bylayer"` or `"byblock"`), `lineType` and `lineWidth` (millimeters).
+- `add-text-style`, `add-line-type` and `add-dimension-style` add styles that later operations name (`textStyle`,
+  `lineType`, `dimensionStyle`). JWW and SXF have no named dimension or text styles, so those names last for the edit:
+  a dimension style sizes and formats each dimension that names it (its lengths are paper millimeters, or times
+  `scale` in the drawing's coordinates), a text style is a font, and a line type is written with its name (an SXF
+  user-defined line type, a free SXF line type of JWW).
 - If any operation cannot be applied, nothing is written and `zumen.EditError` is raised with `code` (such as
   `"not-found"`, `"unknown-key"` or `"inside-block"`) and `operation`, the number of the operation from 0.
 - Values that the format cannot hold exactly, such as a true color in an old DXF, are written as the nearest one and
@@ -163,6 +170,30 @@ changes.scene.render_png(dpi=150)  # red before, blue after, gray unchanged
 `tolerance` (0.01 paper millimeters by default) sets how close coordinates count as the same, `style=True` also
 counts changes of color, line weight, line type and layer, and a revision that moved as a whole is moved back by
 the texts both revisions share (`changes.offset`; `align=False` turns this off).
+
+## Markup
+
+Redlines, revision clouds, notes, review findings and photo positions live in a JSON document beside the drawing, in
+paper millimeters of a view, naming the drawing by the SHA-256 of its bytes ([Drawing markup](../../docs/markup.md)).
+The browser packages draw and edit them; Python reads, draws and carries them:
+
+```python
+markup = zumen.read_markup("plan.markup.json")  # checked; MarkupError names the item and the key
+markup["items"][0]["kind"], markup["drawing"]["sha256"] == zumen.drawing_hash("plan.dxf")
+png = zumen.read("plan.dxf").render_png(markup=markup, markup_colors={"question": "#0050c8"})
+carried = zumen.carry_markup(markup, "plan.dxf", "plan-rev2.dxf", views={"A3": "1"})
+carried["changed"], carried["markup"]["items"][0]["carried"]  # {"from": "<sha256>", "state": "changed"}
+```
+
+`read_markup` takes a dict, a JSON string, bytes or a file path and returns `TypedDict` classes (`MarkupDocument`,
+`RedlineItem`, `CloudItem`, `TextItem`, `FindingItem`, `PhotoItem`), keeping keys it does not know; `markup_schema()`
+is its JSON Schema. `render_png`, `render_svg`, `render_pdf` and `render` take `markup` and draw the items of the
+scene's view over the drawing, in the item's color, the color of its category in `markup_colors`, or red; pins and
+photo symbols are a fixed number of pixels in PNG and the paper size of a CSS pixel in SVG and PDF. `carry_markup`
+compares each view with its items (every layer, like `compare` with `all_layers=True`), moves the items by the offset
+of the new revision, points their `entities` at the matching entities and marks each `unchanged`, `changed` or
+`removed`; `views` maps a view of the old revision to one of the new (a DXF layout to a PDF page). It raises
+`CarryError` (`drawing-mismatch` when the markup was made on other bytes, unless `ignore_hash=True`).
 
 ## Title block
 
@@ -241,7 +272,8 @@ layer), and `passed` is true when no rule of level error is broken. The rule set
 ## MCP server
 
 `zumen-mcp` lets AI applications that speak the Model Context Protocol open, render, search, measure and compare drawings
-on this computer. It serves over stdio and only reads. Regions are given in paper millimeters (`region`) or as
+on this computer. It serves over stdio; it only reads, except `draft_drawing`, `write_markup` and `carry_markup`,
+which write files under the roots. Regions are given in paper millimeters (`region`) or as
 fractions of the frame (`frame_region`), as in [`zumen.tools`](#tools-for-ai-agents).
 
 ```bash
@@ -261,6 +293,9 @@ claude mcp add zumen -- zumen-mcp --root ~/drawings  # Claude Code; other client
 | `find_tables` | The tables drawn with rules (schedules, area tables, title blocks): the text of every row and column, merged cells, the ids of the texts and the positions of the rules, filtered by layer and text |
 | `check_drawing` | The drawing checked against a CAD standard (the CAD drafting standard of MLIT, or a rule set as JSON): for each rule, what it checked and could not, and the values that break it with the ids and layers of their entities |
 | `compare_drawings` | What changed between two revisions: an image of the changes, the regions that changed and the changed entities with their texts |
+| `read_markup` | The items of a markup file (kind, view, box, text, status, carried state, entities), by view, kind and status, and whether the drawing given has the bytes the markup was made on |
+| `write_markup` | Adds, updates and removes items of a markup file (creating it for a drawing), so that people see an agent's findings on the drawing; `render_drawing` with `markup` draws them |
+| `carry_markup` | The markup of one revision carried to the next and written to a file, with the number of items unchanged, changed and removed |
 
 Geometry is the agent's to interpret: the server gives the shapes as drawn and their coordinates, and the regions
 that lines close with the entities that bound them, and leaves deciding what is a wall or a room to the client. `real` is left out where it equals the coordinates on the sheet (DXF model

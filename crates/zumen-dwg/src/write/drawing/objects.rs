@@ -231,6 +231,13 @@ impl Writer<'_> {
     /// 画像の辞書（ACAD_IMAGE_DICT）と、画像の定義（IMAGEDEF、20.4.82）・リアクタ（IMAGEDEF_REACTOR、20.4.83）。
     /// 値は DXF の書き出しと同じ
     fn write_images(&mut self, dictionary: u64, root: u64) {
+        if self.doc.image_frame == Some(0.0) {
+            self.notices.add(
+                zumen_core::NoticeLevel::Info,
+                "image-frame",
+                "画像の外形を表示しない設定（IMAGEFRAME）は書かず、外形を表示する図面にしました",
+            );
+        }
         let definitions = std::mem::take(&mut self.image_defs);
         let mut entries: Vec<(String, u64)> = Vec::new();
         for definition in &definitions {
@@ -249,7 +256,7 @@ impl Writer<'_> {
                 class_version: 0,
                 size: definition.size,
                 path: self.text(&definition.path),
-                loaded: true,
+                loaded: definition.loaded,
                 resolution_units: 0,
                 pixel_size: [1.0, 1.0],
             };

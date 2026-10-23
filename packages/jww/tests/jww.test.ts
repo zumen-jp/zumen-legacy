@@ -1,7 +1,8 @@
 import { measureDistance, readDrawing, type SceneEntity } from "@zumenjs/core";
+import { apply } from "@zumenjs/core/geometry";
 import { describe, expect, it } from "vitest";
 import { jww } from "../src/index.js";
-import { build, buildSolids } from "./fixture.js";
+import { build, buildImages, buildSolids } from "./fixture.js";
 
 function entity(entities: SceneEntity[], id: string): SceneEntity {
   const found = entities.find((item) => item.id === id);
@@ -15,6 +16,8 @@ function points(item: SceneEntity): number[] {
   return Array.from(primitive.points, (value) => Math.round(value * 1e6) / 1e6);
 }
 
+// 用紙・レイヤ・線種・文字コード・円弧・ブロック・非表示の設定は golden.test.ts が各版の Scene 全体で確かめる。
+// ここではソリッドの面積と、計測との組み合わせを確かめる。
 describe("JWW の読み取り", () => {
   const scene = readDrawing(build(600), [jww]);
 
@@ -46,35 +49,26 @@ describe("JWW の読み取り", () => {
       10000,
     );
   });
+});
 
-  it("レイヤの名前と表示状態、線種のビット列を読む", () => {
-    expect(scene.layers).toContainEqual({ id: 1, name: "0-0 通り芯", visible: true, group: "平面" });
-    expect(scene.layers).toContainEqual(expect.objectContaining({ id: 3, visible: false }));
-    expect(entity(scene.entities, "#2").primitives[0]).toMatchObject({ dashes: [2, 2] });
-  });
-
-  it("Jw_cad が文字として保存した設定は描かず、全体表示の範囲を用紙から広げない", () => {
-    expect(scene.entities.map((item) => item.id)).not.toContain("#6");
-    expect(scene.bounds.minY).toBeGreaterThanOrEqual(0);
-  });
-
-  it("円弧角が負なら時計回りに描き、ブロックの中の図形を共有のクラス番号で読む", () => {
-    const arc = entity(scene.entities, "#4");
-    expect(arc.bbox.minY).toBeCloseTo(138.5, 6);
-    expect(arc.bbox.maxY).toBeCloseTo(148.5, 6);
-    expect(points(entity(scene.entities, "#5>#1"))).toEqual([260, 148.5, 262, 148.5]);
-  });
-
-  it("版 300 より前の図面も、ヘッダのレイヤ名・線色・線幅・線種を読む", () => {
-    const old = readDrawing(build(200), [jww]);
-    expect(old.layers).toContainEqual({ id: 1, name: "0-0 通り芯", visible: true, group: "平面" });
-    expect(entity(old.entities, "#1").primitives[0]).toMatchObject({ width: 0.25, dashes: [] });
-    expect(entity(old.entities, "#2").primitives[0]).toMatchObject({ dashes: [2, 2] });
-    expect(old.notices.map((notice) => notice.code)).not.toContain("default-palette");
-  });
-
-  it.each([600, 700])("版 %i の文字列（CP932・UTF-16）を復号する", (version) => {
-    const text = entity(readDrawing(build(version), [jww]).entities, "#3");
-    expect(text.properties).toContainEqual({ key: "text", label: "文字列", value: "表示ソ能" });
+describe("JWW の画像の配置（^@BM）", () => {
+  it("文字の始点を画像の左下に、文字の向きに回して置き、外形は選ぶためだけに残す", () => {
+    const scene = readDrawing(buildImages(700), [jww]);
+    const rotated = scene.underlays?.find((underlay) => underlay.file === "C:\\images\\site.jpg");
+    if (!rotated) throw new Error("回した画像の underlay がありません");
+    // 用紙 A3 の中心が原点。始点 (20, 10) を 30° 回した 30 × 15 mm
+    const [x0, y0] = [210 + 20, 148.5 + 10];
+    const [lowerLeftX, lowerLeftY] = apply(rotated.matrix, 0, rotated.height);
+    expect(lowerLeftX).toBeCloseTo(x0, 9);
+    expect(lowerLeftY).toBeCloseTo(y0, 9);
+    const [lowerRightX, lowerRightY] = apply(rotated.matrix, rotated.width, rotated.height);
+    expect(lowerRightX).toBeCloseTo(x0 + 30 * Math.cos(Math.PI / 6), 9);
+    expect(lowerRightY).toBeCloseTo(y0 + 30 * Math.sin(Math.PI / 6), 9);
+    expect(entity(scene.entities, rotated.id).drawn).toBe(false);
+    expect(scene.underlays?.map((underlay) => underlay.file)).toEqual([
+      "%temp%photo.bmp",
+      "C:\\images\\site.jpg",
+      "logo.png",
+    ]);
   });
 });

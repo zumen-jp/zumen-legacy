@@ -13,11 +13,12 @@ use zumen::compare::{CompareOptions, SceneDiff, compare_scenes, diff_scene};
 use zumen::extract::{
     EntityFilter, EntityText, Shape, entity_shapes, entity_text, layer_names, real_shapes, scene_texts, select_entities,
 };
+use zumen::markup::MarkupDocument;
 use zumen::regions::{ClosedRegion, RegionOptions, RegionShape, RegionText, closed_regions};
 use zumen::tables::{RuledTable, TableOptions, ruled_tables};
 use zumen::title::{TitleKey, title_fields};
 use zumen::{BBox, Background, Property, PropertyRaw, ReadDrawingOptions, SceneEntity};
-use zumen_render::{ImageSize, RenderOptions, UnderlayContent, View};
+use zumen_render::{ImageSize, MarkupStyle, RenderMarkup, RenderOptions, UnderlayContent, View};
 
 pyo3::create_exception!(zumen, ReadError, PyValueError, "図面を読めなかった（形式が違う、壊れているなど）");
 pyo3::create_exception!(zumen, RenderError, PyValueError, "図面を描けなかった（範囲が空、画像が大きすぎるなど）");
@@ -41,6 +42,68 @@ pyo3::create_exception!(
     PyValueError,
     "図面の仕様から描けなかった。code に理由の種類（unknown-type・unknown-key・invalid-value・missing-definition など）、path に仕様の中の場所（sheets[0].views[1].items[4]。全体なら空）がある"
 );
+
+pyo3::create_exception!(
+    zumen,
+    MarkupError,
+    PyValueError,
+    "マークアップの文書を読めなかった。code に理由の種類（json・format・version・missing・type・value・duplicate）、item に項目の番号（0 から。文書のキーなら None）、id に項目の id、key にキー（drawing.sha256 など）がある"
+);
+
+pyo3::create_exception!(
+    zumen,
+    CarryError,
+    PyValueError,
+    "マークアップを新しい版へ移せなかった。code に理由の種類（drawing-mismatch・unreadable・too-large）がある"
+);
+
+/// 文書の誤りを、code・item・id・key のある MarkupError にする
+fn markup_error(py: Python<'_>, error: &zumen::markup::MarkupError) -> PyErr {
+    let err = MarkupError::new_err(error.to_string());
+    let value = err.value(py);
+    let set = || -> PyResult<()> {
+        value.setattr("code", error.code)?;
+        value.setattr("item", error.item)?;
+        value.setattr("id", error.id.clone())?;
+        value.setattr("key", error.key.clone())
+    };
+    if let Err(failure) = set() {
+        return failure;
+    }
+    err
+}
+
+/// マークアップの文書の JSON。Python の dict（JSON にできる値）か、JSON の文字列（{ か [ で始まる）か、ファイルのパス
+/// （ほかの文字列か os.PathLike）
+fn markup_text(py: Python<'_>, markup: &Bound<'_, PyAny>) -> PyResult<String> {
+    let path = if let Ok(text) = markup.extract::<String>() {
+        if text.trim_start().starts_with(['{', '[']) {
+            return Ok(text);
+        }
+        std::path::PathBuf::from(text)
+    } else if markup.is_instance(&py.import("os")?.getattr("PathLike")?)? {
+        markup.extract::<std::path::PathBuf>()?
+    } else {
+        return py.import("json")?.call_method1("dumps", (markup,))?.extract();
+    };
+    std::fs::read_to_string(&path).map_err(|error| PyOSError::new_err(format!("{}: {error}", path.display())))
+}
+
+/// render_* の markup と markup_colors を、描画に重ねるマークアップにする。描く図面のビューの項目だけを描く
+fn render_markup(
+    py: Python<'_>,
+    scene: &zumen::Scene,
+    markup: Option<&Bound<'_, PyAny>>,
+    markup_colors: Option<HashMap<String, String>>,
+) -> PyResult<Option<Arc<RenderMarkup>>> {
+    let Some(markup) = markup else {
+        return Ok(None);
+    };
+    let document = MarkupDocument::from_json(&markup_text(py, markup)?).map_err(|error| markup_error(py, &error))?;
+    let items = document.items_in_view(scene.view.as_deref()).cloned().collect();
+    let style = MarkupStyle { categories: markup_colors.unwrap_or_default(), color: None };
+    Ok(Some(Arc::new(RenderMarkup { items, style })))
+}
 
 /// 編集の失敗を EditError にする
 fn edit_error(py: Python<'_>, error: zumen::edit::EditError) -> PyErr {
@@ -538,7 +601,7 @@ impl Scene {
     /// 図面を PNG にする。region は用紙の mm の範囲 (min_x, min_y, max_x, max_y) で、省略すると図面全体。
     /// theme は "light" か "dark"（省略すると図面の想定）、hidden_layers は描かないレイヤの id
     /// （省略すると図面の表示指定に従う）
-    #[pyo3(signature = (*, dpi = 150.0, region = None, theme = None, line_weights = true, hidden_layers = None, sheet_frame = true))]
+    #[pyo3(signature = (*, dpi = 150.0, region = None, theme = None, line_weights = true, hidden_layers = None, sheet_frame = true, markup = None, markup_colors = None))]
     #[allow(clippy::too_many_arguments)]
     fn render_png<'py>(
         &self,
@@ -549,8 +612,11 @@ impl Scene {
         line_weights: bool,
         hidden_layers: Option<Vec<u32>>,
         sheet_frame: bool,
+        markup: Option<&Bound<'py, PyAny>>,
+        markup_colors: Option<HashMap<String, String>>,
     ) -> PyResult<Bound<'py, PyBytes>> {
-        let options = self.render_options(theme, line_weights, hidden_layers, sheet_frame, dpi)?;
+        let mut options = self.render_options(theme, line_weights, hidden_layers, sheet_frame, dpi)?;
+        options.markup = render_markup(py, &self.inner, markup, markup_colors)?;
         let region = region.map(|(min_x, min_y, max_x, max_y)| BBox { min_x, min_y, max_x, max_y });
         let scene = self.inner.clone();
         let (png, report) = py
@@ -563,7 +629,7 @@ impl Scene {
     /// 図面を SVG にする。region は用紙の mm の範囲で、省略すると用紙（用紙がなければ図面全体）。
     /// 単位は mm で、文字は検索できる text 要素になる。theme・line_weights・hidden_layers・sheet_frame は render_png と同じ。
     /// PDF の図面のページ（underlay）は underlay_dpi の画像にして埋め込む
-    #[pyo3(signature = (*, region = None, theme = None, line_weights = true, hidden_layers = None, sheet_frame = true, underlay_dpi = 150.0))]
+    #[pyo3(signature = (*, region = None, theme = None, line_weights = true, hidden_layers = None, sheet_frame = true, markup = None, markup_colors = None, underlay_dpi = 150.0))]
     #[allow(clippy::too_many_arguments)]
     fn render_svg(
         &self,
@@ -573,9 +639,12 @@ impl Scene {
         line_weights: bool,
         hidden_layers: Option<Vec<u32>>,
         sheet_frame: bool,
+        markup: Option<&Bound<'_, PyAny>>,
+        markup_colors: Option<HashMap<String, String>>,
         underlay_dpi: f64,
     ) -> PyResult<String> {
-        let options = self.render_options(theme, line_weights, hidden_layers, sheet_frame, underlay_dpi)?;
+        let mut options = self.render_options(theme, line_weights, hidden_layers, sheet_frame, underlay_dpi)?;
+        options.markup = render_markup(py, &self.inner, markup, markup_colors)?;
         let scene = self.inner.clone();
         let region = region.map(to_bbox);
         let (svg, report) = py
@@ -587,7 +656,7 @@ impl Scene {
 
     /// 図面を 1 ページの PDF にする。ページは用紙の大きさ（region を指定すればその範囲）で、線の太さは図面のとおり。
     /// 文字は同梱の BIZ UDゴシックの使う字形だけを埋め込み、検索・コピーできる。引数は render_svg と同じ
-    #[pyo3(signature = (*, region = None, theme = None, line_weights = true, hidden_layers = None, sheet_frame = true, underlay_dpi = 150.0))]
+    #[pyo3(signature = (*, region = None, theme = None, line_weights = true, hidden_layers = None, sheet_frame = true, markup = None, markup_colors = None, underlay_dpi = 150.0))]
     #[allow(clippy::too_many_arguments)]
     fn render_pdf<'py>(
         &self,
@@ -597,9 +666,12 @@ impl Scene {
         line_weights: bool,
         hidden_layers: Option<Vec<u32>>,
         sheet_frame: bool,
+        markup: Option<&Bound<'py, PyAny>>,
+        markup_colors: Option<HashMap<String, String>>,
         underlay_dpi: f64,
     ) -> PyResult<Bound<'py, PyBytes>> {
-        let options = self.render_options(theme, line_weights, hidden_layers, sheet_frame, underlay_dpi)?;
+        let mut options = self.render_options(theme, line_weights, hidden_layers, sheet_frame, underlay_dpi)?;
+        options.markup = render_markup(py, &self.inner, markup, markup_colors)?;
         let scene = self.inner.clone();
         let region = region.map(to_bbox);
         let (pdf, report) = py
@@ -612,7 +684,7 @@ impl Scene {
     /// 図面を PNG にし、画像の px と用紙の mm の変換と、描いた図形の位置を合わせて返す（`Rendering`）。
     /// 大きさは dpi か、size=(幅, 高さ) の px に余白 margin px を残して収めるかで決める。
     /// region・theme・line_weights・hidden_layers・sheet_frame は render_png と同じ
-    #[pyo3(signature = (*, dpi = 150.0, size = None, margin = 0.0, region = None, theme = None, line_weights = true, hidden_layers = None, sheet_frame = true))]
+    #[pyo3(signature = (*, dpi = 150.0, size = None, margin = 0.0, region = None, theme = None, line_weights = true, hidden_layers = None, sheet_frame = true, markup = None, markup_colors = None))]
     #[allow(clippy::too_many_arguments)]
     fn render(
         &self,
@@ -625,8 +697,11 @@ impl Scene {
         line_weights: bool,
         hidden_layers: Option<Vec<u32>>,
         sheet_frame: bool,
+        markup: Option<&Bound<'_, PyAny>>,
+        markup_colors: Option<HashMap<String, String>>,
     ) -> PyResult<Rendering> {
-        let options = self.render_options(theme, line_weights, hidden_layers, sheet_frame, dpi)?;
+        let mut options = self.render_options(theme, line_weights, hidden_layers, sheet_frame, dpi)?;
+        options.markup = render_markup(py, &self.inner, markup, markup_colors)?;
         let image_size = match size {
             Some((width, height)) => ImageSize::Fit { width, height, margin },
             None => ImageSize::Dpi(dpi),
@@ -1399,8 +1474,8 @@ fn draft(
     Ok(Converted { inner: drafted, format: to })
 }
 
-/// 図面の仕様を、受け取った DXF・DWG の図面（テンプレート）にその場で描く（zumen::draft_into）。元の図形・ハンドル・
-/// 拡張データは残り、形式と版も元のまま。sheet は描く用紙の名前、format は分かっている場合の図面の形式
+/// 図面の仕様を、受け取った DXF・DWG・JWW・SXF の図面（テンプレート）にその場で描く（zumen::draft_into）。元の図形・
+/// ハンドル・拡張データは残り、形式と版も元のまま。sheet は描く用紙の名前、format は分かっている場合の図面の形式
 #[pyfunction]
 #[pyo3(signature = (spec, data, *, sheet = None, format = None, max_bytes = None))]
 fn draft_into(
@@ -1439,6 +1514,80 @@ fn draft_schema() -> &'static str {
     zumen::draft::SCHEMA
 }
 
+/// マークアップの文書（JSON の文字列）を検査し、読んだ文書を JSON の文字列で返す。知らないキーは残す
+#[pyfunction]
+fn read_markup(py: Python<'_>, text: &str) -> PyResult<String> {
+    let document = MarkupDocument::from_json(text).map_err(|error| markup_error(py, &error))?;
+    Ok(document.to_json(false))
+}
+
+/// マークアップの文書（JSON の文字列）の各項目の外接矩形（用紙の mm）。画面で決まった大きさの部分（ピン・写真の印）を
+/// 含まない（zumen::markup::markup_box）
+#[pyfunction]
+fn markup_boxes(py: Python<'_>, text: &str) -> PyResult<Vec<Region>> {
+    let document = MarkupDocument::from_json(text).map_err(|error| markup_error(py, &error))?;
+    Ok(document.items.iter().map(|item| from_bbox(&zumen::markup::markup_box(item))).collect())
+}
+
+/// マークアップの文書の JSON Schema（JSON の文字列）
+#[pyfunction]
+fn markup_schema() -> &'static str {
+    zumen::markup::SCHEMA
+}
+
+/// 図面のバイトの SHA-256（小文字の 16 進）。マークアップの文書の drawing.sha256
+#[pyfunction]
+fn drawing_hash(py: Python<'_>, data: &[u8]) -> String {
+    py.detach(|| zumen::markup::drawing_hash(data))
+}
+
+/// マークアップの文書（JSON の文字列）を、それを付けた図面 before から新しい版 after へ移す（zumen::carry_markup）。
+/// views は前の版のビューから新しい版のビューへの対応、tolerance・style・align は比べ方。返すのは移した文書の JSON と、
+/// unchanged・changed・removed の項目の数
+#[pyfunction]
+#[pyo3(signature = (markup, before, after, *, views = None, tolerance = 0.01, style = false, align = true, ignore_hash = false, max_bytes = None, max_entities = None, timeout = None))]
+#[allow(clippy::too_many_arguments)]
+fn carry_markup(
+    py: Python<'_>,
+    markup: &str,
+    before: &[u8],
+    after: &[u8],
+    views: Option<HashMap<String, String>>,
+    tolerance: f64,
+    style: bool,
+    align: bool,
+    ignore_hash: bool,
+    max_bytes: Option<u64>,
+    max_entities: Option<u64>,
+    timeout: Option<f64>,
+) -> PyResult<(String, usize, usize, usize)> {
+    if !(tolerance.is_finite() && tolerance > 0.0) {
+        return Err(PyValueError::new_err("tolerance は正の数です"));
+    }
+    let document = MarkupDocument::from_json(markup).map_err(|error| markup_error(py, &error))?;
+    let max_duration = match timeout {
+        Some(seconds) => Some(
+            std::time::Duration::try_from_secs_f64(seconds)
+                .map_err(|_| PyValueError::new_err("timeout は 0 以上の秒数です"))?,
+        ),
+        None => None,
+    };
+    let options = zumen::CarryOptions {
+        compare: CompareOptions { tolerance, style, all_layers: true, align },
+        views: views.unwrap_or_default(),
+        limits: zumen::ReadLimits { max_bytes, max_entities, max_duration },
+        ignore_hash,
+    };
+    let carried = py.detach(|| zumen::carry_markup(&document, before, after, &options)).map_err(|error| {
+        let err = CarryError::new_err(error.to_string());
+        match err.value(py).setattr("code", error.code) {
+            Ok(()) => err,
+            Err(failure) => failure,
+        }
+    })?;
+    Ok((carried.document.to_json(false), carried.unchanged, carried.changed, carried.removed))
+}
+
 #[pymodule]
 fn _zumen(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
@@ -1447,6 +1596,8 @@ fn _zumen(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("RenderError", m.py().get_type::<RenderError>())?;
     m.add("EditError", m.py().get_type::<EditError>())?;
     m.add("DraftError", m.py().get_type::<DraftError>())?;
+    m.add("MarkupError", m.py().get_type::<MarkupError>())?;
+    m.add("CarryError", m.py().get_type::<CarryError>())?;
     m.add_class::<Scene>()?;
     m.add_class::<Rendering>()?;
     m.add_class::<Comparison>()?;
@@ -1461,5 +1612,10 @@ fn _zumen(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(draft, m)?)?;
     m.add_function(wrap_pyfunction!(draft_into, m)?)?;
     m.add_function(wrap_pyfunction!(draft_schema, m)?)?;
+    m.add_function(wrap_pyfunction!(read_markup, m)?)?;
+    m.add_function(wrap_pyfunction!(markup_schema, m)?)?;
+    m.add_function(wrap_pyfunction!(markup_boxes, m)?)?;
+    m.add_function(wrap_pyfunction!(drawing_hash, m)?)?;
+    m.add_function(wrap_pyfunction!(carry_markup, m)?)?;
     Ok(())
 }

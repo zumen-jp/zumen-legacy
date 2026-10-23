@@ -1,6 +1,6 @@
 import { drawingHash, type MarkupDrawing, type Scene, type Underlay } from "@zumenjs/core";
 import { useDrawing } from "@zumenjs/react";
-import { reader } from "@zumenjs/reader";
+import { initReader, readEmbeddedFiles, reader } from "@zumenjs/reader";
 import { imageUnderlayRenderer } from "@zumenjs/viewer";
 import { type DragEvent, StrictMode, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -14,6 +14,14 @@ const UNDERLAY_ID = "playground-image";
 interface UnderlayImage {
   name: string;
   bitmap: ImageBitmap;
+}
+
+/**
+ * 図面が書くファイルの名前（.\image.JPG、C:\scans\a.tif、JWW に同梱した %temp%a.bmp など）から、フォルダを
+ * 除いた名前を小文字で
+ */
+function baseName(path: string): string {
+  return (path.split(/[\\/]/).pop() ?? path).replace(/^%temp%/i, "").toLowerCase();
 }
 
 /** 画像を、用紙（なければ図面の範囲）の中央に縦横比を保って収める underlay にし、図面の下に敷く */
@@ -61,18 +69,53 @@ function App() {
     setView(undefined);
     setFile(next);
   };
-  // 図面の下に敷く画像。図面の underlay のうち、ここで敷いたものだけを描く
+  // 図面の下に敷く画像と、図面の画像（DXF の IMAGE など）が指すファイル（フォルダを除いた名前で引く）
   const [image, setImage] = useState<UnderlayImage | null>(null);
   const [imageError, setImageError] = useState<string | null>(null);
-  const underlayRenderer = useMemo(
-    () =>
-      image ? imageUnderlayRenderer((underlay) => (underlay.id === UNDERLAY_ID ? image.bitmap : null)) : undefined,
-    [image],
-  );
+  const [imageFiles, setImageFiles] = useState<ReadonlyMap<string, File>>(new Map());
+  // 図面のファイルが中に持つ画像（JWW の同梱画像、圧縮した SXF の画像のファイル）。underlay の file と同じ名前で引く
+  const [embedded, setEmbedded] = useState<ReadonlyMap<string, Uint8Array<ArrayBuffer>>>(new Map());
+  useEffect(() => {
+    setEmbedded(new Map());
+    if (!file) return;
+    let current = true;
+    Promise.all([file.arrayBuffer(), initReader()])
+      .then(([buffer]) => readEmbeddedFiles(buffer))
+      .then(({ files, notices }) => {
+        if (!current) return;
+        setEmbedded(new Map(files.map((item) => [item.name, item.data])));
+        for (const notice of notices) console.warn(notice.message);
+      })
+      // 図面として読めないときは、図面の読み取りが知らせる
+      .catch(() => undefined);
+    return () => {
+      current = false;
+    };
+  }, [file]);
   const scene = useMemo(
     () => (drawing.scene && image ? withUnderlay(drawing.scene, image) : drawing.scene),
     [drawing.scene, image],
   );
+  // 図面の画像が指すファイルの名前（重なりを除く）
+  const wanted = useMemo(() => {
+    const names = new Set<string>();
+    for (const underlay of drawing.scene?.underlays ?? []) if (underlay.file) names.add(underlay.file);
+    return [...names];
+  }, [drawing.scene]);
+  const underlayRenderer = useMemo(
+    () =>
+      image || wanted.length > 0
+        ? imageUnderlayRenderer((underlay) => {
+            if (underlay.id === UNDERLAY_ID) return image?.bitmap ?? null;
+            if (underlay.file === undefined) return null;
+            const inside = embedded.get(underlay.file);
+            const found = inside ? new Blob([inside]) : imageFiles.get(baseName(underlay.file));
+            return found ? createImageBitmap(found) : null;
+          })
+        : undefined,
+    [image, imageFiles, embedded, wanted.length],
+  );
+  const found = wanted.filter((name) => embedded.has(name) || imageFiles.has(baseName(name))).length;
   // マークアップの文書は、図面のファイルのバイトの SHA-256 で図面を指す
   const [hash, setHash] = useState<{ file: File; sha256: string } | null>(null);
   useEffect(() => {
@@ -151,6 +194,22 @@ function App() {
           下敷きの画像（PNG・JPEG）
           <input type="file" accept="image/*" onChange={(event) => openImage(event.currentTarget.files?.[0] ?? null)} />
         </label>
+        {wanted.length > 0 ? (
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+            図面の画像のファイル（{found.toLocaleString("ja-JP")} / {wanted.length.toLocaleString("ja-JP")} 件）
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              title={wanted.join("\n")}
+              onChange={(event) =>
+                setImageFiles(
+                  new Map([...(event.currentTarget.files ?? [])].map((file) => [baseName(file.name), file])),
+                )
+              }
+            />
+          </label>
+        ) : null}
         {imageError ? <span role="alert">{imageError}</span> : null}
         <span aria-live="polite">
           {loading

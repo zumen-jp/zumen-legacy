@@ -247,6 +247,15 @@ class EditError(ValueError):
     code: str
     operation: int | None
 
+class MarkupError(ValueError):
+    code: str
+    item: int | None
+    id: str | None
+    key: str | None
+
+class CarryError(ValueError):
+    code: str
+
 class DraftError(ValueError):
     """A drawing spec that could not be drawn; nothing was written."""
 
@@ -292,6 +301,8 @@ class Scene:
         line_weights: bool = True,
         hidden_layers: list[int] | None = None,
         sheet_frame: bool = True,
+        markup: object | None = None,
+        markup_colors: dict[str, str] | None = None,
     ) -> bytes: ...
     def render_svg(
         self,
@@ -301,6 +312,9 @@ class Scene:
         line_weights: bool = True,
         hidden_layers: list[int] | None = None,
         sheet_frame: bool = True,
+        markup: object | None = None,
+        markup_colors: dict[str, str] | None = None,
+        underlay_dpi: float = 150.0,
     ) -> str: ...
     def render_pdf(
         self,
@@ -310,6 +324,9 @@ class Scene:
         line_weights: bool = True,
         hidden_layers: list[int] | None = None,
         sheet_frame: bool = True,
+        markup: object | None = None,
+        markup_colors: dict[str, str] | None = None,
+        underlay_dpi: float = 150.0,
     ) -> bytes: ...
     def render(
         self,
@@ -322,6 +339,8 @@ class Scene:
         line_weights: bool = True,
         hidden_layers: list[int] | None = None,
         sheet_frame: bool = True,
+        markup: object | None = None,
+        markup_colors: dict[str, str] | None = None,
     ) -> Rendering: ...
     def texts(self, *, region: Box | None = None, hidden_layers: list[int] | None = None) -> list[Text]: ...
     def entities(
@@ -454,6 +473,24 @@ class Edited:
 def edit(data: bytes, operations: object, *, format: str | None = None, max_bytes: int | None = None) -> Edited: ...
 def create(to: str, operations: object = None, *, units: str = "mm") -> Edited: ...
 def draft_schema() -> str: ...
+def read_markup(text: str) -> str: ...
+def markup_schema() -> str: ...
+def markup_boxes(text: str) -> list[Box]: ...
+def drawing_hash(data: bytes) -> str: ...
+def carry_markup(
+    markup: str,
+    before: bytes,
+    after: bytes,
+    *,
+    views: dict[str, str] | None = None,
+    tolerance: float = 0.01,
+    style: bool = False,
+    align: bool = True,
+    ignore_hash: bool = False,
+    max_bytes: int | None = None,
+    max_entities: int | None = None,
+    timeout: float | None = None,
+) -> tuple[str, int, int, int]: ...
 def draft(spec: object, to: str = "dxf", *, version: str | None = None, sheet: str | None = None) -> Converted: ...
 def draft_into(
     spec: object,

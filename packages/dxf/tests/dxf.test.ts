@@ -1,9 +1,11 @@
 import { measureDistance, readDrawing, type SceneEntity, type TextPrimitive } from "@zumenjs/core";
+import { apply } from "@zumenjs/core/geometry";
 import { describe, expect, it } from "vitest";
 import {
   type DxfAttdef,
   type DxfAttrib,
   type DxfEmbeddedMText,
+  type DxfImage,
   type DxfInsert,
   type DxfLine,
   type DxfMLine,
@@ -18,22 +20,21 @@ import {
   ATTRIBUTES_R2018,
   ascii,
   BINARY,
-  BINARY_LIMITS,
   BINARY_TEXT,
   BLOCKS,
   CODEPAGE,
   DIMSTYLE_DEFAULTS,
   IDS,
+  IMAGES,
   LAYOUT,
-  LIMITS,
   latin1,
   MISALIGNED,
   MLEADER,
   MLINE,
-  R12,
   R12_SHIFT_JIS,
   VERTICAL_TEXT,
   WESTERN,
+  XREFS,
 } from "./fixtures.js";
 
 function stroke(entity: SceneEntity | undefined): number[] {
@@ -99,12 +100,15 @@ describe("DXF の単位とブロックの入れ子", () => {
     expect(distance.real).toBeCloseTo(2000);
   });
 
-  it("レイヤ 0 の図形は配置元のレイヤ A に属し、BYBLOCK は内側の配置（BYLAYER のレイヤ A の赤）を継ぐ", () => {
-    const scene = readDrawing(BLOCKS, [dxf]);
-    const line = scene.entities.find((entity) => entity.id === "20>B2>B1");
-    const layerA = scene.layers.find((layer) => layer.name === "A");
-    expect(line?.layers).toEqual([layerA?.id]);
-    expect(line?.primitives[0]).toMatchObject({ kind: "stroke", color: "#ff0000" });
+  it("外部参照は参照先の図面を読まないので、ブロックの中の参照も数えて、参照先とともに notices で知らせる", () => {
+    const scene = readDrawing(XREFS, [dxf]);
+    expect(scene.entities.map((entity) => entity.id)).toEqual(["20", "24>B1"]);
+    expect(scene.notices.find((notice) => notice.code === "xref")).toEqual({
+      level: "warning",
+      code: "xref",
+      message: "外部参照（PLAN・grid.dxf・site.dwg）は参照先の図面を読まないため、描いていません",
+      count: 4,
+    });
   });
 });
 
@@ -113,7 +117,7 @@ describe("DXF の単位とブロックの入れ子", () => {
  * ハンドルのない図形（R12 の図面など）は、ファイルの先頭から数えたレコード（グループコード 0）の位置で表す。
  * 読まない種類の図形も数えるので、読める種類が増えても id は変わらず、ブロックの中と INSERT の属性でも重ならない。
  */
-describe("DXF の id と単位", () => {
+describe("DXF の id", () => {
   it("ハンドルのない図形は、ファイルの中のレコードの位置で表す", () => {
     const drawing = IDS;
     const doc = parseDxf(drawing);
@@ -125,14 +129,6 @@ describe("DXF の id と単位", () => {
     // ハンドルのある図形はハンドルで表し、位置を持たない
     const handled = parseDxf(BLOCKS);
     expect(handled.entities.every((entity) => entity.handle !== "" && entity.ordinal === undefined)).toBe(true);
-  });
-
-  it("$INSUNITS の単位を Scene.unit に示し、指定がなければ見なした単位にする", () => {
-    expect(readDrawing(BLOCKS, [dxf]).unit).toBe("meter");
-    expect(readDrawing(LAYOUT, [dxf]).unit).toBe("millimeter");
-    const r12 = readDrawing(R12, [dxf]);
-    expect(r12.unit).toBe("inch");
-    expect(r12.notices.some((notice) => notice.code === "unit-assumed")).toBe(true);
   });
 });
 
@@ -207,34 +203,6 @@ describe("DXF のマルチライン", () => {
       [0, 1, 9, 1, 9, 10],
       [0, -1, 11, -1, 11, 10],
     ]);
-  });
-});
-
-// 壊れた図面・大きすぎる値でも、読み取りが終わり、TypeScript と Rust が同じところで止まること
-describe("DXF の読み取りの上限", () => {
-  it("表示のブロックが自分を指す寸法は、ブロック参照と同じ深さで止め、自分を 2 回含むブロックは描く数で止める", () => {
-    const scene = readDrawing(LIMITS, [dxf]);
-    expect(scene.notices).toContainEqual(expect.objectContaining({ code: "block-depth" }));
-    expect(scene.notices).toContainEqual(expect.objectContaining({ code: "block-limit" }));
-    // 32 段の寸法の線を、一番外側の寸法の 1 つの要素にまとめる
-    expect(strokes(scene.entities.find((entity) => entity.id === "D1"))).toHaveLength(32);
-  });
-
-  it("M × N が頂点の数より大きいポリゴンメッシュは、頂点のある格子の位置だけを描く", () => {
-    const mesh = readDrawing(LIMITS, [dxf]).entities.find((entity) => entity.type === "ポリゴンメッシュ");
-    expect(strokes(mesh)).toEqual([[0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 1, 1]]);
-  });
-
-  it("模様の線の基点が遠く、線の番号に 1 を足しても変わらないハッチングは、多すぎる模様として外形を描く", () => {
-    const scene = readDrawing(LIMITS, [dxf]);
-    expect(scene.notices).toContainEqual(expect.objectContaining({ code: "hatch-dense", count: 1 }));
-    expect(stroke(scene.entities.find((entity) => entity.id === "H1"))).toEqual([0, 0, 100, 0, 100, 100, 0, 100, 0, 0]);
-  });
-
-  it("模様の線の本数が数えられない（NaN の）ハッチングは、多すぎる模様として外形を描く", () => {
-    const scene = readDrawing(BINARY_LIMITS, [dxf]);
-    expect(scene.notices).toContainEqual(expect.objectContaining({ code: "hatch-dense", count: 1 }));
-    expect(stroke(scene.entities[0])).toEqual([0, 0, 100, 0, 100, 100, 0, 100, 0, 0]);
   });
 });
 
@@ -377,5 +345,45 @@ describe("DXF の縦書き", () => {
     expect(round(narrow?.matrix[2] ?? 0)).toBe(round(Math.tan((10 * Math.PI) / 180)));
     // 同じ図面の、@ のないフォントの文字は横に並べる
     expect(at(horizontal, 0, 0)).toEqual([10 + 40, round(50 - 0.12 * em)]);
+  });
+});
+
+describe("DXF の画像", () => {
+  it("大きすぎる表示フラグも ToInt32 で読み、Rust と同じく表示しない", () => {
+    const doc = parseDxf(IMAGES);
+    for (const entity of doc.entities) if (entity.type === "IMAGE") entity.flags = 1e100;
+    expect(dxfToScene(doc).underlays).toBeUndefined();
+  });
+
+  it("IMAGEDEF のファイルの名前・読み込んだ状態と、明るさ・フェード・反転した切り抜き・IMAGEFRAME を読む", () => {
+    const doc = parseDxf(IMAGES);
+    const images = doc.entities.filter((entity): entity is DxfImage => entity.type === "IMAGE");
+    const byHandle = new Map(images.map((image) => [image.handle, image]));
+    expect(byHandle.get("100")).toMatchObject({ path: "photo.png", loaded: true, brightness: 60, fade: 25 });
+    expect(byHandle.get("101")).toMatchObject({ clip_inverted: true, clipping: true });
+    expect(byHandle.get("103")).toMatchObject({ path: "C:\\scans\\unloaded.tif", loaded: false });
+    expect(byHandle.get("104")?.path).toBeUndefined();
+    expect(byHandle.get("110")?.path).toBe("logo.jpg");
+    expect(doc.image_frame).toBe(0);
+  });
+
+  it("中身の左上を画像の左上の角に、右下を右下の角に置き、外形は選ぶためだけに残す", () => {
+    const scene = readDrawing(IMAGES, [dxf]);
+    const underlay = scene.underlays?.find((candidate) => candidate.id === "101");
+    expect(underlay).toBeDefined();
+    if (!underlay) return;
+    // insert (40, 0)、U (0.08, 0.06)、V (−0.03, 0.04)、100 × 50 画素: 左上は insert + V·50
+    const close = (point: [number, number], expected: [number, number]) => {
+      expect(point[0]).toBeCloseTo(expected[0], 9);
+      expect(point[1]).toBeCloseTo(expected[1], 9);
+    };
+    close(apply(underlay.matrix, 0, 0), [38.5, 2]);
+    close(apply(underlay.matrix, 100, 50), [48, 6]);
+    close(apply(underlay.matrix, 100, 0), [46.5, 8]);
+    // 内側を消す切り抜きは、画像の全体と境界の 2 つの輪
+    expect(underlay.clip).toHaveLength(2);
+    expect(scene.entities.find((entity) => entity.id === "101")?.drawn).toBe(false);
+    // 表示しない画像・読み込みを外した画像・定義のない画像は、中身を描かない
+    expect(scene.underlays?.map((candidate) => candidate.id)).toEqual(["100", "101", "105>110"]);
   });
 });

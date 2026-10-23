@@ -125,8 +125,9 @@ the command line and the MCP server read, draw and carry markup.
   system or in `data`. The document never holds the bytes of a photo.
 - The shapes of an item (the arcs of a cloud, arrowheads, the outline of a text) are computed by one rule in both
   languages, so the viewer and `zumen-render` draw the same lines. Pins and photo symbols, and lines without
-  `lineWidth`, are drawn at a fixed size on the screen in the viewer, and at a fixed paper size on servers (that of
-  the viewer at zoom 1). The rules and the defaults of the optional keys are in [Drawing markup](../markup.md).
+  `lineWidth`, are drawn at a fixed size on the screen in the viewer, and on servers at a fixed number of pixels in PNG
+  (whose drawings may be fitted at any scale) and at the paper size of a CSS pixel in SVG and PDF (the sheet at its
+  real size). The rules and the defaults of the optional keys are in [Drawing markup](../markup.md).
 
 ### References to the drawing
 

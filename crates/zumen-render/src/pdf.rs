@@ -4,8 +4,11 @@
 //! 字形の置き方は PNG と同じ（字送りの中央と em の中央をセルの中心に置く）。
 
 use crate::underlay::Underlays;
-use crate::vector::{DOT_MM, Page, PageImage, dash_lengths, page_image};
-use crate::{BUNDLED_FONT, RenderError, RenderOptions, RenderReport, background_rgb, resolve_color, visible_underlays};
+use crate::vector::{DOT_MM, PX_MM, Page, PageImage, dash_lengths, page_image};
+use crate::{
+    BUNDLED_FONT, RenderError, RenderOptions, RenderReport, background_rgb, markup_entities_for, resolve_color,
+    visible_underlays,
+};
 use pdf_writer::types::{CidFontType, FontFlags, LineCapStyle, LineJoinStyle, SystemInfo, UnicodeCmap};
 use pdf_writer::{Content, Filter, Finish, Name, Pdf, Rect, Ref, Str};
 use std::collections::BTreeMap;
@@ -75,6 +78,11 @@ pub fn render_pdf(
         painter.end_alpha(color[3]);
     }
     for entity in page.entities(scene, options) {
+        for primitive in &entity.primitives {
+            painter.primitive(primitive);
+        }
+    }
+    for entity in markup_entities_for(options, PX_MM) {
         for primitive in &entity.primitives {
             painter.primitive(primitive);
         }

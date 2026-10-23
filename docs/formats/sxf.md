@@ -61,14 +61,43 @@ is set, and the drawing information (圧縮) shows the archive format and the na
 limited by the read limit (`max_bytes`), or by 2 GiB when there is no limit, against ZIP bombs (a small archive that
 extracts to a huge file). Encrypted archives and ZIP64 are not supported.
 
+The other files of the archive, such as the image files that sit next to the drawing (OCF implementation rules, 18
+画像 (5)), are what `zumen::embedded_files` (and `readEmbeddedFiles` of `@zumenjs/reader`) returns, under their names in
+the archive. Folders are left out, files that cannot be extracted are reported (`archive-file`), and their extracted
+sizes count together against the same limit.
+
 What is not drawn or is shown otherwise (counted in the reader's notices):
 
 | Content | Handling |
 | --- | --- |
 | Patterns of pattern hatching and externally defined hatching | Only the outline is drawn |
 | Predefined symbols | Their name is shown instead of the shape (実装規約 1-10) |
-| Raster images (separate TIFF and JPEG files) | Not shown |
+| Raster images (separate TIFF and JPEG files) | Drawn under every entity ([Images](#images)) |
 | Area_control | A blank region; not drawn, but it can be selected |
+
+### Images
+
+An image (画像, a monochrome TIFF or a JPEG, called raster in SXF Ver.2.0) is a drawing group placed on the sheet. Its
+name carries the file: the predefined attribute 画像 of the attribute mechanism (`$$ATRU$$<number>$$<name>$$画像$$<file>`)
+from Ver.3.0, or `$$RASTER$$<file>` in Ver.2.0 (SXF 技術者リファレンスブック 2017, 3.5.4 画像). The polyline in the
+group bounds the image, and the image is on that polyline's layer (OCF implementation rules, geometry, 2011, 18 画像
+(3)). The image file sits next to the drawing (18 (5)); zumen does not open it.
+
+- The image becomes an underlay of `Scene.underlays` with `file` as the name gives it, drawn over the rectangle of the
+  first polyline of four points or more in the group, which stays drawn as an entity. The underlay has its id and
+  layers.
+- The polyline is taken to start at the image's lower left corner (*inferred*: the public drawings of Yamaguchi
+  prefecture's infrastructure database, written by TOWISE CAD, go clockwise from there; the specification text was
+  not at hand). The second vertex is the upper left corner when the polygon turns clockwise and the lower right corner
+  otherwise, so images rotated by their placement angle are drawn rotated (18 (1)).
+- SXF does not record the pixel count, so the content is measured in hundredths of a sheet millimeter
+  ([decision 0031](../decisions/0031-image-units-without-a-pixel-count.md)).
+- SXF draws in the order of the file (the implementation rules' display order), so an image placed after entities that
+  it overlaps hides them. Underlays are drawn under every entity, and such images are reported (`raster-order`). The
+  comparisons are limited as in DXF (1,000,000).
+- An image group without a polyline is not drawn (`raster`). The display color and the transparency of monochrome
+  rasters (18 (1)) are left to the application, which decodes the file (browsers other than Safari do not decode
+  TIFF).
 
 Broken or hostile drawings must not stop the reader, so these limits apply, with the same rules in TypeScript and Rust
 (`crates/zumen-sxf`):
@@ -159,7 +188,7 @@ the original drawing.
 | BYBLOCK colors, line types and lineweights, and layer 0 in blocks | Written with the values inherited from the placement. Each set of inherited values gets its own drawing part (with (2) … added to the name). Blocks with dashed lines also get one for each scale on the sheet (line type pitches are sheet millimeters) |
 | Layers | Layers of the same name. Layers that are off, frozen or not plotted, and DEFPOINTS, are hidden |
 | Colors | ACI 7 (the foreground) and the display's white are black, colors equal to a predefined color use it, and the rest are user-defined colors |
-| Line types | The dash and gap lengths the display draws (sheet millimeters). The same name and lengths as a predefined line type use it, others become a user-defined line type with the DXF name. Dots of length 0 are 0.25 mm |
+| Line types | The dash and gap lengths the display draws (sheet millimeters). The same name and lengths as a predefined line type use it, others become a user-defined line type with the DXF name. Dots of length 0 are 0.25 mm. A user-defined line type holds 2, 4, 6 or 8 lengths (the rule ezsxf checks), so one of more than 8 keeps the first 8 |
 | Lineweights | Values equal to a predefined width (0.13–2.0 mm) use its code, others become user-defined widths. The default (including the default of BYLAYER) is 0.25 mm |
 | Lines, circles, arcs, ellipses, elliptical arcs | As they are (OCS mapped to WCS; mirrored arcs and elliptical arcs run clockwise) |
 | Polylines | Polylines, with bulged segments as arcs. Wide polylines, meshes and curve-fit polylines become the fills and lines the display draws |
@@ -181,7 +210,7 @@ What cannot be written as it is, or is written in another shape, is returned as 
 | `model-sheet` | A drawing that opens in model space became a 1:1 sub-figure on a sheet the size of the extents |
 | `dimension`, `drawn-shapes`, `polyline-width`, `spline`, `wipeout` | Entities and styles that SXF lacks became the lines, fills and texts the display draws |
 | `text-mirror` | A mirrored text was written unmirrored in the same text box |
-| `linetype-dot`, `complex-linetype`, `transparency`, `gradient` | Dots of line types became 0.25 mm dashes, line types with texts or shapes became dashes and gaps, transparency became opaque, gradients became solid fills |
+| `linetype-dot`, `linetype-long`, `complex-linetype`, `transparency`, `gradient` | Dots of line types became 0.25 mm dashes, line types of more than 8 dashes and gaps kept the first 8, line types with texts or shapes became dashes and gaps, transparency became opaque, gradients became solid fills |
 | `hatch-dense` | Hatches without a pattern or with too many lines (more than 5,000) became their outline, as in the display |
 | `image`, `xline`, `minsert` | Images became their frame, construction lines and rays became cut segments, MINSERT became several placements |
 | `encoding` | Characters outside CP932 became ? (`write_sfc`) |
@@ -238,10 +267,11 @@ writes an empty drawing (an A3 landscape sheet) for `create`.
 | `arc` | `center`, `radius`, `angle` (start and end, counterclockwise) | arc_feature |
 | `ellipse`, `ellipse-arc` | `center`, `majorAxis`, `ratio`, `parameter` (radians, as in DXF) | ellipse_feature, ellipse_arc_feature (degrees) |
 | `point` | `position` | point_marker_feature (dot) |
-| `text` | `position`, `text` (one line), `height`, `rotation`, `textStyle` (font name), `width` (of the text box) | text_string_feature, base point at the lower left; without `width`, full-width characters are as wide as the height and half-width ones half of it |
+| `text` | `position`, `text` (one line), `height`, `rotation`, `textStyle` (the font of a text style added in the edit, or else a font name, added when missing), `width` (of the text box) | text_string_feature, base point at the lower left; without `width`, full-width characters are as wide as the height and half-width ones half of it |
 | `block-reference` | `block` (composite figure), `position`, `rotation`, `scale` (a number or `[x, y]`) | sfig_locate_feature |
-| `dimension` | `dimensionType` (`linear`, `aligned`, `angular-3-point`, `radius`, `diameter`), `start`, `end`, `position`, `rotation`, `center`, `point`, `text` (`<>` is the value, one line), `dimensionStyle` (reported, not used) | linear_dim_feature, angular_dim_feature, radius_dim_feature, diameter_dim_feature |
+| `dimension` | `dimensionType` (`linear`, `aligned`, `angular-3-point`, `radius`, `diameter`), `start`, `end`, `position`, `rotation`, `center`, `point`, `text` (`<>` is the value, one line), `dimensionStyle` (a dimension style added in the edit; other names are reported) | linear_dim_feature, angular_dim_feature, radius_dim_feature, diameter_dim_feature |
 | `hatch` | `boundaries`, `pattern`, `patternScale`, `patternAngle`, `patternLines` | composite_curve_org_feature (one invisible composite curve per boundary) with fill_area_style_colour_feature or fill_area_style_hatching_feature |
+| `viewport` | `name`, `center`, `viewCenter`, `scale`, `width`, `height` (on the sheet only) | an empty sfig_org_feature of kind 1 (sub-figure, mathematical coordinates) and its sfig_locate_feature |
 
 - Every kind takes `layer` (a name; a missing layer is added, `edit-added-layer`), `color` (an SXF color code, or `"#rrggbb"`:
   a predefined color when equal, else an existing or new user-defined color), `lineType` (a predefined SXF name such as
@@ -256,6 +286,14 @@ writes an empty drawing (an A3 landscape sheet) for `create`.
   part with its base point at `position`. A name the drawing has is `already-exists`; empty names, control characters
   and names starting with `$$` (the attribute mechanism and the P21 prefixes) are `invalid-value`. A placement that
   would put a composite figure inside itself, directly or through others, is `invalid-value`. `created` gives the name.
+- **Viewports** ([decision 0027](../decisions/0027-draft-into-jww-and-sxf.md)): a sub-figure is what a viewport is to
+  model space, so `viewport` takes the keys of a DXF viewport and adds an empty sub-figure named `name` (`部分図 <n>`,
+  the first number not taken, when left out), placed on the sheet so that the point `viewCenter` of the sub-figure is
+  at `center` on the sheet at 1:`scale` (the placement's ratio is 1/`scale`, its angle 0 and its layer the operation's,
+  none by default). Elements are added into it with `"container": "figure:<name>"` at real size. Sub-figures are not
+  clipped, so `width` and `height` are checked and reported unused (`edit-viewport-clip`). A viewport goes on the sheet
+  (`invalid-value` in a composite figure); a name the drawing has is `already-exists`, and names are checked as for
+  `add-block`. `created` gives the id of the placement.
 - **Dimensions** are the dimension features with the style of the operation (`layer`, `color`, `lineType`,
   `lineWidth`). SXF has no dimension styles, so the sizes are those of AutoCAD's metric dimensions (ISO-25), in sheet
   millimeters: extension lines start 0.625 beyond their origin and pass the dimension line by 1.25, the arrows are
@@ -269,8 +307,38 @@ writes an empty drawing (an A3 landscape sheet) for `create`.
   extension lines, the extension lines (none for an origin on the dimension line) and an arrow at each end; an angular
   dimension the arc from `angle0` to `angle1` counterclockwise, extension lines only from origins inside the arc, as
   in DXF, and arrows at its ends; a radius dimension the line from the center to `point` with an arrow at `point`; a
-  diameter dimension the line across the circle with an arrow at each end. `dimensionStyle` is reported
-  (`edit-dimension-style`).
+  diameter dimension the line across the circle with an arrow at each end. `dimensionStyle` names a style added
+  earlier in the same edit (see Styles below); other names are reported (`edit-dimension-style`) and drawn with these
+  sizes.
+- **Styles** ([decision 0026](../decisions/0026-styles-in-jww-and-sxf-edits.md)): SXF has no dimension styles, and its
+  fonts and user-defined line types hold only a name and lengths, so `add-dimension-style` and `add-text-style` keep
+  their names for the edit only, and later operations of the same edit use them. Names are compared without case; a
+  name added twice is `already-exists`, an empty one or one with control characters `invalid-value`, and `created`
+  gives the name.
+  - `add-dimension-style` takes the keys of decision 0017 and starts from `from`, a dimension style added earlier in
+    the edit, or else from the sizes above (another name in `from`, such as `Standard`, is reported with
+    `edit-dimension-style`). Its lengths are sheet millimeters, divided by the scale of the figure's placement as
+    above, or, with `scale` (above 0), the lengths times `scale` are coordinates of the figure the dimension is added
+    to, as DIMSCALE in DXF: a style with `scale` 100 draws in a 1/100 sub-figure what one without it draws everywhere.
+    `textHeight` (above 0) is the height of the value, `textGap` the gap between the value and the line,
+    `extensionOffset` and `extensionExtension` where the extension lines start and how far they pass the line, and
+    `arrowSize` the length of the filled arrows (scale `arrowSize` / 7.5 on the sheet; 0 draws no arrows). `tickSize`
+    above 0 writes slashes (code 10, 2.5 mm long at scale 1) instead, with scale `tickSize` × √2 / 2.5, the length of
+    DXF's oblique stroke.
+    `textAbove: false` puts the value centered on the dimension line, which a dimension feature cannot break
+    (`edit-dimension-text-position`). Values have `decimals` (0–8) and lose trailing zeros unless
+    `suppressTrailingZeros` is `false`; lengths, radii and diameters are multiplied by the absolute value of
+    `linearFactor`, and angles stay whole degrees. `textStyle` gives the value's font, as `textStyle` of `text` does.
+  - `add-text-style` adds the font `font` (the name when it is not given) to the font table unless the drawing has it;
+    the name stands for that font in `textStyle` of `text` and of dimension styles. A name that is a font of the
+    drawing is `already-exists`. `bigFont`, a `height` other than 0, a `widthFactor` other than 1 and an `oblique`
+    other than 0 are reported (`edit-style-values`).
+  - `add-line-type` adds a user-defined line type (code 17–32) with the name and `pattern` in sheet millimeters (dashes
+    positive, gaps negative, dots 0): the lengths start with a dash and alternate, dots become 0.25 mm dashes with the
+    following gap shorter by as much, a leading gap moves to the end, and more than 8 lengths are cut, as SXF holds 2,
+    4, 6 or 8 (`edit-line-type-pattern`). A pattern without gaps is a continuous line: the name stands for line type 1
+    in the edit and nothing is written. Predefined names and names of the drawing's line types are `already-exists`;
+    when the 16 user-defined line types are taken, `name-exhausted`. `description` is reported (`edit-style-values`).
 - **Hatches**: each boundary becomes an invisible composite curve (a closed polyline; the first is the outline, the
   others holes) added after the composite curves of the drawing. `SOLID` is fill_area_style_colour in the operation's
   color (`lineType` and `lineWidth` are reported as unused, `edit-unused-attributes`). A pattern is
@@ -279,9 +347,12 @@ writes an empty drawing (an A3 landscape sheet) for `create`.
   the first boundary point, its spacing (the part of the pattern offset across the lines) and its angle. Dashes become
   a user-defined line type in sheet millimeters (lengths in the figure × the scale of its placement; dots as 0.25 mm
   dashes, the gap after them shorter by as much, as zumen-convert writes them), named after the pattern, or the
-  predefined or user-defined line type with the same lengths; when the 16 user-defined line types are taken, the line
-  is solid (`edit-hatch-dashes`). The shift of the dashes from one line to the next (the offset along the lines) cannot
-  be written, and is reported when it is not a whole number of dash periods (`edit-hatch-shift`).
+  predefined or user-defined line type with the same lengths. A user-defined line type holds 2, 4, 6 or 8 lengths, so
+  more than 8 that are not the lengths of a predefined line type (double-dashed triplicate-dotted has 10) are cut to
+  the first 8, and the base point moves by whole periods of those (`edit-hatch-dash-count`); when the 16 user-defined
+  line types are taken, the line is solid (`edit-hatch-dashes`). The shift of the dashes from one line to the next (the
+  offset along the lines) cannot be written, and is reported when it is not a whole number of dash periods
+  (`edit-hatch-shift`).
 - Layers take `visible`; SXF layers have no color, line type or width, so those values are checked and left unused
   (`edit-layer-attributes`). A layer without elements cannot be written to P21.
 - The ids of added elements are their written instance numbers (`#n`); the ids of added layers are their names.
@@ -451,7 +522,13 @@ Names outside ASCII are Shift_JIS, or UTF-8 with the UTF-8 flag when Shift_JIS l
 - `crates/zumen-sxf/tests/edit_operations.rs` and `crates/zumen/tests/edit.rs`: a drawing part with its elements and a
   placement, the five kinds of dimension, a fill and two hatchings added to every SFC, P21, SFZ and P2Z fixture read
   back drawn, with the other elements unchanged; a dimension added in a 1/20 sub-figure has a 2.5 mm value on the
-  sheet. The same operations on the 1,201-entity sample draw the same in SFC and P21.
+  sheet. The same operations on the 1,201-entity sample draw the same in SFC and P21. Dimension styles change the
+  value's height, font, decimals and trailing zeros, the arrows (slashes for `tickSize`) and the extension lines, on
+  the sheet and with `scale` in a sub-figure; a text style and a line type added to every fixture are used by a text
+  and a line read back drawn. A hatch whose pattern line has 10 dash and gap lengths writes a user-defined line type
+  of the first 8, with its base point moved by whole periods of those 8, and one with the 10 lengths of
+  double-dashed triplicate-dotted keeps that predefined line type; in SFC, P21, SFZ and P2Z both read back drawn with
+  those dashes.
 - Checking the written files with the SXF browser's checking function (SXF確認機能) is to come on a Windows host.
 
 ## References

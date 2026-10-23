@@ -26,7 +26,7 @@ bytes ─▶ format reader ─▶ native model ─▶ toScene ─▶ Scene
 | --- | --- |
 | `@zumenjs/core` | What `zumen-core` covers: the `Scene` model and its types and JSON (`sceneToJson`, `sceneFromJson`), `NoticeList`, `readDrawing` and the `DrawingReader` interface (with the optional `load`), layer visibility (`isEntityVisible`), distance measurement (`measureDistance`, `toReal`), and drawing markup (`markupFromJson`, `markupToJson`, `markupShapes`, `drawingHash`, [Drawing markup](markup.md)). Geometry helpers are exported from `@zumenjs/core/geometry` and text layout from `@zumenjs/core/text`. No DOM. |
 | `@zumenjs/viewer` | The 2D engine that applications embed: the Canvas 2D renderer (`renderScene`, `renderHighlights`, `renderPrimitives`), hit testing and snapping (`HitIndex`), `DrawingViewer` with the view, the state, input handlers, tools and style, and `MarkupLayer` with the markup tools, built on the public API of `DrawingViewer`. No text for people and no CSS. |
-| `@zumenjs/reader` | Every format through the WebAssembly build of the Rust readers: `initReader` loads the module, `reader` and `createReader({ limits })` are `DrawingReader`s, `readScene` reads with limits (`LimitError`), `detectDrawing` tells the format without the module, and `ReaderWorker` reads in a Web Worker (`@zumenjs/reader/worker`). |
+| `@zumenjs/reader` | Every format through the WebAssembly build of the Rust readers: `initReader` loads the module, `reader` and `createReader({ limits })` are `DrawingReader`s, `readScene` reads with limits (`LimitError`), `detectDrawing` tells the format without the module, `readEmbeddedFiles` returns the files a drawing holds (embedded JWW images, the image files of compressed SXF) under the names its image underlays use, and `ReaderWorker` reads in a Web Worker (`@zumenjs/reader/worker`). |
 | `@zumenjs/sxf` | Not published; the reference for the tests. SFC and P21 parsing into the SXF feature model (`parseSfc`, `parseP21` → `SxfDrawing`), conversion to a scene (`sxfToScene`), and the `sxf` reader. |
 | `@zumenjs/jww` | Not published; the reference for the tests. JWW parsing into the JWW document model (`readJww` → `JwwDocument`), conversion to a scene (`jwwToScene`), and the `jww` reader. |
 | `@zumenjs/dxf` | Not published; the reference for the tests. DXF parsing (ASCII and binary) into the AutoCAD drawing model (`parseDxf` → `DxfDocument`), conversion of model space or a layout to a scene (`dxfToScene`), and the `dxf` reader. Their Rust port (`zumen-dxf`) also draws DWG. |
@@ -199,12 +199,13 @@ The keys that every format uses for the same meaning:
 | `dimensionText` | number | The dimension text; `raw` is the measurement when the file stores it (DXF and DWG) |
 | `pattern` | string | The hatch pattern; `raw` is the pattern name in DXF and DWG (`SOLID` for a fill) |
 | `scale` | number | The `N` of a scale 1/N: JWW layer groups and DXF and DWG viewports |
+| `file` | string | The file that an image names, as the drawing writes it (the `file` of its underlay) |
 
 Keys of one format: `placement`, `rotation`, `textBox`, `marker`, `name`, `radii`, `parameter`, `curveLength`,
 `dimensionLine`, `dimensionArc`, `arrows`, `holeCount` and `hatchLines` in SXF; `textSize` (`[width, height,
 spacing]`) in JWW; `block`, `height`, `textStyle`, `tag`, `wrapWidth`, `majorRadius`, `ratio`, `degree`, `width`,
 `faceCount`, `meshSize`, `dimensionStyle`, `contentBlock`, `leaderCount`, `style`, `widthScale`, `justification`,
-`patternScale`, `patternAngle`, `imageSize`, `viewCenter`, `viewHeight` and `twistAngle` in DXF and DWG; and
+`patternScale`, `patternAngle`, `imageSize`, `fade`, `viewCenter`, `viewHeight` and `twistAngle` in DXF and DWG; and
 `comparison` (`unchanged`, `removed`, `changed-before`, `added`, `changed-after`) in the scene of
 `zumen_core::compare`; `fillColor` and `visibility` in PDF (which also uses `height`, `rotation` and `imageSize` of
 DXF and DWG).
@@ -305,17 +306,17 @@ bytes ─▶ zumen-sxf, zumen-jww, zumen-dxf, zumen-dwg, zumen-pdf ─▶ Scene 
 
 | Crate | Responsibility |
 | --- | --- |
-| `zumen-core` | The `Scene` types (serde, the same JSON as `sceneToJson`), `NoticeList`, `DrawingReader` and `read_drawing`, geometry (`geometry`), text layout (`text`), measurement, texts and entities for servers (`extract`), the fields of the title block (`title`), the comparison of two revisions (`compare`), read limits (`limits`), and JavaScript-compatible number handling (`js`). |
+| `zumen-core` | The `Scene` types (serde, the same JSON as `sceneToJson`), `NoticeList`, `DrawingReader` and `read_drawing`, geometry (`geometry`), text layout (`text`), measurement, texts and entities for servers (`extract`), the fields of the title block (`title`), the comparison of two revisions (`compare`), drawing markup (`markup`: the documents, their checks and shapes, and carrying a view to a new revision, the same as `@zumenjs/core`), read limits (`limits`), and JavaScript-compatible number handling (`js`). |
 | `zumen-sxf` | SFC and P21 parsing into the SXF feature model (`parse_sfc`, `parse_p21` → `SxfDrawing`), conversion to a scene (`sxf_to_scene`), the `SXF` reader, and writing the feature model as SFC (`write_sfc`). The code tables and the rules that turn codes into colors, line types, widths and text (`SxfDocument::color` …) are public, for the conversion. |
 | `zumen-jww` | JWW parsing into the JWW document model (`read_jww`), conversion to a scene (`jww_to_scene`), and the `JWW` reader. The rules for pen colors, line types, widths, layer names and text (`JwwDocument::pen_color` …) are public, for the conversion. |
 | `zumen-dxf` | DXF parsing (ASCII and binary) into the AutoCAD drawing model (`parse_dxf` → `DxfDocument`), conversion of model space or a layout to a scene (`dxf_to_scene`), the `DXF` reader, and writing the model as DXF (`write_dxf`, and `write_dxf_as` for R12 to 2018). The draw order of each space (`draw_order`) and the drawing unit (`drawing_unit`) are public, for the conversion to SXF. |
 | `zumen-dwg` | DWG decoding (AutoCAD 2000 to 2018) into the AutoCAD drawing model of `zumen-dxf` (`read_dwg` → `DxfDocument`), drawn with `dxf_to_scene`, and the `DWG` reader. |
 | `zumen-pdf` | PDF reading with hayro-interpret (`read_pdf` → `Scene`, `is_pdf`, the `PDF` reader): the pages as views with their underlay, and the painted paths, glyph runs and images as entities that are not drawn ([How PDF is handled](formats/pdf.md)). Depends on `zumen-core` only. |
 | `zumen-convert` | Maps SXF and JWW into the AutoCAD drawing model (`sxf_to_dxf`, `jww_to_dxf` → `Mapped`: the `DxfDocument`, the notices, and the source of each entity), so that they can be written as DXF ([decision 0007](decisions/0007-mapping-crate-between-formats.md)), and maps the AutoCAD drawing model into the SXF feature model (`dxf_to_sxf` → `MappedSxf`), so that it can be written as SXF ([decision 0010](decisions/0010-write-sxf-from-the-autocad-model.md)), and into the JWW document model (`dxf_to_jww` → `MappedJww`). |
-| `zumen-draft` | Draws a drawing from a JSON drawing spec into the AutoCAD drawing model with the builder of `zumen-convert` (`draft` → `Drafted`: the `DxfDocument`, the notices and the place in the spec of each entity): one layout per sheet, a viewport for each view at its scale, sizes in paper millimeters, dimensions with their blocks, hatches with pattern lines, tables, title blocks, blocks with attributes ([decision 0018](decisions/0018-drafting-kit.md), [Drafting](drafting.md)). |
-| `zumen` | `read` and `detect` over every reader (PDF with the default feature `pdf`), with limits for untrusted drawings (`ReadDrawingOptions::limits`, through `read_drawing_with_limits` of `zumen-core`), `convert` (every format to DXF, DWG, JWW and SXF through the AutoCAD model; `mapping` re-exports `zumen-convert`), `edit` and `create` (DXF, DWG, JWW and SXF), and `draft` (a drawing spec written in any of those formats; `draft` re-exports `zumen-draft`). The entry point for applications. |
-| `zumen-render` | Draws a scene to PNG with the rules of `render.ts` in `@zumenjs/viewer` (color inversion, line weights with a 1 px minimum, dash rules, even-odd fills, clipping, per-character text, small text as a line), and reports which entities it drew and where (`render_image`, `drawn_entities`, `View::pixel_box`). It also writes SVG (`render_svg`) and one-page PDF (`render_pdf`) with the same colors, fills, clipping and text placement, and draws the pages of PDF drawings under the scene with hayro (`RenderOptions::underlays`). |
-| `zumen-cli` | The `zumen` command (`detect`, `scene`, `texts`, `entities`, `title`, `render`, `compare`, `convert`). |
+| `zumen-draft` | Draws a drawing from a JSON drawing spec into the AutoCAD drawing model with the builder of `zumen-convert` (`draft` → `Drafted`: the `DxfDocument`, the notices and the place in the spec of each entity): one layout per sheet, a viewport for each view at its scale, sizes in paper millimeters, dimensions with their blocks, hatches with pattern lines, tables, title blocks, blocks with attributes ([decision 0018](decisions/0018-drafting-kit.md), [Drafting](drafting.md)), and the edit operations that draw a spec into a template (`plan` for DXF and DWG, `plan_jww`, `plan_sxf`; [decision 0027](decisions/0027-draft-into-jww-and-sxf.md)). |
+| `zumen` | `read` and `detect` over every reader (PDF with the default feature `pdf`), with limits for untrusted drawings (`ReadDrawingOptions::limits`, through `read_drawing_with_limits` of `zumen-core`), `convert` (every format to DXF, DWG, JWW and SXF through the AutoCAD model; `mapping` re-exports `zumen-convert`), `edit` and `create` (DXF, DWG, JWW and SXF), and `draft` (a drawing spec written in any of those formats; `draft` re-exports `zumen-draft`). `carry_markup` carries a markup document to a new revision ([Drawing markup](markup.md)). The entry point for applications. |
+| `zumen-render` | Draws a scene to PNG with the rules of `render.ts` in `@zumenjs/viewer` (color inversion, line weights with a 1 px minimum, dash rules, even-odd fills, clipping, per-character text, small text as a line), and reports which entities it drew and where (`render_image`, `drawn_entities`, `View::pixel_box`). It also writes SVG (`render_svg`) and one-page PDF (`render_pdf`) with the same colors, fills, clipping and text placement, draws the pages of PDF drawings under the scene with hayro (`RenderOptions::underlays`), and draws markup over the drawing (`RenderOptions::markup`). |
+| `zumen-cli` | The `zumen` command (`detect`, `scene`, `texts`, `entities`, `title`, `render`, `compare`, `convert`, `markup carry`). |
 | `bindings/python` | PyO3 bindings, built with maturin as an abi3 wheel for Python 3.12 and later. The GIL is released while reading, rendering and converting. `Scene.to_arrow` needs pyarrow (Apache-2.0, `zumen[arrow]`), and the MCP server `zumen.mcp` needs the MCP SDK (MIT, `zumen[mcp]`); both are optional dependencies. `zumen.tools`, the functions behind the MCP tools, needs neither. |
 | `bindings/wasm` | wasm-bindgen bindings that detect the format (`detect`) and return scene JSON (`readSceneJson`, with the limits on bytes and entities; a failure throws a `ReadFailure` with the message and the exceeded limit), for every format but PDF (`zumen` without its feature `pdf`). `scripts/wasm.mjs` builds them into `packages/reader/wasm` for `@zumenjs/reader`. |
 | `bindings/wasm-pdf` | The same functions over `zumen-pdf` only, a module of its own that `@zumenjs/reader` loads the first time a PDF is read ([decision 0030](decisions/0030-pdf-in-a-webassembly-module-of-its-own.md)). |
@@ -326,7 +327,10 @@ depends on `zumen-core` and hayro-interpret), and
 parsing does not depend on rendering. `zumen-convert` is not a format crate: it is the one place that knows two formats
 at once, and depends on `zumen-dxf`, `zumen-sxf` and `zumen-jww` ([decision 0007](decisions/0007-mapping-crate-between-formats.md)).
 `zumen-draft` builds the AutoCAD model only, with the public `builder` and `sheet` modules of `zumen-convert`, and
-leaves writing to the facade, so it knows no format but the model ([decision 0018](decisions/0018-drafting-kit.md)).
+leaves writing to the facade ([decision 0018](decisions/0018-drafting-kit.md)). To draw into a template it turns that
+model into edit operations, and reads the template to fit them: the AutoCAD model for DXF and DWG, and the document
+models of `zumen-jww` and `zumen-sxf` (layer groups and their scales, layers, line types, sub-figures) for JWW and SXF,
+on which it depends for that ([decision 0027](decisions/0027-draft-into-jww-and-sxf.md)).
 
 ### The readers in the browser
 
@@ -469,7 +473,7 @@ that break a rule by their value. The CAD drafting standard of MLIT (`mlit-cad-2
 their conversion to real-world millimeters), render a region, find texts and entities, show one entity with its
 shapes, measure in real-world millimeters through the scale of a placement, find the closed regions with their
 real-world areas, read the ruled tables as rows and columns, check a drawing against a CAD standard and compare two
-revisions. The results
+revisions, and list, write and carry the markup beside a drawing ([Drawing markup](markup.md)). The results
 follow `TypedDict` classes that are part of the API, are bounded by the arguments (items, characters of a text, points
 of shapes, pixels), and take regions in paper millimeters or as fractions of the frame (the scene's `bounds`, origin at
 the top left) ([decision 0011](decisions/0011-tool-functions-for-agents.md)). `zumen.mcp` serves the same functions as
@@ -531,8 +535,9 @@ and every DXF and DWG fixture converted to SFC, draw the scene of the drawing th
 
 Editing does not go through the model, which would lose what it does not hold
 ([decision 0012](decisions/0012-edit-in-place-and-write-every-format.md)). `zumen_core::edit` has the operations, the
-same for every format (`parse_operations` reads them from JSON, `ValueReader` checks their keys and values, and
-`dimension` and `hatch` read the values of dimensions and hatches, with the built-in hatch patterns), and each
+same for every format (`parse_operations` reads them from JSON, `ValueReader` checks their keys and values,
+`dimension` and `hatch` read the values of dimensions and hatches, with the built-in hatch patterns, and `style` the
+values of text styles, line types and dimension styles), and each
 format edits its own file: `zumen_dxf::edit_dxf` keeps the tags of a DXF with their bytes and changes, adds and removes
 only what the operations name ([How DXF is handled: Editing](formats/dxf.md#editing-edit_dxf)), and `edit_dwg`,
 `edit_jww` and `edit_sxf` do the same for the objects of a DWG, the records of a JWW and the instances of an SXF.
@@ -605,9 +610,10 @@ Runtime dependencies are permissive and work in WebAssembly. Recorded with the r
 | `unicode-normalization` | (MIT OR Apache-2.0) AND Unicode-3.0 | NFKC for font names, as `String.prototype.normalize` (about 128 KB of the WebAssembly build) |
 | `libm` | MIT | The same trigonometry on every target |
 | `tiny-skia` | BSD-3-Clause | CPU rasterization for PNG, with anti-aliasing, dashes, even-odd fills and masks |
+| `sha2` | MIT OR Apache-2.0 | SHA-256 of a drawing's bytes, which markup documents name it by (`zumen_core::markup::drawing_hash`, the same as Web Crypto in `@zumenjs/core`); default features off. It brings `digest`, `block-buffer`, `crypto-common`, `hybrid-array`, `typenum` and `cpufeatures` (all MIT OR Apache-2.0) |
 | `pdf-writer` | MIT OR Apache-2.0 | PDF objects and content streams for `render_pdf` (no dependencies beyond number formatting) |
 | `subsetter` | MIT OR Apache-2.0 | The glyphs of the bundled font that a PDF uses, embedded as a subset; default features off (no variable fonts) |
-| `miniz_oxide` | MIT OR Zlib OR Apache-2.0 | Flate compression of PDF streams; already compiled for PNG encoding |
+| `miniz_oxide` | MIT OR Zlib OR Apache-2.0 | Flate compression of PDF streams; already compiled for PNG encoding. Inflating compressed SXF (P2Z, SFZ) and the gzip of embedded JWW images |
 | `ttf-parser` | MIT OR Apache-2.0 | Glyph outlines of the bundled font |
 | `pyo3` | MIT OR Apache-2.0 | Python bindings |
 | `wasm-bindgen` | MIT OR Apache-2.0 | WebAssembly bindings |
