@@ -21,9 +21,8 @@ zumen-core.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
+zumen-pdf.workspace = true
 
 [lints]
 workspace = true
 
-[dev-dependencies]
-zumen-pdf.workspace = true

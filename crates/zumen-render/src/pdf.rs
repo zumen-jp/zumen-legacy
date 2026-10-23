@@ -5,7 +5,10 @@
 
 use crate::underlay::Underlays;
 use crate::vector::{DOT_MM, PX_MM, Page, PageImage, dash_lengths, page_image};
-use crate::{BUNDLED_FONT, RenderError, RenderOptions, RenderReport, background_rgb, markup_entities_for, resolve_color, visible_underlays};
+use crate::{
+    BUNDLED_FONT, RenderError, RenderOptions, RenderReport, background_rgb, markup_entities_for, resolve_color,
+    visible_underlays,
+};
 use pdf_writer::types::{CidFontType, FontFlags, LineCapStyle, LineJoinStyle, SystemInfo, UnicodeCmap};
 use pdf_writer::{Content, Filter, Finish, Name, Pdf, Rect, Ref, Str};
 use std::collections::BTreeMap;

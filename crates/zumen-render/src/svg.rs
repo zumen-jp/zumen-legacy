@@ -4,7 +4,9 @@
 
 use crate::underlay::Underlays;
 use crate::vector::{DOT_MM, PX_MM, Page, dash_lengths, page_image};
-use crate::{RenderError, RenderOptions, RenderReport, background_rgb, markup_entities_for, resolve_color, visible_underlays};
+use crate::{
+    RenderError, RenderOptions, RenderReport, background_rgb, markup_entities_for, resolve_color, visible_underlays,
+};
 use std::fmt::Write;
 use zumen_core::{BBox, Primitive, Scene, StrokePrimitive, TextPrimitive};
 

@@ -26,8 +26,8 @@ use tiny_skia::{
 use ttf_parser::{Face, OutlineBuilder};
 use underlay::Underlays;
 use zumen_core::extract::{EntityFilter, select_entities, select_underlays};
-use zumen_core::markup::{MarkupItem, markup_entities};
 use zumen_core::geometry::multiply;
+use zumen_core::markup::{MarkupItem, markup_entities};
 use zumen_core::{
     BACKGROUND_COLOR, BBox, Background, Matrix, Primitive, Scene, SceneEntity, StrokePrimitive, TextPrimitive, Underlay,
 };
