@@ -52,8 +52,8 @@ appearances (not read, see below). The device turns them into entities:
 
 - **Ids** are `#n`, n counting the paints of the page from 1. hayro-interpret gives a path that is filled and stroked
   (`B`, `b`, text rendering mode 2) as a fill and then a stroke; a stroke right after a fill of the same path or glyph
-  run joins it, as one entity with one number (*inferred*). Paints that become no entity (shadings, pattern fills,
-  content outside the clip, glyph runs of spaces only) still take their number, so that reading more of them later
+  run in the same clip joins it, as one entity with one number (*inferred*). Paints that become no entity (shadings,
+  pattern fills, content outside the clip, glyph runs of spaces only) still take their number, so that reading more of them later
   does not rename the entities after them. The numbering follows the calls of hayro-interpret, so hayro is pinned to
   one version (`hayro-interpret = "=0.8.0"`), and `crates/zumen/tests/ids.rs` checks the ids of `tests/fixtures/pdf`.
 - **Paths** (8.5): the path in paper millimeters, curves flattened within 0.01 mm. A stroked path is a `line` (one

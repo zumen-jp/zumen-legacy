@@ -538,3 +538,17 @@ fn the_fixture_is_the_test_drawing() {
     close(sheet.width, 555.276 * K);
     close(sheet.height, 801.89 * K);
 }
+
+/// Clipping changes between separate paints (8.4.4, 8.5.4) must not join their fill and stroke.
+#[test]
+fn keeps_separate_paints_on_each_side_of_a_clip_change() {
+    let scene = read(&one_page("10 10 30 30 re f q 100 100 10 10 re W n 10 10 30 30 re S Q"));
+    assert_eq!(scene.entities.len(), 1);
+    assert_eq!(scene.entities[0].kind, EntityKind::Solid);
+    assert_eq!(notice(&scene, "clipped-out"), 1);
+
+    let scene = read(&one_page("q 100 100 10 10 re W n 10 10 30 30 re f Q 10 10 30 30 re S"));
+    assert_eq!(ids(&scene), ["#2"]);
+    assert!(matches!(&scene.entities[0].primitives[..], [Primitive::Stroke(_)]));
+    assert_eq!(notice(&scene, "clipped-out"), 1);
+}

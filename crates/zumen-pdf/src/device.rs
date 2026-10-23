@@ -139,8 +139,15 @@ impl<'r> Collector<'r> {
 
     /// 塗りの直後の同じ形の線なら、塗りと 1 つの図形にする
     fn join(&mut self, figure: &Figure, line: &Line) -> bool {
+        // Separate paints can change the clip (ISO 32000-1:2008, 8.5.4); only paints in the same clip can join.
+        let clip = self.clip();
         match &mut self.pending {
-            Some(painted) if painted.fill.is_some() && painted.stroke.is_none() && painted.figure == *figure => {
+            Some(painted)
+                if painted.fill.is_some()
+                    && painted.stroke.is_none()
+                    && painted.figure == *figure
+                    && painted.clip == clip =>
+            {
                 painted.stroke = Some(line.clone());
                 true
             }
