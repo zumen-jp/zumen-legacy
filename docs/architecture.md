@@ -192,12 +192,13 @@ The keys that every format uses for the same meaning:
 | `dimensionText` | number | The dimension text; `raw` is the measurement when the file stores it (DXF and DWG) |
 | `pattern` | string | The hatch pattern; `raw` is the pattern name in DXF and DWG (`SOLID` for a fill) |
 | `scale` | number | The `N` of a scale 1/N: JWW layer groups and DXF and DWG viewports |
+| `file` | string | The file that an image names, as the drawing writes it (the `file` of its underlay) |
 
 Keys of one format: `placement`, `rotation`, `textBox`, `marker`, `name`, `radii`, `parameter`, `curveLength`,
 `dimensionLine`, `dimensionArc`, `arrows`, `holeCount` and `hatchLines` in SXF; `textSize` (`[width, height,
 spacing]`) in JWW; `block`, `height`, `textStyle`, `tag`, `wrapWidth`, `majorRadius`, `ratio`, `degree`, `width`,
 `faceCount`, `meshSize`, `dimensionStyle`, `contentBlock`, `leaderCount`, `style`, `widthScale`, `justification`,
-`patternScale`, `patternAngle`, `imageSize`, `viewCenter`, `viewHeight` and `twistAngle` in DXF and DWG; and
+`patternScale`, `patternAngle`, `imageSize`, `fade`, `viewCenter`, `viewHeight` and `twistAngle` in DXF and DWG; and
 `comparison` (`unchanged`, `removed`, `changed-before`, `added`, `changed-after`) in the scene of
 `zumen_core::compare`.
 

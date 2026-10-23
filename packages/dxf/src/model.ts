@@ -588,7 +588,20 @@ export interface DxfImage extends DxfEntityBase {
   boundary: Vec2[];
   /** 70。1 表示、2 回転しないとき表示、4 切り抜き */
   flags: number;
+  /** 280。切り抜きの境界で切るか */
   clipping: boolean;
+  /** 290。true なら境界の内側を消す（AutoCAD 2010 以降の反転した切り抜き） */
+  clip_inverted: boolean;
+  /** 281・282・283。明るさ（既定 50）・コントラスト（既定 50）・フェード（既定 0）。どれも 0〜100 */
+  brightness: number;
+  contrast: number;
+  fade: number;
+  /** 画像の定義（IMAGEDEF）のハンドル（340）。WIPEOUT は持たない */
+  definition_handle?: string;
+  /** 画像の定義が指す画像のファイルの名前（IMAGEDEF の 1） */
+  path?: string;
+  /** 画像の定義の 280。false なら読み込みを外した画像で、AutoCAD は外形だけを表示する */
+  loaded: boolean;
 }
 
 /** 表（ACAD_TABLE）。表示の図形は INSERT と同じくブロック（*T…）で持つ */
@@ -803,6 +816,11 @@ export interface DxfDocument {
   entities: DxfEntity[];
   /** 描画順（SORTENTSTABLE）。ブロックの名前ごとに、図形のハンドル → 並べ替えのハンドル */
   sort_handles: Record<string, Record<string, string>>;
+  /**
+   * 画像の外形の表示（RASTERVARIABLES の 70、AutoCAD の IMAGEFRAME）。0 表示しない、1 表示して印刷する、
+   * 2 表示して印刷しない。省略すると 1
+   */
+  image_frame?: number;
   /** 読まなかった図形の種類と件数 */
   skipped: Record<string, number>;
   /** 読み取りで省略・代替した内容 */

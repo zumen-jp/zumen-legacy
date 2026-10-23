@@ -896,6 +896,77 @@ export const ROOMS = new TextEncoder().encode(ascii(
 ));
 
 /** 正解ファイルにする図面と、既定の表示のほかに描く表示（レイアウト） */
+/**
+ * 画像（IMAGE）の中身は underlay にする（docs/decisions/0022）。中身の座標は画素で、左上が原点、Y は下向き。
+ * insert・U・V（画素 1 つ分のベクトル、正方形でも直交でもないことがある）と上下の反転を matrix に解き、
+ * 切り抜き（多角形、反転、ビューポート）を clip にする。IMAGEDEF のファイルの名前が file になる。
+ * 表示しない画像、読み込みを外した画像、定義のない画像は外形だけ。PDF・DWF の underlay は読まない。
+ */
+// biome-ignore format: DXF のタグ（グループコードと値）の組を 1 行に並べて読めるようにする
+export const IMAGES = latin1(ascii(
+  0, "SECTION", 2, "HEADER", 9, "$ACADVER", 1, "AC1024", 9, "$INSUNITS", 70, 4, 9, "$TILEMODE", 70, 1, 0, "ENDSEC",
+  0, "SECTION", 2, "TABLES",
+  0, "TABLE", 2, "LAYER",
+  0, "LAYER", 5, "10", 2, "0", 70, 0, 62, 7, 6, "CONTINUOUS",
+  0, "LAYER", 5, "11", 2, "IMG", 70, 0, 62, 3, 6, "CONTINUOUS",
+  0, "ENDTAB",
+  0, "TABLE", 2, "BLOCK_RECORD",
+  0, "BLOCK_RECORD", 5, "1E", 2, "*Paper_Space",
+  0, "BLOCK_RECORD", 5, "1F", 2, "*Model_Space",
+  0, "BLOCK_RECORD", 5, "1A", 2, "LOGO",
+  0, "ENDTAB", 0, "ENDSEC",
+  0, "SECTION", 2, "BLOCKS",
+  0, "BLOCK", 5, "120", 330, "1A", 100, "AcDbEntity", 8, "0", 100, "AcDbBlockBegin", 2, "LOGO", 70, 0, 10, 0, 20, 0, 30, 0, 3, "LOGO", 1, "",
+  0, "IMAGE", 5, "110", 330, "1A", 100, "AcDbEntity", 8, "0", 100, "AcDbRasterImage", 90, 0, 10, 0, 20, 0, 30, 0,
+  11, 0.1, 21, 0, 31, 0, 12, 0, 22, 0.1, 32, 0, 13, 50, 23, 50, 340, "202", 70, 7, 280, 0, 281, 50, 282, 50, 283, 0, 290, 0,
+  71, 1, 91, 2, 14, -0.5, 24, -0.5, 14, 49.5, 24, 49.5,
+  0, "ENDBLK", 5, "121", 330, "1A", 100, "AcDbEntity", 8, "0", 100, "AcDbBlockEnd",
+  0, "ENDSEC",
+  0, "SECTION", 2, "ENTITIES",
+  // 画像の前に描く線（画像はこの線を隠すが、underlay はすべての図形の下に描く）
+  ...entity("LINE", "FF", "0", [], "AcDbLine", 10, 5, 20, 5, 30, 0, 11, 15, 21, 5, 31, 0),
+  // 多角形で切り抜いた画像（200 × 100 画素、20 × 10 mm）。フェード 25、明るさ 60
+  ...entity("IMAGE", "100", "IMG", [], "AcDbRasterImage", 90, 0, 10, 0, 20, 0, 30, 0, 11, 0.1, 21, 0, 31, 0, 12, 0, 22, 0.1, 32, 0,
+    13, 200, 23, 100, 340, "200", 70, 7, 280, 1, 281, 60, 282, 50, 283, 25, 290, 0,
+    71, 2, 91, 4, 14, -0.5, 24, -0.5, 14, 199.5, 24, -0.5, 14, 99.5, 24, 99.5, 14, -0.5, 24, -0.5),
+  // 回した、正方形でない画素の画像。矩形の境界の内側を消す（290）
+  ...entity("IMAGE", "101", "0", [], "AcDbRasterImage", 90, 0, 10, 40, 20, 0, 30, 0, 11, 0.08, 21, 0.06, 31, 0, 12, -0.03, 22, 0.04, 32, 0,
+    13, 100, 23, 50, 340, "200", 70, 7, 280, 1, 281, 50, 282, 50, 283, 0, 290, 1,
+    71, 1, 91, 2, 14, 19.5, 24, 9.5, 14, 79.5, 24, 39.5),
+  // 表示しない画像（70 の 1 がない）、読み込みを外した画像、画像の定義のない画像は外形だけ
+  ...entity("IMAGE", "102", "0", [], "AcDbRasterImage", 90, 0, 10, 0, 20, 20, 30, 0, 11, 0.1, 21, 0, 31, 0, 12, 0, 22, 0.1, 32, 0,
+    13, 100, 23, 50, 340, "200", 70, 6, 280, 0, 71, 1, 91, 2, 14, -0.5, 24, -0.5, 14, 99.5, 24, 49.5),
+  ...entity("IMAGE", "103", "0", [], "AcDbRasterImage", 90, 0, 10, 20, 20, 20, 30, 0, 11, 0.1, 21, 0, 31, 0, 12, 0, 22, 0.1, 32, 0,
+    13, 100, 23, 50, 340, "201", 70, 7, 280, 0, 71, 1, 91, 2, 14, -0.5, 24, -0.5, 14, 99.5, 24, 49.5),
+  ...entity("IMAGE", "104", "0", [], "AcDbRasterImage", 90, 0, 10, 40, 20, 20, 30, 0, 11, 0.1, 21, 0, 31, 0, 12, 0, 22, 0.1, 32, 0,
+    13, 100, 23, 50, 340, "0", 70, 7, 280, 0, 71, 1, 91, 2, 14, -0.5, 24, -0.5, 14, 99.5, 24, 49.5),
+  // ブロックの中の画像（2 倍、30° 回す）
+  ...entity("INSERT", "105", "IMG", [], "AcDbBlockReference", 2, "LOGO", 10, 80, 20, 0, 30, 0, 41, 2, 42, 2, 43, 2, 50, 30),
+  // PDF と DWF の underlay（ページの大きさが図面にないので、読まない）
+  ...entity("PDFUNDERLAY", "106", "0", [], "AcDbUnderlayReference", 340, "203", 10, 0, 20, 40, 30, 0, 41, 1, 42, 1, 43, 1, 50, 0, 280, 2, 281, 100, 282, 0),
+  ...entity("DWFUNDERLAY", "107", "0", [], "AcDbUnderlayReference", 340, "204", 10, 0, 20, 60, 30, 0, 280, 2),
+  // レイアウト: 全体のビューポートと、縮尺 2 倍でモデル空間の x 5〜55 を見るビューポート（画像を左で切る）
+  0, "VIEWPORT", 5, "130", 330, "1E", 100, "AcDbEntity", 67, 1, 8, "0", 100, "AcDbViewport",
+  10, 148.5, 20, 105, 30, 0, 40, 297, 41, 210, 68, 1, 69, 1, 12, 148.5, 22, 105, 45, 210,
+  0, "VIEWPORT", 5, "131", 330, "1E", 100, "AcDbEntity", 67, 1, 8, "0", 100, "AcDbViewport",
+  10, 100, 20, 100, 30, 0, 40, 100, 41, 50, 68, 2, 69, 2, 12, 30, 22, 5, 17, 0, 27, 0, 37, 0, 45, 25,
+  0, "ENDSEC",
+  0, "SECTION", 2, "OBJECTS",
+  0, "DICTIONARY", 5, "C", 330, "0", 100, "AcDbDictionary", 3, "ACAD_IMAGE_DICT", 350, "D0", 3, "ACAD_IMAGE_VARS", 350, "D1",
+  0, "DICTIONARY", 5, "D0", 330, "C", 100, "AcDbDictionary", 3, "photo", 350, "200", 3, "unloaded", 350, "201", 3, "logo", 350, "202",
+  // 画像の外形を表示しない（IMAGEFRAME 0）
+  0, "RASTERVARIABLES", 5, "D1", 330, "C", 100, "AcDbRasterVariables", 90, 0, 70, 0, 71, 1, 72, 0,
+  0, "IMAGEDEF", 5, "200", 330, "D0", 100, "AcDbRasterImageDef", 90, 0, 1, "photo.png", 10, 200, 20, 100, 11, 1, 21, 1, 280, 1, 281, 0,
+  0, "IMAGEDEF", 5, "201", 330, "D0", 100, "AcDbRasterImageDef", 90, 0, 1, "C:\\scans\\unloaded.tif", 10, 100, 20, 50, 11, 1, 21, 1, 280, 0, 281, 0,
+  0, "IMAGEDEF", 5, "202", 330, "D0", 100, "AcDbRasterImageDef", 90, 0, 1, "logo.jpg", 10, 50, 20, 50, 11, 1, 21, 1, 280, 1, 281, 0,
+  0, "PDFDEFINITION", 5, "203", 330, "C", 100, "AcDbUnderlayDefinition", 1, "plan.pdf", 2, "1",
+  0, "DWFDEFINITION", 5, "204", 330, "C", 100, "AcDbUnderlayDefinition", 1, "plan.dwf", 2, "Sheet1",
+  0, "LAYOUT", 5, "30", 100, "AcDbPlotSettings", 1, "", 4, "A4", 40, 0, 41, 0, 42, 0, 43, 0, 44, 297, 45, 210,
+  72, 1, 73, 0, 142, 1, 143, 1, 100, "AcDbLayout", 1, "Layout1", 70, 1, 71, 1, 10, 0, 20, 0, 11, 297, 21, 210,
+  330, "1E",
+  0, "ENDSEC", 0, "EOF",
+));
+
 export const DRAWINGS: [string, Uint8Array, string[]][] = [
   ["codepage", CODEPAGE, []],
   ["r12-shift-jis", R12_SHIFT_JIS, []],
@@ -922,4 +993,5 @@ export const DRAWINGS: [string, Uint8Array, string[]][] = [
   ["vertical-text", VERTICAL_TEXT, []],
   ["ids", IDS, []],
   ["rooms", ROOMS, []],
+  ["images", IMAGES, ["Layout1"]],
 ];

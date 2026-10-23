@@ -77,11 +77,40 @@ fn differences_with(original: &Scene, again: &Scene, version: Option<&str>) -> V
     let entities = |scene: &Scene| serde_json::to_value(&scene.entities).unwrap().as_array().unwrap().clone();
     let (before, after) = (entities(original), entities(again));
     let mut out = Vec::new();
+    // 画像の中身（underlay）のファイル・大きさ・置き方・切り抜き・不透明度。2010 より前の版は切り抜きの反転を持たない
+    // （画像の全体と境界の 2 つの輪が、境界だけになる）
+    let before_2010 = matches!(version, Some("2000" | "2004" | "2007"));
+    let underlays = |scene: &Scene, written: bool| {
+        let values: Vec<Value> = scene
+            .underlays
+            .iter()
+            .map(|underlay| {
+                let clip = match &underlay.clip {
+                    Some(rings) if before_2010 && !written && rings.len() == 2 => Some(rings[1..].to_vec()),
+                    clip => clip.clone(),
+                };
+                json!({
+                    "file": underlay.file,
+                    "size": [underlay.width, underlay.height],
+                    "matrix": underlay.matrix,
+                    "clip": clip,
+                    "opacity": underlay.opacity,
+                })
+            })
+            .collect();
+        Value::Array(values)
+    };
+    let (images, images_again) = (underlays(original, false), underlays(again, true));
+    if !close(&images, &images_again) {
+        out.push(format!("underlays differ\n  {images}\n  {images_again}"));
+    }
     for (index, entity) in before.iter().enumerate() {
         let id = entity["id"].as_str().unwrap();
         let source = entity["source"].as_str().unwrap_or("");
         let same_id = after.iter().find(|other| other["id"] == entity["id"]);
-        if source == "IMAGE" {
+        // 画像のファイル（IMAGEDEF）が分からない画像は書かない
+        let file = entity["properties"].as_array().is_some_and(|items| items.iter().any(|item| item["key"] == "file"));
+        if source == "IMAGE" && !file {
             if same_id.is_some() {
                 out.push(format!("{id}: an image was written"));
             }

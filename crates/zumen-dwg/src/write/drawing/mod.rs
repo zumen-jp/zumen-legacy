@@ -271,6 +271,8 @@ pub(super) struct ImageDefPlan {
     pub handle: u64,
     pub path: String,
     pub size: [f64; 2],
+    /// 読み込んだ状態（DXF の IMAGEDEF の 280）
+    pub loaded: bool,
     /// この定義を使う画像のリアクタ（IMAGEDEF_REACTOR）のハンドルと、画像のハンドル
     pub reactors: Vec<(u64, u64)>,
 }
