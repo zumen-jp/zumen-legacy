@@ -7,6 +7,7 @@
 //! - 座標は実寸（用紙の mm × 図形のレイヤグループの縮尺、用紙の中心が原点）。表示用の図面の property の raw と同じ。
 //!   文字の大きさ・間隔は Jw_cad と同じく用紙の mm。
 //! - レイヤは 16 のレイヤグループの 16 のレイヤ（「0-A」の番号か名前）。レイヤを足すと、名前も図形もないレイヤに名前を付ける。
+//!   名前は Jw_cad と同じくレイヤグループごとにあり、ほかのレイヤグループと同じ名前も付けられる（docs/decisions/0027）。
 //! - ブロック定義を足し（add-block）、container の block:<名前> で中に図形を足せる。寸法は寸法図形、ハッチングは
 //!   ソリッドとハッチの線にする（docs/decisions/0025）。
 
@@ -495,10 +496,26 @@ impl Editor {
         }
     }
 
-    /// 図形のレイヤ。なければ、名前のないレイヤに名前を付けて足し、知らせる
+    /// レイヤグループ group の中の、名前の合うレイヤ
+    fn find_layer_in(&self, group: usize, name: &str) -> Option<usize> {
+        let name = name.trim();
+        (0..16).find(|&layer| self.layer_name(group, layer).trim() == name)
+    }
+
+    /// 図形のレイヤ。なければ、名前のないレイヤに名前を付けて足し、知らせる。レイヤの名前はレイヤグループごとに
+    /// あるので（Jw_cad と同じ）、container のレイヤグループ group があれば、その中で探し、なければその中に足す
     fn layer(&mut self, index: usize, value: &EditValue, group: Option<usize>) -> Result<(usize, usize), EditError> {
-        if let Some(found) = self.find_layer(index, value)? {
-            return Ok(found);
+        match (group, value) {
+            (Some(group), EditValue::Text(name)) if layer_code(name).is_none() => {
+                if let Some(layer) = self.find_layer_in(group, name) {
+                    return Ok((group, layer));
+                }
+            }
+            _ => {
+                if let Some(found) = self.find_layer(index, value)? {
+                    return Ok(found);
+                }
+            }
         }
         let EditValue::Text(name) = value else {
             return Err(EditError::at(index, "invalid-value", "レイヤの名前がありません"));
@@ -1404,7 +1421,8 @@ impl Editor {
     }
 
     /// レイヤを足す。JWW のレイヤは 16 のレイヤグループの 16 のレイヤで、名前も図形もないレイヤに名前を付ける。
-    /// group で選ぶレイヤグループ（省略は書込みレイヤグループ）の中から、番号の小さい順に探す
+    /// group で選ぶレイヤグループ（省略は書込みレイヤグループ）の中から、番号の小さい順に探す。名前はレイヤグループ
+    /// ごとにあるので（Jw_cad と同じ）、ほかのレイヤグループにある名前も付けられる
     fn add_layer(&mut self, index: usize, name: &str, values: &EditValues) -> Result<(usize, usize), EditError> {
         if !valid_layer_name(name) {
             return Err(EditError::at(
@@ -1413,22 +1431,31 @@ impl Editor {
                 format!("レイヤの名前 {name} は使えません（空・制御文字・「0-A」のような番号の形は使えません）"),
             ));
         }
-        if self.find_layer(index, &EditValue::Text(name.to_string()))?.is_some() {
-            return Err(EditError::at(index, "already-exists", format!("レイヤ {name} はすでにあります")));
-        }
         let reader = ValueReader::new(values, index);
         reader.allow(&LAYER_KEYS, "JWW のレイヤ")?;
         let group = match reader.value("group") {
             Some(value) => self.group(index, value)?,
             None => self.write_group(),
         };
+        if self.find_layer_in(group, name).is_some() {
+            return Err(EditError::at(
+                index,
+                "already-exists",
+                format!("レイヤ {name} はレイヤグループ {}（{group:X}）にすでにあります", self.group_name(group)),
+            ));
+        }
         let used = self.used_layers();
         // 書込みレイヤは非表示・表示のみにできないので、そうするレイヤには使わない
         let hidden = reader.bool("visible")? == Some(false) || reader.bool("locked")? == Some(true);
         let write_layer = self.write_layer(group);
+        // 名前のないレイヤ。Jw_cad は既定の名前を「3-1」のように番号のまま保存するので、それも名前のないもの
+        let unnamed = |layer: usize| {
+            let name = self.layer_name(group, layer).trim().to_uppercase();
+            name.is_empty() || name == format!("{group:X}-{layer:X}")
+        };
         let layer = (0..16)
             .filter(|&layer| !(hidden && layer == write_layer))
-            .find(|&layer| self.layer_name(group, layer).trim().is_empty() && !used.contains(&(group, layer)))
+            .find(|&layer| unnamed(layer) && !used.contains(&(group, layer)))
             .ok_or_else(|| {
                 EditError::at(
                     index,
@@ -1458,11 +1485,16 @@ impl Editor {
                 if !valid_layer_name(new_name) {
                     return Err(EditError::at(index, "invalid-value", format!("レイヤの名前 {new_name} は使えません")));
                 }
-                if self
-                    .find_layer(index, &EditValue::Text(new_name.to_string()))?
-                    .is_some_and(|found| found != (group, layer))
-                {
-                    return Err(EditError::at(index, "already-exists", format!("レイヤ {new_name} はすでにあります")));
+                // 名前はレイヤグループごと。同じレイヤグループのほかのレイヤの名前は付けられない
+                if self.find_layer_in(group, new_name).is_some_and(|found| found != layer) {
+                    return Err(EditError::at(
+                        index,
+                        "already-exists",
+                        format!(
+                            "レイヤ {new_name} はレイヤグループ {}（{group:X}）にすでにあります",
+                            self.group_name(group)
+                        ),
+                    ));
                 }
             }
             self.set_layer_name(index, group, layer, new_name)?;

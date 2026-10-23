@@ -40,7 +40,7 @@ Usage:
   zumen edit <file> <operations.json> -o <out> [--format <name>]
   zumen create <operations.json> -o <out.dxf|.dwg|.jww|.sfc|.p21|.sfz|.p2z> [--units mm|cm|m|inch|foot|unitless]
   zumen draft <spec.json> -o <out.dxf|.dwg|.jww|.sfc|.p21|.sfz|.p2z> [--target-version <version>] [--sheet <name>]
-              [--into <template.dxf|.dwg>]
+              [--into <template.dxf|.dwg|.jww|.sfc|.p21|.sfz|.p2z>]
 
 Every command that reads takes --max-bytes <n>, --max-entities <n> and --timeout <seconds>, to stop
 reading an untrusted drawing that is too large (P2Z and SFZ after unpacking), too complex or too slow.
@@ -87,10 +87,11 @@ JSON, and on an error write the number of the operation that failed.
 draft draws a drawing from a drawing spec (JSON: layers, blocks, sheets with a frame and title block, views at
 scales, and items such as text, dimensions, hatches, tables and grid lines, decision 0018) and writes it in the
 format of the output (JWW and SXF hold one sheet: --sheet chooses it, else the first); an error names the place in the spec (sheets[0].views[1].items[4]) and a code.
---into draws the spec into a DXF or DWG template in place, through the operations of edit, so that the template's
-entities, handles and data stay: a sheet named after a layout of the template is drawn into it, other sheets become
-new layouts, and the fields of a sheet fill the attributes of its title block. The output keeps the template's
-format and version.";
+--into draws the spec into a DXF, DWG, JWW or SXF template in place, through the operations of edit, so that the
+template's entities, handles and data stay: in DXF and DWG a sheet named after a layout of the template is drawn into
+it, other sheets become new layouts, and the fields of a sheet fill the attributes of its title block; JWW and SXF
+take one sheet (--sheet, else the first) on their paper, with views in layer groups of their scales (JWW) or
+sub-figures (SXF). The output keeps the template's format and version.";
 
 struct Args {
     command: String,

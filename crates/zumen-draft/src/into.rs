@@ -1,6 +1,7 @@
 //! 受け取った図面にその場で描く（draft_into、決定 0018）。仕様から描いた図面のモデル（`DxfDocument`）を、決定 0017
 //! の編集の操作（add・add-block・add-layout・add-text-style など）に写す。操作を `zumen::edit` で当てると、元の
-//! 図面のバイト列・ハンドル・拡張データ・zumen が読まない内容は残り、描いたものだけが加わる。
+//! 図面のバイト列・ハンドル・拡張データ・zumen が読まない内容は残り、描いたものだけが加わる。ここは DXF・DWG に
+//! 描く操作で、用紙を 1 枚だけ持つ JWW・SXF に描く操作は single.rs（決定 0027）。
 //!
 //! - 幾何は `draft` と同じ計算（描いたモデル）から写すので、2 つの経路で形は変わらない。
 //! - 描き込む先にある名前（レイヤ・線種・ブロック・寸法スタイル・レイアウト）は、その定義を使う。文字スタイルは、
@@ -10,8 +11,12 @@
 //!   ごとに足す。黒丸・なしの端の記号は寸法スタイルで表せないので、矢印になる（知らせる）。
 //! - 用紙の fields は、描き込む先のその用紙のブロック参照の属性（ATTRIB）も update で埋める。
 
+mod single;
+
+pub use single::{plan_jww, plan_sxf};
+
 use crate::dimension::{DimStyle, EndMark, TEXT_GAP, format_number};
-use crate::{DraftError, draft_on, spec};
+use crate::{DraftError, Target, draft_on, spec};
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeSet, HashMap};
 use zumen_core::{Notice, NoticeLevel, NoticeList};
@@ -42,7 +47,7 @@ pub fn plan(value: &Value, template: &DxfDocument) -> Result<Planned, DraftError
         ));
     }
     let spec = spec::parse(value)?;
-    let (drafted, mut drafter) = draft_on(value, Some(template))?;
+    let (drafted, mut drafter) = draft_on(value, Some(&Target::of(template)))?;
     let default_style = drafter.text_style(None);
     let mut planner = Planner::new(&drafter.dimension_looks);
     planner.notices = NoticeList::from_notices(&drafted.notices);
@@ -449,44 +454,12 @@ impl Planner {
                 value
             }
             DxfEntityData::Solid { vtx0, vtx1, vtx2, vtx3, .. } => {
-                // SOLID の頂点の順は 0・1・3・2。編集では塗りのハッチングにする
-                let mut ring: Vec<[f64; 3]> = Vec::new();
-                for p in [vtx0, vtx1, vtx3, vtx2] {
-                    if ring.last().is_none_or(|last| last != p) && ring.first() != Some(p) {
-                        ring.push(*p);
-                    }
-                }
-                if ring.len() < 3 {
-                    return None;
-                }
-                let ring: Vec<Value> = ring.iter().map(p2).collect();
+                let ring: Vec<Value> = solid_ring([vtx0, vtx1, vtx2, vtx3])?.iter().map(p2).collect();
                 json!({"kind": "hatch", "boundaries": [ring], "pattern": "SOLID"})
             }
             DxfEntityData::Hatch(hatch) => {
-                let boundaries: Vec<Value> =
-                    hatch.paths.iter().map(|path| Value::Array(path.points.iter().map(p2).collect())).collect();
-                let mut value = json!({"kind": "hatch", "boundaries": boundaries});
-                if hatch.solid_fill {
-                    value["pattern"] = json!("SOLID");
-                } else {
-                    // 模様の線は角度・尺度を掛けた後の値なので、尺度 1・角度 0 の PAT の線に戻す（ずれは線の向きの座標系）
-                    let lines: Vec<Value> = hatch
-                        .pattern_lines
-                        .iter()
-                        .map(|line| {
-                            let (sin, cos) = (-line.angle).to_radians().sin_cos();
-                            let offset = [
-                                line.offset[0] * cos - line.offset[1] * sin,
-                                line.offset[0] * sin + line.offset[1] * cos,
-                            ];
-                            let mut definition = vec![line.angle, line.base[0], line.base[1], offset[0], offset[1]];
-                            definition.extend(&line.dashes);
-                            json!(definition)
-                        })
-                        .collect();
-                    value["pattern"] = json!(hatch.pattern_name);
-                    value["patternLines"] = Value::Array(lines);
-                }
+                let mut value = hatch_value(hatch, &|p| [p[0], p[1]]);
+                value["kind"] = json!("hatch");
                 value
             }
             DxfEntityData::Insert(insert) => {
@@ -683,6 +656,45 @@ impl Planner {
             }
         }
     }
+}
+
+/// SOLID の輪郭（頂点の順は 0・1・3・2）。重なる頂点を除き、3 点に満たなければ None。編集では塗りのハッチングにする
+fn solid_ring(vertices: [&[f64; 3]; 4]) -> Option<Vec<[f64; 3]>> {
+    let [vtx0, vtx1, vtx2, vtx3] = vertices;
+    let mut ring: Vec<[f64; 3]> = Vec::new();
+    for p in [vtx0, vtx1, vtx3, vtx2] {
+        if ring.last().is_none_or(|last| last != p) && ring.first() != Some(p) {
+            ring.push(*p);
+        }
+    }
+    (ring.len() >= 3).then_some(ring)
+}
+
+/// HATCH の境界と模様（hatch の操作の値）。at は点を、置く場所の座標にする
+fn hatch_value(hatch: &zumen_dxf::DxfHatch, at: &dyn Fn(&[f64]) -> [f64; 2]) -> Value {
+    let boundaries: Vec<Value> =
+        hatch.paths.iter().map(|path| Value::Array(path.points.iter().map(|p| json!(at(p))).collect())).collect();
+    let mut value = json!({"boundaries": boundaries});
+    if hatch.solid_fill {
+        value["pattern"] = json!("SOLID");
+    } else {
+        // 模様の線は角度・尺度を掛けた後の値なので、尺度 1・角度 0 の PAT の線に戻す（ずれは線の向きの座標系）
+        let lines: Vec<Value> = hatch
+            .pattern_lines
+            .iter()
+            .map(|line| {
+                let (sin, cos) = (-line.angle).to_radians().sin_cos();
+                let offset = [line.offset[0] * cos - line.offset[1] * sin, line.offset[0] * sin + line.offset[1] * cos];
+                let base = at(&line.base);
+                let mut definition = vec![line.angle, base[0], base[1], offset[0], offset[1]];
+                definition.extend(&line.dashes);
+                json!(definition)
+            })
+            .collect();
+        value["pattern"] = json!(hatch.pattern_name);
+        value["patternLines"] = Value::Array(lines);
+    }
+    value
 }
 
 /// MTEXT の配置（71 の 1〜9）の名前

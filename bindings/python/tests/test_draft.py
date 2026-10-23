@@ -158,9 +158,13 @@ def test_drafts_into_a_template_and_fills_its_title_block(tmp_path):
         path = tmp_path / f"template.{to}"
         path.write_bytes(template)
         assert zumen.draft_into(INTO, path).data == drafted.data
-    with pytest.raises(zumen.DraftError) as raised:
-        zumen.draft_into(INTO, zumen.create("jww").data)
-    assert raised.value.code == "unsupported-format"
+    # JWW and SXF templates take one sheet on their paper; they have no attributes for the fields
+    for to in ["jww", "sfc"]:
+        drafted = zumen.draft_into(INTO, zumen.create(to).data)
+        assert drafted.format == to
+        texts = {text["text"] for text in zumen.read(drafted.data).texts()}
+        assert "10,000" in texts, texts
+        assert "unused-field" in {notice["code"] for notice in drafted.notices}
 
 
 def test_drafted_into_dxf_passes_the_audit_of_ezdxf(tmp_path):

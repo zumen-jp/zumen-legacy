@@ -13,6 +13,8 @@ serde_json.workspace = true
 zumen-convert.workspace = true
 zumen-core.workspace = true
 zumen-dxf.workspace = true
+zumen-jww.workspace = true
+zumen-sxf.workspace = true
 
 [lints]
 workspace = true

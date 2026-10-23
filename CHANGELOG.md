@@ -4,6 +4,17 @@ All packages share one version during 0.x.
 
 ## Unreleased
 
+- Rust, Python, the command line and the MCP server: draw a drawing spec into JWW and SXF (SFC, P21, SFZ, P2Z)
+  templates too (`zumen::draft_into`, `zumen.draft_into`, `zumen draft --into template.jww`, `into` of
+  `draft_drawing`), through their edits ([decision 0027](docs/decisions/0027-draft-into-jww-and-sxf.md),
+  [Drawing into a template](docs/drafting.md#drawing-into-a-template)). One sheet is drawn on the template's paper
+  (others and a different `paper` are reported). JWW views go into the layer group of their scale, or a group without
+  entities set to it, and SXF views into sub-figures placed at their scales; dimensions, hatches and blocks become the
+  format's own, texts are placed by their boxes, line types become the drawing's nearest ones, and attribute values
+  become text, each reported. `zumen_draft::plan_jww` and `zumen_draft::plan_sxf` make the operations. Edits change
+  in two places: SXF takes `"kind": "viewport"`, which adds an empty sub-figure placed on the sheet (`name`,
+  `center`, `viewCenter`, `scale`), and a JWW layer name belongs to its layer group, as in Jw_cad (`add-layer` and a
+  rename take a name another group has, and a name in an `add` to `group:<g>` is looked up in that group).
 - Browsers: a new package, `@zumenjs/pdf`, draws PDF pages under the drawing with pdf.js. `pdfUnderlayRenderer` is an
   `UnderlayRenderer` for underlays of kind `pdf` (the pages of PDF drawings, and the PDF underlays of DXF drawings):
   it renders the requested region of a page at the requested scale, cancels the pdf.js render when the request is

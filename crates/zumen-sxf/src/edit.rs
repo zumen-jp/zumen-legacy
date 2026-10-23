@@ -11,6 +11,8 @@
 //! - SXF にない指定（レイヤから継ぐ色・線幅、レイヤの色・線種・線幅）は、いちばん近い値にして知らせる。
 //! - ブロック定義は作図部品（複合図形定義の種別 4）で、container の block:<名前> で中に要素を足せる。寸法は寸法の
 //!   フィーチャ、ハッチングは見えない複合曲線の上の塗り・ハッチング（ユーザ定義）にする（docs/decisions/0025）。
+//! - ビューポートは、空の部分図（種別 1）とその用紙の上の配置にする。中には figure:<名前> で実寸の要素を足す
+//!   （docs/decisions/0027）。
 
 mod dimension;
 mod hatch;
@@ -32,7 +34,7 @@ use zumen_core::edit::{
 use zumen_core::{NoticeLevel, NoticeList, js};
 
 /// 足せる要素の種類
-const ADDABLE: [&str; 11] = [
+const ADDABLE: [&str; 12] = [
     "line",
     "polyline",
     "arc",
@@ -44,6 +46,7 @@ const ADDABLE: [&str; 11] = [
     "dimension",
     "hatch",
     BLOCK_REFERENCE,
+    "viewport",
 ];
 
 /// 入れ子の複合図形の配置を辿る深さの上限（読み取りの複合図形の配置と同じ）
@@ -572,6 +575,10 @@ impl Editor {
                 reader.allow(&keys(&zumen_core::edit::hatch::KEYS), "ハッチング")?;
                 self.hatch(index, &reader, &figure, origin, style)?
             }
+            "viewport" => {
+                reader.allow(&keys(&["name", "center", "width", "height", "viewCenter", "scale"]), "ビューポート")?;
+                self.viewport(index, &reader, &figure, style)?
+            }
             _ => {
                 reader.allow(&keys(&["block", "position", "rotation", "scale"]), "複合図形の配置")?;
                 let name = reader.required("block", reader.name("block")?)?;
@@ -610,7 +617,7 @@ impl Editor {
         };
         let unused = match kind {
             "point" | "text" => reader.has("lineType") || reader.has("lineWidth"),
-            BLOCK_REFERENCE => reader.has("color") || reader.has("lineType") || reader.has("lineWidth"),
+            BLOCK_REFERENCE | "viewport" => reader.has("color") || reader.has("lineType") || reader.has("lineWidth"),
             _ => false,
         };
         if unused {
@@ -724,21 +731,83 @@ impl Editor {
         (self.drawing.document.user_line_types.len() + 16) as f64
     }
 
-    /// 空のブロック定義を作図部品（複合図形定義の種別 4）として足す（docs/decisions/0017）。複合図形定義は基点を
-    /// 持たない（部品の座標の原点を配置の点に置く）ので、basePoint は後の操作で中に足す要素の座標から引く
-    fn add_block(&mut self, index: usize, name: &str, values: &EditValues) -> Result<(), EditError> {
-        let reader = ValueReader::new(values, index);
-        reader.allow(&["basePoint"], "作図部品")?;
+    /// ビューポート（docs/decisions/0027）。DXF のビューポートがモデル空間を映すように、空の部分図（数学座標系、
+    /// 複合図形定義の種別 1）を足し、viewCenter が center に 1:scale で映るよう用紙に配置する。中には container の
+    /// figure:<名前> で実寸の要素を足す。部分図は枠で切り取らないので、width・height は確かめるだけで使わない
+    fn viewport(
+        &mut self,
+        index: usize,
+        reader: &ValueReader<'_>,
+        figure: &Option<String>,
+        mut style: Styled,
+    ) -> Result<SxfFeature, EditError> {
+        if figure.is_some() {
+            return Err(EditError::at(
+                index,
+                "invalid-value",
+                "ビューポート（部分図）は用紙（container の sheet）に足してください",
+            ));
+        }
+        let center = reader.required("center", reader.point("center")?)?;
+        let view_center = reader.required("viewCenter", reader.point("viewCenter")?)?;
+        let scale = reader.positive("scale")?.unwrap_or(1.0);
+        let width = reader.positive("width")?;
+        let height = reader.positive("height")?;
+        let name = match reader.name("name")? {
+            Some(name) => {
+                self.new_figure_name(index, name, "部分図")?;
+                name.to_string()
+            }
+            None => (1..)
+                .map(|number| format!("部分図 {number}"))
+                .find(|name| !self.drawing.document.sub_figures.contains(name))
+                .expect("使われていない名前"),
+        };
+        if width.is_some() || height.is_some() {
+            self.notices.add(
+                NoticeLevel::Info,
+                "edit-viewport-clip",
+                "SXF の部分図は枠で切り取らないため、ビューポートの width・height は使っていません",
+            );
+        }
+        self.apply_common(index, reader, &mut style)?;
+        let id = self.temporary();
+        let feature = SfigOrg { id, name: name.clone(), flag: 1.0 };
+        self.drawing.document.sub_figures.set(name.clone(), SubFigure { feature, members: Vec::new() });
+        // 配置: 部分図の座標 p は用紙の 配置点 + p / scale（フィーチャ仕様編 3-5）
+        Ok(SxfFeature::SfigLocate {
+            id: style.id,
+            layer: style.layer,
+            name,
+            x: center[0] - view_center[0] / scale,
+            y: center[1] - view_center[1] / scale,
+            angle: 0.0,
+            ratio_x: 1.0 / scale,
+            ratio_y: 1.0 / scale,
+        })
+    }
+
+    /// 足す複合図形の名前を確かめる（空・制御文字・$$ で始まる名前と、図面にある名前は使えない）
+    fn new_figure_name(&self, index: usize, name: &str, kind: &str) -> Result<(), EditError> {
         if name.trim().is_empty() || name.chars().any(char::is_control) || name.starts_with("$$") {
             return Err(EditError::at(
                 index,
                 "invalid-value",
-                format!("作図部品の名前 {name} は使えません（空、制御文字、$$ で始まる名前は使えません）"),
+                format!("{kind}の名前 {name} は使えません（空、制御文字、$$ で始まる名前は使えません）"),
             ));
         }
         if self.drawing.document.sub_figures.contains(name) {
             return Err(EditError::at(index, "already-exists", format!("複合図形 {name} はすでにあります")));
         }
+        Ok(())
+    }
+
+    /// 空のブロック定義を作図部品（複合図形定義の種別 4）として足す（docs/decisions/0017）。複合図形定義は基点を
+    /// 持たない（部品の座標の原点を配置の点に置く）ので、basePoint は後の操作で中に足す要素の座標から引く
+    fn add_block(&mut self, index: usize, name: &str, values: &EditValues) -> Result<(), EditError> {
+        let reader = ValueReader::new(values, index);
+        reader.allow(&["basePoint"], "作図部品")?;
+        self.new_figure_name(index, name, "作図部品")?;
         let base = reader.point("basePoint")?.unwrap_or([0.0; 3]);
         let id = self.temporary();
         let feature = SfigOrg { id, name: name.to_string(), flag: 4.0 };
