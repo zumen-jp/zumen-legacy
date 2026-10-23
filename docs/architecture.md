@@ -24,13 +24,14 @@ bytes ─▶ format reader ─▶ native model ─▶ toScene ─▶ Scene
 
 | Package | Responsibility |
 | --- | --- |
-| `@zumenjs/core` | What `zumen-core` covers: the `Scene` model and its types and JSON (`sceneToJson`, `sceneFromJson`), `NoticeList`, `readDrawing` and the `DrawingReader` interface (with the optional `load`), layer visibility (`isEntityVisible`) and distance measurement (`measureDistance`, `toReal`). Geometry helpers are exported from `@zumenjs/core/geometry` and text layout from `@zumenjs/core/text`. No DOM. |
-| `@zumenjs/viewer` | The 2D engine that applications embed: the Canvas 2D renderer (`renderScene`, `renderHighlights`), hit testing and snapping (`HitIndex`), and `DrawingViewer` with the view, the state, input handlers, tools and style. No text for people and no CSS. |
+| `@zumenjs/core` | What `zumen-core` covers: the `Scene` model and its types and JSON (`sceneToJson`, `sceneFromJson`), `NoticeList`, `readDrawing` and the `DrawingReader` interface (with the optional `load`), layer visibility (`isEntityVisible`), distance measurement (`measureDistance`, `toReal`), and drawing markup (`markupFromJson`, `markupToJson`, `markupShapes`, `drawingHash`, [Drawing markup](markup.md)). Geometry helpers are exported from `@zumenjs/core/geometry` and text layout from `@zumenjs/core/text`. No DOM. |
+| `@zumenjs/viewer` | The 2D engine that applications embed: the Canvas 2D renderer (`renderScene`, `renderHighlights`, `renderPrimitives`), hit testing and snapping (`HitIndex`), `DrawingViewer` with the view, the state, input handlers, tools and style, and `MarkupLayer` with the markup tools, built on the public API of `DrawingViewer`. No text for people and no CSS. |
 | `@zumenjs/reader` | Every format through the WebAssembly build of the Rust readers: `initReader` loads the module, `reader` and `createReader({ limits })` are `DrawingReader`s, `readScene` reads with limits (`LimitError`), `detectDrawing` tells the format without the module, and `ReaderWorker` reads in a Web Worker (`@zumenjs/reader/worker`). |
 | `@zumenjs/sxf` | Not published; the reference for the tests. SFC and P21 parsing into the SXF feature model (`parseSfc`, `parseP21` → `SxfDrawing`), conversion to a scene (`sxfToScene`), and the `sxf` reader. |
 | `@zumenjs/jww` | Not published; the reference for the tests. JWW parsing into the JWW document model (`readJww` → `JwwDocument`), conversion to a scene (`jwwToScene`), and the `jww` reader. |
 | `@zumenjs/dxf` | Not published; the reference for the tests. DXF parsing (ASCII and binary) into the AutoCAD drawing model (`parseDxf` → `DxfDocument`), conversion of model space or a layout to a scene (`dxfToScene`), and the `dxf` reader. Their Rust port (`zumen-dxf`) also draws DWG. |
-| `@zumenjs/react` | Hooks only: `useDrawingViewer` (the engine on an element), `useViewerState` (a part of its state), `useViewerEvent` (its events) and `useDrawing` (read a file, waiting for readers that load). |
+| `@zumenjs/pdf` | Draws PDF pages under the scene with pdf.js: `pdfUnderlayRenderer`, an `UnderlayRenderer` for underlays of kind `pdf` (the pages of PDF drawings and the PDF underlays of DXF drawings) that renders the requested region of a page and turns optional content groups on and off as content layers are shown and hidden. It reads nothing: the entities of a page come from the reader. |
+| `@zumenjs/react` | Hooks only: `useDrawingViewer` (the engine on an element), `useViewerState` (a part of its state), `useViewerEvent` (its events), `useDrawing` (read a file, waiting for readers that load), and `useMarkupLayer`, `useMarkupState` and `useMarkupEvent` (the markup layer). |
 
 1. Format packages depend only on `@zumenjs/core`, never on each other.
    For example, `@zumenjs/jww` keeps its own copy of the SXF-compatible colors and line types.
@@ -50,6 +51,30 @@ bytes ─▶ format reader ─▶ native model ─▶ toScene ─▶ Scene
    they create the engine, read its state and events, and read files. The packages ship no CSS and no text for
    people; the interface belongs to the application, and the playground has a sample written only against the public
    API ([decision 0005](decisions/0005-browser-packages-for-embedding.md)).
+5. `@zumenjs/pdf` depends on `@zumenjs/viewer` (the `UnderlayRenderer` it implements) and `@zumenjs/core`, and on
+   pdf.js for its types only. It is a renderer, not a reader: it does not read entities from a PDF (no
+   `getOperatorList` or `getTextContent` for them) and does not depend on `@zumenjs/reader`, so a page has the same
+   entities and ids in browsers and on servers ([decision 0020](decisions/0020-pdf-drawings-in-rust.md)). The
+   application opens the documents with its own pdf.js and passes them in
+   ([decision 0029](decisions/0029-pdf-js-owned-by-the-application.md)).
+
+### npm dependencies
+
+The published packages depend on each other only, except for pdf.js. Each dependency is permissive and works in
+browsers, and is recorded here with the reason.
+
+| Package | Used by | License | Why |
+| --- | --- | --- | --- |
+| [`pdfjs-dist`](https://github.com/mozilla/pdf.js) 5 or 6 | `@zumenjs/pdf`, as a peer dependency for types only | Apache-2.0 | Renders PDF pages in browsers, with a worker that parses the file, region rendering through a transform, cancellation (`RenderTask.cancel`) and optional content (`OptionalContentConfig`) ([decisions 0002](decisions/0002-pdf-and-parapdf.md) and [0020](decisions/0020-pdf-drawings-in-rust.md)). Checked on 2026-10-23 with 6.4.299: the tests draw pages with 5.0.375 and 6.4.299 in Chromium, Firefox and WebKit. |
+
+pdf.js is the application's: it installs `pdfjs-dist`, starts the worker and opens the documents, and `@zumenjs/pdf`
+calls only methods of those documents, so no pdf.js code is in zumen's packages. `pdfjs-dist` also carries data files
+that pdf.js reads from URLs the application sets, each folder with the licenses of its files: among them Adobe's
+CMaps (BSD-3-Clause) in `cmaps`, the fonts of PDFium (BSD-3-Clause) and Liberation Sans (GPL-2.0 with the font
+exception) in `standard_fonts`, and the JBIG2 decoder of PDFium (BSD-3-Clause), OpenJPEG (BSD-2-Clause) and qcms (MIT)
+in `wasm`. zumen serves none of them. An application that does not serve `standard_fonts` leaves out the Liberation
+fonts, and pdf.js then draws the standard 14 fonts with fonts of the system. The optional dependency of `pdfjs-dist`,
+`@napi-rs/canvas` (MIT), is for Node.js only.
 
 ## The scene model
 
@@ -214,7 +239,8 @@ the state, the input handlers and the tools are separate, and each can be used o
 - **Tools.** A `ViewerTool` receives pointer events in paper millimeters and key presses, asks for the entities and
   the snap point under the pointer, changes the state and draws on the overlay canvas. The built-in `select`,
   `measure` and `pan` tools use the same interface; `addTool` and `setTool` add and choose an application's own
-  (markup, pins, areas).
+  (markup, pins, areas). A tool with `dragPan: false` receives left-button drags, and one with
+  `doubleClickZoom: false` receives both clicks of a double click without the view zooming.
 - **Style.** CSS custom properties on the element, `--zumen-<role>-dark` and `--zumen-<role>-light` for the
   background, the selection, the hovered entity, named highlights (also per name), the measurement and the sheet
   frame, and `--zumen-fit-padding`, so the drawing follows the application's theme; `setStyle` overrides them. The
@@ -222,23 +248,35 @@ the state, the input handlers and the tools are separate, and each can be used o
   inverted according to its lightness, with the rules of `renderScene` and `zumen-render`.
 - **Queries.** `entitiesAt(x, y)`, `entitiesIn(box)` and `snapAt(x, y)` for applications that handle input
   themselves.
-- **Overlays.** `addOverlay(painter)` draws on top of the drawing whatever the tool; `invalidate()` redraws it.
+- **Overlays.** `addOverlay(painter)` draws on top of the drawing whatever the tool; `invalidate()` redraws it. The
+  painter receives the canvas size and device pixel ratio, for `renderPrimitives`, which draws primitives of the scene
+  model in their own colors.
+- **Markup.** `MarkupLayer` draws and edits a markup document (redlines, revision clouds, notes, review findings and
+  photo positions in paper millimeters of a view) with an overlay and the queries above, as an application would; its
+  state is a store with a `change` event and undo, its tools are factories (`redlineTool`, `cloudTool`, `textTool`,
+  `findingTool`, `photoTool`, `markupEditTool`) that pass drafts to the application's `create` callback, and its
+  colors come from `--zumen-markup-*` ([Drawing markup](markup.md),
+  [decision 0021](decisions/0021-drawing-markup.md)).
 - **Underlays.** An `UnderlayRenderer` (`underlayRenderer` in the options, `setUnderlayRenderer`) draws a region of an
   underlay's content at a scale into a canvas, and stops when the request's `AbortSignal` is aborted. The engine asks
   for the whole content coarsely and for the visible region sharply once the view settles, stretches what it has while
   the view moves, and aborts the requests the view no longer needs. `refreshUnderlays(ids)` asks again, the `underlay`
   event tells which requests finished or failed, and `imageUnderlayRenderer(load)` draws images that the application
-  loads ([decision 0022](decisions/0022-underlays-drawn-by-a-region-renderer.md)).
+  loads ([decision 0022](decisions/0022-underlays-drawn-by-a-region-renderer.md)). `pdfUnderlayRenderer` of
+  `@zumenjs/pdf` draws PDF pages with the application's pdf.js, and `optionalContent` connects content layers to
+  optional content groups.
 - **Readers that load.** A `DrawingReader` may have `load()`, as the WebAssembly reader of `@zumenjs/reader` does; `useDrawing` waits
   for the one that recognizes the file.
-- **React.** `useDrawingViewer`, `useViewerState(viewer, selector)`, `useViewerEvent(viewer, type, listener)` and
-  `useDrawing(file, readers, options)`.
+- **React.** `useDrawingViewer`, `useViewerState(viewer, selector)`, `useViewerEvent(viewer, type, listener)`,
+  `useDrawing(file, readers, options)`, and `useMarkupLayer`, `useMarkupState` and `useMarkupEvent` for markup.
 - **Text.** The engine has none: the canvas label (`label`, `setLabel`) and every other text come from the
   application. Scenes carry Japanese entity types, property labels and notice messages for people, and next to them
   the stable keys of [Stable keys](#stable-keys) (`kind`, `key`, `raw` and `Notice.code`) for applications.
 
 The playground's 2D sample (`playground/drawing-sample.tsx`, with `layer-list.tsx` and `drawing-sample.css`) is a
 complete viewer, with a toolbar, a layer list, properties, notices and a status bar, written only against this API.
+Its markup sample (`markup-sample.tsx` and `markup-sample.css`) adds the markup tools, a list of items, a panel for a
+finding's text and status, and saving and opening a markup document.
 
 ## The Rust implementation
 
@@ -579,8 +617,8 @@ Cargo.lock.
 - `scripts/wasm.mjs` builds the WebAssembly reader into `packages/reader/wasm`, which is not in Git, with cargo and
   `wasm-bindgen-cli`. `pnpm dev` and `pnpm run check` run it first; `pnpm test`, the type checker and the builds need
   its output. When the Rust code has not changed, it takes well under a second.
-- `pnpm run build` compiles the packages in dependency order (core, then viewer, sxf, jww, dxf and reader, then react)
-  into each `dist`.
+- `pnpm run build` compiles the packages in dependency order (core, then viewer, sxf, jww, dxf and reader, then pdf and
+  react) into each `dist`.
 - `pnpm test` runs two Vitest projects: the unit tests in Node.js, and the tests of the engine, the hooks and the
   reader's worker (`*.browser.test.*`) in Chromium, Firefox and WebKit through Playwright, with synthetic pointer,
   wheel and key events and the pixels of the canvas. The browsers of the Playwright version in `package.json` (the

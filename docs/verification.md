@@ -492,6 +492,26 @@ WebKit sources with Playwright's patches; it is not Safari, and nothing here was
   touch pointers), trackpad pinching in Safari, wheel deltas in lines or pages (`deltaMode` 1 and 2), the speed of a
   real wheel in each browser, and fonts installed by the user in Safari.
 
+## PDF pages with pdf.js
+
+Checked on 2026-10-23 on macOS 27.0.1 (Apple M2 Pro), Node.js 24.21.0, Vite 8.3.4 and Playwright 1.64.0 with its
+Chromium 156 (headless shell), Firefox 157.0 and WebKit 27.2, for `@zumenjs/pdf`
+([decision 0029](decisions/0029-pdf-js-owned-by-the-application.md)).
+
+- The 10 tests of `packages/pdf/tests/renderer.browser.test.ts` pass in all three browsers three times in a row with
+  `pdfjs-dist` 6.4.299, and once with 5.0.375 in its place. They draw a three-page PDF written in the test: a region
+  at a scale, a page turned by `/Rotate 90`, a page stretched over an underlay of another size, two optional content
+  groups (one hidden by default) switched by content layers, the appearance of an annotation, the page background,
+  cancellation while `render` is being called and while pdf.js waits for the page, documents asked for once per file,
+  and `DrawingViewer` drawing the page under a line, asking for the visible region sharply at zoom 200 and redrawing
+  when content layers change.
+- In the development server of Vite 8, `new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url)` resolves to
+  the file of the package, and `pdfjs-dist/webpack.mjs` starts its worker and opens a document. The README recommends
+  `?url` for Vite, which the tests use.
+- Not checked: PDF drawings written by CAD plotters and scans (there are none in `ZUMEN_SAMPLES`, and the playground
+  waits for the PDF reader of [#90](https://github.com/zumenjs/zumen/issues/90)), the time pdf.js takes on large
+  sheets, Vite's production build and webpack, the legacy build of pdf.js, and Safari.
+
 ## DXF writing
 
 Checked on 2026-10-20 on macOS 27 (Apple Silicon) with Rust 1.99.0, Python 3.14.8 and ezdxf 1.4.5.
