@@ -43,7 +43,7 @@ Choices made before this folder existed are described in [the architecture notes
 - [0012: Edit drawings in place, keeping everything an operation does not name, and write every format zumen reads](0012-edit-in-place-and-write-every-format.md) (2026-10-20, Accepted)
 - [0013: Keep zumen free of formats that need permission and of non-permissive dependencies, and move ST-Bridge out](0013-st-bridge-out-of-zumen.md) (2026-10-20, Accepted)
 - [0014: Verify native Windows builds and CAD interoperability](0014-verify-on-native-windows.md) (2026-10-20, Accepted)
-- [0015: Analyze drawings in zumen-core from the scene: closed regions first, then tables, then checks against CAD standards](0015-analysis-in-zumen-core.md) (2026-10-21, Proposed)
+- [0015: Analyze drawings in zumen-core from the scene: closed regions first, then tables, then checks against CAD standards](0015-analysis-in-zumen-core.md) (2026-10-21, Accepted)
 - [0016: Send scene JSON from the reader worker and decode it on the page](0016-send-worker-scenes-as-json.md) (2026-10-21, Accepted)
 - [0017: Let edits add block definitions, dimensions, styles, hatches, text options, attributes, sheets and leaders to DXF and DWG](0017-add-annotations-and-definitions.md) (2026-10-22, Proposed)
 - [0018: Draw complete sheets from a declarative drawing spec, in a drafting kit that builds the AutoCAD drawing model](0018-drafting-kit.md) (2026-10-22, Proposed)

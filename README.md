@@ -326,9 +326,15 @@ sending them anywhere.
 4. DWG, read into the same AutoCAD object model (1.0 to 2018 done in Rust and in the browser through WebAssembly).
 5. Writing, converting and editing drawings (every format to DXF, DWG, JWW and SXF, and editing all four in place,
    done in Rust), and drafting whole sheets from a drawing spec ([decision 0018](docs/decisions/0018-drafting-kit.md)).
-6. Analysis (closed regions such as rooms with their areas, ruled tables, checks against CAD standards and the
-   comparison of revisions done, [decision 0015](docs/decisions/0015-analysis-in-zumen-core.md)), markup and PDF
-   drawings next.
+6. Analysis: closed regions such as rooms with their areas, ruled tables, checks against CAD standards and the
+   comparison of revisions (done, [decision 0015](docs/decisions/0015-analysis-in-zumen-core.md)).
+7. Raster content and PDF drawings ([decision 0002](docs/decisions/0002-pdf-and-parapdf.md)), in this order: an
+   underlay in `@zumenjs/core` that a renderer passed in draws under the scene, and entities that take part in hit
+   testing and snapping without being drawn; the images that the readers skip today (DXF IMAGE and underlays, SXF
+   raster images, JWW images in text); then `@zumenjs/pdf`, PDF drawings that pdf.js draws with the snapping,
+   measurement and layers of zumen on top.
+8. Drawing markup (redlines, revision clouds, review findings, photo positions), kept in paper millimeters so that
+   CAD and PDF drawings share it. It waits for a decision on how markup is stored and where it lives in the packages.
 
 ## Documentation
 
@@ -347,14 +353,6 @@ sending them anywhere.
 See [CONTRIBUTING.md](CONTRIBUTING.md). Please never attach confidential drawings to issues or pull requests.
 Report security issues as described in [SECURITY.md](SECURITY.md).
 
-## License
-
-To be decided before the first public release.
-Third-party notices: [packages/jww/THIRD_PARTY_NOTICES.md](packages/jww/THIRD_PARTY_NOTICES.md),
-[packages/dxf/THIRD_PARTY_NOTICES.md](packages/dxf/THIRD_PARTY_NOTICES.md).
-The bundled font of `zumen-render` is BIZ UDGothic under the SIL Open Font License 1.1
-([crates/zumen-render/fonts/OFL.txt](crates/zumen-render/fonts/OFL.txt)).
-
 ## Acknowledgments
 
 - The JWW reader follows the file layout documented in [ezjww](https://github.com/monozukuri-ai/ezjww) (MIT).
@@ -366,3 +364,7 @@ The bundled font of `zumen-render` is BIZ UDGothic under the SIL Open Font Licen
 ## License
 
 MIT — see [LICENSE](LICENSE). Contributions follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+Third-party notices: [packages/jww/THIRD_PARTY_NOTICES.md](packages/jww/THIRD_PARTY_NOTICES.md),
+[packages/dxf/THIRD_PARTY_NOTICES.md](packages/dxf/THIRD_PARTY_NOTICES.md).
+The bundled font of `zumen-render` is BIZ UDGothic under the SIL Open Font License 1.1
+([crates/zumen-render/fonts/OFL.txt](crates/zumen-render/fonts/OFL.txt)).
