@@ -33,6 +33,7 @@ use crate::write::rewrite::Source;
 use crate::write::sections::{CLASSES_END, CLASSES_SENTINEL, Framed, HEADER_END, HEADER_SENTINEL};
 use encoding_rs::Encoding;
 use std::collections::{HashMap, HashSet};
+use zumen_core::edit::style::{LineTypeInput, TextStyleInput};
 use zumen_core::edit::{
     BLOCK_REFERENCE, EditColor, EditError, EditLineWidth, EditOperation, EditValue, EditValues, Edited, StyleKind,
     ValueReader,
@@ -2675,27 +2676,25 @@ impl Editor {
         };
         match kind {
             StyleKind::Text => {
-                reader.allow(&["font", "bigFont", "height", "widthFactor", "oblique"], "文字スタイル")?;
-                let font = reader.name("font")?.unwrap_or("txt");
-                let big_font = reader.text("bigFont")?.unwrap_or("");
-                let height = reader.number("height")?.unwrap_or(0.0);
-                if height < 0.0 {
-                    return Err(EditError::at(index, "invalid-value", "height は 0 以上の数にしてください"));
-                }
-                let (file, family) = zumen_dxf::font_file(font);
+                let input = TextStyleInput::read(&reader, index)?;
+                let (file, family) = zumen_dxf::font_file(input.font.as_deref().unwrap_or("txt"));
                 let control = self.tables.style_control;
                 let style = TextStyle {
                     common: common(control),
                     name: EntryName::new(self.raw_text(name)),
                     shape: false,
                     vertical: false,
-                    height,
-                    width: reader.positive("widthFactor")?.unwrap_or(1.0),
-                    oblique: reader.number("oblique")?.unwrap_or(0.0).to_radians(),
+                    height: input.height,
+                    width: input.width_factor,
+                    oblique: input.oblique.to_radians(),
                     generation: 0,
                     last_height: 2.5,
                     font: self.raw_text(&file),
-                    bigfont: if big_font.is_empty() { RawText::empty(self.version) } else { self.raw_text(big_font) },
+                    bigfont: if input.big_font.is_empty() {
+                        RawText::empty(self.version)
+                    } else {
+                        self.raw_text(&input.big_font)
+                    },
                     xref_block: href(5, 0),
                 };
                 // TrueType の書体の名前は拡張データ（ACAD の 1000 と 1071。モデルの書き出しと同じ）
@@ -2722,25 +2721,12 @@ impl Editor {
                 self.styles.insert(key, handle);
             }
             StyleKind::LineType => {
-                reader.allow(&["description", "pattern"], "線種")?;
-                let description = reader.text("description")?.unwrap_or("");
-                let pattern = match reader.value("pattern") {
-                    None => Vec::new(),
-                    Some(EditValue::Numbers(values)) if values.len() <= 12 => values.clone(),
-                    Some(EditValue::Number(value)) => vec![*value],
-                    Some(_) => {
-                        return Err(EditError::at(
-                            index,
-                            "invalid-value",
-                            "pattern は 12 個までの数の配列にしてください",
-                        ));
-                    }
-                };
+                let LineTypeInput { description, pattern } = LineTypeInput::read(&reader, index)?;
                 let control = self.tables.linetype_control;
                 let linetype = Linetype {
                     common: common(control),
                     name: EntryName::new(self.raw_text(name)),
-                    description: self.raw_text(description),
+                    description: self.raw_text(&description),
                     pattern_length: pattern.iter().map(|dash| dash.abs()).sum(),
                     alignment: b'A',
                     dashes: pattern
@@ -2765,7 +2751,6 @@ impl Editor {
                 self.linetypes.insert(key, handle);
             }
             StyleKind::Dimension => {
-                reader.allow(&zumen_dxf::dimension::STYLE_KEYS, "寸法スタイル")?;
                 let variables = zumen_dxf::dimension::style_variables(&reader, index)?;
                 let from = reader.name("from")?.unwrap_or("Standard");
                 let template = self.dimstyles.get(&upper(from)).copied().ok_or_else(|| {

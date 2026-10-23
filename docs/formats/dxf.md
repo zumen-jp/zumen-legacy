@@ -503,8 +503,11 @@ stay, and an edit without operations gives the same bytes.
   `arrowSize` DIMASZ, `extensionOffset` DIMEXO, `extensionExtension` DIMEXE, `textGap` DIMGAP, `textAbove` DIMTAD,
   `decimals` DIMDEC (not in R12, `edit-no-dimdec`), `suppressTrailingZeros` DIMZIN 8, `tickSize` DIMTSZ,
   `linearFactor` DIMLFAC, `textStyle` DIMTXSTY) add a record at the end of their table, whose count (70) follows.
-  Later operations of the same edit can name them. A `font` with an extension (`.shx`, `.ttf`, `.ttc`, …) is the font
-  file; a name without one is a TrueType family, written as extended data (`ACAD` 1000) with its Windows file
+  Later operations of the same edit can name them. Their values are read by `zumen_core::edit::style`, as in every
+  editor; JWW and SXF keep the names of dimension and text styles for the edit only
+  ([decision 0026](../decisions/0026-styles-in-jww-and-sxf-edits.md)). A `font` with an extension (`.shx`, `.ttf`,
+  `.ttc`, …) is the font file; a name without one is a TrueType family, written as extended data (`ACAD` 1000) with
+  its Windows file
   (`MS Gothic` → `msgothic.ttc`, `MS Mincho` → `msmincho.ttc`, Meiryo, Yu Gothic, Yu Mincho; others `<family>.ttf`).
   R12, or a drawing without the `ACAD` APPID, gets the file only (`edit-font-family`).
 - **Hatches**: `kind: "hatch"` with `boundaries` (closed polylines `[[[x, y], …], …]`, the first the outer one, the

@@ -547,3 +547,186 @@ fn sizes_dimensions_in_sub_figures_by_their_placement() {
     assert!((text.as_ref().unwrap().height * ratio - 2.5).abs() < 1e-9, "{ratio}");
     assert!((arrow1.as_ref().unwrap().scale - 1.0 / 3.0).abs() < 1e-12);
 }
+
+/// この編集で足した寸法スタイルの値で寸法のフィーチャを描く（docs/decisions/0026）。尺度のないスタイルの長さは用紙の
+/// mm（部分図の中は配置の尺度で割る）、尺度のあるスタイルは尺度を掛けた入れ物の座標。矢印は用紙の大きさで書く
+#[test]
+fn sizes_and_formats_dimensions_with_styles_added_in_the_edit() {
+    let bytes = read_fixture("sfc", "features");
+    let drawing = parse_sxf(&bytes, "sfc").unwrap();
+    let (name, ratio) = drawing
+        .document
+        .sheet_members
+        .iter()
+        .find_map(|feature| match feature {
+            SxfFeature::SfigLocate { name, ratio_x, ratio_y, .. }
+                if drawing.document.sub_figures.get(name).is_some_and(|figure| figure.feature.flag == 1.0) =>
+            {
+                Some((name.clone(), (ratio_x.abs() * ratio_y.abs()).sqrt()))
+            }
+            _ => None,
+        })
+        .expect("a sub-figure placed on the sheet");
+    let edited = edit_sxf(
+        &bytes,
+        "sfc",
+        &operations(json!([
+            {"op": "add-text-style", "name": "明朝", "font": "ＭＳ 明朝"},
+            {"op": "add-dimension-style", "name": "斜線", "textHeight": 3.5, "tickSize": 1.5, "extensionOffset": 1, "extensionExtension": 2, "textGap": 1, "decimals": 2, "suppressTrailingZeros": false, "textStyle": "明朝"},
+            {"op": "add-dimension-style", "name": "DIM-R", "from": "斜線", "scale": 2.0 / ratio, "arrowSize": 3, "tickSize": 0},
+            {"op": "add-dimension-style", "name": "中央", "textAbove": false, "linearFactor": 0.001, "decimals": 3},
+            {"op": "add", "kind": "dimension", "dimensionStyle": "斜線", "start": [0, 0], "end": [100, 0], "position": [0, -30]},
+            {"op": "add", "kind": "dimension", "container": format!("figure:{name}"), "dimensionStyle": "dim-r", "start": [0, 0], "end": [10, 0], "position": [0, -5]},
+            {"op": "add", "kind": "dimension", "dimensionStyle": "中央", "dimensionType": "diameter", "center": [0, 0], "point": [50, 0]},
+            {"op": "add", "kind": "dimension", "dimensionStyle": "中央", "dimensionType": "angular-3-point", "center": [0, 0], "start": [100, 0], "end": [0, 100], "position": [50, 50]}
+        ])),
+    )
+    .unwrap();
+    assert_eq!(edited.created[..4], ["明朝", "斜線", "DIM-R", "中央"]);
+    let codes: Vec<&str> = edited.notices.iter().map(|notice| notice.code.as_str()).collect();
+    assert_eq!(codes, ["edit-dimension-text-position"]);
+    let doc = parse_sxf(&edited.bytes, "sfc").unwrap().document;
+    let find = |id: &str| doc.sheet_members.iter().find(|feature| format!("#{}", feature.id()) == id).unwrap();
+    let SxfFeature::LinearDim { ext1, arrow1, text, .. } = find(&edited.created[4]) else { panic!() };
+    let text = text.as_ref().unwrap();
+    assert_eq!((text.text.as_str(), text.height, text.y), ("100.00", 3.5, -29.0));
+    assert_eq!(doc.font(text.font), Some("ＭＳ 明朝"));
+    let ext1 = ext1.as_ref().unwrap();
+    assert_eq!((ext1.y1, ext1.y2), (-1.0, -32.0));
+    // 斜線（コード 10）は長さ 2.5 mm × 倍率で 45° に傾く。DXF の斜線（DIMTSZ × √2）と同じ長さ
+    let arrow1 = arrow1.as_ref().unwrap();
+    assert_eq!(arrow1.code, 10.0);
+    assert!((arrow1.scale * 2.5 - 1.5 * std::f64::consts::SQRT_2).abs() < 1e-12);
+    // 尺度 2 / 配置の尺度の部分図: 用紙の上で文字は 7 mm、矢印は 6 mm（倍率 0.8）
+    let figure = doc.sub_figures.get(&name).unwrap();
+    let SxfFeature::LinearDim { text, arrow1, .. } =
+        figure.members.iter().find(|feature| format!("#{}", feature.id()) == edited.created[5]).unwrap()
+    else {
+        panic!()
+    };
+    assert!((text.as_ref().unwrap().height * ratio - 7.0).abs() < 1e-9, "{ratio}");
+    let arrow1 = arrow1.as_ref().unwrap();
+    assert!(arrow1.code == 6.0 && (arrow1.scale - 0.8).abs() < 1e-12, "{arrow1:?}");
+    // 寸法線の上に置かない寸法値は、寸法線に高さの中央を重ねる。倍率 0.001 で 0.1（後ろの 0 は省く）
+    let SxfFeature::DiameterDim { text, .. } = find(&edited.created[6]) else { panic!() };
+    let text = text.as_ref().unwrap();
+    assert_eq!((text.text.as_str(), text.y), ("φ0.1", -1.25));
+    // 角度は度の整数のまま
+    let SxfFeature::AngularDim(angular) = find(&edited.created[7]) else { panic!() };
+    assert_eq!(angular.text.as_ref().unwrap().text, "90°");
+    // 用紙の寸法は読み直して描ける（部分図の中の寸法の id は配置を通した id）
+    let scene = read(&edited.bytes, "sfc");
+    for id in [&edited.created[4], &edited.created[6], &edited.created[7]] {
+        assert!(scene.entities.iter().any(|entity| &entity.id == id && !entity.primitives.is_empty()), "{id}");
+    }
+    let error = |list: Value| edit_sxf(&bytes, "sfc", &operations(list)).unwrap_err();
+    assert_eq!(
+        error(json!([{"op": "add-dimension-style", "name": "A"}, {"op": "add-dimension-style", "name": "a"}])).code,
+        "already-exists"
+    );
+    assert_eq!(error(json!([{"op": "add-dimension-style", "name": "A", "textHeight": 0}])).code, "invalid-value");
+}
+
+/// 線種はユーザ定義線種、文字スタイルは文字フォント（docs/decisions/0026）。SFC・P21・SFZ・P2Z で読み直せる
+#[test]
+fn adds_line_types_and_fonts_with_their_names() {
+    for format in ["sfc", "p21", "sfz", "p2z"] {
+        let empty = new_sxf(format).unwrap();
+        let edited = edit_sxf(
+            &empty,
+            format,
+            &operations(json!([
+                {"op": "add-text-style", "name": "JP", "font": "ＭＳ ゴシック", "height": 0, "widthFactor": 1},
+                {"op": "add-line-type", "name": "一点鎖線2", "description": "_ . _", "pattern": [12, -1.5, 0, -1.5]},
+                {"op": "add-line-type", "name": "実線2"},
+                {"op": "add", "kind": "line", "lineType": "一点鎖線2", "start": [0, 0], "end": [100, 0]},
+                {"op": "add", "kind": "line", "lineType": "実線2", "start": [0, 10], "end": [100, 10]},
+                {"op": "add", "kind": "text", "textStyle": "jp", "position": [0, 20], "text": "注記", "height": 3.5}
+            ])),
+        )
+        .unwrap();
+        assert_eq!(edited.created[..3], ["JP", "一点鎖線2", "実線2"], "{format}");
+        let codes: Vec<&str> = edited.notices.iter().map(|notice| notice.code.as_str()).collect();
+        assert_eq!(codes, ["edit-line-type-pattern", "edit-style-values"], "{format}");
+        let doc = parse_sxf(&edited.bytes, format).unwrap().document;
+        let line_type = &doc.user_line_types[0];
+        assert_eq!(line_type.name.trim_start_matches("$$SXF_"), "一点鎖線2", "{format}");
+        // 点は 0.25 mm の線にし、続く空白をその分だけ短くする
+        assert_eq!(line_type.pitch, [12.0, 1.5, 0.25, 1.25], "{format}");
+        let styles: Vec<f64> = doc
+            .sheet_members
+            .iter()
+            .filter_map(|feature| match feature {
+                SxfFeature::Line { style, .. } => Some(style.line_type),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(styles, [17.0, 1.0], "{format}");
+        let text = doc.sheet_members.iter().find_map(|feature| match feature {
+            SxfFeature::TextString { text, .. } => Some(text),
+            _ => None,
+        });
+        assert_eq!(doc.font(text.unwrap().font), Some("ＭＳ ゴシック"), "{format}");
+    }
+    let bytes = new_sxf("sfc").unwrap();
+    let error = |list: Value| edit_sxf(&bytes, "sfc", &operations(list)).unwrap_err();
+    assert_eq!(error(json!([{"op": "add-line-type", "name": "Dashed", "pattern": [1, -1]}])).code, "already-exists");
+    let many: Vec<Value> =
+        (0..17).map(|n| json!({"op": "add-line-type", "name": format!("線種{n}"), "pattern": [1 + n, -1]})).collect();
+    let exhausted = error(Value::Array(many));
+    assert_eq!((exhausted.code, exhausted.operation), ("name-exhausted", Some(16)));
+    assert_eq!(
+        error(json!([{"op": "add-text-style", "name": "JP", "font": "ＭＳ ゴシック"}, {"op": "add-text-style", "name": "ＭＳ ゴシック"}]))
+            .code,
+        "already-exists"
+    );
+}
+
+/// 模様の破線の線と空白が 8 個を超えると、ユーザ定義線種（2・4・6・8 個）には初めの 8 個を書いて知らせる。既定義線種の
+/// 三点二短鎖線（10 個）と同じ長さは、既定義線種のまま。SFC・P21・SFZ・P2Z で読み直すと、その線種で描ける
+#[test]
+fn cuts_hatch_dashes_to_the_eight_lengths_of_a_user_line_type() {
+    for format in ["sfc", "p21", "sfz", "p2z"] {
+        let empty = new_sxf(format).unwrap();
+        let edited = edit_sxf(
+            &empty,
+            format,
+            &operations(json!([{
+                "op": "add",
+                "kind": "hatch",
+                "pattern": "STEPS",
+                "patternLines": [
+                    [0, 0, 0, 0, 5, 5, -1, 4, -1, 3, -1, 2, -1, 1, -1],
+                    [90, 0, 0, 0, 5, 6, -1.5, 6, -1.5, 0.25, -1.5, 0.25, -1.5, 0.25, -1.5]
+                ],
+                "boundaries": [[1000, 0], [1100, 0], [1100, 50], [1000, 50]]
+            }])),
+        )
+        .unwrap();
+        let codes: Vec<(&str, u64)> =
+            edited.notices.iter().map(|notice| (notice.code.as_str(), notice.count)).collect();
+        assert_eq!(codes, [("edit-hatch-dash-count", 1)], "{format}");
+        let doc = parse_sxf(&edited.bytes, format).unwrap().document;
+        let line_type = &doc.user_line_types[0];
+        assert_eq!(line_type.name.trim_start_matches("$$SXF_"), "STEPS", "{format}");
+        assert_eq!(line_type.pitch, [5.0, 1.0, 4.0, 1.0, 3.0, 1.0, 2.0, 1.0], "{format}");
+        let patterns = doc
+            .sheet_members
+            .iter()
+            .find_map(|feature| match feature {
+                SxfFeature::FillAreaStyleHatching { patterns, .. } => Some(patterns),
+                _ => None,
+            })
+            .unwrap();
+        // 基点は、書いた線種の繰り返しの長さ（18 mm）の倍数だけ境界の近くへ動かす
+        assert_eq!((patterns[0].line_type, patterns[0].x, patterns[0].y), (17.0, 990.0, 0.0), "{format}");
+        assert_eq!((doc.user_line_types.len(), patterns[1].line_type), (1, 15.0), "{format}");
+        let scene = read(&edited.bytes, format);
+        assert!(scene.notices.is_empty(), "{format}: {:?}", scene.notices);
+        let hatch = scene.entities.iter().find(|entity| entity.id == edited.created[0]).unwrap();
+        let Some(zumen_core::Primitive::Clipped(clipped)) = hatch.primitives.first() else { panic!("{format}") };
+        assert!(clipped.strokes.iter().all(|stroke| !stroke.points.is_empty()), "{format}");
+        assert_eq!(clipped.strokes[0].dashes, line_type.pitch, "{format}");
+        assert_eq!(clipped.strokes[1].dashes, [6.0, 1.5, 6.0, 1.5, 0.25, 1.5, 0.25, 1.5, 0.25, 1.5], "{format}");
+    }
+}
