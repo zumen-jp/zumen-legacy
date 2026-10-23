@@ -16,13 +16,14 @@ fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures")
 }
 
-/// AutoCAD の図面のモデルを SFC に書いて読み直した表示と、SXF のインスタンス番号 → 元の表示の id の部分
+/// AutoCAD の図面のモデルを SFC に書いて読み直した表示と、SXF のインスタンス番号 → 元の表示の id の部分、写して書いた
+/// ときの知らせ
 fn to_sxf(doc: &DxfDocument) -> (Scene, HashMap<String, String>, Vec<zumen::Notice>) {
     let mapped = zumen::mapping::dxf_to_sxf(doc);
     let (written, sources) = mapped.write();
     let again = zumen::sxf::parse_sfc(&written.bytes).expect("書いた SFC を読める");
     assert!(again.notices.is_empty(), "{:?}", again.notices);
-    (zumen::sxf::sxf_to_scene(&again), sources, mapped.notices)
+    (zumen::sxf::sxf_to_scene(&again), sources, [mapped.notices, written.notices].concat())
 }
 
 /// SXF・JWW を DXF に写し、書いた DXF を読み直したモデル。ハンドル → 元の図形の id
@@ -64,13 +65,43 @@ fn files(folder: &Path, extensions: &[&str]) -> Vec<PathBuf> {
     files
 }
 
-/// SXF・JWW を DXF を経て SXF に書き直し、元と比べる
+/// SXF・JWW を DXF を経て SXF に書き直し、元と比べる。SFC は CP932 にない文字を ? にして encoding で知らせ、制御文字は
+/// 書かないので、元の文字列もそうしてから比べ、? にした文字があれば知らせたかを確かめる
 fn check_round_trip(name: &str, bytes: &[u8]) -> (usize, Vec<String>) {
-    let original = zumen::read(bytes, &ReadDrawingOptions::default()).unwrap();
+    let mut original = zumen::read(bytes, &ReadDrawingOptions::default()).unwrap();
+    let mut replaced = std::collections::HashSet::new();
+    let mut unmapped = false;
+    for entity in &mut original.entities {
+        for primitive in &mut entity.primitives {
+            if let zumen::Primitive::Text(text) = primitive
+                && unwritable(&text.text)
+            {
+                unmapped |= text.text.chars().any(|c| !c.is_control() && unwritable(&c.to_string()));
+                text.text = cp932(&text.text);
+                replaced.insert(entity.id.clone());
+            }
+        }
+    }
     let (doc, dxf_sources) = through_dxf(bytes);
-    let (again, sxf_sources, _) = to_sxf(&doc);
+    let (mut again, sxf_sources, notices) = to_sxf(&doc);
     let sources = compose(&sxf_sources, &dxf_sources);
-    let differences = common::differences(&original, &again, &sources);
+    // ? は半角なので、全角とする文字（Ø など）を ? にした文字列は、字の並びが変わる。その図形の文字は 1 文字ずつの
+    // 位置を比べない
+    let written = again
+        .entities
+        .iter_mut()
+        .filter(|entity| common::source_id(&entity.id, &sources).is_some_and(|id| replaced.contains(&id)));
+    for entity in original.entities.iter_mut().filter(|entity| replaced.contains(&entity.id)).chain(written) {
+        for primitive in &mut entity.primitives {
+            if let zumen::Primitive::Text(text) = primitive {
+                text.cells.clear();
+            }
+        }
+    }
+    let mut differences = common::differences(&original, &again, &sources);
+    if unmapped && !codes(&notices).contains(&"encoding") {
+        differences.push("characters outside CP932 written as ? without the encoding notice".into());
+    }
     (original.entities.len(), differences.into_iter().map(|line| format!("{name}: {line}")).collect())
 }
 
@@ -88,6 +119,21 @@ fn sxf_written_through_the_autocad_model_draws_the_same() {
     }
     assert!(failures.is_empty(), "{failures:#?}");
     assert!(checked >= 100, "checked only {checked} entities");
+}
+
+/// CP932 にない文字（Ø）を含む JWW の文字は、DXF を経た SFC に ? にして書き、encoding で知らせる。その文字と
+/// 1 文字ずつの位置のほかは、元と同じに描ける
+#[test]
+fn writes_jww_text_outside_cp932_with_question_marks() {
+    let operations = zumen::edit::parse_operations(
+        r#"[{"op": "add", "kind": "text", "position": [0, 0], "text": "Ø45,6", "height": 2.5}]"#,
+    )
+    .unwrap();
+    let bytes = zumen::create("jww", "mm", &operations).unwrap().bytes;
+    let scene = zumen::read(&bytes, &ReadDrawingOptions::default()).unwrap();
+    assert!(matches!(&scene.entities[0].primitives[0], zumen::Primitive::Text(text) if text.text == "Ø45,6"));
+    let (entities, differences) = check_round_trip("Ø.jww", &bytes);
+    assert_eq!((entities, differences), (1, Vec::<String>::new()));
 }
 
 /// 表示を平行移動する（モデル空間を表示する図面は、図形の範囲の左下を用紙の原点にして書く）
@@ -149,8 +195,10 @@ fn box_moved(line: &str) -> Option<f64> {
     (a.len() == 4 && b.len() == 4).then(|| a.iter().zip(&b).map(|(x, y)| (x - y).abs()).fold(0.0, f64::max))
 }
 
-/// 線種の点（長さ 0 の線分）は、SXF には 0.25 mm の線分にして書く（zumen-convert の pitch と同じ）
-fn sxf_dashes(dashes: &mut [f64]) {
+/// 線種の点（長さ 0 の線分）は、SXF には 0.25 mm の線分にして書き、線分・空白が 8 を超える線種は初めの 8 だけを書く
+/// （zumen-convert の pitch・line_type_code と同じ。既定義線種と同じ名前・10 個の長さの線種は切らないが、
+/// 試験の図面にはない）
+fn sxf_dashes(dashes: &mut Vec<f64>) {
     for i in (0..dashes.len()).step_by(2) {
         if dashes[i] <= 0.0 {
             dashes[i] = 0.25;
@@ -161,6 +209,7 @@ fn sxf_dashes(dashes: &mut [f64]) {
             }
         }
     }
+    dashes.truncate(8);
 }
 
 /// R12 の図面のようにハンドルのない図形に、zumen-convert と同じハンドルを振る
@@ -423,10 +472,10 @@ fn tags(pairs: &[(i32, &str)]) -> String {
     pairs.iter().map(|(code, value)| format!("{code}\n{value}\n")).collect()
 }
 
-/// ブロックと図形だけの DXF（表とレイアウトのない図面はモデル空間を開く）
-fn dxf(blocks: &str, entities: &str) -> DxfDocument {
+/// 表とブロックと図形だけの DXF（レイアウトのない図面はモデル空間を開く）
+fn dxf(tables: &str, blocks: &str, entities: &str) -> DxfDocument {
     let text = format!(
-        "0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nBLOCKS\n{blocks}0\nENDSEC\n0\nSECTION\n2\nENTITIES\n{entities}0\nENDSEC\n0\nEOF\n"
+        "0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nTABLES\n{tables}0\nENDSEC\n0\nSECTION\n2\nBLOCKS\n{blocks}0\nENDSEC\n0\nSECTION\n2\nENTITIES\n{entities}0\nENDSEC\n0\nEOF\n"
     );
     zumen::dxf::parse_dxf(text.as_bytes())
 }
@@ -444,6 +493,7 @@ fn codes(notices: &[zumen::Notice]) -> Vec<&str> {
 #[test]
 fn writes_model_space_as_a_one_to_one_sub_figure_on_a_sheet_of_its_size() {
     let doc = dxf(
+        "",
         "",
         &tags(&[(0, "LINE"), (5, "A1"), (8, "WALL"), (62, "1"), (10, "100"), (20, "100"), (11, "300"), (21, "200")]),
     );
@@ -486,7 +536,7 @@ fn writes_blocks_as_drawing_parts_and_a_copy_for_each_inherited_color() {
         (42, "2"),
         (50, "90"),
     ]);
-    let doc = dxf(&block, &(insert("I1", "1", "0") + &insert("I2", "5", "40") + &rotated));
+    let doc = dxf("", &block, &(insert("I1", "1", "0") + &insert("I2", "5", "40") + &rotated));
     let (drawing, mapped, _) = written_sxf(&doc);
     let document = &drawing.document;
     let model = document.sub_figures.get("モデル空間").unwrap();
@@ -536,6 +586,7 @@ fn writes_blocks_as_drawing_parts_and_a_copy_for_each_inherited_color() {
 fn writes_codes_and_text_in_cp932_and_reports_what_it_replaced() {
     let doc = dxf(
         "",
+        "",
         &(tags(&[(0, "TEXT"), (5, "T1"), (8, "0"), (10, "0"), (20, "0"), (40, "2.5"), (1, "直径 Ø50")])
             + &tags(&[
                 (0, "LINE"),
@@ -569,6 +620,51 @@ fn writes_codes_and_text_in_cp932_and_reports_what_it_replaced() {
     assert!(text.contains("'zumen$$3.1'"));
     assert!(text.contains("/*SXF\n#10 = pre_defined_colour_feature(\\'black\\')\nSXF*/\n"), "{text}");
     assert_eq!(drawing.version, "SXF 3.1");
+}
+
+/// 線分・空白が 8 を超える線種は、SXF のユーザ定義線種（2・4・6・8 個）に初めの 8 だけを書いて知らせる。読み直すと、
+/// その線種で描ける
+#[test]
+fn writes_line_types_of_more_than_eight_lengths_with_the_first_eight() {
+    let tables = tags(&[(0, "TABLE"), (2, "LTYPE"), (70, "1")])
+        + &tags(&[
+            (0, "LTYPE"),
+            (2, "STEPS"),
+            (70, "0"),
+            (3, "Steps"),
+            (72, "65"),
+            (73, "10"),
+            (40, "20"),
+            (49, "5"),
+            (49, "-1"),
+            (49, "4"),
+            (49, "-1"),
+            (49, "3"),
+            (49, "-1"),
+            (49, "2"),
+            (49, "-1"),
+            (49, "1"),
+            (49, "-1"),
+        ])
+        + &tags(&[(0, "ENDTAB")]);
+    let line = tags(&[(0, "LINE"), (5, "L1"), (8, "0"), (6, "STEPS"), (10, "0"), (20, "0"), (11, "100"), (21, "0")]);
+    let doc = dxf(&tables, "", &line);
+    let (drawing, mapped, _) = written_sxf(&doc);
+    assert!(codes(&mapped.notices).contains(&"linetype-long"), "{:?}", codes(&mapped.notices));
+    let line_type = &drawing.document.user_line_types[0];
+    assert_eq!(line_type.name, "STEPS");
+    assert_eq!(line_type.pitch, [5.0, 1.0, 4.0, 1.0, 3.0, 1.0, 2.0, 1.0]);
+    let (scene, _, _) = to_sxf(&doc);
+    let dashes: Vec<&[f64]> = scene
+        .entities
+        .iter()
+        .flat_map(|entity| &entity.primitives)
+        .filter_map(|primitive| match primitive {
+            zumen::Primitive::Stroke(stroke) => Some(stroke.dashes.as_slice()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(dashes, [line_type.pitch.as_slice()]);
 }
 
 #[test]

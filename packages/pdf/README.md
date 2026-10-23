@@ -9,7 +9,7 @@ application gives the same bytes to both ([decision 0020](../../docs/decisions/0
 ```ts
 import { readDrawing } from "@zumenjs/core";
 import { pdfUnderlayRenderer } from "@zumenjs/pdf";
-import { initReader, reader } from "@zumenjs/reader";
+import { initPdfReader, reader } from "@zumenjs/reader";
 import { DrawingViewer } from "@zumenjs/viewer";
 import { GlobalWorkerOptions, getDocument } from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url"; // Vite; see "pdf.js and bundlers"
@@ -17,7 +17,7 @@ import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url"; // Vite; see "p
 GlobalWorkerOptions.workerSrc = workerUrl;
 
 const bytes = new Uint8Array(await file.arrayBuffer());
-await initReader();
+await initPdfReader();
 const scene = readDrawing(bytes, [reader]);
 // pdf.js moves the bytes it is given to its worker, so give it a copy
 const pdf = getDocument({ data: bytes.slice() });
@@ -32,7 +32,7 @@ await pdf.destroy();
 ```
 
 The pages of PDF drawings reach the scene through the PDF reader of `@zumenjs/reader`
-([issue #90](https://github.com/zumenjs/zumen/issues/90), in progress); each page is a view of the scene with the page
+([issue #90](https://github.com/zumenjs/zumen/issues/90)); each page is a view of the scene with the page
 as its underlay.
 
 ## What it draws

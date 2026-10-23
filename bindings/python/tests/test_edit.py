@@ -110,6 +110,38 @@ def test_adds_blocks_dimensions_and_hatches_to_jww_and_sxf():
         assert kinds[created.created[4]] == ("solid" if to == "jww" else "hatch"), to
 
 
+def test_sizes_jww_and_sxf_dimensions_with_dimension_styles():
+    """JWW and SXF take the style ops; their names last for the edit (decision 0026)."""
+    operations = [
+        {"op": "add-text-style", "name": "JP", "font": "ＭＳ ゴシック"},
+        {"op": "add-line-type", "name": "DASH", "pattern": [6, -3]},
+        {
+            "op": "add-dimension-style",
+            "name": "DIM-5",
+            "textHeight": 5,
+            "decimals": 1,
+            "suppressTrailingZeros": False,
+            "textStyle": "JP",
+        },
+        {"op": "add", "kind": "line", "lineType": "DASH", "start": [0, 0], "end": [100, 0]},
+        {
+            "op": "add",
+            "kind": "dimension",
+            "dimensionStyle": "DIM-5",
+            "start": [0, 0],
+            "end": [100, 0],
+            "position": [0, -20],
+        },
+    ]
+    for to in ["jww", "sfc", "p21"]:
+        created = zumen.create(to, operations)
+        assert created.created[:3] == ["JP", "DASH", "DIM-5"], to
+        scene = zumen.read(created.data)
+        dimension = scene.entity(created.created[4])
+        assert dimension is not None and dimension["kind"] == "dimension", to
+        assert dimension["text"] == "100.0", to
+
+
 def test_edited_dxf_passes_the_audit_of_ezdxf(tmp_path):
     """Drawings that ezdxf audits without findings (every fixture converted to AutoCAD 2013 DXF, and a new drawing)
     still have none after adding, changing and deleting entities and layers."""

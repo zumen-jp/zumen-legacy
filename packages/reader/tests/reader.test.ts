@@ -6,8 +6,11 @@ import { compareScenes } from "../../../scripts/compare-scenes.mjs";
 import {
   createReader,
   detectDrawing,
+  initPdfReader,
   initReader,
   isDwg,
+  isPdf,
+  isPdfReaderReady,
   isReaderReady,
   LimitError,
   readEmbeddedFiles,
@@ -15,6 +18,7 @@ import {
   readScene,
 } from "../src/index.js";
 import { detect } from "../wasm/zumen_wasm.js";
+import { detect as detectPdf } from "../wasm/zumen_wasm_pdf.js";
 
 const fixtures = new URL("../../../tests/fixtures/", import.meta.url);
 const read = (name: string) => new Uint8Array(readFileSync(new URL(name, fixtures)));
@@ -89,6 +93,9 @@ describe("@zumenjs/reader", () => {
     expect(reader.detect(read("jww/minimal-v600.jww"))).toBe("jww");
     expect(() => readDrawing(read("dxf/r12.dxf"), [reader])).toThrow(/initReader/);
     expect(() => readDrawing(latin1("not a drawing"), [reader])).toThrow(/対応していない形式/);
+    // PDF は別のモジュール（決定 0030）。形式は読み込む前でも分かる
+    expect(reader.detect(read("pdf/drawing.pdf"))).toBe("pdf");
+    expect(() => readDrawing(read("pdf/drawing.pdf"), [reader])).toThrow(/initPdfReader/);
   });
 
   it("読み込みに失敗したら、次の initReader で読み込み直す", async () => {
@@ -97,6 +104,14 @@ describe("@zumenjs/reader", () => {
     expect(initReader()).toBe(loading);
     await loading;
     expect(isReaderReady()).toBe(true);
+    // PDF のモジュールは、PDF を読むときにだけ読み込む
+    expect(isPdfReaderReady()).toBe(false);
+    expect(() => readScene(read("pdf/drawing.pdf"))).toThrow(/initPdfReader/);
+    await reader.load?.("dxf");
+    expect(isPdfReaderReady()).toBe(false);
+    await reader.load?.("pdf");
+    expect(isPdfReaderReady()).toBe(true);
+    expect(initPdfReader()).toBe(initPdfReader());
   });
 
   // TypeScript の判定は、WebAssembly の detect（zumen::detect）と同じ規則でなければならない
@@ -126,10 +141,15 @@ describe("@zumenjs/reader", () => {
       zip([{ name: "x.sfc", bytes: sfc }]).subarray(0, 60),
       latin1("PK\x03\x04"),
       new Uint8Array(),
+      ...["%PDF-1.7", "%PDF", "%pdf-1.7", `${" ".repeat(1019)}%PDF-`, `${" ".repeat(1020)}%PDF-`].map(latin1),
+      latin1("999\n%PDF-1.4\n  0\nSECTION\n"),
     ];
-    for (const bytes of inputs) expect(detectDrawing(bytes)).toBe(detect(bytes) ?? null);
-    expect(inputs.map(detectDrawing).slice(-7)).toEqual(["p2z", "sfz", null, "sfz", null, null, null]);
+    // 形式はどちらかのモジュールだけが認める
+    for (const bytes of inputs) expect(detectDrawing(bytes)).toBe(detect(bytes) ?? detectPdf(bytes) ?? null);
+    expect(inputs.map(detectDrawing).slice(-13, -6)).toEqual(["p2z", "sfz", null, "sfz", null, null, null]);
+    expect(inputs.map(detectDrawing).slice(-6)).toEqual(["pdf", null, null, "pdf", null, "dxf"]);
     expect(drawings.filter((name) => isDwg(read(name)))).toEqual(["dwg/r2000.dwg", "dwg/r2018.dwg"]);
+    expect(drawings.filter((name) => isPdf(read(name)))).toEqual(["pdf/drawing.pdf"]);
   });
 
   // IFC や STEP の AP203・AP214・AP242 も ISO-10303-21 で始まる。FILE_SCHEMA の 1 つ目のスキーマが SXF の
@@ -226,7 +246,7 @@ describe("@zumenjs/reader", () => {
       expect(detect(bytes) ?? null, header).toBe(format);
     }
     // TypeScript の readDrawing も Rust の読み取り（readScene）も、どの読み取りも読めない形式のエラーにする
-    const message = "対応していない形式のファイルです（読める形式: SFC・P21・SFZ・P2Z・JWW・JWC・JWS・DXF・DWG）";
+    const message = "対応していない形式のファイルです（読める形式: SFC・P21・SFZ・P2Z・JWW・JWC・JWS・DXF・DWG・PDF）";
     const ifc = step("FILE_SCHEMA(('IFC4'));");
     expect(() => readDrawing(ifc, [reader])).toThrow(message);
     expect(() => readScene(ifc)).toThrow(message);
@@ -242,7 +262,7 @@ describe("@zumenjs/reader", () => {
     }
   });
 
-  // どの形式も Rust の読み取りで読み、TypeScript の読み取りが書いた正解ファイル（DWG は golden.test.ts）と同じ Scene になる
+  // どの形式も Rust の読み取りで読み、TypeScript の読み取りが書いた正解ファイル（DWG と PDF は golden.test.ts）と同じ Scene になる
   it.each(drawings)("%s を正解と同じ Scene に読む", (name) => {
     const stem = name.replace(/\.[^.]+$/, "");
     const golden = JSON.parse(readFileSync(new URL(`${stem}.scene.json`, fixtures), "utf8"));
@@ -282,6 +302,8 @@ describe("@zumenjs/reader", () => {
     ]);
     expect(readEmbeddedFiles(sxf).files).toEqual([{ name: "GENKYOU.TIF", data: latin1("II*") }]);
     expect(readEmbeddedFiles(read("dxf/images.dxf")).files).toEqual([]);
+    // PDF は別の WebAssembly モジュールで読む。CAD の検出に任せても形式不明のエラーにしない。
+    expect(readEmbeddedFiles(read("pdf/drawing.pdf"))).toEqual({ files: [], notices: [] });
     expect(() => readEmbeddedFiles(jww, { limits: { maxBytes: 100 } })).toThrow(LimitError);
   });
 
@@ -290,6 +312,20 @@ describe("@zumenjs/reader", () => {
     const scene = readDrawing(read("dwg/r2000.dwg"), [reader], { view: "Layout1" });
     const primitive = scene.entities[0]?.primitives[0];
     expect(primitive?.kind === "stroke" && primitive.points).toBeInstanceOf(Float64Array);
+  });
+
+  // PDF のページはビュー。図形は下敷きのページが描くので drawn: false、上限は PDF のモジュールにも効く
+  it("PDF をページごとに読み、上限を超えたら LimitError になる", () => {
+    const bytes = read("pdf/drawing.pdf");
+    const scene = readScene(bytes, { view: "2" });
+    expect(scene.format).toBe("pdf");
+    expect(scene.views?.map((view) => view.name)).toEqual(["1", "詳細-1"]);
+    expect(scene.underlays?.[0]).toMatchObject({ kind: "pdf", page: 2 });
+    expect(scene.entities.every((entity) => entity.drawn === false)).toBe(true);
+    expect(() => readScene(bytes, { limits: { maxEntities: 1 } })).toThrow(
+      expect.objectContaining({ limit: "entities" }),
+    );
+    expect(() => readScene(latin1("%PDF-1.7\nnot a document"))).toThrow(/PDF/);
   });
 
   // Rust の読み取りのエラーは、そのメッセージの Error になる（未対応の版や壊れた図面を開いた利用者に見せる）

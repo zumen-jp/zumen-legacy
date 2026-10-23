@@ -267,9 +267,9 @@ all layer groups 1/1, lengths in millimeters).
   | `circle`, `arc` | CDataEnko with flatness 1 | `center`, `radius`, `angle` (`[from, to]` in degrees counterclockwise, for arcs) |
   | `ellipse`, `ellipse-arc` | CDataEnko | `center`, `majorAxis` (from the center), `ratio` (the flatness, up to 1), `parameter` (`[start, end]` in radians, for arcs) |
   | `point` | CDataTen | `position` |
-  | `text` | CDataMoji | `position` (the start of the baseline), `text` (one line), `height`, `width` (the height if left out), `spacing`, `rotation`, `font` (ＭＳ ゴシック if left out) |
+  | `text` | CDataMoji | `position` (the start of the baseline), `text` (one line), `height`, `width` (the height if left out), `spacing`, `rotation`, `font` (ＭＳ ゴシック if left out) or `textStyle` (the font of a text style added in the edit, or else a font of that name) |
   | `block-reference` | CDataBlock | `block` (the name of a definition, with or without `@@SfigorgFlag@@n`), `position`, `scale` (a number or `[x, y]`), `rotation` |
-  | `dimension` | CDataSunpou | `dimensionType` (`linear`, `aligned`, `radius`, `diameter`), `start`, `end`, `position`, `rotation`, `center`, `point`, `text` (`<>` is the value), `dimensionStyle` (reported, not used) |
+  | `dimension` | CDataSunpou | `dimensionType` (`linear`, `aligned`, `radius`, `diameter`), `start`, `end`, `position`, `rotation`, `center`, `point`, `text` (`<>` is the value), `dimensionStyle` (a dimension style added in the edit; other names are reported) |
   | `hatch` | CDataSolid, or CDataSen and CDataTen | `boundaries`, `pattern`, `patternScale`, `patternAngle`, `patternLines` |
 
   Every kind takes `layer`. Lines, circles, arcs, ellipses, dimensions and hatches also take `color`, `lineType` and
@@ -320,9 +320,44 @@ all layer groups 1/1, lengths in millimeters).
   - The dimension line and the extension lines have the attribute flag 0x2000, as Jw_cad's dimension lines. Settings
     that ask for arrows or reverse arrows at the ends are written as points (a dimension figure holds points, and the
     point codes of arrows are not described), and reported (`edit-dimension-end`). JWW has no named dimension styles:
-    `dimensionStyle` is reported (`edit-dimension-style`). Before version 4.20 a dimension figure holds only the line
+    `dimensionStyle` names a style added earlier in the same edit (see Styles below), and other names are reported
+    (`edit-dimension-style`) and drawn with the settings. Before version 4.20 a dimension figure holds only the line
     and the value (`edit-dimension-parts`). Angular dimensions cannot be a dimension figure, which has no arc
     (`unsupported-kind`).
+- **Styles** ([decision 0026](../decisions/0026-styles-in-jww-and-sxf-edits.md)): JWW has no named dimension or text
+  styles, so `add-dimension-style` and `add-text-style` keep their names for the edit only, and later operations of the
+  same edit use them; `add-line-type` fills a free SXF line type. Names are compared without case; a name added twice is
+  `already-exists`, an empty one or one with control characters `invalid-value`, and `created` gives the name.
+  - `add-dimension-style` takes the keys of decision 0017 and starts from `from`, a dimension style added earlier in
+    the edit, or else from the drawing's dimension settings above (another name in `from`, such as `Standard`, is
+    reported with `edit-dimension-style`). Its lengths are paper millimeters, or, with `scale` (above 0), the lengths
+    times `scale` are real millimeters of the dimension's layer group, as DIMSCALE in DXF: a style with `scale` 100
+    draws in a 1/100 layer group what one without it draws everywhere. `textHeight` (above 0) is the height of the
+    value, whose width and spacing follow the settings' text style in proportion; a value whose size is not the text style's has
+    text style 0 (any size). `textGap` is the gap between the value and the line, `extensionExtension` the overshoot
+    of the extension lines, and `extensionOffset` the distance between their origins and their start (0 in the
+    settings; the reference points stay at the origins). `textAbove: false` puts the value centered on the dimension
+    line, which a dimension figure cannot break (`edit-dimension-text-position`). `decimals` above 3 are written as 3,
+    the most the value flags hold (`edit-dimension-decimals`). `suppressTrailingZeros` removes the trailing zeros of
+    every value, or keeps them and sets the value flag 0x0080 (少数点以下の０表示; inferred to apply to lengths too);
+    without it, Jw_cad's rule applies (zeros only for radius values, when the settings ask). The measurement is
+    multiplied by the absolute value of `linearFactor`, and `textStyle` gives the value's font (the font of a text
+    style added in the edit, or else a font of that name). `arrowSize` and `tickSize` cannot be drawn, since a
+    dimension figure ends in points, and are reported (`edit-dimension-end`). Colors, the unit, commas, full-width
+    characters, rounding and the marks of radius values stay those of the settings. A value formatted by a style is
+    text in the figure: Jw_cad may format it again by its settings when the figure is edited there.
+  - `add-text-style` writes nothing, since JWW texts carry font names: the name stands for `font` (or for itself) in
+    `textStyle` of `text` and of dimension styles. `bigFont`, a `height` other than 0, a `widthFactor` other than 1 and
+    an `oblique` other than 0 are reported (`edit-style-values`).
+  - `add-line-type` (version 4.20 and later; earlier versions have no SXF line types and refuse it with
+    `unsupported-kind`) writes the name, the segment count and the lengths into the first SXF line type of 47–62 that
+    has no name, no lengths and no entity using it, as zumen-convert does (the screen pattern of the slot stays);
+    none free is `name-exhausted`. `pattern` is in paper millimeters (dashes positive, gaps negative, dots 0): the
+    lengths start with a dash and alternate, dots become 0.25 mm dashes with the following gap shorter by as much, a
+    leading gap moves to the end, and more than 10 lengths are cut (`edit-line-type-pattern`). A pattern without gaps
+    is a continuous line: the name stands for line type 1 in the edit and nothing is written. Names of SXF line types
+    of the drawing (`dashed` …) are `already-exists`, and numbers `invalid-value`. `description` is reported
+    (`edit-style-values`).
 - **Hatches**: JWW has no hatch entity, so a hatch is written as Jw_cad writes fills and hatching. `SOLID` becomes
   solids: the boundaries (the first the outside, the others holes) are split by the even-odd rule into horizontal
   trapezoids (one solid for a convex quadrilateral), in the operation's color (`#rrggbb` is the solid's own color,
@@ -361,16 +396,19 @@ all layer groups 1/1, lengths in millimeters).
 - **Notices of the writer** come with the prefix `edit-`: `edit-text-encoding` for characters that Shift_JIS cannot
   hold, in a file that writes Shift_JIS (versions before 7.00, and version 700 from Jw_cad before 10.01), and
   `edit-dimension-parts` for the extension lines and points of dimensions before version 4.20.
-- **Notices of the editor**: `edit-dimension-style`, `edit-dimension-end`, `edit-fill-solids`, `edit-hatch-lines`,
-  `edit-unused-attributes` (the line type and width of a solid fill), besides those of the values above.
+- **Notices of the editor**: `edit-dimension-style`, `edit-dimension-end`, `edit-dimension-decimals`,
+  `edit-dimension-text-position`, `edit-style-values`, `edit-line-type-pattern`, `edit-fill-solids`,
+  `edit-hatch-lines`, `edit-unused-attributes` (the line type and width of a solid fill), besides those of the values
+  above.
 - **Errors**: `unreadable` (not JWW, or a file that `JwwFile` cannot read to its end), `unsupported-kind`,
   `unknown-key`, `invalid-value`, `not-found`, `inside-block`, `missing-definition`, `already-exists`,
-  `name-exhausted` (no block number left).
+  `name-exhausted` (no block number or free SXF line type left).
 
 The shared conformance test (`crates/zumen/tests/edit.rs`) passes for the fixtures and the 9 local sample drawings
 when JWW is added to it, with the updated entity's layer compared by the end of the scene's layer value (`グループ 0 /
 0-3 ZUMEN-EDIT-CHECK`). It also adds a block, its entities, a reference and a dimension, and hatches, to every
-fixture, and reads them back drawn. In `Ａマンション平面例.jww` a linear dimension added under one of Jw_cad's puts its
+fixture, and reads them back drawn, and a text style, a line type and a dimension style used by a line and a
+dimension; a dimension style with a 5 mm value draws a value twice as high as the settings' 2.5 mm one. In `Ａマンション平面例.jww` a linear dimension added under one of Jw_cad's puts its
 value at the same place as Jw_cad's. Written and edited drawings have not yet been opened in Jw_cad; that check is
 pending.
 
