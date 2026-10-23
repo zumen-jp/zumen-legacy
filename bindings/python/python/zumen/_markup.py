@@ -1,8 +1,6 @@
-"""The types of drawing markup documents (decision 0021, docs/markup.md), as ``read_markup`` returns them.
+"""read_markup が返すマークアップ文書の型です（決定 0021、docs/markup.md）。
 
-Points are paper millimeters of the item's view, ``[x, y]`` with the Y axis up. Keys that zumen does not know are
-kept as they are when a document is read and written again, although these types do not name them.
-"""
+点は項目のビューの用紙上の mm、[x, y] で Y 軸は上向きです。未知のキーは読み書きで保ちます。"""
 
 from __future__ import annotations
 
@@ -16,35 +14,35 @@ type CarriedState = Literal["unchanged", "changed", "removed"]
 
 
 class MarkupDrawing(TypedDict):
-    """The drawing the markup was made on: the SHA-256 of its bytes (lowercase hexadecimal) and ``Scene.format``."""
+    """マークアップを付けた図面です。バイト列の SHA-256（小文字の 16 進数）と Scene.format を持ちます。"""
 
     sha256: str
     format: str
 
 
 MarkupCarried = TypedDict("MarkupCarried", {"from": str, "state": CarriedState})
-"""Set when an item was carried to a new revision: the SHA-256 of the drawing it came from, and its state."""
+"""新版へ移した項目に付ける、移行元の SHA-256 と状態。"""
 
 
 class _MarkupItemKeys(TypedDict, total=False):
     view: str
-    """The view id of the scene (``Scene.view``); left out for formats with one view."""
+    """ビュー id（``Scene.view``）。単一ビューの形式では省略します。"""
     category: str
-    """A key of the application in lowercase letters, digits and hyphens, which chooses the color."""
+    """色を選ぶ利用側のキー。小文字・数字・ハイフンを使います。"""
     color: str
-    """``#rrggbb`` or ``#rrggbbaa``, over the category's color."""
+    """``#rrggbb`` または ``#rrggbbaa``。カテゴリの色より優先します。"""
     lineWidth: float
-    """Paper millimeters. Without it lines are drawn 2 pixels wide."""
+    """用紙上の mm。省略時の線幅は 2 ピクセルです。"""
     text: str
     entities: list[str]
-    """The ids of the entities the item is about."""
+    """項目の対象となる図形の id。"""
     author: str
     createdAt: str
     """RFC 3339."""
     updatedAt: str
     carried: MarkupCarried
     data: dict[str, Any]
-    """For the application (assignees, due dates, replies), kept as it is."""
+    """担当者・期限・返信など利用側の情報。そのまま保持します。"""
 
 
 class _RedlineItem(TypedDict):
@@ -54,7 +52,7 @@ class _RedlineItem(TypedDict):
 
 
 class RedlineItem(_RedlineItem, _MarkupItemKeys, total=False):
-    """Lines, polylines, freehand strokes and rectangles; a wide, translucent color makes a highlighter."""
+    """線・折線・手書き・長方形の赤入れです。太く半透明にすると蛍光ペンとして使えます。"""
 
     closed: bool
     arrows: MarkupArrows
@@ -67,10 +65,10 @@ class _CloudItem(TypedDict):
 
 
 class CloudItem(_CloudItem, _MarkupItemKeys, total=False):
-    """A revision cloud: arcs bulging outward along the closed outline ``points``."""
+    """変更雲です。閉じた外周 points に沿って外向きにふくらむ円弧を描きます。"""
 
     arcLength: float
-    """The chord of an arc in paper millimeters, 10 by default."""
+    """円弧の弦の長さ。用紙上の mm、既定は 10 です。"""
 
 
 class _TextItem(TypedDict):
@@ -81,12 +79,12 @@ class _TextItem(TypedDict):
 
 
 class TextItem(_TextItem, _MarkupItemKeys, total=False):
-    """A note. ``position`` is the lower left of the first line."""
+    """注記です。position は最初の行の左下です。"""
 
     height: float
-    """Paper millimeters, 3.5 by default."""
+    """用紙上の mm、既定は 3.5 です。"""
     angle: float
-    """Degrees counterclockwise, 0 by default."""
+    """反時計回りの度、既定は 0 です。"""
 
 
 class _FindingItem(TypedDict):
@@ -97,11 +95,11 @@ class _FindingItem(TypedDict):
 
 
 class FindingItem(_FindingItem, _MarkupItemKeys, total=False):
-    """A review finding: a pin at ``position``, with an optional area; ``text`` is the finding."""
+    """指摘です。position にピンを置き、任意の範囲を付けられます。text は指摘内容です。"""
 
     points: list[MarkupPoint]
     label: str
-    """Short text on the pin, such as its number."""
+    """番号など、ピン上の短い文字。"""
 
 
 class _PhotoItem(TypedDict):
@@ -112,10 +110,10 @@ class _PhotoItem(TypedDict):
 
 
 class PhotoItem(_PhotoItem, _MarkupItemKeys, total=False):
-    """Where a photo was taken. ``photo`` is a reference that the application resolves, such as an id or a URL."""
+    """写真の撮影位置です。photo は利用側が解決する id・URL などの参照です。"""
 
     direction: float
-    """The camera's heading, degrees counterclockwise from +x."""
+    """カメラの方向。+X 軸から反時計回りの度です。"""
     takenAt: str
 
 
@@ -130,13 +128,13 @@ class _MarkupDocument(TypedDict):
 
 
 class MarkupDocument(_MarkupDocument, total=False):
-    """A markup document. It lives beside the drawing and never changes the drawing file."""
+    """図面に添えるマークアップ文書です。図面ファイルは変更しません。"""
 
     data: dict[str, Any]
 
 
 class MarkupCarry(TypedDict):
-    """What ``carry_markup`` returns: the document for the new revision and the number of items in each state."""
+    """carry_markup の戻り値です。新版の文書と、状態ごとの項目数を持ちます。"""
 
     markup: MarkupDocument
     unchanged: int

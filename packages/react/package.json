@@ -1,7 +1,7 @@
 {
   "name": "@zumenjs/react",
   "version": "0.1.1",
-  "description": "React hooks for embedding the zumen drawing engine in your own UI: create the viewer, read its state and events, and read files",
+  "description": "zumen の図面エンジンを画面に組み込む React フック。ビューアの作成、状態とイベントの取得、ファイルの読み取り",
   "keywords": [
     "react",
     "hooks",

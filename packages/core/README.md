@@ -1,29 +1,31 @@
 # @zumenjs/core
 
-The format-neutral part of [zumen](https://github.com/zumenjs/zumen), the TypeScript counterpart of the Rust crate
-`zumen-core`: the scene model and its JSON, the `DrawingReader` interface and `readDrawing`, geometry, text layout,
-distance measurement in paper and real-world units, and notices. It does not use the DOM, so it runs in Node.js and
-Web Workers too. Formats plug in as `DrawingReader`s, and [`@zumenjs/viewer`](../viewer) draws the scenes.
+日本の建築・土木向けライブラリ [zumen](https://github.com/zumenjs/zumen) の共通部分です。形式に依存しない `Scene` と JSON、`DrawingReader`・`readDrawing`、幾何、文字配置、用紙上と実寸の計測、注意事項を提供します。Rust の `zumen-core` と対応し、DOM を使わないため Node.js・Web Worker でも動きます。
 
 ```ts
-import { measureDistance, readDrawing } from "@zumenjs/core";
-import { jww } from "@zumenjs/jww";
-import { sxf } from "@zumenjs/sxf";
+import { readDrawing } from "@zumenjs/core";
+import { initReader, reader } from "@zumenjs/reader";
 
-const scene = readDrawing(bytes, [sxf, jww]);
+await initReader();
+const scene = readDrawing(bytes, [reader]);
 ```
 
-Drawings with several views (DXF and DWG model space and layouts) list them in `scene.views`; pick one with
-`readDrawing(bytes, readers, { view })`. A reader that needs to load first, such as the WebAssembly reader of DWG, has
-`load()`; wait for it before reading (`useDrawing` of `@zumenjs/react` does).
-Raster content (images, PDF pages) is described in `scene.underlays`, with its place on the sheet and what it is, and
-`UnderlayRequest` is the shape of a request to draw a region of it; [`@zumenjs/viewer`](../viewer) asks a renderer that
-the application passes in to draw it.
-Drawing markup (redlines, revision clouds, notes, review findings and photo positions) is a JSON document beside the
-drawing: `createMarkup`, `markupFromJson` (checked, throwing a `MarkupError`), `markupToJson`, `markupShapes` (the
-shapes drawn, in paper millimeters), `markupBox` and `drawingHash` (the SHA-256 that names the drawing); see
-[Drawing markup](https://github.com/zumenjs/zumen/blob/main/docs/markup.md). [`@zumenjs/viewer`](../viewer) draws and
-edits it with `MarkupLayer`.
-Geometry helpers for format authors are exported from `@zumenjs/core/geometry`, and text layout from `@zumenjs/core/text`.
-See the [main README](https://github.com/zumenjs/zumen#readme) and the
-[architecture notes](https://github.com/zumenjs/zumen/blob/main/docs/architecture.md).
+- `scene.views` はモデル空間・レイアウト・PDF ページなどの表示一覧です。`readDrawing(bytes, readers, { view })` で選びます。PDF を読む場合は `initPdfReader()` を先に呼びます。
+- 画像・PDF ページの配置は `scene.underlays` に入り、利用側が渡す描画処理が表示します。
+- マークアップは図面に添える JSON 文書です。`createMarkup`・`markupFromJson`・`markupToJson`・`markupShapes`・`markupBox`・`drawingHash` を使います。不正な入力は `MarkupError` で返します。
+- 幾何の補助関数は `@zumenjs/core/geometry`、文字配置は `@zumenjs/core/text` から読み込みます。
+
+表示と操作は [`@zumenjs/viewer`](../viewer)、マークアップの仕様は[マークアップ](../../docs/markup.md)、全体構成は[構成](../../docs/architecture.md)を参照してください。
+
+## 英語の補足資料
+
+対応表・実装上の細則・従来のコード例は [README.en.md](README.en.md) にも保存しています。
+
+<details>
+<summary>従来の見出しから詳細を探す</summary>
+
+<a id="zumenjscore"></a>
+
+[zumenjscore](README.en.md#zumenjscore)
+
+</details>

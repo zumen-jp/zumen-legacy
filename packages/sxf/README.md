@@ -1,15 +1,20 @@
 # @zumenjs/sxf
 
-Reads SXF drawings (SFC and P21, SXF Ver.2.0–3.1), the CAD exchange format of Japanese public works,
-for [zumen](https://github.com/zumenjs/zumen). Works in browsers and Node.js.
+日本の電子納品で使う SXF を読み取ります。SFC と P21 を同じフィーチャモデルに変換し、共通の `Scene` にします。
 
-```ts
-import { readDrawing } from "@zumenjs/core";
-import { parseSfc, sxf, sxfToScene } from "@zumenjs/sxf";
+この TypeScript パッケージは、テストの正解を作るための参照実装としてリポジトリに残しています。npm には公開しません。アプリケーションからは、全形式で同じ Rust の読み取りを使う [`@zumenjs/reader`](../reader) を利用してください。
 
-const scene = readDrawing(bytes, [sxf]); // detects SFC or P21 from the contents
-const drawing = parseSfc(bytes); // or keep the SXF feature model
-```
+形式の細則は [SXF（SFC・P21） の扱い](../../docs/formats/sxf.md)、全体の使い方は [README](../../README.md) を参照してください。
 
-How each feature is handled is described in
-[docs/formats/sxf.md](https://github.com/zumenjs/zumen/blob/main/docs/formats/sxf.md) (Japanese).
+## 英語の補足資料
+
+対応表・実装上の細則・従来のコード例は [README.en.md](README.en.md) にも保存しています。
+
+<details>
+<summary>従来の見出しから詳細を探す</summary>
+
+<a id="zumenjssxf"></a>
+
+[zumenjssxf](README.en.md#zumenjssxf)
+
+</details>

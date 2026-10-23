@@ -1,6 +1,6 @@
 [package]
 name = "zumen-dwg"
-description = "Read AutoCAD DWG drawings (AutoCAD 1.0 to 2018) into the AutoCAD drawing model of zumen-dxf and the zumen scene model, and write DWG"
+description = "AutoCAD DWG（1.0〜2018）を DXF と共通の AutoCAD 図面モデルに読み取り、DWG に書き出す"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

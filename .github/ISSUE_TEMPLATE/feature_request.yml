@@ -1,16 +1,16 @@
-name: Feature or format request
-description: Propose a feature, or support for a format or an entity type
+name: 機能・形式の要望
+description: 機能の追加、図面形式や図形の対応を提案する
 labels: [enhancement]
 body:
   - type: textarea
     id: need
     attributes:
-      label: What do you need, and why
-      description: For formats, include the specification or where the files come from.
+      label: 必要なことと、その理由
+      description: 形式の対応は、仕様やファイルの入手元も記載してください。
     validations:
       required: true
   - type: textarea
     id: example
     attributes:
-      label: Example files
-      description: Only files you may share publicly. Never attach confidential drawings.
+      label: 参考ファイル
+      description: 公開してよいファイルだけを添付してください。機密の図面は添付しないでください。

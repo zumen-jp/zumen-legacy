@@ -1,7 +1,7 @@
 {
   "name": "@zumenjs/sxf",
   "version": "0.1.1",
-  "description": "Read SXF (SFC and P21) drawings of Japanese public works in the browser and Node.js",
+  "description": "日本の電子納品で使う SXF（SFC・P21）図面をブラウザと Node.js で読み取る",
   "keywords": [
     "sxf",
     "sfc",

@@ -4,11 +4,12 @@ build-backend = "maturin"
 
 [project]
 name = "zumen"
-description = "Read 2D drawings of Japanese construction (SXF, JWW, DXF and DWG), render them to PNG, SVG and PDF, extract their texts and entities, and compare revisions"
+description = "日本の建築・土木の図面（SXF・JWW・DXF・DWG・PDF）を読み取り、描画・文字や図形の抽出・版の比較を行う"
 readme = "README.md"
 requires-python = ">=3.12"
 keywords = ["cad", "drawing", "jww", "sxf", "dxf", "dwg", "aec"]
 classifiers = [
+  "Natural Language :: Japanese",
   "Programming Language :: Rust",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: Implementation :: CPython",

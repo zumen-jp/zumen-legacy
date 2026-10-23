@@ -1,22 +1,42 @@
-# Security policy
+# セキュリティ方針
 
-## Supported versions
+## サポートする版
 
-zumen is pre-1.0. Only the latest release receives fixes.
+zumen は 1.0 より前の段階です。修正は最新リリースを対象にします。
 
-## Reporting a vulnerability
+## 脆弱性の報告
 
-Please report privately with GitHub's private vulnerability reporting
-("Report a vulnerability" on the repository's Security tab). Do not open a public issue.
-Do not include confidential drawings; a small file made to reproduce the problem is best.
+リポジトリの Security タブにある「Report a vulnerability」から、非公開で報告してください。公開 Issue には書かないでください。機密図面は添付せず、問題を再現する最小のファイルを用意してください。
 
-## What counts
+## 報告の対象
 
-zumen reads drawing files that users open, which may come from anyone. Please report, for example:
+- 読み取りが停止しない、画面が落ちる、メモリや CPU を過剰に消費する入力。
+- ライブラリによる意図しないネットワークアクセス。
+- 図面内の文字を介したスクリプトの実行。
 
-- a file that makes a reader hang, crash the page, or use excessive memory or CPU;
-- any network access made by the libraries;
-- script injection through text stored in a drawing (for example in the React components).
+読み取りはメモリ上のバイト列を対象とし、配置・部品の入れ子に上限を設け、ネットワーク要求を行いません。図面の文字は Canvas または文字列として扱い、HTML として挿入しません。
 
-The readers work on bytes in memory, limit how deeply placements and blocks nest, and make no network requests.
-Text from drawings is drawn on a canvas or inserted as text, never as HTML.
+## 英語の補足資料
+
+対応表・実装上の細則・従来のコード例は [SECURITY.en.md](SECURITY.en.md) にも保存しています。
+
+<details>
+<summary>従来の見出しから詳細を探す</summary>
+
+<a id="security-policy"></a>
+
+[security-policy](SECURITY.en.md#security-policy)
+
+<a id="supported-versions"></a>
+
+[supported-versions](SECURITY.en.md#supported-versions)
+
+<a id="reporting-a-vulnerability"></a>
+
+[reporting-a-vulnerability](SECURITY.en.md#reporting-a-vulnerability)
+
+<a id="what-counts"></a>
+
+[what-counts](SECURITY.en.md#what-counts)
+
+</details>

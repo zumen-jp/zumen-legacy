@@ -1,52 +1,57 @@
-# 0031: Measure images whose drawing records no pixel count in hundredths of a sheet millimeter
+# 0031: 画素数のない画像は用紙上の 0.01 mm を内容単位にする
 
-| Item | Value |
+| 項目 | 内容 |
 | --- | --- |
-| Date | 2026-10-23 |
-| Status | Proposed |
+| 日付 | 2026-10-23 |
+| 状態 | 提案 |
 
-## Context
+このページは既存判断の日本語の要約です。詳細な条件と当時の議論は英語の補足資料に保持しています。
 
-[Decision 0022](0022-underlays-drawn-by-a-region-renderer.md) gives `image` underlays content coordinates in pixels,
-as many as the drawing records (a DXF IMAGE's size), and the viewer does not ask for image content at more than one
-pixel per content unit: a finer request would not add detail. `imageUnderlayRenderer` stretches the decoded image over
-the content, whatever its size.
+## 背景
 
-The images of SXF and JWW ([issue #82](https://github.com/zumenjs/zumen/issues/82)) record no pixel count. An SXF image
-is a drawing group named after its file, placed over the polyline that bounds it (OCF implementation rules, 18
-「画像」). A JWW image is a text `^@BM<file>,<width>,<height>,…` with its size in sheet millimeters. Both record only
-the placed size. The image is a separate file (SXF, and JWW images linked by path) or a compressed entry after the
-block definitions (JWW images embedded in version 7.00 and later). The readers do not open either.
+JWW・SXF は画像の配置サイズを持つが、画素数を記録しない。mm を画素とみなすと拡大時にぼける。
 
-## Options
+## 選択肢
 
-1. Use sheet millimeters as the content unit. The viewer would ask for at most one pixel per millimeter, which blurs a
-   scanned map at 400 dpi (16 pixels per millimeter) as soon as the view zooms in.
-2. Use millimeters and mark the underlay as having no pixel count (a new field), so that the viewer stops limiting
-   the scale. This changes the scene JSON of `@zumenjs/core` and `zumen-core`, the viewer, and what every renderer
-   has to understand about `width` and `height`.
-3. Use a unit fine enough never to limit the drawing: a hundredth of a sheet millimeter (2,540 dpi). Renderers need to
-   know nothing new, since `imageUnderlayRenderer` already stretches the image over the content and the viewer bounds
-   every request by the device resolution of the visible region.
-4. Read the pixel count from the image file. The readers would need the files, which the application supplies only
-   to renderers, and decoders for TIFF, BMP and JPEG headers.
+mm 単位のまま、専用フラグの追加、細かい共通単位、外部画像を読み取る方法を比較した。
 
-## Decision
+## 決定
 
-Option 3. For image underlays of formats that do not record a pixel count (SXF and JWW), `width` and `height` are the
-placed size in hundredths of a millimeter of the sheet, and `matrix` maps that content to the sheet. Formats that
-record a pixel count (DXF and DWG) keep pixels.
+JWW・SXF の下敷きの width・height は用紙上の 0.01 mm 単位とし、matrix で用紙へ写す。DXF・DWG は記録された画素数を使う。
 
-## Consequences
+## 影響
 
-- The scene JSON and the viewer do not change. `width` and `height` are not pixel counts for SXF and JWW images:
-  an application that shows an image's pixel size decodes the image itself.
-- When zoomed in beyond the image's own resolution, the viewer asks for regions finer than its pixels. They are
-  bounded by the screen like any other request, and a renderer may draw them by scaling the image up.
-- A format that later records a pixel count uses it, as DXF does.
+Scene の構造を増やさず、表示解像度で描画範囲を要求できる。JWW・SXF の width・height は画素数ではない。
 
-## References
+## 英語の補足資料
 
-- [Decision 0022: Draw raster underlays through a region renderer](0022-underlays-drawn-by-a-region-renderer.md)
-- [Issue #82: draw the raster images that the readers skip](https://github.com/zumenjs/zumen/issues/82)
-- [SXF: Images](../formats/sxf.md#images), [JWW: Images](../formats/jww.md#images)
+対応表・実装上の細則・従来のコード例は [0031-image-units-without-a-pixel-count.en.md](0031-image-units-without-a-pixel-count.en.md) にも保存しています。
+
+<details>
+<summary>従来の見出しから詳細を探す</summary>
+
+<a id="0031-measure-images-whose-drawing-records-no-pixel-count-in-hundredths-of-a-sheet-millimeter"></a>
+
+[0031-measure-images-whose-drawing-records-no-pixel-count-in-hundredths-of-a-sheet-millimeter](0031-image-units-without-a-pixel-count.en.md#0031-measure-images-whose-drawing-records-no-pixel-count-in-hundredths-of-a-sheet-millimeter)
+
+<a id="context"></a>
+
+[context](0031-image-units-without-a-pixel-count.en.md#context)
+
+<a id="options"></a>
+
+[options](0031-image-units-without-a-pixel-count.en.md#options)
+
+<a id="decision"></a>
+
+[decision](0031-image-units-without-a-pixel-count.en.md#decision)
+
+<a id="consequences"></a>
+
+[consequences](0031-image-units-without-a-pixel-count.en.md#consequences)
+
+<a id="references"></a>
+
+[references](0031-image-units-without-a-pixel-count.en.md#references)
+
+</details>

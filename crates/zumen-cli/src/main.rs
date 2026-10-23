@@ -21,7 +21,7 @@ use zumen::{BBox, Background, ReadDrawingOptions, ReadLimits, Scene, SceneEntity
 use zumen_render::{ImageSize, MarkupStyle, RenderMarkup, RenderOptions, RenderedImage, UnderlayContent};
 
 const USAGE: &str = "\
-Usage:
+使い方:
   zumen detect <file>
   zumen scene <file> [--format <name>] [--view <id>] [--pretty]
   zumen texts <file> [--region <x0>,<y0>,<x1>,<y1>] [--all-layers] [--format <name>] [--view <id>]
@@ -47,70 +47,67 @@ Usage:
   zumen markup carry <markup.json> <before> <after> [-o <out.json>] [--view-map <before view>=<after view>]...
                      [--tolerance <mm>] [--style] [--no-align] [--ignore-hash]
 
-Every command that reads takes --max-bytes <n>, --max-entities <n> and --timeout <seconds>, to stop
-reading an untrusted drawing that is too large (P2Z and SFZ after unpacking), too complex or too slow.
+読み取りを行うコマンドには --max-bytes <n>、--max-entities <n>、--timeout <秒> を指定できます。
+大きすぎる図面（P2Z・SFZ は展開後の大きさ）、図形が多すぎる図面、時間がかかりすぎる図面の読み取りを停止します。
 
-Reads SXF, JWW (also JWC and JWS), DXF, DWG and PDF drawings into zumen's scene model. A PDF page is a view
-(--view 2 for the second page) whose paths, texts and images are read for texts, entities, regions, tables, title,
-check and compare, but not drawn: render draws the page itself under them (in SVG and PDF as an image at --dpi,
-150 by default). convert, edit and draft do not take PDF.
-texts and entities write one JSON object per line, in paper millimeters (Y up) rounded to 0.001.
---geometry adds the shapes drawn to each entity (polylines, segments, fills, hatches, points and text
-parts; curves as the polyline drawn), with real for the same coordinates in real-world millimeters
-when the entity sits in a scaled placement.
-title finds the drawing number, revision, title, project, scale and date in the title block.
-regions writes, one JSON object per line, the regions that drawn lines close (rooms, when a text names them):
-the outline and holes, the area (mm²) and perimeter on the sheet and in real-world millimeters, the entities
-that bound them and the texts inside. --layer keeps the lines on layers whose name contains the text (walls),
---tolerance (default 0.01 paper mm) joins ends that nearly meet, and --min-area leaves out smaller regions.
-tables writes, one JSON object per line, the tables drawn with horizontal and vertical rules (schedules, area
-tables, drawing lists, title blocks): the lines between rows and columns, and each cell with its row, column, the
-rows and columns it spans and its text. --csv writes each table as CSV instead (a merged cell's text in its top left
-place), with an empty line between tables. --empty also writes tables without any text, and --layer, --tolerance
-and --region work as for regions.
-check checks a drawing against the rules of a CAD standard and writes the result of each rule as JSON: how many
-layers, entities, sheets or scales it checked, how many it could not (a value the drawing does not give), and each
-value that breaks it with its count, entity ids and layers. --rules names a built-in rule set (mlit-cad-2025, the CAD
-drafting standard of the Ministry of Land, Infrastructure, Transport and Tourism of Japan, by default) or a JSON
-file of rules (docs/checks.md). The command fails when a rule of level error is broken.
-render writes SVG or PDF when the output ends in .svg or .pdf: the sheet (or --region) at its real size,
-with text that can be searched. --size, --dpr and --map are for PNG only; --dpi is also the resolution of the PDF
-pages embedded in SVG and PDF.
---region selects a part of the sheet in paper millimeters, and --all-layers includes the layers
-that the drawing hides. --map writes the size of the image,
-the conversion between pixels and paper millimeters, and the pixel box of every entity drawn.
---markup draws the items of a markup document (docs/markup.md) that belong to the view drawn, over the drawing:
-in the color of the item, of its category (--markup-color), or red; pins and photo symbols at a fixed size in
-pixels in PNG and at the paper size of a CSS pixel in SVG and PDF. A warning tells when the markup was made on
-other bytes than the drawing's (its items are drawn at their points).
-compare matches entities by shape and text (not by id) and writes the removed, added and changed
-entities and the regions that changed as JSON; -o draws them over the unchanged ones (red before,
-blue after, gray unchanged).
-convert writes a drawing as DXF (AutoCAD 2013, UTF-8, or the version of --target-version: R12, 2000, 2004, 2007, 2010,
-2013 or 2018, before 2007 in a code page such as ANSI_932; R12 explodes what it lacks, such as MTEXT and hatches),
-DWG (AutoCAD 2013), JWW (Jw_cad 8) or SXF (SFC, P21, SFZ or P2Z of SXF Ver.3.1, or of the version of
---target-version: 2.0, 3.0 or 3.1), by the extension of the output, and reports what it could not write. SXF and JWW are mapped into the AutoCAD model: model space at real size, the
-sheet as a layout with a viewport for each scale. SXF is written from that model: the layout is the sheet, each
-viewport a sub-figure at its scale and each block a drawing part. JWW is written from it the same way: the layout is
-the sheet and the model space in each viewport is a layer group at the viewport's scale.
-edit changes a drawing in place: it applies the operations (a JSON array of add, update, delete, add-layer,
-update-layer, add-block, add-text-style, add-line-type and add-dimension-style) and keeps everything else as it was, in the same format and version (DXF, DWG, JWW and SXF). create
-starts a new drawing in the format of the output and applies the operations (JWW and SXF lengths are in mm). Both write the ids of what they added and the notices as
-JSON, and on an error write the number of the operation that failed.
-draft draws a drawing from a drawing spec (JSON: layers, blocks, sheets with a frame and title block, views at
-scales, and items such as text, dimensions, hatches, tables and grid lines, decision 0018) and writes it in the
-format of the output (JWW and SXF hold one sheet: --sheet chooses it, else the first); an error names the place in the spec (sheets[0].views[1].items[4]) and a code.
---into draws the spec into a DXF, DWG, JWW or SXF template in place, through the operations of edit, so that the
-template's entities, handles and data stay: in DXF and DWG a sheet named after a layout of the template is drawn into
-it, other sheets become new layouts, and the fields of a sheet fill the attributes of its title block; JWW and SXF
-take one sheet (--sheet, else the first) on their paper, with views in layer groups of their scales (JWW) or
-sub-figures (SXF). The output keeps the template's format and version.
-markup carry moves a markup document made on <before> to the revision <after> (decision 0021): for each view
-with items it compares the two revisions (every layer, like compare with --all-layers), moves the items by the
-offset of the revision, points their entities at the matching entities and marks each item unchanged, changed or
-removed in carried. --view-map carries the items of a view to another view of <after>, such as a DXF layout to
-the page of a PDF plotted from it. The markup must have been made on <before> (its drawing.sha256), unless
---ignore-hash. It writes the document to -o (or standard output) and the number of items in each state as JSON.";
+SXF・JWW（JWC・JWS を含む）・DXF・DWG・PDF を共通の図面モデルに読み取ります。
+PDF のページはビューです（2 ページ目は --view 2）。線・文字・画像を解析や選択に使い、render では
+ページ自体を下に描きます。SVG・PDF に埋め込むページ画像の解像度は --dpi（既定 150）です。
+PDF は convert・edit・draft の入力には使えません。
+
+texts・entities は 1 行に 1 つの JSON を出力します。座標は用紙上の mm（Y 軸は上向き）、小数点以下 3 桁です。
+--geometry は折線・線分・塗り・ハッチング・点・文字の形も返します。曲線は描画時の折線です。
+縮尺付きの配置内にある図形には、同じ座標を実寸の mm にした real も返します。
+title は表題欄の図面番号・改訂・図面名・工事名・尺度・日付を取り出します。
+
+regions は線で囲まれた領域（室名があれば部屋）を 1 行に 1 つの JSON で返します。
+外形・穴・用紙上と実寸の面積（mm²）と周長・境界の図形・領域内の文字を含みます。
+--layer は名前に指定文字を含むレイヤの線だけを使い、--tolerance（既定は用紙上 0.01 mm）は
+近い端点をつなぎ、--min-area は小さな領域を除きます。
+tables は縦横の罫線で描かれた表（建具表・面積表・図面一覧・表題欄）を 1 行に 1 つの JSON で返します。
+行と列の区切り、各セルの位置・結合範囲・文字を含みます。--csv は表を CSV にし、結合セルの文字を
+左上に置き、表の間に空行を入れます。--empty は文字のない表も含めます。
+--layer・--tolerance・--region は regions と同じです。
+
+check は CAD 製図基準に照らし、規則ごとの確認件数・値がなく確認できない件数・違反した値と件数・
+図形の id・レイヤを JSON で返します。--rules は組み込みの規則集（既定は国土交通省の CAD 製図基準
+mlit-cad-2025）、または規則集の JSON ファイル（docs/checks.md）です。error の違反があれば失敗します。
+
+render は出力先の拡張子が .svg・.pdf なら、用紙（または --region）を実寸で出力し、文字を検索できます。
+--size・--dpr・--map は PNG 用です。--dpi は SVG・PDF に埋め込む PDF ページの解像度にも使います。
+--region は用紙上の mm で範囲を指定し、--all-layers は非表示レイヤも含めます。
+--map は画像サイズ、ピクセルと用紙上の mm の変換、描画した図形のピクセル範囲を出力します。
+--markup は同じビューのマークアップ（docs/markup.md）を重ねます。色は項目の指定、カテゴリの指定
+（--markup-color）、赤の順で選びます。ピン・写真記号は PNG ではピクセル単位の固定サイズ、SVG・PDF では
+CSS ピクセルに相当する用紙上のサイズです。元の図面とバイト列が違う場合は警告し、指定位置に描きます。
+compare は形と文字で図形を照合し、削除・追加・変更された図形と変更領域を JSON で返します。
+-o は変更前を赤、変更後を青、変わらない部分を灰色で重ねた画像を出力します。
+
+convert は出力先の拡張子に応じて DXF・DWG・JWW・SXF に変換し、書き出せない内容を報告します。
+DXF は AutoCAD 2013・UTF-8 が既定で、--target-version は R12・2000・2004・2007・2010・2013・2018 です。
+2007 より前は ANSI_932 などのコードページを使い、R12 にない MTEXT・ハッチングなどは分解します。
+DWG は AutoCAD 2013、JWW は Jw_cad 8、SXF は Ver.3.1 の SFC・P21・SFZ・P2Z です。
+SXF の --target-version は 2.0・3.0・3.1 です。SXF・JWW は AutoCAD のモデルを経由します。
+モデル空間は実寸、用紙はレイアウト、縮尺ごとのビューポートは SXF の部分図・JWW のレイヤグループに対応し、
+SXF の作図部品はブロックに対応します。
+
+edit は JSON 配列の操作（add・update・delete・add-layer・update-layer・add-block・add-text-style・
+add-line-type・add-dimension-style）を適用します。操作対象以外は形式・版を含めて保ちます。
+create は出力形式で図面を新規作成して操作を適用します。JWW・SXF の長さの単位は mm です。
+両コマンドは追加した図形の id と注意事項を JSON で返し、失敗した操作の番号をエラーに含めます。
+draft は JSON の図面仕様（レイヤ・部品・用紙・図枠・表題欄・縮尺付きビュー・文字・寸法・ハッチング・
+表・通り芯。決定 0018）から作図し、出力先の形式で書き出します。
+JWW・SXF は 1 枚の用紙を保持します（--sheet で選択、省略時は先頭）。仕様の誤りは場所と code で返します。
+--into は DXF・DWG・JWW・SXF のテンプレートに edit の操作を通して描き、元の図形・ハンドル・データを保ちます。
+DXF・DWG では同名のレイアウトに描き、なければ追加します。用紙の fields は表題欄の属性を埋めます。
+JWW・SXF は用紙を 1 枚選び（--sheet、省略時は先頭）、縮尺付きのレイヤグループ・部分図にビューを描きます。
+出力の形式と版はテンプレートのままです。
+
+markup carry は <before> に付けたマークアップを新版 <after> に移します（決定 0021）。
+項目のあるビューごとに全レイヤで比較し、版の移動量で項目を移動し、対応する図形の id に付け替え、
+carried に unchanged・changed・removed を記録します。--view-map は DXF のレイアウトから PDF のページへの
+移行など、ビューの対応を指定します。--ignore-hash を指定しなければ drawing.sha256 が <before> と一致する
+必要があります。文書を -o（省略時は標準出力）に、状態ごとの項目数を JSON で出力します。";
 
 struct Args {
     command: String,
@@ -153,7 +150,8 @@ struct Args {
 
 /// <名前>=<値>
 fn parse_pair(name: &str, text: &str) -> Result<(String, String), String> {
-    let (key, value) = text.split_once('=').ok_or_else(|| format!("{name} needs <name>=<value>: {text}"))?;
+    let (key, value) =
+        text.split_once('=').ok_or_else(|| format!("{name} は <名前>=<値> で指定してください: {text}"))?;
     Ok((key.to_string(), value.to_string()))
 }
 
@@ -162,12 +160,12 @@ fn parse_region(text: &str) -> Result<BBox, String> {
         .split(',')
         .map(|value| value.trim().parse::<f64>())
         .collect::<Result<_, _>>()
-        .map_err(|_| format!("--region needs four numbers <x0>,<y0>,<x1>,<y1>: {text}"))?;
+        .map_err(|_| format!("--region は 4 つの数値 <x0>,<y0>,<x1>,<y1> で指定してください: {text}"))?;
     let [x0, y0, x1, y1] = values[..] else {
-        return Err(format!("--region needs four numbers <x0>,<y0>,<x1>,<y1>: {text}"));
+        return Err(format!("--region は 4 つの数値 <x0>,<y0>,<x1>,<y1> で指定してください: {text}"));
     };
     if ![x0, y0, x1, y1].iter().all(|value| value.is_finite()) {
-        return Err(format!("--region needs finite numbers: {text}"));
+        return Err(format!("--region には有限の数値を指定してください: {text}"));
     }
     Ok(BBox { min_x: x0.min(x1), min_y: y0.min(y1), max_x: x0.max(x1), max_y: y0.max(y1) })
 }
@@ -218,37 +216,45 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
         positionals: Vec::new(),
     };
     while let Some(arg) = args.next() {
-        let mut value = |name: &str| args.next().ok_or_else(|| format!("{name} needs a value"));
+        let mut value = |name: &str| args.next().ok_or_else(|| format!("{name} の値を指定してください"));
         match arg.as_str() {
             "--format" => parsed.format = Some(value("--format")?),
             "--view" => parsed.view = Some(value("--view")?),
             "--pretty" => parsed.pretty = true,
             "-o" | "--output" => parsed.output = Some(value("--output")?),
-            "--dpi" => parsed.dpi = value("--dpi")?.parse().map_err(|_| "--dpi needs a number")?,
+            "--dpi" => parsed.dpi = value("--dpi")?.parse().map_err(|_| "--dpi には数値を指定してください")?,
             "--theme" => {
                 parsed.theme = Some(match value("--theme")?.as_str() {
                     "light" => Background::Light,
                     "dark" => Background::Dark,
-                    other => return Err(format!("unknown theme: {other}")),
+                    other => return Err(format!("未対応のテーマです: {other}")),
                 })
             }
             "--thin" => parsed.thin = true,
             "--size" => {
                 let text = value("--size")?;
-                let (w, h) = text.split_once('x').ok_or("--size needs <width>x<height>")?;
-                parsed.size = Some((w.parse().map_err(|_| "bad --size")?, h.parse().map_err(|_| "bad --size")?));
+                let (w, h) = text.split_once('x').ok_or("--size は <幅>x<高さ> で指定してください")?;
+                parsed.size = Some((
+                    w.parse().map_err(|_| "--size の値が正しくありません")?,
+                    h.parse().map_err(|_| "--size の値が正しくありません")?,
+                ));
             }
-            "--margin" => parsed.margin = value("--margin")?.parse().map_err(|_| "--margin needs a number")?,
-            "--dpr" => parsed.dpr = value("--dpr")?.parse().map_err(|_| "--dpr needs a number")?,
+            "--margin" => {
+                parsed.margin = value("--margin")?.parse().map_err(|_| "--margin には数値を指定してください")?
+            }
+            "--dpr" => parsed.dpr = value("--dpr")?.parse().map_err(|_| "--dpr には数値を指定してください")?,
             "--region" => parsed.region = Some(parse_region(&value("--region")?)?),
             "--all-layers" => parsed.all_layers = true,
             "--geometry" => parsed.geometry = true,
             "--map" => parsed.map = Some(value("--map")?),
             "--tolerance" => {
-                parsed.tolerance = value("--tolerance")?.parse().map_err(|_| "--tolerance needs a number")?
+                parsed.tolerance =
+                    value("--tolerance")?.parse().map_err(|_| "--tolerance には数値を指定してください")?
             }
             "--layer" => parsed.layers.push(value("--layer")?),
-            "--min-area" => parsed.min_area = value("--min-area")?.parse().map_err(|_| "--min-area needs a number")?,
+            "--min-area" => {
+                parsed.min_area = value("--min-area")?.parse().map_err(|_| "--min-area には数値を指定してください")?
+            }
             "--style" => parsed.style = true,
             "--units" => parsed.units = value("--units")?,
             "--target-version" => parsed.target_version = Some(value("--target-version")?),
@@ -263,25 +269,26 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
             "--view-map" => parsed.view_map.push(parse_pair("--view-map", &value("--view-map")?)?),
             "--ignore-hash" => parsed.ignore_hash = true,
             "--max-bytes" => {
-                parsed.limits.max_bytes = Some(value("--max-bytes")?.parse().map_err(|_| "--max-bytes needs a count")?)
+                parsed.limits.max_bytes =
+                    Some(value("--max-bytes")?.parse().map_err(|_| "--max-bytes には件数を指定してください")?)
             }
             "--max-entities" => {
                 parsed.limits.max_entities =
-                    Some(value("--max-entities")?.parse().map_err(|_| "--max-entities needs a count")?)
+                    Some(value("--max-entities")?.parse().map_err(|_| "--max-entities には件数を指定してください")?)
             }
             "--timeout" => {
-                let seconds: f64 = value("--timeout")?.parse().map_err(|_| "--timeout needs seconds")?;
-                let duration =
-                    std::time::Duration::try_from_secs_f64(seconds).map_err(|_| "--timeout needs seconds")?;
+                let seconds: f64 = value("--timeout")?.parse().map_err(|_| "--timeout には秒数を指定してください")?;
+                let duration = std::time::Duration::try_from_secs_f64(seconds)
+                    .map_err(|_| "--timeout には秒数を指定してください")?;
                 parsed.limits.max_duration = Some(duration);
             }
-            _ if arg.starts_with('-') => return Err(format!("unknown option: {arg}\n\n{USAGE}")),
+            _ if arg.starts_with('-') => return Err(format!("未対応のオプションです: {arg}\n\n{USAGE}")),
             _ if parsed.command == "markup" => parsed.positionals.push(arg),
             _ if parsed.file.is_empty() => parsed.file = arg,
             _ if matches!(parsed.command.as_str(), "compare" | "edit") && parsed.other.is_none() => {
                 parsed.other = Some(arg)
             }
-            _ => return Err(format!("unexpected argument: {arg}")),
+            _ => return Err(format!("想定していない引数です: {arg}")),
         }
     }
     if parsed.command == "markup" {
@@ -585,7 +592,7 @@ fn brief_json(entity: &SceneEntity) -> Value {
 }
 
 fn compare(args: &Args) -> Result<(), String> {
-    let other = args.other.as_ref().ok_or("compare needs two files: <before> <after>")?;
+    let other = args.other.as_ref().ok_or("compare には 2 つのファイル <変更前> <変更後> を指定してください")?;
     let options = ReadDrawingOptions { format: args.format.clone(), view: args.view.clone(), limits: args.limits };
     let read = |path: &str| -> Result<Scene, String> {
         if let Some(max) = args.limits.max_bytes
@@ -664,7 +671,7 @@ fn write_edited(edited: &zumen::edit::Edited, output: &str) -> Result<(), String
 /// 編集のエラー（code と操作の番号を含む）
 fn edit_error(error: zumen::edit::EditError) -> String {
     match error.operation {
-        Some(index) => format!("{} (operation {index}, {})", error.message, error.code),
+        Some(index) => format!("{} (操作 {index}, {})", error.message, error.code),
         None => format!("{} ({})", error.message, error.code),
     }
 }
@@ -722,7 +729,10 @@ fn run(args: Args) -> Result<(), String> {
         return markup_command(&args);
     }
     if args.command == "draft" {
-        let output = args.output.as_deref().ok_or("draft needs -o <out.dxf|out.dwg|out.jww|out.sfc|...>")?;
+        let output = args
+            .output
+            .as_deref()
+            .ok_or("draft には -o <出力.dxf|出力.dwg|出力.jww|出力.sfc|...> を指定してください")?;
         let spec = std::fs::read_to_string(&args.file).map_err(|error| format!("{}: {error}", args.file))?;
         if let Some(template) = &args.into {
             if args.target_version.is_some() {
@@ -737,7 +747,10 @@ fn run(args: Args) -> Result<(), String> {
                 zumen::draft_into(&bytes, &spec, &options).map_err(|error| format!("{error} ({})", error.code))?;
             let format = zumen::detect(&drafted.bytes).unwrap_or_default();
             if extension(output) != format {
-                return Err(format!("{output}: --into writes {} like the template", format.to_uppercase()));
+                return Err(format!(
+                    "{output}: --into の出力はテンプレートと同じ {} 形式にしてください",
+                    format.to_uppercase()
+                ));
             }
             std::fs::write(output, &drafted.bytes).map_err(|error| format!("{output}: {error}"))?;
             print_notices(&drafted.notices);
@@ -754,7 +767,10 @@ fn run(args: Args) -> Result<(), String> {
         return Ok(());
     }
     if args.command == "create" {
-        let output = args.output.as_deref().ok_or("create needs -o <out.dxf|out.dwg|out.jww|out.sfc|...>")?;
+        let output = args
+            .output
+            .as_deref()
+            .ok_or("create には -o <出力.dxf|出力.dwg|出力.jww|出力.sfc|...> を指定してください")?;
         let created = zumen::create(&extension(output), &args.units, &operations(&args.file)?).map_err(edit_error)?;
         return write_edited(&created, output);
     }
@@ -766,19 +782,21 @@ fn run(args: Args) -> Result<(), String> {
     }
     let bytes = std::fs::read(&args.file).map_err(|error| format!("{}: {error}", args.file))?;
     if args.command == "detect" {
-        let format = zumen::detect(&bytes).ok_or("unknown format")?;
+        let format = zumen::detect(&bytes).ok_or("対応していない形式です")?;
         println!("{format}");
         return Ok(());
     }
     if args.command == "edit" {
-        let output = args.output.as_deref().ok_or("edit needs -o <out>")?;
-        let path = args.other.as_deref().ok_or("edit needs a file of operations: <file> <operations.json>")?;
+        let output = args.output.as_deref().ok_or("edit には -o <出力先> を指定してください")?;
+        let path =
+            args.other.as_deref().ok_or("edit には図面と操作のファイルを <図面> <操作.json> の順で指定してください")?;
         let options = ReadDrawingOptions { format: args.format.clone(), view: None, limits: args.limits };
         let edited = zumen::edit(&bytes, &operations(path)?, &options).map_err(edit_error)?;
         return write_edited(&edited, output);
     }
     if args.command == "convert" {
-        let output = args.output.ok_or("convert needs -o <out.dxf|out.dwg|out.jww|out.sfc|...>")?;
+        let output =
+            args.output.ok_or("convert には -o <出力.dxf|出力.dwg|出力.jww|出力.sfc|...> を指定してください")?;
         // 書く形式は出力のファイルの拡張子
         let to = extension(&output);
         let options = ReadDrawingOptions { format: args.format.clone(), view: None, limits: args.limits };
@@ -811,7 +829,7 @@ fn run(args: Args) -> Result<(), String> {
             println!("{}", serde_json::to_string_pretty(&report).map_err(|error| error.to_string())?);
             let errors = report.count(CheckLevel::Error);
             if errors > 0 {
-                return Err(format!("{errors} values break rules of level error"));
+                return Err(format!("error の規則に違反する値が {errors} 件あります"));
             }
         }
         "title" => {
@@ -869,13 +887,13 @@ fn run(args: Args) -> Result<(), String> {
             select_entities(&scene, &filter).into_iter().map(|entity| entity_json(&scene, entity, args.geometry)),
         )?,
         "render" => {
-            let output = args.output.ok_or("render needs -o <out.png>")?;
+            let output = args.output.ok_or("render には -o <出力.png> を指定してください")?;
             let markup = match &args.markup {
                 Some(path) => {
                     let document = read_markup(path)?;
                     if document.drawing.sha256 != drawing_hash(&bytes) {
                         eprintln!(
-                            "warning: {path} was made on another revision (SHA-256 {}); its items are drawn at their points",
+                            "警告: {path} は別の版（SHA-256 {}）に付けたマークアップです。指定位置に描画します",
                             document.drawing.sha256
                         );
                     }
@@ -931,7 +949,7 @@ fn run(args: Args) -> Result<(), String> {
             }
             print_report(&image.report);
         }
-        other => return Err(format!("unknown command: {other}\n\n{USAGE}")),
+        other => return Err(format!("未対応のコマンドです: {other}\n\n{USAGE}")),
     }
     print_notices(&scene.notices);
     Ok(())
@@ -941,14 +959,14 @@ fn run(args: Args) -> Result<(), String> {
 fn print_report(report: &zumen_render::RenderReport) {
     if !report.missing_glyphs.is_empty() {
         let chars: String = report.missing_glyphs.iter().collect();
-        eprintln!("warning: no glyph in the bundled font for: {chars}");
+        eprintln!("警告: 同梱フォントに次の文字の字形がありません: {chars}");
     }
     print_notices(&report.notices);
 }
 
 fn print_notices(notices: &[zumen::Notice]) {
     for notice in notices {
-        eprintln!("notice ({:?}, {}): {} × {}", notice.level, notice.code, notice.message, notice.count);
+        eprintln!("注意 ({:?}, {}): {} × {}", notice.level, notice.code, notice.message, notice.count);
     }
 }
 

@@ -1,42 +1,57 @@
-# 0024: Keep the declared text height with each text primitive
+# 0024: 図面が宣言する文字高を描画要素ごとに保持する
 
-| Item | Value |
+| 項目 | 内容 |
 | --- | --- |
-| Date | 2026-10-23 |
-| Status | Accepted |
+| 日付 | 2026-10-23 |
+| 状態 | 採用 |
 
-## Context
+このページは既存判断の日本語の要約です。詳細な条件と当時の議論は英語の補足資料に保持しています。
 
-The height used to draw a glyph is not always the height a drawing declares. DXF and DWG declare capital heights,
-while the renderer uses a larger em. The standards check inferred this convention from an entity's `height`
-property, as recorded in decision 0015. A scene containing only dimensions loses that property when their parts
-are merged, so a valid 2.5 mm dimension text was incorrectly reported as 3.47 mm. Adding an unrelated text changed
-the check result.
+## 背景
 
-## Options
+em から文字枠高を推定すると、寸法内や書式付き文字の高さを正しく確認できない。
 
-1. Infer the convention from the scene format or from other entities. This puts format knowledge in core or makes
-   one entity's result depend on another.
-2. Add a declared height to every entity's properties. A dimension or formatted text may contain several heights,
-   so an entity-level value cannot describe all of its parts.
-3. Keep the declared height with each text primitive, separate from its drawing height.
+## 選択肢
 
-## Decision
+形式ごとの逆算、属性からの復元、描画要素に宣言値を持たせる方法を比較した。
 
-Use option 3. `TextPrimitive.characterHeight` (`character_height` in Rust) is optional and uses the same local
-coordinates as `height`. When absent, checks use `height`. DXF and DWG scene conversion sets it from each text run's
-declared height, including dimension parts and stacked text. Renderers continue to use `height` and do not change.
+## 決定
 
-This replaces only the text-height inference described in decision 0015. Core checks remain format-neutral.
+TextPrimitive.characterHeight を任意項目として追加し、未指定時だけ height を使う。描画には従来どおり height を使う。
 
-## Consequences
+## 影響
 
-The scene JSON gains an optional field. Existing application-created scenes retain their previous height
-convention, and entity ids and drawing bytes do not change. TypeScript reference scenes and Rust scenes carry the
-same value. Golden scenes are regenerated from the TypeScript readers and stable ids are verified separately.
+製図基準の確認が形式に依存しない。既存の Scene の扱いと id は変えず、決定 0015 の文字高推定だけを置き換える。
 
-## References
+## 英語の補足資料
 
-- [Decision 0015](0015-analysis-in-zumen-core.md)
-- [Checks against CAD standards](../checks.md)
-- DXF Reference, TEXT group code 40 and MTEXT formatting codes (`\\H`)
+対応表・実装上の細則・従来のコード例は [0024-declared-text-height.en.md](0024-declared-text-height.en.md) にも保存しています。
+
+<details>
+<summary>従来の見出しから詳細を探す</summary>
+
+<a id="0024-keep-the-declared-text-height-with-each-text-primitive"></a>
+
+[0024-keep-the-declared-text-height-with-each-text-primitive](0024-declared-text-height.en.md#0024-keep-the-declared-text-height-with-each-text-primitive)
+
+<a id="context"></a>
+
+[context](0024-declared-text-height.en.md#context)
+
+<a id="options"></a>
+
+[options](0024-declared-text-height.en.md#options)
+
+<a id="decision"></a>
+
+[decision](0024-declared-text-height.en.md#decision)
+
+<a id="consequences"></a>
+
+[consequences](0024-declared-text-height.en.md#consequences)
+
+<a id="references"></a>
+
+[references](0024-declared-text-height.en.md#references)
+
+</details>

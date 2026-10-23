@@ -261,5 +261,5 @@ for (let index = 0; index < Number(count); index++) {
     if (failed >= 10) break;
   }
 }
-console.log(`${count} cases from ${drawings.length} drawings, ${failed} different`);
+console.log(`${drawings.length} 図面から ${count} 件を確認し、${failed} 件に差分あり`);
 process.exit(failed > 0 ? 1 : 0);

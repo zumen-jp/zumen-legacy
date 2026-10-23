@@ -1,6 +1,6 @@
 [package]
 name = "zumen-pdf"
-description = "Read the paths, texts and images of PDF drawings into the zumen scene model, with each page as a view and its underlay"
+description = "PDF 図面のページ・線・文字・画像を zumen の図面モデルに読み取る"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
