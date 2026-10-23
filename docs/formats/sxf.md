@@ -61,6 +61,11 @@ is set, and the drawing information (圧縮) shows the archive format and the na
 limited by the read limit (`max_bytes`), or by 2 GiB when there is no limit, against ZIP bombs (a small archive that
 extracts to a huge file). Encrypted archives and ZIP64 are not supported.
 
+The other files of the archive, such as the image files that sit next to the drawing (OCF implementation rules, 18
+画像 (5)), are what `zumen::embedded_files` (and `readEmbeddedFiles` of `@zumenjs/reader`) returns, under their names in
+the archive. Folders are left out, files that cannot be extracted are reported (`archive-file`), and their extracted
+sizes count together against the same limit.
+
 What is not drawn or is shown otherwise (counted in the reader's notices):
 
 | Content | Handling |

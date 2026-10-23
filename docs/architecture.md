@@ -26,7 +26,7 @@ bytes ─▶ format reader ─▶ native model ─▶ toScene ─▶ Scene
 | --- | --- |
 | `@zumenjs/core` | What `zumen-core` covers: the `Scene` model and its types and JSON (`sceneToJson`, `sceneFromJson`), `NoticeList`, `readDrawing` and the `DrawingReader` interface (with the optional `load`), layer visibility (`isEntityVisible`), distance measurement (`measureDistance`, `toReal`), and drawing markup (`markupFromJson`, `markupToJson`, `markupShapes`, `drawingHash`, [Drawing markup](markup.md)). Geometry helpers are exported from `@zumenjs/core/geometry` and text layout from `@zumenjs/core/text`. No DOM. |
 | `@zumenjs/viewer` | The 2D engine that applications embed: the Canvas 2D renderer (`renderScene`, `renderHighlights`, `renderPrimitives`), hit testing and snapping (`HitIndex`), `DrawingViewer` with the view, the state, input handlers, tools and style, and `MarkupLayer` with the markup tools, built on the public API of `DrawingViewer`. No text for people and no CSS. |
-| `@zumenjs/reader` | Every format through the WebAssembly build of the Rust readers: `initReader` loads the module, `reader` and `createReader({ limits })` are `DrawingReader`s, `readScene` reads with limits (`LimitError`), `detectDrawing` tells the format without the module, and `ReaderWorker` reads in a Web Worker (`@zumenjs/reader/worker`). |
+| `@zumenjs/reader` | Every format through the WebAssembly build of the Rust readers: `initReader` loads the module, `reader` and `createReader({ limits })` are `DrawingReader`s, `readScene` reads with limits (`LimitError`), `detectDrawing` tells the format without the module, `readEmbeddedFiles` returns the files a drawing holds (embedded JWW images, the image files of compressed SXF) under the names its image underlays use, and `ReaderWorker` reads in a Web Worker (`@zumenjs/reader/worker`). |
 | `@zumenjs/sxf` | Not published; the reference for the tests. SFC and P21 parsing into the SXF feature model (`parseSfc`, `parseP21` → `SxfDrawing`), conversion to a scene (`sxfToScene`), and the `sxf` reader. |
 | `@zumenjs/jww` | Not published; the reference for the tests. JWW parsing into the JWW document model (`readJww` → `JwwDocument`), conversion to a scene (`jwwToScene`), and the `jww` reader. |
 | `@zumenjs/dxf` | Not published; the reference for the tests. DXF parsing (ASCII and binary) into the AutoCAD drawing model (`parseDxf` → `DxfDocument`), conversion of model space or a layout to a scene (`dxfToScene`), and the `dxf` reader. Their Rust port (`zumen-dxf`) also draws DWG. |
@@ -584,7 +584,7 @@ Runtime dependencies are permissive and work in WebAssembly. Recorded with the r
 | `tiny-skia` | BSD-3-Clause | CPU rasterization for PNG, with anti-aliasing, dashes, even-odd fills and masks |
 | `pdf-writer` | MIT OR Apache-2.0 | PDF objects and content streams for `render_pdf` (no dependencies beyond number formatting) |
 | `subsetter` | MIT OR Apache-2.0 | The glyphs of the bundled font that a PDF uses, embedded as a subset; default features off (no variable fonts) |
-| `miniz_oxide` | MIT OR Zlib OR Apache-2.0 | Flate compression of PDF streams; already compiled for PNG encoding |
+| `miniz_oxide` | MIT OR Zlib OR Apache-2.0 | Flate compression of PDF streams; already compiled for PNG encoding. Inflating compressed SXF (P2Z, SFZ) and the gzip of embedded JWW images |
 | `ttf-parser` | MIT OR Apache-2.0 | Glyph outlines of the bundled font |
 | `pyo3` | MIT OR Apache-2.0 | Python bindings |
 | `wasm-bindgen` | MIT OR Apache-2.0 | WebAssembly bindings |

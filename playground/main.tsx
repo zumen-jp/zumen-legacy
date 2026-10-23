@@ -1,6 +1,6 @@
 import { drawingHash, type MarkupDrawing, type Scene, type Underlay } from "@zumenjs/core";
 import { useDrawing } from "@zumenjs/react";
-import { reader } from "@zumenjs/reader";
+import { initReader, readEmbeddedFiles, reader } from "@zumenjs/reader";
 import { imageUnderlayRenderer } from "@zumenjs/viewer";
 import { type DragEvent, StrictMode, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -73,6 +73,25 @@ function App() {
   const [image, setImage] = useState<UnderlayImage | null>(null);
   const [imageError, setImageError] = useState<string | null>(null);
   const [imageFiles, setImageFiles] = useState<ReadonlyMap<string, File>>(new Map());
+  // 図面のファイルが中に持つ画像（JWW の同梱画像、圧縮した SXF の画像のファイル）。underlay の file と同じ名前で引く
+  const [embedded, setEmbedded] = useState<ReadonlyMap<string, Uint8Array<ArrayBuffer>>>(new Map());
+  useEffect(() => {
+    setEmbedded(new Map());
+    if (!file) return;
+    let current = true;
+    Promise.all([file.arrayBuffer(), initReader()])
+      .then(([buffer]) => readEmbeddedFiles(buffer))
+      .then(({ files, notices }) => {
+        if (!current) return;
+        setEmbedded(new Map(files.map((item) => [item.name, item.data])));
+        for (const notice of notices) console.warn(notice.message);
+      })
+      // 図面として読めないときは、図面の読み取りが知らせる
+      .catch(() => undefined);
+    return () => {
+      current = false;
+    };
+  }, [file]);
   const scene = useMemo(
     () => (drawing.scene && image ? withUnderlay(drawing.scene, image) : drawing.scene),
     [drawing.scene, image],
@@ -88,13 +107,15 @@ function App() {
       image || wanted.length > 0
         ? imageUnderlayRenderer((underlay) => {
             if (underlay.id === UNDERLAY_ID) return image?.bitmap ?? null;
-            const found = underlay.file === undefined ? undefined : imageFiles.get(baseName(underlay.file));
+            if (underlay.file === undefined) return null;
+            const inside = embedded.get(underlay.file);
+            const found = inside ? new Blob([inside]) : imageFiles.get(baseName(underlay.file));
             return found ? createImageBitmap(found) : null;
           })
         : undefined,
-    [image, imageFiles, wanted.length],
+    [image, imageFiles, embedded, wanted.length],
   );
-  const found = wanted.filter((name) => imageFiles.has(baseName(name))).length;
+  const found = wanted.filter((name) => embedded.has(name) || imageFiles.has(baseName(name))).length;
   // マークアップの文書は、図面のファイルのバイトの SHA-256 で図面を指す
   const [hash, setHash] = useState<{ file: File; sha256: string } | null>(null);
   useEffect(() => {

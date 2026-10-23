@@ -139,7 +139,7 @@ fn archive_member_name(drawing: &SxfDrawing, inner: &str) -> String {
     }
 }
 
-use zumen_core::{DrawingReader, Property, ReadError, ReadOptions, Scene};
+use zumen_core::{DrawingReader, NoticeList, Property, ReadError, ReadOptions, Scene};
 
 /// 中身が SXF なら形式（sfc・p21、圧縮したものは sfz・p2z）を返す。SFC と P21 はどちらも ISO-10303-21 で始まり、
 /// SFC はフィーチャを /*SXF のコメントに書く（FILE_DESCRIPTION が feature_mode のものも SFC）。
@@ -292,6 +292,13 @@ pub fn parse_sxf(bytes: &[u8], format: &str) -> Result<SxfDrawing, ReadError> {
         }
         _ => Err(ReadError::new(format!("SXF の読み取りは {format} を読めません"))),
     }
+}
+
+/// 圧縮した SXF（P2Z・SFZ）の書庫の、SXF でないファイル（画像のファイル、属性のファイル）を、書庫の中の名前で返す。
+/// 書庫でなければ空。展開した大きさの合計は読み取りの上限（`zumen_core::limits`）、上限がなければ 2 GiB まで。
+/// 展開できないファイルは飛ばして notices で知らせる
+pub fn archive_files(bytes: &[u8], notices: &mut NoticeList) -> Result<Vec<(String, Vec<u8>)>, ReadError> {
+    zip::extract_others(bytes, notices)
 }
 
 /// 圧縮した SXF（P2Z・SFZ）の中の SXF を展開する。展開したバイト列、その形式（sfc・p21）、書庫の中の名前を返す

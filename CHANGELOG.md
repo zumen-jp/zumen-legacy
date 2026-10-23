@@ -19,6 +19,11 @@ All packages share one version during 0.x.
   and colors from `--zumen-markup-*`; overlay painters receive the canvas size, `renderPrimitives` draws primitives in
   their own colors, and a tool with `doubleClickZoom: false` receives double clicks. `@zumenjs/react` has
   `useMarkupLayer`, `useMarkupState` and `useMarkupEvent`, and the playground a markup sample.
+- Browsers and Rust: `readEmbeddedFiles` (`@zumenjs/reader`) and `zumen::embedded_files` return the files a drawing
+  holds under the names its image underlays use: the images embedded in JWW (version 7.00 and later, extracted from
+  gzip, named `%temp%<name>`) and the files beside the SXF in compressed SXF (P2Z, SFZ). Broken files are reported
+  (`embedded-broken`, `embedded-truncated`, `archive-file`), and extraction counts against `maxBytes`. The playground
+  draws the embedded images of a drawing without asking for the files.
 - Browsers: a new package, `@zumenjs/pdf`, draws PDF pages under the drawing with pdf.js. `pdfUnderlayRenderer` is an
   `UnderlayRenderer` for underlays of kind `pdf` (the pages of PDF drawings, and the PDF underlays of DXF drawings):
   it renders the requested region of a page at the requested scale, cancels the pdf.js render when the request is

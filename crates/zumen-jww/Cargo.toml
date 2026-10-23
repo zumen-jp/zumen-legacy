@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 encoding_rs.workspace = true
+miniz_oxide.workspace = true
 zumen-core.workspace = true
 
 [dev-dependencies]
