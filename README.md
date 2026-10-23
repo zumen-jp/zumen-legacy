@@ -338,8 +338,11 @@ sending them anywhere.
    Rust (`zumen-pdf`, on hayro) that reads the pages, paths and texts of PDF drawings for Python, the command line, the
    MCP server and browsers alike, with the pages drawn by hayro on servers; then `@zumenjs/pdf`, which draws the pages
    with pdf.js in browsers under the snapping, measurement and layers of zumen.
-8. Drawing markup (redlines, revision clouds, review findings, photo positions), kept in paper millimeters so that
-   CAD and PDF drawings share it. It waits for a decision on how markup is stored and where it lives in the packages.
+8. Drawing markup (redlines, revision clouds, review findings, photo positions,
+   [decision 0021](docs/decisions/0021-drawing-markup.md)): a JSON document beside the drawing, in paper millimeters of
+   a view so that CAD and PDF drawings share it, which names the drawing by the hash of its bytes and is carried to new
+   revisions through the comparison; drawn and edited by a layer on `DrawingViewer`, then read, drawn and carried in
+   Python, the command line and the MCP server.
 
 ## Documentation
 
