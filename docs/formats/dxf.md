@@ -152,6 +152,11 @@ the differences that remain are in [How DWG is handled](dwg.md).
 Not read, counted in `skipped` and reported: TOLERANCE, SHAPE, 3DSOLID, REGION, BODY, MESH, SURFACE,
 underlays (PDF, DWF, DGN), OLE frames, lights and proxy entities.
 
+External references are not read either. A block whose flags (BLOCK, 70) have 4 (an attached reference) or 8 (an
+overlay) stands for another drawing, whose path is group 1, and the drawing that refers to it keeps none of its
+entities. Each block reference to one that is drawn, also inside other blocks, is counted in the `xref` notice, whose
+message names the paths (or the block names of references without a path), sorted as JavaScript sorts strings.
+
 ### Multileaders and multilines
 
 The DXF Reference lists the MULTILEADER group codes without saying how to draw them

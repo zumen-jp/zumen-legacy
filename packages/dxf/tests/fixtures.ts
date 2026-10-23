@@ -168,6 +168,35 @@ export const BLOCKS = latin1(ascii(
 ));
 
 /**
+ * 外部参照（DXF Reference「BLOCK」の 70 の 4 は参照、8 はオーバーレイ、1 は参照先のパス）の図形は参照先の図面にあり、
+ * その図面は読まないので描けない。描かないことを、参照の数と参照先（パスがなければブロックの名前）で知らせる。
+ * GRID は読み込み済み（70 の 32）の参照で、FRAME の中からも参照する
+ */
+// biome-ignore format: DXF のタグ（グループコードと値）の組を 1 行に並べて読めるようにする
+export const XREFS = latin1(ascii(
+  0, "SECTION", 2, "HEADER", 9, "$ACADVER", 1, "AC1015", 9, "$INSUNITS", 70, 4, 0, "ENDSEC",
+  0, "SECTION", 2, "BLOCKS",
+  0, "BLOCK", 8, "0", 2, "GRID", 70, 36, 10, 0, 20, 0, 30, 0, 3, "GRID", 1, "grid.dxf",
+  0, "ENDBLK", 8, "0",
+  0, "BLOCK", 8, "0", 2, "SITE", 70, 8, 10, 0, 20, 0, 30, 0, 3, "SITE", 1, "site.dwg",
+  0, "ENDBLK", 8, "0",
+  0, "BLOCK", 8, "0", 2, "PLAN", 70, 4, 10, 0, 20, 0, 30, 0, 3, "PLAN",
+  0, "ENDBLK", 8, "0",
+  0, "BLOCK", 8, "0", 2, "FRAME", 70, 0, 10, 0, 20, 0, 30, 0, 3, "FRAME",
+  0, "LINE", 5, "B1", 8, "0", 10, 0, 20, 0, 30, 0, 11, 100, 21, 0, 31, 0,
+  0, "INSERT", 5, "B2", 8, "0", 2, "GRID", 10, 0, 20, 0, 30, 0,
+  0, "ENDBLK", 8, "0",
+  0, "ENDSEC",
+  0, "SECTION", 2, "ENTITIES",
+  0, "CIRCLE", 5, "20", 8, "0", 10, 0, 20, 0, 30, 0, 40, 100,
+  0, "INSERT", 5, "21", 8, "0", 2, "GRID", 10, 0, 20, 0, 30, 0,
+  0, "INSERT", 5, "22", 8, "0", 2, "SITE", 10, 0, 20, 0, 30, 0,
+  0, "INSERT", 5, "23", 8, "0", 2, "PLAN", 10, 0, 20, 0, 30, 0,
+  0, "INSERT", 5, "24", 8, "0", 2, "FRAME", 10, 500, 20, 0, 30, 0,
+  0, "ENDSEC", 0, "EOF",
+));
+
+/**
  * レイアウトのビューポートは、高さ / 表示の高さ（DXF Reference「VIEWPORT」の 41 / 45）の縮尺で
  * モデル空間を描く。縮尺を誤ると、用紙の上では正しく見えたまま実寸の計測だけが狂う。
  */
@@ -903,6 +932,7 @@ export const DRAWINGS: [string, Uint8Array, string[]][] = [
   ["binary", BINARY, []],
   ["binary-r12", BINARY_R12, []],
   ["blocks", BLOCKS, []],
+  ["xrefs", XREFS, []],
   ["layout", LAYOUT, ["Layout1"]],
   ["mleader", MLEADER, []],
   ["mline", MLINE, []],
