@@ -31,9 +31,12 @@ viewer.destroy();
 await pdf.destroy();
 ```
 
-The pages of PDF drawings reach the scene through the PDF reader of `@zumenjs/reader`
-([issue #90](https://github.com/zumenjs/zumen/issues/90)); each page is a view of the scene with the page
-as its underlay.
+The pages of PDF drawings reach the scene through `@zumenjs/reader`, which reads PDF with a WebAssembly module of its
+own ([decision 0030](../../docs/decisions/0030-pdf-in-a-webassembly-module-of-its-own.md)); each page is a view of the
+scene with the page as its underlay. The playground's
+[PDF sample](https://github.com/zumenjs/zumen/blob/main/playground/pdf-sample.ts) puts it together: it opens the
+bytes with pdf.js only when they are a PDF (`detectDrawing`), importing pdf.js at that moment, and its
+`vite.config.ts` serves the CMaps and image decoders of pdf.js.
 
 ## What it draws
 
