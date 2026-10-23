@@ -77,6 +77,10 @@ pub struct TextPrimitive {
     pub font_family: String,
     /// 文字の座標系での 1 文字の高さ
     pub height: f64,
+    /// 元の図面が定義する文字の高さ（文字の座標系）。省略時は height。
+    /// 字形の em と文字の規定の高さが異なる場合も、解析はこの値を使う。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub character_height: Option<f64>,
     /// 字形の横方向の倍率（文字範囲幅に合わせる）
     pub scale_x: f64,
     pub cells: Vec<GlyphCell>,

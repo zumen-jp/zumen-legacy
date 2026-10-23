@@ -140,4 +140,35 @@ describe("@zumenjs/react", () => {
     await vi.waitFor(() => expect(state?.error?.message).toMatch(/対応していない形式/));
     expect(loads).toEqual(["slow", "broken"]);
   });
+
+  it("useDrawing はファイルと表示を同時に解除しても、前の図面を読み直さない", async () => {
+    const reads: (string | undefined)[] = [];
+    const readers: DrawingReader[] = [
+      {
+        formats: ["test"],
+        detect: () => "test",
+        read: (_bytes, _format, options) => {
+          reads.push(options?.view);
+          return scene();
+        },
+      },
+    ];
+    let state: DrawingState | null = null;
+    function Reader({ file, view }: { file: Blob | null; view?: string }) {
+      state = useDrawing(file, readers, view === undefined ? {} : { view });
+      return null;
+    }
+    const file = new Blob(["drawing"]);
+    vi.spyOn(file, "arrayBuffer").mockResolvedValue(await file.arrayBuffer());
+    let root: Root;
+    await act(async () => {
+      root = render(<Reader file={file} view="Layout1" />);
+    });
+    expect(state).toEqual({ scene: scene(), error: null, loading: false });
+    expect(reads).toEqual(["Layout1"]);
+
+    act(() => root.render(<Reader file={null} />));
+    expect(state).toEqual({ scene: null, error: null, loading: false });
+    expect(reads).toEqual(["Layout1"]);
+  });
 });

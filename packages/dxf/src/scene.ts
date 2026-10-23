@@ -1204,7 +1204,11 @@ class Builder {
           },
           multiply(transform, multiply(translate(x, 0), [0, 1, -1, 0, width, -DESCENT * em])),
         );
-        if (primitive) out.push(primitive);
+        if (primitive) {
+          // DXF Reference「TEXT」40: 規定の文字高を、描画用の字形の em と別に保つ。
+          primitive.characterHeight = run.height;
+          out.push(primitive);
+        }
       } else if (text.trim() !== "") {
         const primitive = layoutText(
           {
@@ -1223,7 +1227,10 @@ class Builder {
           },
           multiply(transform, translate(x, -DESCENT * em)),
         );
-        if (primitive) out.push(primitive);
+        if (primitive) {
+          primitive.characterHeight = run.height;
+          out.push(primitive);
+        }
       }
       for (const [on, y] of [
         [run.underline, -0.2 * run.height],
@@ -1279,7 +1286,10 @@ class Builder {
         },
         multiply(transform, translate(px, baseline - DESCENT * em)),
       );
-      if (primitive) out.push(primitive);
+      if (primitive) {
+        primitive.characterHeight = h;
+        out.push(primitive);
+      }
     };
     if (stack.kind === "#") {
       place(stack.upper, x, run.height * 0.45, widths[0] as number);

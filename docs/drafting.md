@@ -48,7 +48,8 @@ result, so an agent can draft, look and correct in a loop.
 | `sheets` | One layout each: `{name, fields, paper, orientation, frame, views, items}` |
 
 A **sheet** has `paper` (`A0`–`A4`, `B1`–`B5` or `[width, height]`, A3 by default), `orientation` (`landscape` by
-default), and:
+default), and a `name` that contains a non-space character and differs from `Model` (case insensitive, ignoring
+surrounding spaces), which is reserved for model space. Its other keys are:
 
 - `frame`: `{margins: [left, bottom, right, top], lineWidth, layer, titleBlock}`. Margins default to `[20, 10, 10, 10]`
   (JIS Z 8311, with binding). `titleBlock` is `{placement, width, textHeight, rows}`: `right` (default) is a vertical
@@ -121,6 +122,9 @@ Text widths are estimated (full-width characters as wide as the text is high div
 that), so `fit`, wrapping and table cells leave room for fonts that differ from the estimate. Dimensions are drawn by
 zumen; AutoCAD draws a dimension again from its style when someone edits it.
 
+Text and attribute values are literal: `%`, `^`, braces and backslashes are preserved, including in wrapped or
+multiline text. To show a diameter symbol, give `Ø` rather than a CAD control code such as `%%c`.
+
 ## Drawing into a template
 
 `zumen::draft_into` draws the spec into a DXF or DWG drawing received from someone else, a company template with its
@@ -140,7 +144,8 @@ zumen.draft_into(spec, "template.dwg").save("A-101.dwg")      # template: bytes 
 The MCP tool `draft_drawing` takes `into` for the same.
 
 - **Sheets**: a sheet named after a layout of the template is drawn into that layout, with that layout's paper size
-  unless the sheet gives `paper`. Its coordinates are the layout's own (AutoCAD places them from the corner of the
+  unless the sheet gives `paper`; an explicit `paper` updates the existing layout's size and its whole-sheet viewport.
+  Its coordinates are the layout's own (AutoCAD places them from the corner of the
   printable area, inside the printer margins). Other sheets become new layouts (`add-layout`, with no margins, as
   `draft` writes them). Leave out `frame` when the template has its border.
 - **Title block**: `fields` (`{"TAG": "value"}`) of a sheet fill the attributes with those tags of every block

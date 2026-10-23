@@ -102,6 +102,28 @@ impl Style {
 
 const PERCENT: u16 = b'%' as u16;
 
+/// 文字列をそのまま表示する MTEXT の内容にする。DXF Reference「MTEXT」と AutoCAD の
+/// 「Control Codes and Special Characters」「About ASCII Control Characters in DXF Files」に従い、
+/// 書式の開始文字・%% の制御コード・キャレットを区別し、改行を \P にする。
+/// 戻り値は `DxfDocument` と同じキャレット表記。生の文字列を受け取る編集ライターでは、その表記だけ戻して使う。
+pub fn escape_mtext(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 8);
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '{' => out.push_str("\\{"),
+            '}' => out.push_str("\\}"),
+            '%' if chars.peek() == Some(&'%') => out.push_str("%%%"),
+            '^' => out.push_str("^ "),
+            '\n' => out.push_str("\\P"),
+            '\r' => {}
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
 /// 1 単位の文字を小文字にした文字（`code.toLowerCase()`）。1 文字にならなければ None
 fn lower(unit: u16) -> Option<char> {
     let mut lowered = char::from_u32(u32::from(unit))?.to_lowercase();

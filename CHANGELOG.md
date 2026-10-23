@@ -14,6 +14,14 @@ All packages share one version during 0.x.
   `renderScene` draws rendered regions passed in `underlays`. `zumen-render` does not draw underlays and reports them
   as `underlay-not-drawn` in the new `RenderReport.notices` (printed by the command line, a warning in Python);
   `render_svg` returns the report too. No reader produces underlays yet.
+- Fix ten issues found in the library review: keep block attributes with moved, rotated and scaled references;
+  resolve escaped Unicode names when editing older DXF files; preserve literal multiline drafting text; reject
+  empty or reserved sheet names; apply explicit paper sizes to existing template layouts; keep narrow ruled-table
+  cells valid; check dimension text heights independently of other texts; clear React drawing state when the file
+  and view are reset together; keep the pinch anchor in place; and draw visible thick strokes at the screen edge.
+  Text primitives carry an optional declared `characterHeight`, and DXF/DWG editing adds `update-layout` with
+  `set: {"paperSize": [width, height]}` ([decision 0023](docs/decisions/0023-resize-existing-layouts.md),
+  [decision 0024](docs/decisions/0024-declared-text-height.md)).
 - Rust, Python, the command line and the MCP server: check a drawing against the rules of a CAD standard (layer
   names, colors, line types, line widths, text heights on the sheet, machine-dependent characters, the sheet size and
   orientation, and scales), with the CAD drafting standard of MLIT (CAD製図基準, December 2025) built in as

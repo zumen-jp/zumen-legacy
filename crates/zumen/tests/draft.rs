@@ -161,6 +161,60 @@ fn names_the_place_and_code_of_mistakes() {
 }
 
 #[test]
+fn rejects_empty_and_model_sheet_names_before_writing() {
+    for name in ["", "   ", "Model", "mOdEl", " Model "] {
+        let spec = serde_json::json!({"sheets": [{"name": name, "items": [
+            {"type": "text", "at": [10, 10], "text": "KEEP-ME"}
+        ]}]})
+        .to_string();
+        for to in ["dxf", "dwg"] {
+            let error = zumen::draft(&spec, to, &DraftOptions::default()).unwrap_err();
+            assert_eq!((error.code, error.path.as_str()), ("invalid-value", "sheets[0].name"), "{to}: {name:?}");
+        }
+    }
+}
+
+#[test]
+fn preserves_literal_text_and_attribute_values_when_drafting_and_drafting_into() {
+    let literal = "%%c %%d %%p %%u %%123 %%% ^I ^2 ^ \\P {raw}\nTAIL";
+    let spec = serde_json::json!({
+        "blocks": [{"name": "TITLE", "attributes": [
+            {"tag": "DEFAULT", "at": [0, 0], "value": "default %%c ^I"},
+            {"tag": "INSERT", "at": [0, 5]},
+            {"tag": "FIELD", "at": [0, 10]}
+        ]}],
+        "sheets": [{"name": "S", "fields": {"FIELD": "field %%p ^ "}, "items": [
+            {"type": "text", "at": [10, 10], "text": literal},
+            {"type": "insert", "block": "TITLE", "at": [20, 20], "attributes": {"INSERT": "insert %%d ^2"}}
+        ]}]
+    })
+    .to_string();
+    for to in ["dxf", "dwg"] {
+        for into in [false, true] {
+            let drafted = if into {
+                let template = zumen::create(to, "mm", &[]).unwrap();
+                draft_into(&template.bytes, &spec)
+            } else {
+                zumen::draft(&spec, to, &DraftOptions::default()).unwrap()
+            };
+            let found = texts(&read(&drafted.bytes, Some("S")));
+            for wanted in [literal, "default %%c ^I", "insert %%d ^2", "field %%p ^ "] {
+                assert!(found.iter().any(|(text, ..)| text == wanted), "{to} into={into}: {wanted:?} in {found:?}");
+            }
+        }
+        let spec = serde_json::json!({"sheets": [{
+            "name": "A3", "fields": {"DWGNAME": "template %%c ^I ^ ", "DWGNO": "template %%d"}
+        }]})
+        .to_string();
+        let drafted = draft_into(&template(to), &spec);
+        let found = texts(&read(&drafted.bytes, Some("A3")));
+        for wanted in ["template %%c ^I ^ ", "template %%d"] {
+            assert!(found.iter().any(|(text, ..)| text == wanted), "{to}: {wanted:?} in {found:?}");
+        }
+    }
+}
+
+#[test]
 fn reports_views_whose_model_regions_overlap() {
     let spec = r#"{"sheets": [{"name": "S", "views": [
         {"scale": 100, "viewport": [10, 10, 100, 100], "center": [0, 0], "items": [{"type": "circle", "center": [0, 0], "radius": 1000}]},
@@ -252,6 +306,43 @@ fn drafts_into_a_template_layout_and_fills_its_title_block() {
         assert!(room.1 > 20.0 && room.1 < 280.0, "{to}: {room:?}");
         let kinds: Vec<&str> = sheet.entities.iter().map(|entity| entity.kind.name()).collect();
         assert!(kinds.contains(&"dimension") && kinds.contains(&"hatch"), "{to}: {kinds:?}");
+    }
+}
+
+#[test]
+fn explicit_paper_resizes_an_existing_template_layout() {
+    let operations = zumen::edit::parse_operations(
+        r#"[
+        {"op": "add-layout", "name": "S", "paperSize": [100, 100], "margins": [1, 2, 3, 4]}
+    ]"#,
+    )
+    .unwrap();
+    for to in ["dxf", "dwg"] {
+        let template = zumen::create(to, "mm", &operations).unwrap();
+        let before = document(to, &template.bytes);
+        let old = before.layouts.iter().find(|layout| layout.name == "S").unwrap();
+        for (paper, expected) in [("", (100.0, 100.0)), (r#", "paper": "A3""#, (420.0, 297.0))] {
+            let spec = format!(r#"{{"sheets": [{{"name": "S"{paper}, "frame": {{}}}}]}}"#);
+            let drafted = draft_into(&template.bytes, &spec);
+            let doc = document(to, &drafted.bytes);
+            let sheet = doc.layouts.iter().find(|layout| layout.name == "S").unwrap();
+            assert_eq!((sheet.paper_width, sheet.paper_height), expected, "{to}: {paper}");
+            assert_eq!(sheet.handle, old.handle, "{to}: preserve layout identity");
+            assert_eq!(sheet.margins, old.margins, "{to}: preserve print margins");
+            let overall = doc
+                .entities
+                .iter()
+                .find_map(|entity| match &entity.data {
+                    zumen::dxf::DxfEntityData::Viewport(viewport)
+                        if entity.base.block.as_deref() == Some(&sheet.block) && viewport.id == 1.0 =>
+                    {
+                        Some(viewport)
+                    }
+                    _ => None,
+                })
+                .unwrap();
+            assert_eq!((overall.width, overall.height), expected, "{to}: whole-sheet viewport");
+        }
     }
 }
 

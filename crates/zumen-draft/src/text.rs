@@ -139,24 +139,9 @@ pub(crate) fn escape_text(text: &str) -> String {
     out
 }
 
-/// MTEXT の文字列にする（\ { } を書式コードから区別し、改行は \P。DXF Reference「MTEXT」）
+/// MTEXT の文字列にする（DXF Reference「MTEXT」）
 fn escape_mtext(lines: &[String]) -> String {
-    let mut out = String::new();
-    for (index, line) in lines.iter().enumerate() {
-        if index > 0 {
-            out.push_str("\\P");
-        }
-        for c in line.chars() {
-            match c {
-                '\\' => out.push_str("\\\\"),
-                '{' => out.push_str("\\{"),
-                '}' => out.push_str("\\}"),
-                '\r' => {}
-                _ => out.push(c),
-            }
-        }
-    }
-    out
+    zumen_dxf::escape_mtext(&lines.join("\n"))
 }
 
 /// 置く文字

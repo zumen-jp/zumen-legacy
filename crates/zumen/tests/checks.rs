@@ -64,6 +64,30 @@ fn writes_the_text_heights_of_the_spec_as_sxf_and_jww_text_heights() {
 }
 
 #[test]
+fn dimension_text_heights_do_not_depend_on_unrelated_text_entities() {
+    for to in ["dxf", "dwg"] {
+        for with_label in [false, true] {
+            let mut items =
+                vec![serde_json::json!({"type": "dimension", "from": [20, 20], "to": [120, 20], "offset": 10})];
+            if with_label {
+                items.push(serde_json::json!({"type": "text", "at": [30, 30], "text": "注記"}));
+            }
+            let spec = serde_json::json!({"sheets": [{"name": "S", "items": items}]}).to_string();
+            let drafted = zumen::draft(&spec, to, &DraftOptions::default()).unwrap();
+            let scene = zumen::read(
+                &drafted.bytes,
+                &ReadDrawingOptions { view: Some("S".into()), ..ReadDrawingOptions::default() },
+            )
+            .unwrap();
+            let report = check_scene(&scene, &RuleSet::built_in("mlit-cad-2025").unwrap());
+            let heights = result(&report, "text-height");
+            assert_eq!(heights.checked, if with_label { 2 } else { 1 });
+            assert!(heights.findings.is_empty(), "{to} {with_label}: {heights:?}");
+        }
+    }
+}
+
+#[test]
 fn leaves_the_line_types_of_jww_unchecked() {
     let report = check("jww", "A01-1");
     let types = result(&report, "line-type");

@@ -20,6 +20,93 @@ fn close(a: f64, b: f64) -> bool {
     (a - b).abs() <= 1e-9 * a.abs().max(b.abs()).max(1.0)
 }
 
+#[test]
+fn changing_insert_placement_moves_attributes_in_every_editable_version() {
+    let source = edit(&new_dwg("mm").unwrap(), r#"[
+        {"op":"add-block","name":"B","basePoint":[2,3]},
+        {"op":"add","kind":"attribute-definition","container":"block:B","tag":"T","position":[4,5,6],"height":2,"rotation":30,"justification":"middle-center","color":3},
+        {"op":"add","kind":"block-reference","block":"B","position":[10,20,30],"scale":[-2,3,4],"rotation":37,"attributes":{"T":"kept"}},
+        {"op":"add","kind":"block-reference","block":"B","position":[100,200,300],"scale":[4,-1,2],"rotation":73,"attributes":{"T":"kept"}}
+    ]"#).unwrap();
+    let source_doc = crate::read_dwg(&source.bytes).unwrap();
+    let axes = |text: &zumen_dxf::DxfTextBase| {
+        let (sin, cos) = text.rotation.to_radians().sin_cos();
+        let mx = if text.text_generation_flag as i64 & 2 != 0 { -1.0 } else { 1.0 };
+        let my = if text.text_generation_flag as i64 & 4 != 0 { -1.0 } else { 1.0 };
+        let shear = text.height * text.oblique.to_radians().tan() * mx;
+        [
+            [cos * text.height * text.width * mx, sin * text.height * text.width * mx],
+            [cos * shear - sin * text.height * my, sin * shear + cos * text.height * my],
+        ]
+    };
+    for version in [crate::DwgVersion::R13, crate::DwgVersion::R14, crate::DwgVersion::R2000, crate::DwgVersion::R2018]
+    {
+        let bytes = crate::write_dwg_as(&source_doc, version).bytes;
+        let attribute_handle = {
+            let DxfEntityData::Insert(insert) = &entity(&source_doc, &source.created[2]).unwrap().data else {
+                panic!()
+            };
+            u64::from_str_radix(&insert.attribs[0].base.handle, 16).unwrap()
+        };
+        let raw = Source::open(&bytes, &mut NoticeList::new()).unwrap();
+        let mut editor = Editor::new(raw, NoticeList::new()).unwrap();
+        let (mut attribute, _) = editor.read_entity(attribute_handle).unwrap();
+        let eed = (href(5, editor.acad_appid().unwrap()), vec![70, 123, 0]);
+        attribute.eed.push(eed.clone());
+        editor.store_entity(attribute_handle, &attribute);
+        let bytes = editor.finish().bytes;
+        let updated = edit(
+            &bytes,
+            &format!(
+                r#"[{{"op":"update","id":"{}","set":{{"position":[100,200,300],"scale":[4,-1,2],"rotation":73}}}}]"#,
+                source.created[2]
+            ),
+        )
+        .unwrap();
+        let raw = Source::open(&updated.bytes, &mut NoticeList::new()).unwrap();
+        let editor = Editor::new(raw, NoticeList::new()).unwrap();
+        assert!(editor.read_entity(attribute_handle).unwrap().0.eed.contains(&eed));
+        check_structure(version.name(), &updated.bytes);
+        let doc = crate::read_dwg(&updated.bytes).unwrap();
+        let attribute = |handle: &str| {
+            let DxfEntityData::Insert(insert) = &entity(&doc, handle).unwrap().data else { panic!() };
+            let attribute = &insert.attribs[0];
+            let DxfEntityData::Attrib { text, .. } = &attribute.data else { panic!() };
+            assert_eq!(attribute.base.color_index, 3.0);
+            text.clone()
+        };
+        let moved = attribute(&source.created[2]);
+        let expected = attribute(&source.created[3]);
+        for (actual, expected) in
+            moved.insert.iter().chain(moved.align_point.as_ref().unwrap()).chain(axes(&moved).iter().flatten()).zip(
+                expected
+                    .insert
+                    .iter()
+                    .chain(expected.align_point.as_ref().unwrap())
+                    .chain(axes(&expected).iter().flatten()),
+            )
+        {
+            assert!(close(*actual, *expected), "{}: {actual} != {expected}", version.name());
+        }
+        assert_eq!(moved.text, "kept");
+    }
+}
+
+#[test]
+fn update_layout_validates_paper_size() {
+    let bytes = new_dwg("mm").unwrap();
+    for json in [
+        r#"[{"op":"update-layout","name":"Layout1","set":{"paperSize":[0,210]}}]"#,
+        r#"[{"op":"update-layout","name":"Layout1","set":{"paperSize":[297]}}]"#,
+    ] {
+        assert_eq!(edit(&bytes, json).unwrap_err().code, "invalid-value");
+    }
+    assert_eq!(
+        edit(&bytes, r#"[{"op":"update-layout","name":"missing","set":{"paperSize":[297,210]}}]"#).unwrap_err().code,
+        "not-found"
+    );
+}
+
 fn entity<'a>(doc: &'a DxfDocument, handle: &str) -> Option<&'a DxfEntity> {
     doc.entities.iter().find(|entity| entity.base.handle == handle)
 }

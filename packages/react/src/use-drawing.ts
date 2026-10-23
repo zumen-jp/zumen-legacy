@@ -56,7 +56,7 @@ export function useDrawing(
     };
   }, [file]);
   useEffect(() => {
-    if (!loaded) return;
+    if (!loaded || loaded.file !== file) return;
     const bytes = loaded.bytes;
     if (!bytes) {
       setState({ scene: null, error: loaded.error, loading: false });
@@ -86,6 +86,6 @@ export function useDrawing(
     return () => {
       cancelled = true;
     };
-  }, [loaded, view]);
+  }, [file, loaded, view]);
   return state;
 }

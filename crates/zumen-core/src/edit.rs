@@ -60,6 +60,8 @@ pub enum EditOperation {
     AddStyle { kind: StyleKind, name: String, values: EditValues },
     /// レイアウト（用紙）を足す（docs/decisions/0017）。ビューポートは後の add が container の layout:<名前> で足す
     AddLayout { name: String, values: EditValues },
+    /// レイアウト（用紙）の大きさを変える
+    UpdateLayout { name: String, set: EditValues },
 }
 
 /// 足すスタイルの種類
@@ -93,6 +95,7 @@ impl EditOperation {
             EditOperation::AddBlock { .. } => "add-block",
             EditOperation::AddStyle { kind, .. } => kind.op(),
             EditOperation::AddLayout { .. } => "add-layout",
+            EditOperation::UpdateLayout { .. } => "update-layout",
         }
     }
 }
@@ -219,7 +222,7 @@ fn operation(index: usize, item: &Json) -> Result<EditOperation, EditError> {
             return Err(EditError::at(
                 index,
                 "invalid-operations",
-                "op（add・update・delete・add-layer・update-layer・add-block・add-text-style・add-dimension-style・add-line-type・add-layout）がありません",
+                "op（add・update・delete・add-layer・update-layer・add-block・add-text-style・add-dimension-style・add-line-type・add-layout・update-layout）がありません",
             ));
         }
     };
@@ -253,6 +256,10 @@ fn operation(index: usize, item: &Json) -> Result<EditOperation, EditError> {
         }
         "add-block" => EditOperation::AddBlock { name: string("name")?, values: values(&["op", "name"])? },
         "add-layout" => EditOperation::AddLayout { name: string("name")?, values: values(&["op", "name"])? },
+        "update-layout" => {
+            only(&["op", "name", "set"])?;
+            EditOperation::UpdateLayout { name: string("name")?, set: set()? }
+        }
         "add-text-style" | "add-dimension-style" | "add-line-type" => EditOperation::AddStyle {
             kind: match op {
                 "add-text-style" => StyleKind::Text,
@@ -267,7 +274,7 @@ fn operation(index: usize, item: &Json) -> Result<EditOperation, EditError> {
                 index,
                 "invalid-operations",
                 format!(
-                    "op の {other} はありません（add・update・delete・add-layer・update-layer・add-block・add-text-style・add-dimension-style・add-line-type・add-layout）"
+                    "op の {other} はありません（add・update・delete・add-layer・update-layer・add-block・add-text-style・add-dimension-style・add-line-type・add-layout・update-layout）"
                 ),
             ));
         }
@@ -538,11 +545,12 @@ mod tests {
                 {"op": "add-layer", "name": "CHECK", "color": 1},
                 {"op": "update-layer", "name": "CHECK", "set": {"visible": false, "lineType": null}},
                 {"op": "add-block", "name": "DOOR", "basePoint": [10, 0]},
-                {"op": "add-dimension-style", "name": "DIM-100", "scale": 100, "textAbove": true}
+                {"op": "add-dimension-style", "name": "DIM-100", "scale": 100, "textAbove": true},
+                {"op": "update-layout", "name": "A3", "set": {"paperSize": [420, 297]}}
             ]"##,
         )
         .unwrap();
-        assert_eq!(operations.len(), 8);
+        assert_eq!(operations.len(), 9);
         let EditOperation::Add { kind, values, container } = &operations[0] else { panic!() };
         assert_eq!((kind.as_str(), container), ("line", &None));
         let reader = ValueReader::new(values, 0);
@@ -568,6 +576,9 @@ mod tests {
             (StyleKind::Dimension, "DIM-100", "add-dimension-style")
         );
         assert_eq!(ValueReader::new(values, 7).bool("textAbove").unwrap(), Some(true));
+        let EditOperation::UpdateLayout { name, set } = &operations[8] else { panic!() };
+        assert_eq!((name.as_str(), operations[8].name()), ("A3", "update-layout"));
+        assert_eq!(ValueReader::new(set, 8).numbers("paperSize", 2).unwrap(), Some(vec![420.0, 297.0]));
     }
 
     #[test]

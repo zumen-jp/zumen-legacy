@@ -51,3 +51,5 @@ Choices made before this folder existed are described in [the architecture notes
 - [0020: Read the paths and texts of PDF drawings in Rust only, with hayro-interpret, and leave the pixels to a PDF engine](0020-pdf-drawings-in-rust.md) (2026-10-23, Proposed)
 - [0021: Keep drawing markup in a JSON document beside the drawing, in paper millimeters of a view, and carry it to new revisions with compare](0021-drawing-markup.md) (2026-10-23, Proposed)
 - [0022: Draw raster underlays through a region renderer that the application passes in, and keep the entities they show undrawn](0022-underlays-drawn-by-a-region-renderer.md) (2026-10-23, Proposed)
+- [0023: Resize existing layouts through an edit operation](0023-resize-existing-layouts.md) (2026-10-23, Accepted)
+- [0024: Keep the declared text height with each text primitive](0024-declared-text-height.md) (2026-10-23, Accepted)
