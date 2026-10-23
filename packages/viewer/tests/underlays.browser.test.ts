@@ -329,3 +329,41 @@ describe("underlay", () => {
     expect(at(25, 25)).toEqual([0, 0, 0, 255]);
   });
 });
+
+describe("描かない図形", () => {
+  it("drawn が false の図形は描かず、選択・吸着・計測には使い、選ぶと強調の色で描く", async () => {
+    const shown: SceneEntity = { ...line("shown", 20), drawn: false };
+    const { viewer, base } = await mount(drawing([underlay({ layers: [] })], { entities: [shown, line("top", 40)] }), {
+      underlayRenderer: solid("#000080"),
+    });
+    await until(() => pixel(base, ...viewer.toScreen(50, 30))[2] === 128);
+    // underlay だけが見え、描く図形は上に描く
+    expect(pixel(base, ...viewer.toScreen(50, 20))).toEqual([0, 0, 128, 255]);
+    expect(pixel(base, ...viewer.toScreen(50, 40))).toEqual([255, 255, 255, 255]);
+    // 当たり判定・吸着は、描かない図形も見る
+    expect(viewer.entitiesAt(50, 20)).toEqual([shown]);
+    expect(viewer.entitiesIn({ minX: 0, minY: 15, maxX: 100, maxY: 25 })).toEqual([shown]);
+    expect(viewer.snapAt(0.5, 20.5)).toMatchObject({ x: 0, y: 20, kind: "vertex", entity: shown });
+    // クリックで選べ、選んだ図形は強調の色（暗い背景の selection）で描く
+    viewer.setTool("select");
+    const [px, py] = viewer.toScreen(50, 20);
+    const rect = viewer.canvas.getBoundingClientRect();
+    for (const type of ["pointerdown", "pointerup"]) {
+      viewer.canvas.dispatchEvent(
+        new PointerEvent(type, {
+          bubbles: true,
+          pointerId: 1,
+          pointerType: "mouse",
+          isPrimary: true,
+          button: 0,
+          buttons: type === "pointerdown" ? 1 : 0,
+          clientX: rect.left + px,
+          clientY: rect.top + py,
+        }),
+      );
+    }
+    expect(viewer.getState().selection).toEqual([shown]);
+    await frames();
+    expect(pixel(base, px, py)).toEqual([255, 176, 0, 255]);
+  });
+});

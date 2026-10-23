@@ -641,6 +641,8 @@ pub fn diff_scene(before: &Scene, after: &Scene, diff: &SceneDiff) -> Scene {
         }
         entity.id = format!("{}:{}", if from_after { "B" } else { "A" }, source.id);
         entity.layers = vec![layer];
+        // 差分の図面には underlay がないので、underlay が見せていた図形（drawn が false）も描く
+        entity.drawn = true;
         entity.properties.insert(0, Property::new("comparison", "比較", label).raw(key));
         entities.push(entity);
     };
@@ -832,6 +834,7 @@ mod tests {
             bbox,
             properties: Vec::new(),
             placement: None,
+            drawn: true,
         }
     }
 
@@ -970,5 +973,24 @@ mod tests {
         let Primitive::Text(label) = &kept.primitives[0] else { panic!() };
         assert_eq!((label.matrix[4], label.matrix[5], label.color.as_str()), (200.0, 20.0, UNCHANGED_COLOR));
         assert_eq!(kept.bbox.min_x, 200.0);
+    }
+
+    #[test]
+    fn draws_the_entities_that_an_underlay_showed() {
+        // PDF の図面のように、すべての図形を underlay が見せている 2 つの版
+        let undrawn = |mut scene: Scene| {
+            for entity in &mut scene.entities {
+                entity.drawn = false;
+            }
+            scene
+        };
+        let a = undrawn(plan((0.0, 0.0)));
+        let mut b = undrawn(plan((0.0, 0.0)));
+        b.entities.remove(0);
+        let diff = compare_scenes(&a, &b, &CompareOptions::default());
+        assert_eq!(diff.removed.len(), 1);
+        // 差分の図面には underlay がないので、図形を描く
+        let overlay = diff_scene(&a, &b, &diff);
+        assert!(!overlay.entities.is_empty() && overlay.entities.iter().all(|entity| entity.drawn));
     }
 }

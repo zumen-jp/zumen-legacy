@@ -16,7 +16,12 @@ All packages share one version during 0.x.
   built-in hatch patterns move to `zumen_core::edit::dimension` and `zumen_core::edit::hatch` (re-exported by
   zumen-dxf; `HatchInput::pattern_type` becomes `custom`, and a dimension's DXF flags and display block are the
   `DxfDimension` trait), and `JwwDimension` keeps its SXF mode (`sxf_mode`).
-
+- Browsers, Rust and Python: entities can be kept for interaction only, with `drawn: false` (`SceneEntity.drawn` in
+  `zumen-core`), for the content that an underlay already shows such as the paths and texts of a PDF page
+  ([decision 0022](docs/decisions/0022-underlays-drawn-by-a-region-renderer.md)). `renderScene` and `zumen-render`
+  (PNG, SVG, PDF and `drawn_entities`) skip them; hit testing, snapping, measurement, `texts`, `entities`, regions,
+  tables, checks and comparison use them, the viewer's selection and highlights draw them, and `diff_scene` draws
+  them. No reader produces them yet.
 - Browsers, Rust and Python: scenes describe raster content drawn under the entities, `Scene.underlays` (images and
   PDF pages: where they sit in paper millimeters, clip rings, opacity and layers, and the file and page they come
   from), with the same JSON in `@zumenjs/core` and `zumen-core`
