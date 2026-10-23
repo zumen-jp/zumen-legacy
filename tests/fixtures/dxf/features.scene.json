@@ -16916,7 +16916,7 @@
     {
       "level": "info",
       "code": "image",
-      "message": "画像（IMAGE）は読み込まず、外形だけを描きました",
+      "message": "画像のファイルが分からない画像（IMAGE）は、外形だけを描きました",
       "count": 1
     },
     {

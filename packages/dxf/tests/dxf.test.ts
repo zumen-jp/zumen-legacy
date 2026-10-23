@@ -1,9 +1,11 @@
 import { measureDistance, readDrawing, type SceneEntity, type TextPrimitive } from "@zumenjs/core";
+import { apply } from "@zumenjs/core/geometry";
 import { describe, expect, it } from "vitest";
 import {
   type DxfAttdef,
   type DxfAttrib,
   type DxfEmbeddedMText,
+  type DxfImage,
   type DxfInsert,
   type DxfLine,
   type DxfMLine,
@@ -24,6 +26,7 @@ import {
   CODEPAGE,
   DIMSTYLE_DEFAULTS,
   IDS,
+  IMAGES,
   LAYOUT,
   LIMITS,
   latin1,
@@ -377,5 +380,39 @@ describe("DXF の縦書き", () => {
     expect(round(narrow?.matrix[2] ?? 0)).toBe(round(Math.tan((10 * Math.PI) / 180)));
     // 同じ図面の、@ のないフォントの文字は横に並べる
     expect(at(horizontal, 0, 0)).toEqual([10 + 40, round(50 - 0.12 * em)]);
+  });
+});
+
+describe("DXF の画像", () => {
+  it("IMAGEDEF のファイルの名前・読み込んだ状態と、明るさ・フェード・反転した切り抜き・IMAGEFRAME を読む", () => {
+    const doc = parseDxf(IMAGES);
+    const images = doc.entities.filter((entity): entity is DxfImage => entity.type === "IMAGE");
+    const byHandle = new Map(images.map((image) => [image.handle, image]));
+    expect(byHandle.get("100")).toMatchObject({ path: "photo.png", loaded: true, brightness: 60, fade: 25 });
+    expect(byHandle.get("101")).toMatchObject({ clip_inverted: true, clipping: true });
+    expect(byHandle.get("103")).toMatchObject({ path: "C:\\scans\\unloaded.tif", loaded: false });
+    expect(byHandle.get("104")?.path).toBeUndefined();
+    expect(byHandle.get("110")?.path).toBe("logo.jpg");
+    expect(doc.image_frame).toBe(0);
+  });
+
+  it("中身の左上を画像の左上の角に、右下を右下の角に置き、外形は選ぶためだけに残す", () => {
+    const scene = readDrawing(IMAGES, [dxf]);
+    const underlay = scene.underlays?.find((candidate) => candidate.id === "101");
+    expect(underlay).toBeDefined();
+    if (!underlay) return;
+    // insert (40, 0)、U (0.08, 0.06)、V (−0.03, 0.04)、100 × 50 画素: 左上は insert + V·50
+    const close = (point: [number, number], expected: [number, number]) => {
+      expect(point[0]).toBeCloseTo(expected[0], 9);
+      expect(point[1]).toBeCloseTo(expected[1], 9);
+    };
+    close(apply(underlay.matrix, 0, 0), [38.5, 2]);
+    close(apply(underlay.matrix, 100, 50), [48, 6]);
+    close(apply(underlay.matrix, 100, 0), [46.5, 8]);
+    // 内側を消す切り抜きは、画像の全体と境界の 2 つの輪
+    expect(underlay.clip).toHaveLength(2);
+    expect(scene.entities.find((entity) => entity.id === "101")?.drawn).toBe(false);
+    // 表示しない画像・読み込みを外した画像・定義のない画像は、中身を描かない
+    expect(scene.underlays?.map((candidate) => candidate.id)).toEqual(["100", "101", "105>110"]);
   });
 });

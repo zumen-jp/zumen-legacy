@@ -542,11 +542,20 @@ pub struct DxfImage {
     pub boundary: Vec<Vec2>,
     /// 70。1 表示、2 回転しないとき表示、4 切り抜き
     pub flags: f64,
+    /// 280。切り抜きの境界で切るか
     pub clipping: bool,
+    /// 290。true なら境界の内側を消す（AutoCAD 2010 以降の反転した切り抜き）
+    pub clip_inverted: bool,
+    /// 281・282・283。明るさ（既定 50）・コントラスト（既定 50）・フェード（既定 0）。どれも 0〜100
+    pub brightness: f64,
+    pub contrast: f64,
+    pub fade: f64,
     /// 画像の定義（IMAGEDEF）のハンドル（340）。WIPEOUT は持たない
     pub definition_handle: Option<String>,
     /// 画像の定義が指す画像のファイルの名前（IMAGEDEF の 1）。書き出しにも使う
     pub path: Option<String>,
+    /// 画像の定義の 280。false なら読み込みを外した画像で、AutoCAD は外形だけを表示する
+    pub loaded: bool,
 }
 
 /// 表（ACAD_TABLE）。表示の図形は INSERT と同じくブロック（*T…）で持つ
@@ -864,6 +873,9 @@ pub struct DxfDocument {
     /// 描画順（SORTENTSTABLE）。ブロックの名前ごとに、図形のハンドル → 並べ替えのハンドル。
     /// 名前は JavaScript のオブジェクトのキーと同じ順（整数の名前が先）で引く
     pub sort_handles: Vec<(String, HashMap<String, String>)>,
+    /// 画像の外形の表示（RASTERVARIABLES の 70、AutoCAD の IMAGEFRAME）。0 表示しない、1 表示して印刷する、
+    /// 2 表示して印刷しない。None なら 1
+    pub image_frame: Option<f64>,
     /// 読まなかった図形の種類と件数（最初に現れた順）
     pub skipped: Vec<(String, u64)>,
     /// 読み取りで省略・代替した内容

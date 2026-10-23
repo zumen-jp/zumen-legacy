@@ -177,16 +177,39 @@ fn fit_splines(doc: &DxfDocument) -> HashSet<String> {
         .collect()
 }
 
-/// 元の図形ごとに、書き直した図面の同じ図形（同じ id、なければ同じ順の図形）と比べる
+/// 元の図形ごとに、書き直した図面の同じ図形（同じ id、なければ同じ順の図形）と比べる。画像の中身（underlay）は
+/// ファイル・大きさ・置き方・切り抜き・不透明度を順に比べる
 fn differences(original: &Scene, again: &Scene, skipped: &HashSet<String>) -> Vec<String> {
     let entities = |scene: &Scene| serde_json::to_value(&scene.entities).unwrap().as_array().unwrap().clone();
     let (before, after) = (entities(original), entities(again));
     let mut out = Vec::new();
+    let underlays = |scene: &Scene| {
+        let values: Vec<Value> = scene
+            .underlays
+            .iter()
+            .map(|underlay| {
+                json!({
+                    "file": underlay.file,
+                    "size": [underlay.width, underlay.height],
+                    "matrix": underlay.matrix,
+                    "clip": underlay.clip,
+                    "opacity": underlay.opacity,
+                })
+            })
+            .collect();
+        Value::Array(values)
+    };
+    let (images, images_again) = (underlays(original), underlays(again));
+    if !close(&images, &images_again) {
+        out.push(format!("underlays differ\n  {images}\n  {images_again}"));
+    }
     for (index, entity) in before.iter().enumerate() {
         let id = entity["id"].as_str().unwrap();
         let source = entity["source"].as_str().unwrap_or("");
         let same_id = after.iter().find(|other| other["id"] == entity["id"]);
-        if source == "IMAGE" {
+        // 画像のファイル（IMAGEDEF）が分からない画像は書かない
+        let file = entity["properties"].as_array().is_some_and(|items| items.iter().any(|item| item["key"] == "file"));
+        if source == "IMAGE" && !file {
             if same_id.is_some() {
                 out.push(format!("{id}: an image was written"));
             }
@@ -262,6 +285,10 @@ fn nearest_raw(raw: &mut f64) {
 /// 版の色（CMC）は色の番号だけ
 fn reduced(doc: &DxfDocument, version: DwgVersion) -> DxfDocument {
     let mut doc = doc.clone();
+    // R13 は IMAGE を持たない（書き出しが version-image で知らせる）
+    if version == DwgVersion::R13 {
+        doc.entities.retain(|entity| !entity.base.kind.eq_ignore_ascii_case("IMAGE"));
+    }
     for entity in &mut doc.entities {
         let DxfEntityData::MLeader(mleader) = &mut entity.data else { continue };
         if version < DwgVersion::R2010 {

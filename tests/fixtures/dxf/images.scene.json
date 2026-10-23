@@ -1,0 +1,890 @@
+{
+  "format": "dxf",
+  "version": "DXF AC1024",
+  "unit": "millimeter",
+  "views": [
+    {
+      "id": "Model",
+      "name": "モデル"
+    },
+    {
+      "id": "Layout1",
+      "name": "Layout1"
+    }
+  ],
+  "view": "Model",
+  "sheet": null,
+  "bounds": {
+    "minX": 0,
+    "minY": 0,
+    "maxX": 88.66025403784438,
+    "maxY": 25
+  },
+  "layers": [
+    {
+      "id": 1,
+      "name": "0",
+      "visible": true
+    },
+    {
+      "id": 2,
+      "name": "IMG",
+      "visible": true
+    }
+  ],
+  "entities": [
+    {
+      "id": "FF",
+      "kind": "line",
+      "type": "線分",
+      "source": "LINE",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            5,
+            5,
+            15,
+            5
+          ],
+          "closed": false,
+          "color": "#ffffff",
+          "width": 0.25,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 5,
+        "minY": 5,
+        "maxX": 15,
+        "maxY": 5
+      },
+      "properties": [
+        {
+          "key": "type",
+          "label": "種類",
+          "value": "線分（LINE）"
+        },
+        {
+          "key": "id",
+          "label": "ハンドル",
+          "value": "FF"
+        },
+        {
+          "key": "layer",
+          "label": "レイヤ",
+          "value": "0",
+          "raw": 1
+        },
+        {
+          "key": "color",
+          "label": "色",
+          "value": "BYLAYER",
+          "raw": 256
+        },
+        {
+          "key": "lineType",
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "key": "lineWidth",
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "key": "start",
+          "label": "始点",
+          "value": "5, 5",
+          "raw": [
+            5,
+            5
+          ]
+        },
+        {
+          "key": "end",
+          "label": "終点",
+          "value": "15, 5",
+          "raw": [
+            15,
+            5
+          ]
+        },
+        {
+          "key": "length",
+          "label": "長さ",
+          "value": "10",
+          "raw": 10
+        }
+      ],
+      "placement": {
+        "name": "モデル空間（mm）",
+        "scaleX": 1,
+        "scaleY": 1,
+        "inverse": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": "100",
+      "kind": "image",
+      "type": "画像",
+      "source": "IMAGE",
+      "layers": [
+        2
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            10,
+            20,
+            10,
+            10,
+            0,
+            0,
+            10
+          ],
+          "closed": true,
+          "color": "#00ff00",
+          "width": 0,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 0,
+        "minY": 0,
+        "maxX": 20,
+        "maxY": 10
+      },
+      "properties": [
+        {
+          "key": "type",
+          "label": "種類",
+          "value": "画像（IMAGE）"
+        },
+        {
+          "key": "id",
+          "label": "ハンドル",
+          "value": "100"
+        },
+        {
+          "key": "layer",
+          "label": "レイヤ",
+          "value": "IMG",
+          "raw": 2
+        },
+        {
+          "key": "color",
+          "label": "色",
+          "value": "BYLAYER",
+          "raw": 256
+        },
+        {
+          "key": "lineType",
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "key": "lineWidth",
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "key": "imageSize",
+          "label": "画素",
+          "value": "200 × 100",
+          "raw": [
+            200,
+            100
+          ]
+        },
+        {
+          "key": "file",
+          "label": "ファイル",
+          "value": "photo.png"
+        },
+        {
+          "key": "fade",
+          "label": "フェード",
+          "value": "25",
+          "raw": 25
+        }
+      ],
+      "placement": {
+        "name": "モデル空間（mm）",
+        "scaleX": 1,
+        "scaleY": 1,
+        "inverse": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ]
+      },
+      "drawn": false
+    },
+    {
+      "id": "101",
+      "kind": "image",
+      "type": "画像",
+      "source": "IMAGE",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            40.4,
+            2.8,
+            45.199999999999996,
+            6.4,
+            46.1,
+            5.2,
+            41.300000000000004,
+            1.6
+          ],
+          "closed": true,
+          "color": "#ffffff",
+          "width": 0,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 40.4,
+        "minY": 1.6,
+        "maxX": 46.1,
+        "maxY": 6.4
+      },
+      "properties": [
+        {
+          "key": "type",
+          "label": "種類",
+          "value": "画像（IMAGE）"
+        },
+        {
+          "key": "id",
+          "label": "ハンドル",
+          "value": "101"
+        },
+        {
+          "key": "layer",
+          "label": "レイヤ",
+          "value": "0",
+          "raw": 1
+        },
+        {
+          "key": "color",
+          "label": "色",
+          "value": "BYLAYER",
+          "raw": 256
+        },
+        {
+          "key": "lineType",
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "key": "lineWidth",
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "key": "imageSize",
+          "label": "画素",
+          "value": "100 × 50",
+          "raw": [
+            100,
+            50
+          ]
+        },
+        {
+          "key": "file",
+          "label": "ファイル",
+          "value": "photo.png"
+        }
+      ],
+      "placement": {
+        "name": "モデル空間（mm）",
+        "scaleX": 1,
+        "scaleY": 1,
+        "inverse": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ]
+      },
+      "drawn": false
+    },
+    {
+      "id": "102",
+      "kind": "image",
+      "type": "画像",
+      "source": "IMAGE",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            25,
+            10,
+            25,
+            10,
+            20,
+            0,
+            20
+          ],
+          "closed": true,
+          "color": "#ffffff",
+          "width": 0,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 0,
+        "minY": 20,
+        "maxX": 10,
+        "maxY": 25
+      },
+      "properties": [
+        {
+          "key": "type",
+          "label": "種類",
+          "value": "画像（IMAGE）"
+        },
+        {
+          "key": "id",
+          "label": "ハンドル",
+          "value": "102"
+        },
+        {
+          "key": "layer",
+          "label": "レイヤ",
+          "value": "0",
+          "raw": 1
+        },
+        {
+          "key": "color",
+          "label": "色",
+          "value": "BYLAYER",
+          "raw": 256
+        },
+        {
+          "key": "lineType",
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "key": "lineWidth",
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "key": "imageSize",
+          "label": "画素",
+          "value": "100 × 50",
+          "raw": [
+            100,
+            50
+          ]
+        },
+        {
+          "key": "file",
+          "label": "ファイル",
+          "value": "photo.png"
+        }
+      ],
+      "placement": {
+        "name": "モデル空間（mm）",
+        "scaleX": 1,
+        "scaleY": 1,
+        "inverse": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ]
+      },
+      "drawn": false
+    },
+    {
+      "id": "103",
+      "kind": "image",
+      "type": "画像",
+      "source": "IMAGE",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            20,
+            25,
+            30,
+            25,
+            30,
+            20,
+            20,
+            20
+          ],
+          "closed": true,
+          "color": "#ffffff",
+          "width": 0,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 20,
+        "minY": 20,
+        "maxX": 30,
+        "maxY": 25
+      },
+      "properties": [
+        {
+          "key": "type",
+          "label": "種類",
+          "value": "画像（IMAGE）"
+        },
+        {
+          "key": "id",
+          "label": "ハンドル",
+          "value": "103"
+        },
+        {
+          "key": "layer",
+          "label": "レイヤ",
+          "value": "0",
+          "raw": 1
+        },
+        {
+          "key": "color",
+          "label": "色",
+          "value": "BYLAYER",
+          "raw": 256
+        },
+        {
+          "key": "lineType",
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "key": "lineWidth",
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "key": "imageSize",
+          "label": "画素",
+          "value": "100 × 50",
+          "raw": [
+            100,
+            50
+          ]
+        },
+        {
+          "key": "file",
+          "label": "ファイル",
+          "value": "C:\\scans\\unloaded.tif"
+        }
+      ],
+      "placement": {
+        "name": "モデル空間（mm）",
+        "scaleX": 1,
+        "scaleY": 1,
+        "inverse": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ]
+      },
+      "drawn": false
+    },
+    {
+      "id": "104",
+      "kind": "image",
+      "type": "画像",
+      "source": "IMAGE",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            40,
+            25,
+            50,
+            25,
+            50,
+            20,
+            40,
+            20
+          ],
+          "closed": true,
+          "color": "#ffffff",
+          "width": 0,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 40,
+        "minY": 20,
+        "maxX": 50,
+        "maxY": 25
+      },
+      "properties": [
+        {
+          "key": "type",
+          "label": "種類",
+          "value": "画像（IMAGE）"
+        },
+        {
+          "key": "id",
+          "label": "ハンドル",
+          "value": "104"
+        },
+        {
+          "key": "layer",
+          "label": "レイヤ",
+          "value": "0",
+          "raw": 1
+        },
+        {
+          "key": "color",
+          "label": "色",
+          "value": "BYLAYER",
+          "raw": 256
+        },
+        {
+          "key": "lineType",
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "key": "lineWidth",
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "key": "imageSize",
+          "label": "画素",
+          "value": "100 × 50",
+          "raw": [
+            100,
+            50
+          ]
+        }
+      ],
+      "placement": {
+        "name": "モデル空間（mm）",
+        "scaleX": 1,
+        "scaleY": 1,
+        "inverse": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": "105>110",
+      "kind": "image",
+      "type": "画像",
+      "source": "IMAGE",
+      "layers": [
+        2
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            75,
+            8.660254037844387,
+            83.66025403784438,
+            13.660254037844386,
+            88.66025403784438,
+            4.999999999999999,
+            80,
+            0
+          ],
+          "closed": true,
+          "color": "#00ff00",
+          "width": 0,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 75,
+        "minY": 0,
+        "maxX": 88.66025403784438,
+        "maxY": 13.660254037844386
+      },
+      "properties": [
+        {
+          "key": "type",
+          "label": "種類",
+          "value": "画像（IMAGE）"
+        },
+        {
+          "key": "id",
+          "label": "ハンドル",
+          "value": "105>110"
+        },
+        {
+          "key": "layer",
+          "label": "レイヤ",
+          "value": "IMG",
+          "raw": 2
+        },
+        {
+          "key": "block",
+          "label": "ブロック",
+          "value": "LOGO"
+        },
+        {
+          "key": "color",
+          "label": "色",
+          "value": "BYLAYER",
+          "raw": 256
+        },
+        {
+          "key": "lineType",
+          "label": "線種",
+          "value": "BYLAYER（CONTINUOUS）"
+        },
+        {
+          "key": "lineWidth",
+          "label": "線の太さ",
+          "value": "BYLAYER"
+        },
+        {
+          "key": "imageSize",
+          "label": "画素",
+          "value": "50 × 50",
+          "raw": [
+            50,
+            50
+          ]
+        },
+        {
+          "key": "file",
+          "label": "ファイル",
+          "value": "logo.jpg"
+        }
+      ],
+      "placement": {
+        "name": "モデル空間（mm）",
+        "scaleX": 1,
+        "scaleY": 1,
+        "inverse": [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ]
+      },
+      "drawn": false
+    }
+  ],
+  "notices": [
+    {
+      "level": "info",
+      "code": "skipped-types",
+      "message": "読み取りに対応していない図形を表示していません（PDFUNDERLAY 1、DWFUNDERLAY 1）",
+      "count": 2
+    },
+    {
+      "level": "info",
+      "code": "image-adjust",
+      "message": "画像（IMAGE）の明るさとコントラストは反映していません",
+      "count": 1
+    },
+    {
+      "level": "info",
+      "code": "image-order",
+      "message": "図形の上に重なる画像（IMAGE）を、すべての図形の下に描きました",
+      "count": 1
+    },
+    {
+      "level": "info",
+      "code": "image",
+      "message": "画像のファイルが分からない画像（IMAGE）は、外形だけを描きました",
+      "count": 1
+    }
+  ],
+  "metadata": [
+    {
+      "key": "format",
+      "label": "形式",
+      "value": "DXF AutoCAD 2010（AC1024、テキスト）"
+    },
+    {
+      "key": "encoding",
+      "label": "文字コード",
+      "value": "UTF-8（AutoCAD 2007 以降の DXF）",
+      "raw": "utf-8"
+    },
+    {
+      "key": "units",
+      "label": "単位",
+      "value": "mm"
+    },
+    {
+      "key": "blockCount",
+      "label": "ブロック",
+      "value": "1 件",
+      "raw": 1
+    },
+    {
+      "key": "layouts",
+      "label": "レイアウト",
+      "value": "Layout1"
+    },
+    {
+      "key": "view",
+      "label": "表示",
+      "value": "モデル空間",
+      "raw": "Model"
+    }
+  ],
+  "background": "dark",
+  "underlays": [
+    {
+      "id": "100",
+      "kind": "image",
+      "file": "photo.png",
+      "width": 200,
+      "height": 100,
+      "matrix": [
+        0.1,
+        0,
+        0,
+        -0.1,
+        0,
+        10
+      ],
+      "layers": [
+        2
+      ],
+      "bbox": {
+        "minX": 0,
+        "minY": 0,
+        "maxX": 20,
+        "maxY": 10
+      },
+      "clip": [
+        [
+          0,
+          10,
+          20,
+          10,
+          10,
+          0,
+          0,
+          10
+        ]
+      ],
+      "opacity": 0.75
+    },
+    {
+      "id": "101",
+      "kind": "image",
+      "file": "photo.png",
+      "width": 100,
+      "height": 50,
+      "matrix": [
+        0.08,
+        0.06,
+        0.03,
+        -0.04,
+        38.5,
+        2
+      ],
+      "layers": [
+        1
+      ],
+      "bbox": {
+        "minX": 38.5,
+        "minY": 0,
+        "maxX": 48,
+        "maxY": 8
+      },
+      "clip": [
+        [
+          38.5,
+          2,
+          46.5,
+          8,
+          48,
+          6,
+          40,
+          0
+        ],
+        [
+          40.4,
+          2.8,
+          45.199999999999996,
+          6.4,
+          46.1,
+          5.2,
+          41.300000000000004,
+          1.6
+        ]
+      ]
+    },
+    {
+      "id": "105>110",
+      "kind": "image",
+      "file": "logo.jpg",
+      "width": 50,
+      "height": 50,
+      "matrix": [
+        0.17320508075688776,
+        0.09999999999999999,
+        0.09999999999999999,
+        -0.17320508075688776,
+        75,
+        8.660254037844387
+      ],
+      "layers": [
+        2
+      ],
+      "bbox": {
+        "minX": 75,
+        "minY": 0,
+        "maxX": 88.66025403784438,
+        "maxY": 13.660254037844387
+      }
+    }
+  ]
+}

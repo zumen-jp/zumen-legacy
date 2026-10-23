@@ -118,8 +118,8 @@ struct Parser<'a> {
     /// LAYOUT の BLOCK_RECORD のハンドルとレイアウト
     layout_records: Vec<(String, DxfLayout)>,
     sort_tables: Vec<(String, HashMap<String, String>)>,
-    /// IMAGEDEF のハンドル → 画像のファイルの名前
-    image_paths: HashMap<String, String>,
+    /// IMAGEDEF のハンドル → 画像のファイルの名前と、読み込んだ状態
+    image_paths: HashMap<String, (String, bool)>,
     has_paper_entities: bool,
     /// タグごとの、そこまでのレコード（グループコード 0）の数。ハンドルのない図形があるときに作る
     records: OnceCell<Vec<u32>>,
@@ -2013,8 +2013,13 @@ impl<'a> Parser<'a> {
             boundary,
             flags: self.number(body, 70, 0.0),
             clipping: self.number(body, 280, 0.0) != 0.0,
+            clip_inverted: self.number(body, 290, 0.0) != 0.0,
+            brightness: self.number(body, 281, 50.0),
+            contrast: self.number(body, 282, 50.0),
+            fade: self.number(body, 283, 0.0),
             definition_handle: Some(self.handle_of(body, 340)).filter(|handle| !handle.is_empty() && handle != "0"),
             path: None,
+            loaded: true,
         };
         DxfEntity { base, data: DxfEntityData::Image(image) }
     }
@@ -2038,9 +2043,16 @@ impl<'a> Parser<'a> {
                 "SORTENTSTABLE" => self.sort_table(&body),
                 "MLINESTYLE" => self.mline_style(&body),
                 "IMAGEDEF" => {
+                    // DXF Reference「IMAGEDEF」: 1 画像のファイルの名前、280 読み込んだ状態（0 読み込みを外した）
                     let own = self.subclass_body(&body, "AcDbRasterImageDef");
                     let path = self.text(&own, 1, "");
-                    self.image_paths.insert(self.handle_of(&body, 5), path);
+                    let loaded = self.number(&own, 280, 1.0) != 0.0;
+                    self.image_paths.insert(self.handle_of(&body, 5), (path, loaded));
+                }
+                "RASTERVARIABLES" => {
+                    // DXF Reference「RASTERVARIABLES」: 70 画像の外形の表示（IMAGEFRAME）
+                    let own = self.subclass_body(&body, "AcDbRasterVariables");
+                    self.doc.image_frame = Some(self.number(&own, 70, 1.0));
                 }
                 _ => {}
             }
@@ -2152,9 +2164,12 @@ impl<'a> Parser<'a> {
         if !self.image_paths.is_empty() {
             for entity in &mut self.doc.entities {
                 if let DxfEntityData::Image(image) = &mut entity.data
+                    && entity.base.kind == "IMAGE"
                     && let Some(handle) = &image.definition_handle
+                    && let Some((path, loaded)) = self.image_paths.get(handle)
                 {
-                    image.path = self.image_paths.get(handle).cloned();
+                    image.path = Some(path.clone());
+                    image.loaded = *loaded;
                 }
             }
         }
@@ -2263,6 +2278,7 @@ pub fn parse_dxf(bytes: &[u8]) -> DxfDocument {
             layouts: Vec::new(),
             entities: Vec::new(),
             sort_handles: Vec::new(),
+            image_frame: None,
             skipped: Vec::new(),
             notices: Vec::new(),
         },
