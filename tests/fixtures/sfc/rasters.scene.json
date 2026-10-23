@@ -1,0 +1,643 @@
+{
+  "format": "sfc",
+  "version": "SXF 3.1",
+  "unit": "millimeter",
+  "sheet": {
+    "name": "画像",
+    "size": "A3 横",
+    "width": 420,
+    "height": 297
+  },
+  "bounds": {
+    "minX": 0,
+    "minY": 0,
+    "maxX": 420,
+    "maxY": 297
+  },
+  "layers": [
+    {
+      "id": 1,
+      "name": "枠",
+      "visible": true
+    },
+    {
+      "id": 2,
+      "name": "画像",
+      "visible": true
+    }
+  ],
+  "entities": [
+    {
+      "id": "#130",
+      "kind": "line",
+      "type": "線分",
+      "source": "line_feature",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            10,
+            50,
+            200,
+            50
+          ],
+          "closed": false,
+          "color": "#000000",
+          "width": 0.13,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 10,
+        "minY": 50,
+        "maxX": 200,
+        "maxY": 50
+      },
+      "properties": [
+        {
+          "key": "type",
+          "label": "種類",
+          "value": "線分"
+        },
+        {
+          "key": "id",
+          "label": "番号",
+          "value": "#130"
+        },
+        {
+          "key": "layer",
+          "label": "レイヤ",
+          "value": "枠",
+          "raw": 1
+        },
+        {
+          "key": "color",
+          "label": "色",
+          "value": "黒（1）",
+          "raw": 1
+        },
+        {
+          "key": "lineType",
+          "label": "線種",
+          "value": "実線（1）",
+          "raw": 1
+        },
+        {
+          "key": "lineWidth",
+          "label": "線幅",
+          "value": "0.13mm（1）",
+          "raw": 0.13
+        },
+        {
+          "key": "start",
+          "label": "始点",
+          "value": "10, 50",
+          "raw": [
+            10,
+            50
+          ]
+        },
+        {
+          "key": "end",
+          "label": "終点",
+          "value": "200, 50",
+          "raw": [
+            200,
+            50
+          ]
+        },
+        {
+          "key": "length",
+          "label": "長さ",
+          "value": "190",
+          "raw": 190
+        }
+      ]
+    },
+    {
+      "id": "#140>#10",
+      "kind": "polyline",
+      "type": "折線",
+      "source": "polyline_feature",
+      "layers": [
+        2
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            20,
+            30,
+            20,
+            80,
+            120,
+            80,
+            120,
+            30,
+            20,
+            30
+          ],
+          "closed": false,
+          "color": "#0000ff",
+          "width": 0.13,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 20,
+        "minY": 30,
+        "maxX": 120,
+        "maxY": 80
+      },
+      "properties": [
+        {
+          "key": "type",
+          "label": "種類",
+          "value": "折線"
+        },
+        {
+          "key": "id",
+          "label": "番号",
+          "value": "#140>#10"
+        },
+        {
+          "key": "layer",
+          "label": "レイヤ",
+          "value": "画像",
+          "raw": 2
+        },
+        {
+          "key": "color",
+          "label": "色",
+          "value": "青（4）",
+          "raw": 4
+        },
+        {
+          "key": "lineType",
+          "label": "線種",
+          "value": "実線（1）",
+          "raw": 1
+        },
+        {
+          "key": "lineWidth",
+          "label": "線幅",
+          "value": "0.13mm（1）",
+          "raw": 0.13
+        },
+        {
+          "key": "vertexCount",
+          "label": "頂点数",
+          "value": "5",
+          "raw": 5
+        }
+      ]
+    },
+    {
+      "id": "#150>#30",
+      "kind": "polyline",
+      "type": "折線",
+      "source": "polyline_feature",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            150,
+            30,
+            184.641016,
+            50,
+            174.641016,
+            67.320508,
+            140,
+            47.320508,
+            150,
+            30
+          ],
+          "closed": false,
+          "color": "#000000",
+          "width": 0.13,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 140,
+        "minY": 30,
+        "maxX": 184.641016,
+        "maxY": 67.320508
+      },
+      "properties": [
+        {
+          "key": "type",
+          "label": "種類",
+          "value": "折線"
+        },
+        {
+          "key": "id",
+          "label": "番号",
+          "value": "#150>#30"
+        },
+        {
+          "key": "layer",
+          "label": "レイヤ",
+          "value": "枠",
+          "raw": 1
+        },
+        {
+          "key": "color",
+          "label": "色",
+          "value": "黒（1）",
+          "raw": 1
+        },
+        {
+          "key": "lineType",
+          "label": "線種",
+          "value": "実線（1）",
+          "raw": 1
+        },
+        {
+          "key": "lineWidth",
+          "label": "線幅",
+          "value": "0.13mm（1）",
+          "raw": 0.13
+        },
+        {
+          "key": "vertexCount",
+          "label": "頂点数",
+          "value": "5",
+          "raw": 5
+        }
+      ]
+    },
+    {
+      "id": "#160>#50",
+      "kind": "line",
+      "type": "線分",
+      "source": "line_feature",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            200,
+            100,
+            220,
+            100
+          ],
+          "closed": false,
+          "color": "#000000",
+          "width": 0.13,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 200,
+        "minY": 100,
+        "maxX": 220,
+        "maxY": 100
+      },
+      "properties": [
+        {
+          "key": "type",
+          "label": "種類",
+          "value": "線分"
+        },
+        {
+          "key": "id",
+          "label": "番号",
+          "value": "#160>#50"
+        },
+        {
+          "key": "layer",
+          "label": "レイヤ",
+          "value": "枠",
+          "raw": 1
+        },
+        {
+          "key": "color",
+          "label": "色",
+          "value": "黒（1）",
+          "raw": 1
+        },
+        {
+          "key": "lineType",
+          "label": "線種",
+          "value": "実線（1）",
+          "raw": 1
+        },
+        {
+          "key": "lineWidth",
+          "label": "線幅",
+          "value": "0.13mm（1）",
+          "raw": 0.13
+        },
+        {
+          "key": "start",
+          "label": "始点",
+          "value": "200, 100",
+          "raw": [
+            200,
+            100
+          ]
+        },
+        {
+          "key": "end",
+          "label": "終点",
+          "value": "220, 100",
+          "raw": [
+            220,
+            100
+          ]
+        },
+        {
+          "key": "length",
+          "label": "長さ",
+          "value": "20",
+          "raw": 20
+        }
+      ]
+    },
+    {
+      "id": "#170>#70",
+      "kind": "line",
+      "type": "線分",
+      "source": "line_feature",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            0,
+            0,
+            1,
+            0
+          ],
+          "closed": false,
+          "color": "#000000",
+          "width": 0.13,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 0,
+        "minY": 0,
+        "maxX": 1,
+        "maxY": 0
+      },
+      "properties": [
+        {
+          "key": "type",
+          "label": "種類",
+          "value": "線分"
+        },
+        {
+          "key": "id",
+          "label": "番号",
+          "value": "#170>#70"
+        },
+        {
+          "key": "layer",
+          "label": "レイヤ",
+          "value": "枠",
+          "raw": 1
+        },
+        {
+          "key": "color",
+          "label": "色",
+          "value": "黒（1）",
+          "raw": 1
+        },
+        {
+          "key": "lineType",
+          "label": "線種",
+          "value": "実線（1）",
+          "raw": 1
+        },
+        {
+          "key": "lineWidth",
+          "label": "線幅",
+          "value": "0.13mm（1）",
+          "raw": 0.13
+        },
+        {
+          "key": "start",
+          "label": "始点",
+          "value": "0, 0",
+          "raw": [
+            0,
+            0
+          ]
+        },
+        {
+          "key": "end",
+          "label": "終点",
+          "value": "1, 0",
+          "raw": [
+            1,
+            0
+          ]
+        },
+        {
+          "key": "length",
+          "label": "長さ",
+          "value": "1",
+          "raw": 1
+        }
+      ]
+    },
+    {
+      "id": "#180",
+      "kind": "line",
+      "type": "線分",
+      "source": "line_feature",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            10,
+            60,
+            200,
+            60
+          ],
+          "closed": false,
+          "color": "#000000",
+          "width": 0.13,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 10,
+        "minY": 60,
+        "maxX": 200,
+        "maxY": 60
+      },
+      "properties": [
+        {
+          "key": "type",
+          "label": "種類",
+          "value": "線分"
+        },
+        {
+          "key": "id",
+          "label": "番号",
+          "value": "#180"
+        },
+        {
+          "key": "layer",
+          "label": "レイヤ",
+          "value": "枠",
+          "raw": 1
+        },
+        {
+          "key": "color",
+          "label": "色",
+          "value": "黒（1）",
+          "raw": 1
+        },
+        {
+          "key": "lineType",
+          "label": "線種",
+          "value": "実線（1）",
+          "raw": 1
+        },
+        {
+          "key": "lineWidth",
+          "label": "線幅",
+          "value": "0.13mm（1）",
+          "raw": 0.13
+        },
+        {
+          "key": "start",
+          "label": "始点",
+          "value": "10, 60",
+          "raw": [
+            10,
+            60
+          ]
+        },
+        {
+          "key": "end",
+          "label": "終点",
+          "value": "200, 60",
+          "raw": [
+            200,
+            60
+          ]
+        },
+        {
+          "key": "length",
+          "label": "長さ",
+          "value": "190",
+          "raw": 190
+        }
+      ]
+    }
+  ],
+  "notices": [
+    {
+      "level": "info",
+      "code": "raster-order",
+      "message": "図形の上に重なる画像（ラスタ）を、すべての図形の下に描きました",
+      "count": 2
+    },
+    {
+      "level": "info",
+      "code": "raster",
+      "message": "画像の範囲を示す折線のない画像（ラスタ）は描いていません",
+      "count": 1
+    }
+  ],
+  "metadata": [
+    {
+      "key": "format",
+      "label": "形式",
+      "value": "SFC（SXF 3.1）"
+    },
+    {
+      "key": "sheet",
+      "label": "用紙",
+      "value": "画像・A3 横（420×297mm）"
+    },
+    {
+      "key": "software",
+      "label": "作成ソフト",
+      "value": "test"
+    },
+    {
+      "key": "library",
+      "label": "出力ライブラリ",
+      "value": "SCADEC_API_Ver3.10$$3.1"
+    },
+    {
+      "key": "figureCount",
+      "label": "複合図形",
+      "value": "4 件（部分図 0 件）",
+      "raw": [
+        4,
+        0
+      ]
+    }
+  ],
+  "background": "light",
+  "underlays": [
+    {
+      "id": "#140>#10",
+      "kind": "image",
+      "file": "GENKYOU.TIF",
+      "width": 10000,
+      "height": 5000,
+      "matrix": [
+        0.01,
+        0,
+        0,
+        -0.01,
+        20,
+        80
+      ],
+      "layers": [
+        2
+      ],
+      "bbox": {
+        "minX": 20,
+        "minY": 30,
+        "maxX": 120,
+        "maxY": 80
+      }
+    },
+    {
+      "id": "#150>#30",
+      "kind": "image",
+      "file": "photo.jpg",
+      "width": 3999.999986890321,
+      "height": 1999.9999934451598,
+      "matrix": [
+        0.00866025402838329,
+        0.005000000016387098,
+        0.0050000000163871,
+        -0.00866025402838329,
+        140,
+        47.320508
+      ],
+      "layers": [
+        1
+      ],
+      "bbox": {
+        "minX": 140,
+        "minY": 30,
+        "maxX": 184.641016,
+        "maxY": 67.32050799999999
+      }
+    }
+  ]
+}

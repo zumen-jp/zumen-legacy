@@ -463,6 +463,10 @@ pub fn differences(original: &Scene, again: &Scene, sources: &HashMap<String, St
     let mut out = Vec::new();
     let mut matched = 0;
     for entity in &original.entities {
+        // JWW の画像の配置（選ぶためだけの外形）は、変換が書かずに embedded-image で知らせる
+        if entity.kind == zumen::EntityKind::Image && !entity.drawn {
+            continue;
+        }
         let primitives: Vec<&Primitive> = entity.primitives.iter().collect();
         let expected = normalized(&primitives);
         let id = &entity.id;

@@ -1,7 +1,7 @@
 //! SXF の図面を、用紙の座標に解決した表示用の図面にする（`@zumenjs/sxf` の scene.ts と同じ規則・同じ順）。
 //! 読み取りの注意に、描画で省いた内容を加える。
 
-use crate::document::{SxfDocument, SxfDrawing};
+use crate::document::{SubFigure, SxfDocument, SxfDrawing};
 use crate::features::{Annotation, Arrow, ExtensionLine, FeatureKind, HatchPattern, Region, SxfFeature};
 use crate::style::DEFAULT_WIDTH;
 use crate::symbols::{arrow_primitives, marker_primitives};
@@ -20,7 +20,7 @@ use zumen_core::text::{TextLayoutInput, font_family_for, layout_text};
 use zumen_core::{
     BACKGROUND_COLOR, BBox, Background, ClippedPrimitive, EntityKind, FillPrimitive, LengthUnit, Matrix, NoticeLevel,
     NoticeList, Placement, Primitive, Property, Scene, SceneEntity, SceneLayer, Sheet, StrokePrimitive, TextPrimitive,
-    js,
+    Underlay, UnderlayKind, js,
 };
 
 const DEFAULT_COLOR: &str = "#ffffff";
@@ -28,6 +28,26 @@ const MAX_DEPTH: usize = 32;
 /// Scene のレイヤの id の上限（32 ビットの符号なし整数）
 const MAX_LAYER_CODE: f64 = 4_294_967_295.0;
 const MAX_HATCH_LINES: f64 = 20_000.0;
+/// 図面が画素数を記録しない画像の中身の座標の単位（用紙の mm あたり）。用紙の 0.01 mm を 1 とする
+/// （docs/decisions/0031）
+const RASTER_UNITS_PER_MM: f64 = 100.0;
+/// 画像が描く順で前の図形に重なるかを調べる、外接矩形の比較の数の上限（TypeScript と同じ）。使い切った後は、前に
+/// 図形のある画像を重なるものとして数える
+const MAX_ORDER_CHECKS: u64 = 1_000_000;
+
+/// 画像（ラスタ）の作図グループの名前から、画像のファイルの名前を取り出す。SXF Ver.3.0 以降は属性付加機構の既定義属性
+/// 「画像」（$$ATRU$$番号$$名称$$画像$$ファイル名）、Ver.2.0 は $$RASTER$$ファイル名（SXF 技術者リファレンスブック
+/// 3.5.4「画像」）。画像でなければ None
+pub fn raster_file(name: &str) -> Option<String> {
+    let parts: Vec<&str> = name.split("$$").collect();
+    if let Some(attribute) = parts.iter().position(|part| *part == "ATRU") {
+        // $$ATRU$$番号$$名称$$属性名$$値
+        return (parts.get(attribute + 3) == Some(&"画像") && parts.get(attribute + 4).is_some_and(|v| !v.is_empty()))
+            .then(|| parts[attribute + 4..].join("$$"));
+    }
+    let raster = parts.iter().position(|part| *part == "RASTER")?;
+    parts.get(raster + 1).is_some_and(|v| !v.is_empty()).then(|| parts[raster + 1..].join("$$"))
+}
 
 /// 円弧・曲線を折線にするときの許容誤差（用紙の mm）
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -146,6 +166,8 @@ pub fn sxf_to_scene_with(drawing: &SxfDrawing, options: &SxfSceneOptions) -> Sce
         notices: NoticeList::from_notices(&drawing.notices),
         tolerance: options.tolerance,
         entities: Vec::new(),
+        underlays: Vec::new(),
+        order_checks: 0,
         layer_codes: Vec::new(),
         seen_layer_codes: HashSet::new(),
         background: Background::Dark,
@@ -155,6 +177,9 @@ pub fn sxf_to_scene_with(drawing: &SxfDrawing, options: &SxfSceneOptions) -> Sce
     let mut bounds = empty_box();
     for entity in &builder.entities {
         union_box(&mut bounds, &entity.bbox);
+    }
+    for underlay in &builder.underlays {
+        union_box(&mut bounds, &underlay.bbox);
     }
     if let Some(sheet) = &sheet {
         extend_box(&mut bounds, 0.0, 0.0);
@@ -198,7 +223,7 @@ pub fn sxf_to_scene_with(drawing: &SxfDrawing, options: &SxfSceneOptions) -> Sce
         bounds,
         layers,
         entities: builder.entities,
-        underlays: Vec::new(),
+        underlays: builder.underlays,
         notices: builder.notices.into_vec(),
         background: builder.background,
     }
@@ -357,6 +382,10 @@ struct SceneBuilder<'a> {
     notices: NoticeList,
     tolerance: f64,
     entities: Vec<SceneEntity>,
+    /// 画像（ラスタ）の中身。すべての図形の下に、この順に描く
+    underlays: Vec<Underlay>,
+    /// 画像の描く順を調べた、外接矩形の比較の数
+    order_checks: u64,
     /// 使われたレイヤコード（最初に現れた順）
     layer_codes: Vec<f64>,
     seen_layer_codes: HashSet<u64>,
@@ -444,13 +473,6 @@ impl SceneBuilder<'_> {
             if let Some((r, g, b)) = background_rgb(&figure.feature.name) {
                 let luminance = r * 0.299 + g * 0.587 + b * 0.114;
                 self.background = if luminance > 128.0 { Background::Light } else { Background::Dark };
-            }
-            if figure.feature.name.contains("$$RASTER$$") {
-                self.notices.add(
-                    NoticeLevel::Info,
-                    "raster",
-                    "ラスタ画像（別の TIFF・JPEG ファイル）は表示していません",
-                );
             }
         }
         let root = Context {
@@ -844,8 +866,90 @@ impl SceneBuilder<'_> {
             placement: next_placement,
             stack,
         };
+        let start = self.entities.len();
         for member in &figure.members {
             self.emit(member, &child);
+        }
+        if let Some(file) = raster_file(name) {
+            self.raster(figure, file, &child, start);
+        }
+    }
+
+    /// 画像（ラスタ）の作図グループを、中身を描く underlay にする。画像の範囲は、グループの中の折線（OCF の実装規約
+    /// 18「画像」(3)。レイヤもこの折線のもの）で、左下の角から回る矩形とみなす（推測。回る向きはどちらでもよい）。
+    /// 中身の座標は用紙の 0.01 mm で、左上が原点、y は下向き。id とレイヤは折線の図形のもの
+    fn raster(&mut self, figure: &SubFigure, file: String, ctx: &Context, start: usize) {
+        let outline = figure.members.iter().find_map(|member| match member {
+            SxfFeature::Polyline { xs, ys, .. } if xs.len() >= 4 && ys.len() >= 4 => Some((member.id(), xs, ys)),
+            _ => None,
+        });
+        let found = outline.and_then(|(id, xs, ys)| {
+            let entity = format!("{}#{}", ctx.path, string(id));
+            let index = start + self.entities[start..].iter().position(|item| item.id == entity)?;
+            Some((index, xs, ys))
+        });
+        let Some((index, xs, ys)) = found else {
+            self.notices.add(NoticeLevel::Info, "raster", "画像の範囲を示す折線のない画像（ラスタ）は描いていません");
+            return;
+        };
+        let corner = |i: usize| Self::local(ctx, xs[i], ys[i]);
+        let (x0, y0) = corner(0);
+        let (x1, y1) = corner(1);
+        let (x3, y3) = corner(3);
+        // 2 番目の点が上（時計回り）なら 4 番目の点が右、そうでなければ 2 番目の点が右
+        let cross = (x1 - x0) * (y3 - y0) - (y1 - y0) * (x3 - x0);
+        let (right, up) = if cross < 0.0 {
+            ((x3 - x0, y3 - y0), (x1 - x0, y1 - y0))
+        } else {
+            ((x1 - x0, y1 - y0), (x3 - x0, y3 - y0))
+        };
+        let (rx, ry) = apply_vector(&ctx.m, right.0, right.1);
+        let (ux, uy) = apply_vector(&ctx.m, up.0, up.1);
+        let width = js::hypot2(rx, ry) * RASTER_UNITS_PER_MM;
+        let height = js::hypot2(ux, uy) * RASTER_UNITS_PER_MM;
+        if !(cross != 0.0 && width > 0.0 && height > 0.0 && (width * height).is_finite()) {
+            self.notices.add(NoticeLevel::Info, "raster", "画像の範囲を示す折線のない画像（ラスタ）は描いていません");
+            return;
+        }
+        let (tx, ty) = apply(&ctx.m, x0 + up.0, y0 + up.1);
+        let matrix = [rx / width, ry / width, -ux / height, -uy / height, tx, ty];
+        let mut bbox = empty_box();
+        extend_box_with_points(
+            &mut bbox,
+            &transform_points(&matrix, &[0.0, 0.0, width, 0.0, width, height, 0.0, height]),
+        );
+        let entity = &self.entities[index];
+        self.underlays.push(Underlay {
+            id: entity.id.clone(),
+            kind: UnderlayKind::Image,
+            file: Some(file),
+            page: None,
+            width,
+            height,
+            matrix,
+            clip: None,
+            opacity: None,
+            layers: entity.layers.clone(),
+            content_layers: None,
+            bbox,
+        });
+        // SXF は保存の順に描く（実装規約の表示順の制御）。前の図形に重なる画像は、その図形を隠す
+        let mut over = false;
+        for other in &self.entities[..index] {
+            self.order_checks += 1;
+            let b = &other.bbox;
+            over = self.order_checks > MAX_ORDER_CHECKS
+                || !(b.max_x < bbox.min_x || b.min_x > bbox.max_x || b.max_y < bbox.min_y || b.min_y > bbox.max_y);
+            if over {
+                break;
+            }
+        }
+        if over {
+            self.notices.add(
+                NoticeLevel::Info,
+                "raster-order",
+                "図形の上に重なる画像（ラスタ）を、すべての図形の下に描きました",
+            );
         }
     }
 

@@ -9,6 +9,7 @@ import {
   p21Bytes,
   SFC_FEATURES,
   SFC_NO_SHEET,
+  SFC_RASTERS,
   SFC_SAMPLE,
   sfcBytes,
 } from "./fixtures.js";
@@ -17,6 +18,7 @@ const DRAWINGS: [string, Uint8Array][] = [
   ["sfc/sample.sfc", sfcBytes(SFC_SAMPLE)],
   ["sfc/features.sfc", sfcBytes(SFC_FEATURES)],
   ["sfc/nosheet.sfc", sfcBytes(SFC_NO_SHEET)],
+  ["sfc/rasters.sfc", sfcBytes(SFC_RASTERS)],
   ["p21/sample.p21", p21Bytes(P21_SAMPLE)],
   ["p21/features.p21", p21Bytes(P21_FEATURES)],
   ["p21/nosheet.p21", p21Bytes(P21_NO_SHEET)],

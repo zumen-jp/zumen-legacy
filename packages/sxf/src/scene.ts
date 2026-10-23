@@ -11,6 +11,7 @@ import {
   type SceneLayer,
   type Sheet,
   type StrokePrimitive,
+  type Underlay,
 } from "@zumenjs/core";
 import {
   apply,
@@ -35,7 +36,7 @@ import {
   unionBox,
 } from "@zumenjs/core/geometry";
 import { fontFamilyFor, layoutText } from "@zumenjs/core/text";
-import type { SxfDocument, SxfDrawing } from "./document.js";
+import type { SubFigure, SxfDocument, SxfDrawing } from "./document.js";
 import {
   type Annotation,
   type Arrow,
@@ -213,6 +214,7 @@ export function sxfToScene(drawing: SxfDrawing, options: SxfSceneOptions = {}): 
   const sheet = sheetOf(doc);
   const bounds = emptyBox();
   for (const entity of builder.entities) unionBox(bounds, entity.bbox);
+  for (const underlay of builder.underlays) unionBox(bounds, underlay.bbox);
   if (sheet) {
     extendBox(bounds, 0, 0);
     extendBox(bounds, sheet.width, sheet.height);
@@ -229,7 +231,7 @@ export function sxfToScene(drawing: SxfDrawing, options: SxfSceneOptions = {}): 
     }
   }
   layers.sort((a, b) => a.id - b.id);
-  return {
+  const scene: Scene = {
     format: meta.format,
     version: meta.version,
     unit: "millimeter",
@@ -241,6 +243,8 @@ export function sxfToScene(drawing: SxfDrawing, options: SxfSceneOptions = {}): 
     metadata: metadataOf(doc, meta, sheet),
     background: builder.background,
   };
+  if (builder.underlays.length > 0) scene.underlays = builder.underlays;
+  return scene;
 }
 
 function sheetOf(doc: SxfDocument): Sheet | null {
@@ -289,8 +293,40 @@ function metadataOf(doc: SxfDocument, meta: SxfMeta, sheet: Sheet | null): Prope
   return items;
 }
 
+/**
+ * 画像（ラスタ）の作図グループの名前から、画像のファイルの名前を取り出す。SXF Ver.3.0 以降は属性付加機構の既定義属性
+ * 「画像」（$$ATRU$$番号$$名称$$画像$$ファイル名）、Ver.2.0 は $$RASTER$$ファイル名（SXF 技術者リファレンスブック
+ * 3.5.4「画像」）。画像でなければ null
+ */
+export function rasterFile(name: string): string | null {
+  const parts = name.split("$$");
+  const attribute = parts.indexOf("ATRU");
+  if (attribute >= 0) {
+    // $$ATRU$$番号$$名称$$属性名$$値
+    return parts[attribute + 3] === "画像" && parts[attribute + 4] ? parts.slice(attribute + 4).join("$$") : null;
+  }
+  const raster = parts.indexOf("RASTER");
+  return raster >= 0 && parts[raster + 1] ? parts.slice(raster + 1).join("$$") : null;
+}
+
+/**
+ * 図面が画素数を記録しない画像の中身の座標の単位（用紙の mm あたり）。用紙の 0.01 mm を 1 とする
+ * （docs/decisions/0031）
+ */
+const RASTER_UNITS_PER_MM = 100;
+
+/**
+ * 画像が描く順で前の図形に重なるかを調べる、外接矩形の比較の数の上限（Rust と同じ）。使い切った後は、前に図形の
+ * ある画像を重なるものとして数える
+ */
+const MAX_ORDER_CHECKS = 1_000_000;
+
 class SceneBuilder {
   readonly entities: SceneEntity[] = [];
+  /** 画像（ラスタ）の中身。すべての図形の下に、この順に描く */
+  readonly underlays: Underlay[] = [];
+  /** 画像の描く順を調べた、外接矩形の比較の数 */
+  private orderChecks = 0;
   readonly layerCodes = new Set<number>();
   background: "dark" | "light" = "dark";
 
@@ -307,9 +343,6 @@ class SceneBuilder {
       if (match) {
         const luminance = Number(match[1]) * 0.299 + Number(match[2]) * 0.587 + Number(match[3]) * 0.114;
         this.background = luminance > 128 ? "light" : "dark";
-      }
-      if (figure.feature.name.includes("$$RASTER$$")) {
-        this.notices.add("info", "raster", "ラスタ画像（別の TIFF・JPEG ファイル）は表示していません");
       }
     }
     const root: Context = { m: IDENTITY, geodetic: false, layers: [], path: "", stack: [] };
@@ -708,7 +741,67 @@ class SceneBuilder {
       stack: [...ctx.stack, feature.name],
       ...(nextPlacement ? { placement: nextPlacement } : {}),
     };
+    const start = this.entities.length;
     for (const member of figure.members) this.emit(member, child);
+    const file = rasterFile(feature.name);
+    if (file !== null) this.raster(figure, file, child, start);
+  }
+
+  /**
+   * 画像（ラスタ）の作図グループを、中身を描く underlay にする。画像の範囲は、グループの中の折線（OCF の実装規約
+   * 18「画像」(3)。レイヤもこの折線のもの）で、左下の角から回る矩形とみなす（推測。回る向きはどちらでもよい）。
+   * 中身の座標は用紙の 0.01 mm で、左上が原点、y は下向き。id とレイヤは折線の図形のもの
+   */
+  private raster(figure: SubFigure, file: string, ctx: Context, start: number): void {
+    const outline = figure.members.find(
+      (member): member is Extract<SxfFeature, { kind: "polyline" }> =>
+        member.kind === "polyline" && member.xs.length >= 4 && member.ys.length >= 4,
+    );
+    const entity = outline && this.entities.slice(start).find((item) => item.id === `${ctx.path}#${outline.id}`);
+    if (!outline || !entity) {
+      this.notices.add("info", "raster", "画像の範囲を示す折線のない画像（ラスタ）は描いていません");
+      return;
+    }
+    const corner = (i: number) => this.local(ctx, outline.xs[i] as number, outline.ys[i] as number);
+    const [x0, y0] = corner(0);
+    const [x1, y1] = corner(1);
+    const [x3, y3] = corner(3);
+    // 2 番目の点が上（時計回り）なら 4 番目の点が右、そうでなければ 2 番目の点が右
+    const cross = (x1 - x0) * (y3 - y0) - (y1 - y0) * (x3 - x0);
+    const [right, up] =
+      cross < 0
+        ? [
+            [x3 - x0, y3 - y0],
+            [x1 - x0, y1 - y0],
+          ]
+        : [
+            [x1 - x0, y1 - y0],
+            [x3 - x0, y3 - y0],
+          ];
+    const [rx, ry] = applyVector(ctx.m, right[0] as number, right[1] as number);
+    const [ux, uy] = applyVector(ctx.m, up[0] as number, up[1] as number);
+    const width = Math.hypot(rx, ry) * RASTER_UNITS_PER_MM;
+    const height = Math.hypot(ux, uy) * RASTER_UNITS_PER_MM;
+    if (!(cross !== 0 && width > 0 && height > 0 && Number.isFinite(width * height))) {
+      this.notices.add("info", "raster", "画像の範囲を示す折線のない画像（ラスタ）は描いていません");
+      return;
+    }
+    const [tx, ty] = apply(ctx.m, x0 + (up[0] as number), y0 + (up[1] as number));
+    const matrix: Matrix = [rx / width, ry / width, -ux / height, -uy / height, tx, ty];
+    const bbox = emptyBox();
+    extendBoxWithPoints(bbox, transformPoints(matrix, [0, 0, width, 0, width, height, 0, height]));
+    this.underlays.push({ id: entity.id, kind: "image", file, width, height, matrix, layers: entity.layers, bbox });
+    // SXF は保存の順に描く（実装規約の表示順の制御）。前の図形に重なる画像は、その図形を隠す
+    const index = this.entities.indexOf(entity);
+    let over = false;
+    for (let i = 0; i < index && !over; i++) {
+      const other = (this.entities[i] as SceneEntity).bbox;
+      over =
+        ++this.orderChecks > MAX_ORDER_CHECKS ||
+        !(other.maxX < bbox.minX || other.minX > bbox.maxX || other.maxY < bbox.minY || other.minY > bbox.maxY);
+    }
+    if (over)
+      this.notices.add("info", "raster-order", "図形の上に重なる画像（ラスタ）を、すべての図形の下に描きました");
   }
 
   /** 矢印の先端と向き。向きは、寸法線の近い端から遠い端と反対（外向き）を基本にする */

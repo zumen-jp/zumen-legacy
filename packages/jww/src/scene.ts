@@ -10,9 +10,11 @@ import {
   type SceneLayer,
   type Sheet,
   type StrokePrimitive,
+  type Underlay,
 } from "@zumenjs/core";
 import {
   apply,
+  applyVector,
   arcSegments,
   ellipseArcPoints,
   emptyBox,
@@ -103,8 +105,18 @@ interface Context {
   depth: number;
 }
 
+/**
+ * 図面が画素数を記録しない画像の中身の座標の単位（用紙の mm あたり）。用紙の 0.01 mm を 1 とする
+ * （docs/decisions/0031）
+ */
+const IMAGE_UNITS_PER_MM = 100;
+/** 画像の配置の文字の、トリミングと透過の値の既定（Jw_cad が書く値。ezjww の IMAGE_DEFAULT_EXTRA） */
+const IMAGE_DEFAULT_EXTRA = "0,0,1,0,255,255,255";
+
 class Builder {
   readonly entities: SceneEntity[] = [];
+  /** 画像（^@BM）の中身。すべての図形の下に、この順に描く */
+  readonly underlays: Underlay[] = [];
   /** 文字として保存された Jw_cad の設定（Printer_Orientation = 0 など） */
   readonly settings: string[] = [];
   readonly usedLayers = new Map<number, number>();
@@ -313,6 +325,10 @@ class Builder {
           this.settings.push(entity.content);
           return;
         }
+        if (entity.content.startsWith("^@BM")) {
+          this.image(ctx, entity, id);
+          return;
+        }
         const text = this.text(ctx, entity);
         if (!text) return;
         this.add(
@@ -462,10 +478,71 @@ class Builder {
     return full ? points.slice(0, -2) : points;
   }
 
+  /**
+   * 画像の配置（^@BM）。文字は「^@BMファイル名,幅,高さ,トリミングと透過の値」で、幅と高さは用紙の mm、文字の始点が
+   * 画像の左下（jwdatafmt.txt の「画像データ文字列」、ezjww の docs/JWW_WRITE.md）。中身は文字の向きに回した矩形に
+   * 描く underlay にし（中身の座標は用紙の 0.01 mm、docs/decisions/0031）、外形は選ぶためだけの図形にする
+   */
+  private image(ctx: Context, text: Extract<JwwEntity, { kind: "text" }>, id: number): void {
+    const [file = "", ...values] = text.content.slice(4).split(",");
+    const w = Number(values[0]);
+    const h = Number(values[1]);
+    if (!file || !(w > 0) || !(h > 0) || !Number.isFinite(w * h)) {
+      this.notices.add("info", "image", "ファイル・幅・高さを読めない画像の配置（^@BM）は描いていません");
+      return;
+    }
+    const angle = (text.angle * Math.PI) / 180;
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const [rx, ry] = applyVector(ctx.m, w * cos, w * sin);
+    const [ux, uy] = applyVector(ctx.m, -h * sin, h * cos);
+    const width = Math.hypot(rx, ry) * IMAGE_UNITS_PER_MM;
+    const height = Math.hypot(ux, uy) * IMAGE_UNITS_PER_MM;
+    if (!(width > 0 && height > 0 && Number.isFinite(width * height))) {
+      this.notices.add("info", "image", "ファイル・幅・高さを読めない画像の配置（^@BM）は描いていません");
+      return;
+    }
+    const [tx, ty] = apply(ctx.m, text.x1 - h * sin, text.y1 + h * cos);
+    const matrix: Matrix = [rx / width, ry / width, -ux / height, -uy / height, tx, ty];
+    const corners = transformPoints(matrix, [0, 0, width, 0, width, height, 0, height]);
+    const index = this.entities.length;
+    this.add(
+      ctx,
+      text,
+      id,
+      "image",
+      "画像",
+      "CDataMoji",
+      [{ kind: "stroke", points: corners, closed: true, color: this.color(text), width: 0, dashes: [] }],
+      [
+        { key: "file", label: "ファイル", value: file },
+        { key: "text", label: "文字列", value: text.content },
+      ],
+    );
+    const entity = this.entities[index];
+    if (!entity) return;
+    // Jw_cad は画像に外形を描かない。選ぶ・測るためだけに残す
+    entity.drawn = false;
+    this.underlays.push({
+      id: entity.id,
+      kind: "image",
+      file,
+      width,
+      height,
+      matrix,
+      layers: entity.layers,
+      bbox: entity.bbox,
+    });
+    const extra = values.slice(2).join(",");
+    if (extra && extra !== IMAGE_DEFAULT_EXTRA) {
+      this.notices.add("info", "image-trim", "画像のトリミングと透過の指定は反映していません");
+    }
+  }
+
   private text(ctx: Context, text: Extract<JwwEntity, { kind: "text" }>): ReturnType<typeof layoutText> {
     if (!text.content) return null;
     if (text.content.startsWith("^@")) {
-      this.notices.add("info", "embedded-image", "文字に埋め込んだ画像（^@BM など）は表示していません");
+      this.notices.add("info", "embedded-image", "画像の配置でない、^@ で始まる制御の文字は表示していません");
       return null;
     }
     return layoutText(
@@ -535,6 +612,7 @@ export function jwwToScene(doc: JwwDocument): Scene {
   for (const [index, entity] of doc.entities.entries()) builder.emit(entity, index + 1, root);
   const bounds = emptyBox();
   for (const entity of builder.entities) unionBox(bounds, entity.bbox);
+  for (const underlay of builder.underlays) unionBox(bounds, underlay.bbox);
   if (sheet) {
     extendBox(bounds, 0, 0);
     extendBox(bounds, sheet.width, sheet.height);
@@ -573,7 +651,7 @@ export function jwwToScene(doc: JwwDocument): Scene {
     metadata.push({ key: "blockCount", label: "ブロック", value: `${doc.blocks.length} 件`, raw: doc.blocks.length });
   if (builder.settings.length > 0)
     metadata.push({ key: "settings", label: "Jw_cad の設定", value: builder.settings.join("、") });
-  return {
+  const scene: Scene = {
     format: "jww",
     version: `JWW ${doc.version}`,
     unit: "millimeter",
@@ -585,4 +663,6 @@ export function jwwToScene(doc: JwwDocument): Scene {
     metadata,
     background,
   };
+  if (builder.underlays.length > 0) scene.underlays = builder.underlays;
+  return scene;
 }

@@ -1,0 +1,540 @@
+{
+  "format": "jww",
+  "version": "JWW 600",
+  "unit": "millimeter",
+  "sheet": {
+    "name": "",
+    "size": "A3",
+    "width": 420,
+    "height": 297
+  },
+  "bounds": {
+    "minX": 0,
+    "minY": 0,
+    "maxX": 420,
+    "maxY": 297
+  },
+  "layers": [
+    {
+      "id": 1,
+      "name": "0-0 通り芯",
+      "visible": true,
+      "group": "平面"
+    },
+    {
+      "id": 2,
+      "name": "0-1",
+      "visible": true,
+      "group": "平面"
+    }
+  ],
+  "entities": [
+    {
+      "id": "#1",
+      "kind": "line",
+      "type": "線",
+      "source": "CDataSen",
+      "layers": [
+        1
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            90,
+            128.5,
+            250,
+            128.5
+          ],
+          "closed": false,
+          "color": "#000000",
+          "width": 0.25,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 90,
+        "minY": 128.5,
+        "maxX": 250,
+        "maxY": 128.5
+      },
+      "placement": {
+        "name": "平面（1/100）",
+        "scaleX": 0.01,
+        "scaleY": 0.01,
+        "inverse": [
+          100,
+          0,
+          0,
+          100,
+          -21000,
+          -14850
+        ]
+      },
+      "properties": [
+        {
+          "key": "type",
+          "label": "種類",
+          "value": "線"
+        },
+        {
+          "key": "id",
+          "label": "番号",
+          "value": "#1"
+        },
+        {
+          "key": "layer",
+          "label": "レイヤ",
+          "value": "平面 / 0-0 通り芯",
+          "raw": 1
+        },
+        {
+          "key": "scale",
+          "label": "縮尺",
+          "value": "1/100",
+          "raw": 100
+        },
+        {
+          "key": "color",
+          "label": "線色",
+          "value": "2",
+          "raw": 2
+        },
+        {
+          "key": "lineType",
+          "label": "線種",
+          "value": "1",
+          "raw": 1
+        },
+        {
+          "key": "start",
+          "label": "始点（実寸）",
+          "value": "-12,000, -2,000",
+          "raw": [
+            -12000,
+            -2000
+          ]
+        },
+        {
+          "key": "end",
+          "label": "終点（実寸）",
+          "value": "4,000, -2,000",
+          "raw": [
+            4000,
+            -2000
+          ]
+        }
+      ]
+    },
+    {
+      "id": "#2",
+      "kind": "image",
+      "type": "画像",
+      "source": "CDataMoji",
+      "layers": [
+        2
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            160,
+            138.5,
+            200,
+            138.5,
+            200,
+            118.5,
+            160,
+            118.5
+          ],
+          "closed": true,
+          "color": "#000000",
+          "width": 0,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 160,
+        "minY": 118.5,
+        "maxX": 200,
+        "maxY": 138.5
+      },
+      "placement": {
+        "name": "平面（1/100）",
+        "scaleX": 0.01,
+        "scaleY": 0.01,
+        "inverse": [
+          100,
+          0,
+          0,
+          100,
+          -21000,
+          -14850
+        ]
+      },
+      "properties": [
+        {
+          "key": "type",
+          "label": "種類",
+          "value": "画像"
+        },
+        {
+          "key": "id",
+          "label": "番号",
+          "value": "#2"
+        },
+        {
+          "key": "layer",
+          "label": "レイヤ",
+          "value": "平面 / 0-1",
+          "raw": 2
+        },
+        {
+          "key": "scale",
+          "label": "縮尺",
+          "value": "1/100",
+          "raw": 100
+        },
+        {
+          "key": "color",
+          "label": "線色",
+          "value": "2",
+          "raw": 2
+        },
+        {
+          "key": "lineType",
+          "label": "線種",
+          "value": "1",
+          "raw": 1
+        },
+        {
+          "key": "file",
+          "label": "ファイル",
+          "value": "%temp%photo.bmp"
+        },
+        {
+          "key": "text",
+          "label": "文字列",
+          "value": "^@BM%temp%photo.bmp,40,20,0,0,1,0,255,255,255"
+        }
+      ],
+      "drawn": false
+    },
+    {
+      "id": "#3",
+      "kind": "image",
+      "type": "画像",
+      "source": "CDataMoji",
+      "layers": [
+        2
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            222.5,
+            171.49038105676658,
+            248.48076211353316,
+            186.49038105676658,
+            255.98076211353316,
+            173.5,
+            230,
+            158.5
+          ],
+          "closed": true,
+          "color": "#000000",
+          "width": 0,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 222.5,
+        "minY": 158.5,
+        "maxX": 255.98076211353316,
+        "maxY": 186.49038105676658
+      },
+      "placement": {
+        "name": "平面（1/100）",
+        "scaleX": 0.01,
+        "scaleY": 0.01,
+        "inverse": [
+          100,
+          0,
+          0,
+          100,
+          -21000,
+          -14850
+        ]
+      },
+      "properties": [
+        {
+          "key": "type",
+          "label": "種類",
+          "value": "画像"
+        },
+        {
+          "key": "id",
+          "label": "番号",
+          "value": "#3"
+        },
+        {
+          "key": "layer",
+          "label": "レイヤ",
+          "value": "平面 / 0-1",
+          "raw": 2
+        },
+        {
+          "key": "scale",
+          "label": "縮尺",
+          "value": "1/100",
+          "raw": 100
+        },
+        {
+          "key": "color",
+          "label": "線色",
+          "value": "2",
+          "raw": 2
+        },
+        {
+          "key": "lineType",
+          "label": "線種",
+          "value": "1",
+          "raw": 1
+        },
+        {
+          "key": "file",
+          "label": "ファイル",
+          "value": "C:\\images\\site.jpg"
+        },
+        {
+          "key": "text",
+          "label": "文字列",
+          "value": "^@BMC:\\images\\site.jpg,30,15,0.1,0,1,0,255,255,255"
+        }
+      ],
+      "drawn": false
+    },
+    {
+      "id": "#6>#1",
+      "kind": "image",
+      "type": "画像",
+      "source": "CDataMoji",
+      "layers": [
+        1,
+        2
+      ],
+      "primitives": [
+        {
+          "kind": "stroke",
+          "points": [
+            100,
+            198.5,
+            100,
+            218.5,
+            110,
+            218.5,
+            110,
+            198.5
+          ],
+          "closed": true,
+          "color": "#000000",
+          "width": 0,
+          "dashes": []
+        }
+      ],
+      "bbox": {
+        "minX": 100,
+        "minY": 198.5,
+        "maxX": 110,
+        "maxY": 218.5
+      },
+      "placement": {
+        "name": "平面（1/100）",
+        "scaleX": 0.01,
+        "scaleY": 0.01,
+        "inverse": [
+          100,
+          0,
+          0,
+          100,
+          -21000,
+          -14850
+        ]
+      },
+      "properties": [
+        {
+          "key": "type",
+          "label": "種類",
+          "value": "画像"
+        },
+        {
+          "key": "id",
+          "label": "番号",
+          "value": "#6>#1"
+        },
+        {
+          "key": "layer",
+          "label": "レイヤ",
+          "value": "平面 / 0-1",
+          "raw": 2
+        },
+        {
+          "key": "scale",
+          "label": "縮尺",
+          "value": "1/100",
+          "raw": 100
+        },
+        {
+          "key": "color",
+          "label": "線色",
+          "value": "2",
+          "raw": 2
+        },
+        {
+          "key": "lineType",
+          "label": "線種",
+          "value": "1",
+          "raw": 1
+        },
+        {
+          "key": "file",
+          "label": "ファイル",
+          "value": "logo.png"
+        },
+        {
+          "key": "text",
+          "label": "文字列",
+          "value": "^@BMlogo.png,10,5"
+        }
+      ],
+      "drawn": false
+    }
+  ],
+  "notices": [
+    {
+      "level": "info",
+      "code": "image-trim",
+      "message": "画像のトリミングと透過の指定は反映していません",
+      "count": 1
+    },
+    {
+      "level": "info",
+      "code": "image",
+      "message": "ファイル・幅・高さを読めない画像の配置（^@BM）は描いていません",
+      "count": 1
+    },
+    {
+      "level": "info",
+      "code": "embedded-image",
+      "message": "画像の配置でない、^@ で始まる制御の文字は表示していません",
+      "count": 1
+    }
+  ],
+  "metadata": [
+    {
+      "key": "format",
+      "label": "形式",
+      "value": "JWW（版 600）"
+    },
+    {
+      "key": "sheet",
+      "label": "用紙",
+      "value": "A3（420×297mm）"
+    },
+    {
+      "key": "scale",
+      "label": "縮尺",
+      "value": "1/100",
+      "raw": [
+        100
+      ]
+    },
+    {
+      "key": "memo",
+      "label": "メモ",
+      "value": "メモ"
+    },
+    {
+      "key": "blockCount",
+      "label": "ブロック",
+      "value": "1 件",
+      "raw": 1
+    }
+  ],
+  "background": "light",
+  "underlays": [
+    {
+      "id": "#2",
+      "kind": "image",
+      "file": "%temp%photo.bmp",
+      "width": 4000,
+      "height": 2000,
+      "matrix": [
+        0.01,
+        0,
+        0,
+        -0.01,
+        160,
+        138.5
+      ],
+      "layers": [
+        2
+      ],
+      "bbox": {
+        "minX": 160,
+        "minY": 118.5,
+        "maxX": 200,
+        "maxY": 138.5
+      }
+    },
+    {
+      "id": "#3",
+      "kind": "image",
+      "file": "C:\\images\\site.jpg",
+      "width": 3000,
+      "height": 1500,
+      "matrix": [
+        0.008660254037844387,
+        0.004999999999999999,
+        0.004999999999999999,
+        -0.008660254037844387,
+        222.5,
+        171.49038105676658
+      ],
+      "layers": [
+        2
+      ],
+      "bbox": {
+        "minX": 222.5,
+        "minY": 158.5,
+        "maxX": 255.98076211353316,
+        "maxY": 186.49038105676658
+      }
+    },
+    {
+      "id": "#6>#1",
+      "kind": "image",
+      "file": "logo.png",
+      "width": 2000,
+      "height": 1000,
+      "matrix": [
+        6.123233995736766e-19,
+        0.01,
+        0.01,
+        -6.123233995736766e-19,
+        100,
+        198.5
+      ],
+      "layers": [
+        1,
+        2
+      ],
+      "bbox": {
+        "minX": 100,
+        "minY": 198.5,
+        "maxX": 110,
+        "maxY": 218.5
+      }
+    }
+  ]
+}

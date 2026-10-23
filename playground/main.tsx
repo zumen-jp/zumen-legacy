@@ -16,9 +16,12 @@ interface UnderlayImage {
   bitmap: ImageBitmap;
 }
 
-/** 図面が書くファイルの名前（.\image.JPG、C:\scans\a.tif など）から、フォルダを除いた名前を小文字で */
+/**
+ * 図面が書くファイルの名前（.\image.JPG、C:\scans\a.tif、JWW に同梱した %temp%a.bmp など）から、フォルダを
+ * 除いた名前を小文字で
+ */
 function baseName(path: string): string {
-  return (path.split(/[\\/]/).pop() ?? path).toLowerCase();
+  return (path.split(/[\\/]/).pop() ?? path).replace(/^%temp%/i, "").toLowerCase();
 }
 
 /** 画像を、用紙（なければ図面の範囲）の中央に縦横比を保って収める underlay にし、図面の下に敷く */
