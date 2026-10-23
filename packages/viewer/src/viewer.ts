@@ -151,8 +151,18 @@ export interface DrawingViewerOptions {
   underlayRenderer?: UnderlayRenderer;
 }
 
-/** 図面の上に重ねて描く処理（書き込みなど）。ctx は CSS px の座標で、view で用紙の mm と変換する */
-export type OverlayPainter = (ctx: CanvasRenderingContext2D, view: Readonly<View>) => void;
+/** 重ね描きの Canvas の大きさ。width・height は CSS px */
+export interface OverlayFrame {
+  readonly width: number;
+  readonly height: number;
+  readonly devicePixelRatio: number;
+}
+
+/**
+ * 図面の上に重ねて描く処理（書き込みなど）。ctx は CSS px の座標で、view で用紙の mm と変換する。
+ * frame は Canvas の大きさで、@zumenjs/viewer の renderPrimitives などに渡す
+ */
+export type OverlayPainter = (ctx: CanvasRenderingContext2D, view: Readonly<View>, frame: OverlayFrame) => void;
 
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 type Listener<K extends keyof ViewerEventMap> = (event: ViewerEventMap[K]) => void;
@@ -955,9 +965,10 @@ export class DrawingViewer {
       this.tool.draw(ctx, this);
       ctx.restore();
     }
+    const frame: OverlayFrame = { width, height, devicePixelRatio: dpr };
     for (const painter of this.overlays) {
       ctx.save();
-      painter(ctx, view);
+      painter(ctx, view, frame);
       ctx.restore();
     }
   }
@@ -997,7 +1008,7 @@ export class DrawingViewer {
     // ホイールの既定のスクロールを止めることがあるので、passive でない登録にする
     on("wheel", (event) => this.wheel(event), { passive: false });
     on("dblclick", (event) => {
-      if (!this.handlers.doubleClick) return;
+      if (!this.handlers.doubleClick || this.tool.doubleClickZoom === false) return;
       const [px, py] = this.local(event);
       this.zoomAround(2, px, py, true, event);
     });

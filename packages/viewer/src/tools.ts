@@ -26,6 +26,8 @@ export interface ViewerTool {
   readonly cursor?: string;
   /** 左ボタン（タッチは 1 本指）のドラッグで図面を動かすか。省略すると動かす。false なら道具がドラッグを受ける */
   readonly dragPan?: boolean;
+  /** ダブルクリックで拡大するか。省略すると拡大する（ViewerHandlers.doubleClick に従う）。false なら道具がクリックを続けて受ける */
+  readonly doubleClickZoom?: boolean;
   /** 道具を選んだとき */
   activate?(viewer: DrawingViewer): void;
   /** ほかの道具に替えるとき */
