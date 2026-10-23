@@ -47,6 +47,11 @@ function Drawing({ scene }: { scene: Scene }) {
   first drawing is opened. `view` picks a DXF or DWG layout without reading the file again. To read in a Web Worker,
   use `ReaderWorker` of `@zumenjs/reader` in an effect of your own and pass the scene to `useDrawingViewer`.
 
+- `useMarkupLayer(viewer, { document, ...options })` creates a `MarkupLayer` of `@zumenjs/viewer` while the viewer
+  and a document exist. A document other than the layer's replaces it (`setDocument`); passing back the document of a
+  `change` event does nothing, so keep the document in state and save it from `useMarkupEvent(layer, "change", …)`.
+  `useMarkupState(layer, selector, isEqual?)` reads the layer's state like `useViewerState`.
+
 The playground's [2D sample](https://github.com/zumenjs/zumen/blob/main/playground/drawing-sample.tsx) is a complete
 viewer built with these hooks: toolbar, layer list, properties and status bar, with its own CSS and Japanese text.
 

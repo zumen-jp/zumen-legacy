@@ -9,6 +9,16 @@ All packages share one version during 0.x.
   and AP242 files, are no longer detected as SXF P21. Reading them gives the error for a format no reader knows instead
   of an empty drawing with the `no-sheet` notice. SXF files without `FILE_SCHEMA` are still detected
   ([How SXF is handled](docs/formats/sxf.md#reading)).
+- Browsers: drawing markup, kept in a JSON document beside the drawing in paper millimeters of a view
+  ([decision 0021](docs/decisions/0021-drawing-markup.md), [Drawing markup](docs/markup.md)). `@zumenjs/core` has the
+  model (`MarkupDocument`, `MarkupItem` and its kinds `redline`, `cloud`, `text`, `finding` and `photo`),
+  `createMarkup`, `markupFromJson` (checked, keeping unknown keys, throwing `MarkupError` with a code, the item and the
+  key), `markupToJson`, `markupShapes` and `markupBox`, and `drawingHash` (SHA-256 with Web Crypto). `@zumenjs/viewer`
+  has `MarkupLayer` (a store with a `change` event, undo and redo, a filter and `itemsAt`) built on the public API of
+  `DrawingViewer`, the tools `redlineTool`, `cloudTool`, `textTool`, `findingTool`, `photoTool` and `markupEditTool`,
+  and colors from `--zumen-markup-*`; overlay painters receive the canvas size, `renderPrimitives` draws primitives in
+  their own colors, and a tool with `doubleClickZoom: false` receives double clicks. `@zumenjs/react` has
+  `useMarkupLayer`, `useMarkupState` and `useMarkupEvent`, and the playground a markup sample.
 - Browsers: a new package, `@zumenjs/pdf`, draws PDF pages under the drawing with pdf.js. `pdfUnderlayRenderer` is an
   `UnderlayRenderer` for underlays of kind `pdf` (the pages of PDF drawings, and the PDF underlays of DXF drawings):
   it renders the requested region of a page at the requested scale, cancels the pdf.js render when the request is
