@@ -556,6 +556,65 @@ pub fn group<'a>(scene: &'a Scene, source: &dyn Fn(&str) -> Option<String>) -> H
 }
 
 /// 元の図面（JWW の用紙の座標に移したもの）と、写した JWW の図面の違い
+/// 文字の高さの数値を保って書き直した図面に描くはずの、元の図面（decision 0019）。SXF・JWW から DXF へは
+/// （`to_em`）字形を em に対する文字の高さの比の逆数で大きく、DXF から SXF・JWW へはその比で小さくする。
+/// ベースラインの左端（縦書きはベースラインの上端）は動かさない。縦と横の縮尺が違う配置の中の文字は、斜体の
+/// ずれと配置のゆがみを matrix から分けられず、挿入点がわからないので、その図形の id も返す
+pub fn scale_texts(scene: &Scene, to_em: bool) -> (Scene, std::collections::HashSet<String>) {
+    let mut out = scene.clone();
+    let mut distorted = std::collections::HashSet::new();
+    for entity in &mut out.entities {
+        let mut scaled = false;
+        for primitive in &mut entity.primitives {
+            let Primitive::Text(text) = primitive else { continue };
+            let em = zumen_core::text::em_for(&text.text);
+            let k = if to_em { em } else { 1.0 / em };
+            let vertical = match text.cells.as_slice() {
+                [first, second, ..] => (first.y - second.y).abs() > (first.x - second.x).abs(),
+                _ => (text.height - text.box_height).abs() > 1e-9 * text.box_height.max(1e-12),
+            };
+            // TEXT の挿入点（ベースラインの左端、縦書きは上端）を中心に大きさを変える。斜体のずれは文字の X 方向
+            let m = text.matrix;
+            let shear = (m[0] * m[2] + m[1] * m[3]) / (m[0] * m[0] + m[1] * m[1]);
+            let (ux, uy) = (m[2] - shear * m[0], m[3] - shear * m[1]);
+            if shear.abs() > 1e-9 && (ux.hypot(uy) - m[0].hypot(m[1])).abs() > 1e-9 * m[0].hypot(m[1]) {
+                distorted.insert(entity.id.clone());
+            }
+            let descent = zumen_dxf::TEXT_DESCENT;
+            let (x, y) =
+                if vertical { (descent * text.box_width, text.box_height) } else { (0.0, descent * text.box_height) };
+            let (px, py) = (m[4] + m[0] * x + ux * y, m[5] + m[1] * x + uy * y);
+            text.matrix = [k * m[0], k * m[1], k * m[2], k * m[3], px + k * (m[4] - px), py + k * (m[5] - py)];
+            scaled = true;
+        }
+        if scaled {
+            let mut bbox = zumen_core::geometry::empty_box();
+            for primitive in &entity.primitives {
+                extend_primitive_box(&mut bbox, primitive);
+            }
+            entity.bbox = bbox;
+        }
+    }
+    (out, distorted)
+}
+
+/// `scale_texts` が挿入点をわからなかった文字の、位置の違い（外接矩形・文字範囲・1 文字ずつの位置）
+pub fn is_text_place(line: &str, distorted: &std::collections::HashSet<String>) -> bool {
+    let id = line.split(' ').next().unwrap_or("");
+    distorted.contains(id) && [": box [", ": text box ", ": cell "].iter().any(|part| line.contains(part))
+}
+
+fn extend_primitive_box(bbox: &mut BBox, primitive: &Primitive) {
+    use zumen_core::geometry::{extend_box, extend_box_with_points};
+    match primitive {
+        Primitive::Stroke(stroke) => extend_box_with_points(bbox, &stroke.points),
+        Primitive::Fill(fill) => fill.rings.iter().for_each(|ring| extend_box_with_points(bbox, ring)),
+        Primitive::Clipped(clipped) => clipped.rings.iter().for_each(|ring| extend_box_with_points(bbox, ring)),
+        Primitive::Dot(dot) => extend_box(bbox, dot.x, dot.y),
+        Primitive::Text(text) => corners(text).iter().for_each(|[x, y]| extend_box(bbox, *x, *y)),
+    }
+}
+
 pub fn differences(
     original: &Scene,
     again: &Scene,

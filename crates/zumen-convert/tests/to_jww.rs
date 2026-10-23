@@ -159,7 +159,8 @@ fn slanted_texts(scene: &Scene) -> HashSet<String> {
 /// 文字、自分を配置するブロック）による違いは除く
 fn check_dxf(name: &str, doc: &DxfDocument) -> (usize, Vec<String>) {
     let doc = &with_handles(doc);
-    let mut original = dxf_to_scene(doc, None);
+    // JWW の文字の大きさは TEXT の高さ（decision 0019）
+    let (mut original, distorted) = common::scale_texts(&dxf_to_scene(doc, None), false);
     let (mapped, again, scene) = to_jww(doc);
     let shown = original.clone();
     align(&mut original, &shown, &again, &scene);
@@ -206,7 +207,10 @@ fn check_dxf(name: &str, doc: &DxfDocument) -> (usize, Vec<String>) {
             let id = line.split(' ').next().unwrap_or("").trim_end_matches(':');
             // 寸法の定義点（DEFPOINTS）は、表示では寸法の図形にまとめ、JWW では DEFPOINTS（非表示）のレイヤに書く
             let defpoints = line.to_uppercase().contains(": LAYER DEFPOINTS NOT IN");
-            !skip.contains(id) && !defpoints && !id.split(['>', ':']).any(|part| recursive.contains(part))
+            !skip.contains(id)
+                && !common::is_text_place(line, &distorted)
+                && !defpoints
+                && !id.split(['>', ':']).any(|part| recursive.contains(part))
         })
         .map(|line| format!("{name}: {line}"))
         .collect();

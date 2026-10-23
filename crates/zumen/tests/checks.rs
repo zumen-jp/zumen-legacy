@@ -55,6 +55,15 @@ fn reads_the_text_heights_of_dxf_and_dwg_as_capital_heights() {
 }
 
 #[test]
+fn writes_the_text_heights_of_the_spec_as_sxf_and_jww_text_heights() {
+    // SXF の文字範囲の高さと JWW の文字の大きさは、DXF の TEXT の高さと同じ値（decision 0019）
+    for to in ["sfc", "jww"] {
+        let report = check(to, "A01-1");
+        assert_eq!(values(result(&report, "text-height")), ["1.75", "6", "1.87"], "{to}");
+    }
+}
+
+#[test]
 fn leaves_the_line_types_of_jww_unchecked() {
     let report = check("jww", "A01-1");
     let types = result(&report, "line-type");

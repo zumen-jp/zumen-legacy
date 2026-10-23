@@ -32,9 +32,10 @@ fn find<'a>(texts: &'a [(String, f64, f64, f64)], wanted: &str) -> &'a (String, 
     })
 }
 
-/// 読み取りの文字の高さは字形の em（TEXT の高さの 1/0.88 か 1/0.72 倍）なので、用紙の 2.5 mm の文字は 2.5〜3.5 mm
+/// 読み取りの文字の高さは字形の em。DXF・DWG は TEXT の高さの 1/0.88 か 1/0.72 倍なので、用紙の 2.5 mm の文字は
+/// 2.5〜3.5 mm。SXF・JWW は文字範囲の高さが TEXT の高さ（decision 0019）なので 2.5 mm
 fn is_paper_2_5(height: f64) -> bool {
-    (2.5..3.6).contains(&height)
+    (2.5 - 1e-9..3.6).contains(&height)
 }
 
 /// シートごとに、どの形式でも同じ文字が同じ大きさで用紙の中にある
