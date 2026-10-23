@@ -4,6 +4,12 @@ All packages share one version during 0.x.
 
 ## Unreleased
 
+- Rust, Python and the command line: SXF user-defined line types written by `edit` and by converting to SFC hold at
+  most 8 dash and gap lengths, as SXF holds 2, 4, 6 or 8 (the rule ezsxf checks). The dashes of a hatch pattern line
+  keep the first 8, unless they are the lengths of a predefined line type, and the base point moves by whole periods
+  of those (`edit-hatch-dash-count`); a longer DXF or DWG line type converted to SFC keeps the first 8
+  (`linetype-long`). `zumen_core::edit::style::cut_pitches` cuts lengths by pairs for `line_type_pitches` and the SXF
+  hatches.
 - Browsers: drawing markup, kept in a JSON document beside the drawing in paper millimeters of a view
   ([decision 0021](docs/decisions/0021-drawing-markup.md), [Drawing markup](docs/markup.md)). `@zumenjs/core` has the
   model (`MarkupDocument`, `MarkupItem` and its kinds `redline`, `cloud`, `text`, `finding` and `photo`),
