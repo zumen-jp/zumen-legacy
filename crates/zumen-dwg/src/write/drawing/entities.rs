@@ -788,6 +788,13 @@ impl Writer<'_> {
                 self.put(if kind == "RAY" { 40 } else { 41 }, handle, common, Body::Ray(body));
             }
             DxfEntityData::Image(image) if kind == "IMAGE" => {
+                if image.clip_inverted && self.version < Version::R2010 {
+                    self.notices.add(
+                        NoticeLevel::Info,
+                        "version-image-clip",
+                        "画像の境界の内側を消す切り抜きは、AutoCAD 2010 より前の版にないため、内側を描く切り抜きにしました",
+                    );
+                }
                 let (definition, reactor) = self.plan_image(image, handle);
                 let mut body = wipeout(image);
                 if body.boundary.is_empty() {
@@ -1705,6 +1712,7 @@ impl Writer<'_> {
                     handle: self.handles.fresh(),
                     path: image.path.clone().unwrap_or_default(),
                     size: image.image_size,
+                    loaded: image.loaded,
                     reactors: Vec::new(),
                 });
                 self.image_def_index.insert(original, self.image_defs.len() - 1);
@@ -1715,6 +1723,12 @@ impl Writer<'_> {
         self.image_defs[number].reactors.push((reactor, handle));
         (self.image_defs[number].handle, reactor)
     }
+}
+
+/// 明るさ・コントラスト・フェード（0〜100 の RC）
+fn percent(value: f64) -> u8 {
+    // NaN は 0
+    value.round().clamp(0.0, 100.0) as u8
 }
 
 /// WIPEOUT（20.4.80 と同じ形）。画像の定義は持たない。多角形の境界は閉じる点を持たない（読み取りが閉じる）
@@ -1731,10 +1745,10 @@ fn wipeout(image: &DxfImage) -> Image {
         size: image.image_size,
         display: short(image.flags),
         clipping: image.clipping,
-        brightness: 50,
-        contrast: 50,
-        fade: 0,
-        clip_mode: false,
+        brightness: percent(image.brightness),
+        contrast: percent(image.contrast),
+        fade: percent(image.fade),
+        clip_mode: image.clip_inverted,
         clip_type: if boundary.len() == 2 { 1 } else { 2 },
         boundary,
         imagedef: href(5, 0),
