@@ -468,6 +468,33 @@ export function renderScene(
 }
 
 /**
+ * 図形（用紙の mm）を、それぞれの色で Canvas の今の内容の上に描く（マークアップなど）。線は太さどおりに描き、
+ * 色 "background" は背景色で塗る。width・height は CSS px で、描き終えると変換を単位行列に戻す
+ */
+export function renderPrimitives(
+  ctx: CanvasRenderingContext2D,
+  primitives: Iterable<Primitive>,
+  view: View,
+  width: number,
+  height: number,
+  options: Pick<RenderOptions, "background" | "devicePixelRatio">,
+): void {
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  const painter = new Painter(
+    ctx,
+    view,
+    { ...options, invertLight: false, lineWeights: true, hiddenLayers: new Set(), sheetFrame: false },
+    width,
+    height,
+  );
+  painter.resetTransform();
+  for (const primitive of primitives) painter.primitive(primitive);
+  painter.finish();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+}
+
+/**
  * 図形を強調の色で、Canvas の今の内容の上に重ね描きする（選択・名前付きの強調・ポインターの下の図形）。
  * レイヤの表示によらず描き、画面の外の図形は飛ばす。width・height は CSS px
  */

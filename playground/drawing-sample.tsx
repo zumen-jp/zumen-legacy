@@ -1,8 +1,16 @@
-import type { Scene, SceneEntity, Underlay } from "@zumenjs/core";
-import { useDrawingViewer, useViewerEvent, useViewerState } from "@zumenjs/react";
+import {
+  createMarkup,
+  type MarkupDocument,
+  type MarkupDrawing,
+  type Scene,
+  type SceneEntity,
+  type Underlay,
+} from "@zumenjs/core";
+import { useDrawingViewer, useMarkupEvent, useMarkupLayer, useViewerEvent, useViewerState } from "@zumenjs/react";
 import type { DrawingViewer, UnderlayRenderer } from "@zumenjs/viewer";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { LayerList } from "./layer-list.js";
+import { MarkupList, MarkupToolbar } from "./markup-sample.js";
 import "./drawing-sample.css";
 
 export interface DrawingSampleProps {
@@ -13,6 +21,8 @@ export interface DrawingSampleProps {
   onViewChange?: (view: string) => void;
   /** 図面の underlay（下敷きの画像・PDF のページ）を描く処理。省略すると underlay は描かない */
   underlayRenderer?: UnderlayRenderer | undefined;
+  /** マークアップを付ける図面（ファイルのバイトの SHA-256 と形式）。null の間はマークアップの道具を出さない */
+  markupDrawing?: MarkupDrawing | null;
 }
 
 const NO_ENTITIES: readonly SceneEntity[] = [];
@@ -34,7 +44,13 @@ function formatZoom(zoom: number): string {
  * 2D の図面の画面のサンプル。@zumenjs/react のフックと @zumenjs/viewer の公開された API だけで、操作盤・レイヤの一覧・
  * 属性・状態の欄を作る。文言と CSS（drawing-sample.css）はこちらが持ち、図面の表示と操作はエンジンが受け持つ
  */
-export function DrawingSample({ scene, label, onViewChange, underlayRenderer }: DrawingSampleProps) {
+export function DrawingSample({
+  scene,
+  label,
+  onViewChange,
+  underlayRenderer,
+  markupDrawing = null,
+}: DrawingSampleProps) {
   const rootRef = useRef<HTMLElement>(null);
   const titleId = useId();
   const viewId = useId();
@@ -65,6 +81,14 @@ export function DrawingSample({ scene, label, onViewChange, underlayRenderer }: 
     if (error !== null) setFailed((underlays) => new Set(underlays).add(underlay));
   });
   const failedCount = current.underlays?.filter((underlay) => failed.has(underlay)).length ?? 0;
+
+  // マークアップの文書。図面のファイルが替わったら、その図面の空の文書にし、層の change で受けた文書を持つ
+  const [markup, setMarkup] = useState<MarkupDocument | null>(null);
+  useEffect(() => {
+    setMarkup(markupDrawing ? createMarkup(markupDrawing) : null);
+  }, [markupDrawing]);
+  const markupLayer = useMarkupLayer(viewer, { document: markup, author: "playground" });
+  useMarkupEvent(markupLayer, "change", (event) => setMarkup(event.document));
 
   const layerCounts = useMemo(() => {
     const counts = new Map<number, number>();
@@ -146,6 +170,15 @@ export function DrawingSample({ scene, label, onViewChange, underlayRenderer }: 
             計測
           </button>
         </fieldset>
+        {markupDrawing ? (
+          <MarkupToolbar
+            viewer={viewer}
+            layer={markupLayer}
+            drawing={markupDrawing}
+            name={label ?? "drawing"}
+            onOpen={setMarkup}
+          />
+        ) : null}
         <fieldset className="sample-group">
           <legend className="sample-visually-hidden">見え方</legend>
           <button
@@ -210,6 +243,13 @@ export function DrawingSample({ scene, label, onViewChange, underlayRenderer }: 
         </aside>
         <div ref={ref} className="sample-stage" />
         <aside id={propertiesId} className="sample-panel sample-panel-end" hidden={!showProperties} aria-label="属性">
+          {markupDrawing ? (
+            <MarkupList
+              viewer={viewer}
+              layer={markupLayer}
+              sameDrawing={markup?.drawing.sha256 === markupDrawing.sha256}
+            />
+          ) : null}
           {selected ? (
             <>
               <h3>{selected.type}</h3>

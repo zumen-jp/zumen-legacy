@@ -19,6 +19,11 @@ Drawings with several views (DXF and DWG model space and layouts) list them in `
 Raster content (images, PDF pages) is described in `scene.underlays`, with its place on the sheet and what it is, and
 `UnderlayRequest` is the shape of a request to draw a region of it; [`@zumenjs/viewer`](../viewer) asks a renderer that
 the application passes in to draw it.
+Drawing markup (redlines, revision clouds, notes, review findings and photo positions) is a JSON document beside the
+drawing: `createMarkup`, `markupFromJson` (checked, throwing a `MarkupError`), `markupToJson`, `markupShapes` (the
+shapes drawn, in paper millimeters), `markupBox` and `drawingHash` (the SHA-256 that names the drawing); see
+[Drawing markup](https://github.com/zumenjs/zumen/blob/main/docs/markup.md). [`@zumenjs/viewer`](../viewer) draws and
+edits it with `MarkupLayer`.
 Geometry helpers for format authors are exported from `@zumenjs/core/geometry`, and text layout from `@zumenjs/core/text`.
 See the [main README](https://github.com/zumenjs/zumen#readme) and the
 [architecture notes](https://github.com/zumenjs/zumen/blob/main/docs/architecture.md).

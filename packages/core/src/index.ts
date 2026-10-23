@@ -1,5 +1,41 @@
+export { drawingHash } from "./hash.js";
 export { sceneFromJson, sceneToJson } from "./json.js";
 export { isEntityVisible } from "./layers.js";
+export {
+  CARRIED_STATES,
+  type CarriedState,
+  type CloudItem,
+  createMarkup,
+  type FindingItem,
+  MARKUP_ARC_LENGTH,
+  MARKUP_ARROWS,
+  MARKUP_COLOR,
+  MARKUP_FORMAT,
+  MARKUP_KINDS,
+  MARKUP_PIXEL,
+  MARKUP_STATUSES,
+  MARKUP_TEXT_HEIGHT,
+  MARKUP_VERSION,
+  type MarkupArrows,
+  type MarkupCarried,
+  type MarkupDocument,
+  type MarkupDrawing,
+  MarkupError,
+  type MarkupErrorCode,
+  type MarkupItem,
+  type MarkupItemBase,
+  type MarkupKind,
+  type MarkupPoint,
+  type MarkupShapeOptions,
+  type MarkupStatus,
+  markupBox,
+  markupFromJson,
+  markupShapes,
+  markupToJson,
+  type PhotoItem,
+  type RedlineItem,
+  type TextItem,
+} from "./markup.js";
 export { type Distance, type MeasurePoint, measureDistance, toReal } from "./measure.js";
 export { NoticeList } from "./notices.js";
 export { type DrawingReader, detectFormat, type ReadDrawingOptions, type ReadOptions, readDrawing } from "./read.js";
