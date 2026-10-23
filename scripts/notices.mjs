@@ -127,7 +127,8 @@ function render({ what, bindings, targets }) {
       files.push(
         ...readdirSync(assets, { withFileTypes: true })
           .filter((e) => e.isFile() && ASSET_LICENSE_FILE.test(e.name))
-          .map((e) => path.join("assets", e.name))
+          // The name is written into the file, so it uses / on every platform
+          .map((e) => `assets/${e.name}`)
           .sort(),
       );
     }
