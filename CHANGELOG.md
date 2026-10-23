@@ -64,6 +64,9 @@ All packages share one version during 0.x.
   `ACAD_IMAGE_DICT` that keeps `path`, for raster location maps. Reading keeps the image's file name
   (`DxfImage::path`), and converting to DXF and DWG now writes IMAGE with its IMAGEDEF instead of leaving it out
   (`version-image` in R12 DXF and R13 DWG; `image` only when the image definition is unknown).
+- Readers: DXF and DWG report the block references to external drawings (xrefs, blocks whose flags have 4 or 8) in
+  the new `xref` notice, with their number and the paths they refer to, instead of drawing nothing without a word. The
+  drawings they refer to are still not read ([#108](https://github.com/zumenjs/zumen/issues/108)).
 
 ## 0.1.1 — 2026-10-21
 

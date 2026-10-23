@@ -451,6 +451,9 @@ class Builder {
   readonly model: DxfEntity[] = [];
   private readonly shxFonts = new Set<string>();
   private shxCount = 0;
+  /** 外部参照の参照先（パス、なければブロックの名前）と、描いた参照の数 */
+  private readonly xrefs = new Set<string>();
+  private xrefCount = 0;
   /** ブロック参照・寸法の中で描いた図形の数 */
   private expanded = 0;
   private readonly infinite: { entity: DxfXLine; ctx: Ctx }[] = [];
@@ -1553,7 +1556,13 @@ class Builder {
       this.notices.add("warning", "block-depth", "入れ子が深すぎるブロック参照を省きました");
       return;
     }
-    const base = contents.block?.base_point ?? [0, 0, 0];
+    // 外部参照（DXF Reference「BLOCK」の 70 の 4 と 8、1 が参照先のパス）の図形は参照先の図面にあり、その図面は読まない
+    const block = contents.block;
+    if (block && (block.flags & 12) !== 0) {
+      this.xrefs.add(block.xref_path || block.name);
+      this.xrefCount++;
+    }
+    const base = block?.base_point ?? [0, 0, 0];
     const ocs = ocsMatrix(entity.extrusion, entity.insert[2]);
     const columns = entity.type === "INSERT" ? entity.column_count : 1;
     const rows = entity.type === "INSERT" ? entity.row_count : 1;
@@ -2442,6 +2451,14 @@ class Builder {
   }
 
   finishNotices(): void {
+    if (this.xrefCount > 0) {
+      this.notices.add(
+        "warning",
+        "xref",
+        `外部参照（${[...this.xrefs].sort().join("・")}）は参照先の図面を読まないため、描いていません`,
+        this.xrefCount,
+      );
+    }
     if (this.shxCount > 0) {
       this.notices.add(
         "info",
