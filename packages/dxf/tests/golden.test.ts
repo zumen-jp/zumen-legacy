@@ -6,6 +6,8 @@ import { DRAWINGS } from "./fixtures.js";
 
 // Rust の読み取り（crates/zumen-dxf）も同じ図面を読み、同じ Scene の JSON になることを確かめる。
 // 既定の表示は <名前>.scene.json、ほかの表示（レイアウト）は <名前>@<表示>.scene.json
+// 単位・ブロックのレイヤと色の継承もここで確認する。limits / binary-limits は再帰・メッシュ・ハッチングの
+// 上限で残す図形と notices の種類・件数まで比べるので、同じ図面を個別のテストで読み直さない。
 describe("DXF の正解ファイル", () => {
   it.each(DRAWINGS)("%s と Scene", (name, bytes, views) => {
     matchGolden(`dxf/${name}.dxf`, bytes);
