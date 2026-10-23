@@ -59,6 +59,9 @@ pub(crate) fn members(bytes: &[u8]) -> Vec<Member> {
     let (Some(count), Some(start)) = (u16_at(bytes, end + 10), u32_at(bytes, end + 16)) else { return out };
     let mut at = start as usize;
     for _ in 0..count {
+        if limits::tick() {
+            break;
+        }
         let Some((member, next)) = member_at(bytes, at) else { break };
         out.push(member);
         at = next;
@@ -165,6 +168,9 @@ pub(crate) fn extract_others(bytes: &[u8], notices: &mut NoticeList) -> Result<V
     let mut total: u64 = 0;
     let mut out = Vec::new();
     for member in members(bytes) {
+        if limits::tick() {
+            break;
+        }
         if !member.format.is_empty() || member.name.ends_with('/') {
             continue;
         }
@@ -550,5 +556,12 @@ mod tests {
         assert_eq!(extract(&broken, &member).unwrap_err().message(), "圧縮ファイルが壊れています");
         let encrypted = zip(b"a.p21", b"x", 0, 1);
         assert!(extract(&encrypted, &find_sxf(&encrypted).unwrap()).is_err());
+    }
+    #[test]
+    fn embedded_files_stop_at_the_time_limit() {
+        let archive = join(&zip(b"drawing.sfc", b"ISO-10303-21;", 8, 0), &zip(b"photo.bmp", b"bitmap", 8, 0));
+        let limits = zumen_core::ReadLimits { max_duration: Some(std::time::Duration::ZERO), ..Default::default() };
+        let (_, exceeded) = limits::with_limits(&limits, || extract_others(&archive, &mut NoticeList::new()));
+        assert_eq!(exceeded, Some(Limit::Time));
     }
 }

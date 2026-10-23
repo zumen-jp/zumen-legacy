@@ -90,6 +90,10 @@ fn gunzip(data: &[u8], max: u64) -> Result<Vec<u8>, Option<ReadError>> {
         return Err(None);
     }
     let flags = data[3];
+    // RFC 1952, 2.3.1.2: a decompressor must reject nonzero reserved flag bits.
+    if flags & 0xe0 != 0 {
+        return Err(None);
+    }
     let mut at = 10;
     if flags & FEXTRA != 0 {
         let length = usize::from(u16::from_le_bytes([*data.get(at).ok_or(None)?, *data.get(at + 1).ok_or(None)?]));
@@ -141,6 +145,15 @@ mod tests {
         out.extend(crc32(content).to_le_bytes());
         out.extend((content.len() as u32).to_le_bytes());
         out
+    }
+
+    #[test]
+    fn rejects_reserved_gzip_flags() {
+        for reserved in [0x20, 0x40, 0x80] {
+            let mut data = gzip(b"bitmap");
+            data[3] |= reserved;
+            assert!(matches!(gunzip(&data, 1024), Err(None)));
+        }
     }
 
     #[test]
