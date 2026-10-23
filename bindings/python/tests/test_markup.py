@@ -165,7 +165,7 @@ def test_tools_write_list_and_carry_markup(tmp_path):
     revised.write_bytes(zumen.edit(before.data, [{"op": "delete", "id": before.created[0]}]).data)
     drawings = tools.Drawings([tmp_path])
     path = tmp_path / "plan.markup.json"
-    with pytest.raises(tools.DrawingError, match="give the drawing"):
+    with pytest.raises(tools.DrawingError, match="対象の図面を指定"):
         tools.write_markup(drawings, path, add=[{"kind": "text", "position": [0, 0], "text": "x"}])
     written = tools.write_markup(
         drawings,
@@ -196,7 +196,7 @@ def test_tools_write_list_and_carry_markup(tmp_path):
     assert "text" not in zumen.read_markup(path)["items"][0]
     with pytest.raises(tools.DrawingError, match="points"):
         tools.write_markup(drawings, path, add=[{"kind": "cloud", "points": [[0, 0]]}])
-    with pytest.raises(tools.DrawingError, match="no item"):
+    with pytest.raises(tools.DrawingError, match="項目がありません"):
         tools.write_markup(drawings, path, remove=["missing"])
 
     page = tools.list_markup(drawings, path, drawing=plan)
@@ -213,5 +213,5 @@ def test_tools_write_list_and_carry_markup(tmp_path):
     png, info = tools.render(zumen.read(plan), markup=document, markup_colors={"x": "#00ff00"})
     assert png.startswith(b"\x89PNG") and info["markup_items"] == 2
     outside = tmp_path.parent / "elsewhere.markup.json"
-    with pytest.raises(tools.DrawingError, match="outside"):
+    with pytest.raises(tools.DrawingError, match="許可されたフォルダーの外"):
         tools.write_markup(drawings, outside, drawing=plan)

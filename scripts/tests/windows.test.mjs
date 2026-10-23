@@ -41,13 +41,13 @@ test("parity runs a native executable and all views through Japanese paths with 
   const result = parity([drawing, unknown]);
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /same .*@Layout1/);
-  assert.match(result.stdout, /skip .*unknown format/);
+  assert.match(result.stdout, /skip .*未対応の形式/);
 });
 
 test("a missing executable is a failure, not an unsupported drawing", () => {
   const result = parity([drawing], join(directory, "missing.exe"));
   assert.equal(result.status, 1);
-  assert.match(result.stderr, /Rust CLI not found/);
+  assert.match(result.stderr, /Rust CLI がありません/);
 });
 
 test("a recognised but broken drawing fails even alongside a valid drawing", () => {
@@ -61,6 +61,6 @@ test("an empty input directory or only unsupported files cannot pass", () => {
   for (const files of [[empty], [unknown]]) {
     const result = parity(files);
     assert.equal(result.status, 1);
-    assert.match(result.stderr, /No drawings were compared/);
+    assert.match(result.stderr, /比較対象の図面がありませんでした/);
   }
 });

@@ -1,6 +1,6 @@
 [package]
 name = "zumen-wasm"
-description = "WebAssembly bindings for zumen: read drawings into scene JSON in the browser"
+description = "zumen の WebAssembly 拡張。ブラウザで CAD 図面を読み取り、共通の JSON に変換する"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

@@ -1,58 +1,49 @@
 # @zumenjs/react
 
-React hooks for embedding the drawing engine of [zumen](https://github.com/zumenjs/zumen),
-[`@zumenjs/viewer`](../viewer), in an interface you build yourself. There are no components and no CSS: the hooks
-create the engine, read its state and events, and read files.
+図面エンジンを React の画面に組み込むフックです。画面のラベル・ボタン・パネル・CSS は利用側で用意します。サンプル画面は日本語です。
+
+| フック | 用途 |
+| --- | --- |
+| `useDrawingViewer` | 要素に `DrawingViewer` を作成し、破棄まで管理する |
+| `useViewerState` | エンジンの状態から必要な値を取り出す |
+| `useViewerEvent` | 表示範囲・カーソルなどのイベントを受け取る |
+| `useDrawing` | ファイルを読み取る。読み取りモジュールの初期化も待つ |
+| `useMarkupLayer` | 図面にマークアップの層を重ねる |
+| `useMarkupState`・`useMarkupEvent` | マークアップの状態・イベントを受け取る |
 
 ```tsx
 "use client";
 
-import type { Scene } from "@zumenjs/core";
-import { useDrawing, useDrawingViewer, useViewerEvent, useViewerState } from "@zumenjs/react";
+import { useDrawing, useDrawingViewer } from "@zumenjs/react";
 import { reader } from "@zumenjs/reader";
-import { useState } from "react";
+import type { Scene } from "@zumenjs/core";
 
 const READERS = [reader];
 
 export function DrawingView({ file }: { file: File | null }) {
-  const { scene, error } = useDrawing(file, READERS);
+  const { scene, loading, error } = useDrawing(file, READERS);
+  if (loading) return <p>読み込み中…</p>;
   if (error) return <p role="alert">{error.message}</p>;
   return scene ? <Drawing scene={scene} /> : null;
 }
 
 function Drawing({ scene }: { scene: Scene }) {
-  const { ref, viewer } = useDrawingViewer(scene, { label: "Drawing" });
-  const selection = useViewerState(viewer, (state) => state.selection);
-  const [zoom, setZoom] = useState(0);
-  useViewerEvent(viewer, "move", ({ view }) => setZoom(view.zoom));
-  return (
-    <>
-      <button type="button" onClick={() => viewer?.fit()}>Fit</button>
-      <div ref={ref} style={{ height: 480 }} />
-      <p>{Math.round(zoom * 100)}% {selection?.[0]?.type}</p>
-    </>
-  );
+  const { ref, viewer } = useDrawingViewer(scene, { label: "図面" });
+  return <><button type="button" onClick={() => viewer?.fit()}>全体表示</button><div ref={ref} style={{ height: 480 }} /></>;
 }
 ```
 
-- `useDrawingViewer(scene, options)` creates a `DrawingViewer` on the element that receives `ref` and destroys it when
-  the element goes. A new `scene` replaces the drawing and a new `label` the canvas label; the other options are used
-  when the viewer is created, and the viewer's methods (`setHandlers`, `setStyle`, `setTool`…) change them later.
-- `useViewerState(viewer, selector, isEqual?)` re-renders only when the selected part of the state changes, and returns
-  `undefined` while the viewer does not exist. Pass `isEqual` when the selector builds a new object.
-- `useViewerEvent(viewer, type, listener)` subscribes to `move`, `moveend` or `cursor`, which change at the pace of
-  the pointer and are not kept in the state, or to `underlay`, sent when a request to draw an underlay finishes.
-- `useDrawing(file, readers, { view })` reads a `File` or `Blob`. When the reader that recognizes the file has `load`
-  (the reader of `@zumenjs/reader` loads its WebAssembly module), it waits for it, so the module is fetched when the
-  first drawing is opened. `view` picks a DXF or DWG layout without reading the file again. To read in a Web Worker,
-  use `ReaderWorker` of `@zumenjs/reader` in an effect of your own and pass the scene to `useDrawingViewer`.
+完成した画面例は[試用画面](../../playground/drawing-sample.tsx)、操作 API は[ビューア](../viewer/README.md)を参照してください。
 
-- `useMarkupLayer(viewer, { document, ...options })` creates a `MarkupLayer` of `@zumenjs/viewer` while the viewer
-  and a document exist. A document other than the layer's replaces it (`setDocument`); passing back the document of a
-  `change` event does nothing, so keep the document in state and save it from `useMarkupEvent(layer, "change", …)`.
-  `useMarkupState(layer, selector, isEqual?)` reads the layer's state like `useViewerState`.
+## 英語の補足資料
 
-The playground's [2D sample](https://github.com/zumenjs/zumen/blob/main/playground/drawing-sample.tsx) is a complete
-viewer built with these hooks: toolbar, layer list, properties and status bar, with its own CSS and Japanese text.
+対応表・実装上の細則・従来のコード例は [README.en.md](README.en.md) にも保存しています。
 
-Requires React 19.3 or a later 19.x release.
+<details>
+<summary>従来の見出しから詳細を探す</summary>
+
+<a id="zumenjsreact"></a>
+
+[zumenjsreact](README.en.md#zumenjsreact)
+
+</details>

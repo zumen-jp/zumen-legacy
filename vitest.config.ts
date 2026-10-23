@@ -9,7 +9,7 @@ const listed = (process.env.ZUMEN_BROWSERS ?? "").split(/[\s,]+/).filter(Boolean
 const selected = listed.length > 0 ? listed : [...browsers];
 for (const name of selected) {
   if (!(browsers as readonly string[]).includes(name)) {
-    throw new Error(`ZUMEN_BROWSERS: unknown browser "${name}" (use ${browsers.join(", ")})`);
+    throw new Error(`ZUMEN_BROWSERS: 未対応のブラウザ "${name}" です（${browsers.join(", ")} から指定）`);
   }
 }
 

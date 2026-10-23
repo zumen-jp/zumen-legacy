@@ -1,6 +1,6 @@
 [package]
 name = "zumen"
-description = "Read 2D drawings (SXF, JWW, DXF, DWG and PDF) into one scene model, and convert them to DXF"
+description = "SXF・JWW・DXF・DWG・PDF を共通の図面モデルに読み取り、CAD 図面の変換・編集・作図を行う"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

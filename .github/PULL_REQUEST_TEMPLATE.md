@@ -1,7 +1,8 @@
-## What and why
+## 変更内容と理由
 
-## Verification
+## 検証
 
-- [ ] `pnpm run check` passes
-- [ ] Visible changes were checked in the playground (`pnpm dev`)
-- [ ] No confidential or unlicensed drawings are included
+- [ ] `pnpm run check` が成功した
+- [ ] 表示の変更を試用画面（`pnpm dev`）で確認した
+- [ ] 機密・利用許諾のない図面を含めていない
+- [ ] 利用者向けの文言と文書を日本語で更新した

@@ -1,7 +1,7 @@
 {
   "name": "@zumenjs/dxf",
   "version": "0.1.1",
-  "description": "Read DXF drawings (ASCII and binary, R12 to 2018) in the browser and Node.js, with the AutoCAD drawing model shared with DWG",
+  "description": "DXF（R12〜2018、テキスト・バイナリ）をブラウザと Node.js で読み取る。DWG と共通の AutoCAD 図面モデルを使用",
   "keywords": [
     "dxf",
     "autocad",

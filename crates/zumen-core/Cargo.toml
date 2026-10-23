@@ -1,6 +1,6 @@
 [package]
 name = "zumen-core"
-description = "Format-neutral 2D drawing scene model, geometry and text layout for zumen"
+description = "zumen の形式に依存しない 2D 図面モデル、幾何、文字配置、計測・解析"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

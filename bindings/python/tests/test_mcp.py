@@ -107,7 +107,7 @@ def test_serves_the_tools_over_mcp():
             missing = await client.call_tool("get_entity", {"path": SFC, "id": "no such id"})
             assert missing.is_error and "no such id" in missing.content[0].text
             outside = await client.call_tool("open_drawing", {"path": "/etc/hosts"})
-            assert outside.is_error and "outside" in outside.content[0].text
+            assert outside.is_error and "許可されたフォルダーの外" in outside.content[0].text
 
     anyio.run(session)
 
@@ -181,6 +181,6 @@ def test_writes_reads_draws_and_carries_markup_over_mcp(tmp_path):
             )
             assert carried.structured_content["unchanged"] == 2
             outside = await client.call_tool("read_markup", {"markup": "/etc/hosts"})
-            assert outside.is_error and "outside" in outside.content[0].text
+            assert outside.is_error and "許可されたフォルダーの外" in outside.content[0].text
 
     anyio.run(session)

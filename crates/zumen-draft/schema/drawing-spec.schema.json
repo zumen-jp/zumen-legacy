@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/zumenjs/zumen/crates/zumen-draft/schema/drawing-spec.schema.json",
-  "title": "zumen drawing spec",
-  "description": "A drawing for zumen::draft (decision 0018). View items are model coordinates in real millimeters; sheet items are paper millimeters; sizes (text heights, arrows, table widths, hatch spacing) are always paper millimeters.",
+  "title": "zumen の図面仕様",
+  "description": "zumen::draft の図面仕様（決定 0018）。ビュー内の座標は実寸の mm、用紙の図形は用紙上の mm。文字高・矢印・表幅・ハッチング間隔などの大きさは常に用紙上の mm。",
   "type": "object",
   "additionalProperties": false,
   "required": ["sheets"],
@@ -12,7 +12,7 @@
     },
     "font": {
       "type": "string",
-      "description": "Default font, such as ＭＳ ゴシック"
+      "description": "既定のフォント（ＭＳ ゴシックなど）"
     },
     "defaults": {
       "$ref": "#/$defs/defaults"
@@ -67,7 +67,7 @@
       }
     },
     "color": {
-      "description": "ACI number 1-255, #rrggbb, bylayer or byblock",
+      "description": "ACI 番号 1〜255、#rrggbb、bylayer、byblock",
       "oneOf": [
         {
           "type": "integer",
@@ -188,7 +188,7 @@
             "minimum": 0
           },
           "minItems": 1,
-          "description": "Dash and gap lengths in turn, paper millimeters; a dash of 0 is a dot"
+          "description": "線と空白の長さを交互に指定（用紙上の mm）。線の長さ 0 は点"
         }
       }
     },
@@ -256,11 +256,11 @@
           "minLength": 1,
           "pattern": "\\S",
           "not": { "pattern": "^\\s*[Mm][Oo][Dd][Ee][Ll]\\s*$" },
-          "description": "Nonempty layout name other than Model (case insensitive). With zumen::draft_into, a layout of the template with this name is drawn into"
+          "description": "空でないレイアウト名。Model は大文字小文字を問わず予約名。draft_into はテンプレートの同名レイアウトに作図"
         },
         "fields": {
           "type": "object",
-          "description": "Attribute values by tag, filled into the block references (title blocks) on this sheet, including those of the template with zumen::draft_into",
+          "description": "この用紙のブロック参照（表題欄）を埋めるタグ別の属性値。draft_into のテンプレートも対象",
           "additionalProperties": {
             "type": "string"
           }
@@ -304,7 +304,7 @@
       "properties": {
         "margins": {
           "$ref": "#/$defs/box",
-          "description": "Left, bottom, right, top, mm"
+          "description": "左・下・右・上（mm）"
         },
         "lineWidth": {
           "type": "number"
@@ -392,15 +392,15 @@
         "scale": {
           "type": "number",
           "exclusiveMinimum": 0,
-          "description": "The denominator: 250 for 1:250"
+          "description": "縮尺の分母（1:250 は 250）"
         },
         "viewport": {
           "$ref": "#/$defs/box",
-          "description": "[x0, y0, x1, y1] on paper, mm"
+          "description": "用紙上の範囲 [x0, y0, x1, y1]（mm）"
         },
         "center": {
           "$ref": "#/$defs/point",
-          "description": "Model point at the viewport's center; the extent of the items by default"
+          "description": "ビューポートの中央に表示するモデル座標。既定は図形の範囲の中心"
         },
         "title": {
           "$ref": "#/$defs/viewTitle"
@@ -779,11 +779,11 @@
         },
         "width": {
           "type": "number",
-          "description": "Wrap at this width, paper mm"
+          "description": "この幅で折り返す（用紙上の mm）"
         },
         "fit": {
           "type": "number",
-          "description": "Shrink the width factor to fit this width, paper mm"
+          "description": "この幅に収めるよう横倍率を縮める（用紙上の mm）"
         },
         "widthFactor": {
           "type": "number"
@@ -826,7 +826,7 @@
         },
         "pattern": {
           "type": "string",
-          "description": "SOLID (default), LINE, ANSI31, ANSI32, ANSI37, NET, DOTS, DASH, GROUND, or any name with patternLines"
+          "description": "SOLID（既定）、LINE・ANSI31・ANSI32・ANSI37・NET・DOTS・DASH・GROUND、または patternLines 付きの独自名"
         },
         "scale": {
           "type": "number"

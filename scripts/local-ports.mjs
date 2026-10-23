@@ -5,10 +5,10 @@ const defaults = JSON.parse(readFileSync(new URL("../config/local-ports.json", i
 
 /** @param {string} name @param {string | number | undefined} [override] */
 export function port(name, override = undefined) {
-  if (!Object.hasOwn(defaults, name)) throw new Error(`Unknown local port: ${name}`);
+  if (!Object.hasOwn(defaults, name)) throw new Error(`未定義のローカルポートです: ${name}`);
   const value = String(override ?? defaults[name]);
   if (!/^\d+$/.test(value) || Number(value) < 1024 || Number(value) > 65535) {
-    throw new Error(`Use a port between 1024 and 65535: ${name}`);
+    throw new Error(`ポートは 1024〜65535 で指定してください: ${name}`);
   }
   return value;
 }

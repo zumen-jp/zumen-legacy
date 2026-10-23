@@ -1,62 +1,57 @@
-# 0004: Serve drawings to AI applications through an MCP server in the Python package
+# 0004: Python パッケージに MCP サーバーを置く
 
-| Item | Value |
+| 項目 | 内容 |
 | --- | --- |
-| Date | 2026-10-20 |
-| Status | Accepted |
+| 日付 | 2026-10-20 |
+| 状態 | 採用 |
 
-## Context
+このページは既存判断の日本語の要約です。詳細な条件と当時の議論は英語の補足資料に保持しています。
 
-- AI applications such as coding agents and desktop assistants reach local tools through the Model Context Protocol
-  (MCP). They cannot read SXF, JWW or DXF themselves, and a whole sheet as one image is too small to read: an A1 sheet
-  in 1,568 pixels shows 2.5 mm text at about 5 pixels.
-- zumen reads these formats in Rust, with Python bindings, and can render a region of a sheet at a chosen size, list
-  the texts and entities of a drawing with their positions, and tell which entity is drawn where in an image. These are
-  the parts an AI application needs: look at the sheet, zoom into a region, search the texts, inspect an entity and
-  measure in real-world units.
-- The official MCP SDK for Python (`mcp`, MIT) reached 2.0 in July 2026; 2.3.0 is current. Its 1.x API (`FastMCP`)
-  was renamed (`MCPServer`) and its transport options moved, so a server pins the major version. FastMCP by Prefect is
-  a separate framework with server composition, proxies and OpenAPI import.
+## 背景
 
-## Options
+AI アプリケーションから既存の読み取り・描画・計測を使えるようにしたい。
 
-- **A separate repository or package** for the server: stars, issues and releases would be split, and the server
-  could not use zumen before zumen is published.
-- **A server in Rust or TypeScript**: Rust would need its own MCP implementation and Python bindings already exist;
-  a TypeScript server would use the TypeScript readers, while DWG will exist only in Rust.
-- **A module of the Python package** (`zumen.mcp`) on the official SDK, as an optional dependency, with the plain
-  functions behind the tools importable by applications that call them without MCP.
+## 選択肢
 
-## Decision
+別パッケージ、Rust・TypeScript のサーバー、Python の任意モジュールを比較した。
 
-The third option, with these rules:
+## 決定
 
-- `pip install "zumen[mcp]"` adds `mcp>=2.3,<3`; `zumen-mcp` (or `python -m zumen.mcp`) serves over stdio. Reading
-  drawings does not need the SDK.
-- The tools only read: `open_drawing`, `render_drawing`, `find_texts`, `find_entities`, `get_entity` and
-  `measure_distance`. They take a file path and an optional view, and keep the scenes of the last eight files read.
-- Results are paper millimeters with the Y axis up, as `Scene` is, rounded to 0.001, sent as compact JSON with the same
-  data as structured content. `render_drawing` also sends the PNG and the conversion between pixels and millimeters.
-- Received drawings are not trusted. `--root` limits the directories that may be read (symbolic links are resolved
-  first), `--max-bytes` limits the file size (256 MiB by default), images are at most 4,096 pixels on the long edge,
-  and one call returns at most 1,000 items. The instructions and tool descriptions tell clients that texts, names and
-  properties come from the file and are data, not instructions.
-- The independent FastMCP framework is not used: the server needs only tools over stdio.
-- No HTTP transport. A server shared over a network needs authentication and per-user permissions, which belong to the
-  application that hosts it.
+公式 Python SDK を任意依存として zumen.mcp に置き、zumen-mcp で stdio 通信する。ツールの処理は直接呼べる関数に分ける。
 
-## Consequences
+## 影響
 
-- Applications that do not use MCP call `zumen.mcp.summary`, `render`, `find_texts`, `find_entities`, `get_entity` and
-  `measure` directly and get the same results.
-- New features become tools as they land, starting with the comparison of two revisions.
-- Reading time is bounded only by the readers' own limits on nesting and entity counts. A deadline per call would need
-  support inside the readers.
-- A new major version of the SDK needs a review of the server before the upper bound moves.
+MCP なしでも利用できる。許可パス・入力サイズ・返却件数・画像サイズに上限を設け、図面の文字を指示として扱わない。後続の機能追加は各記録に従う。
 
-## References
+## 英語の補足資料
 
-- [Model Context Protocol specification](https://modelcontextprotocol.io/specification/2026-07-28)
-- [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk), version 2.3.0, and its
-  [migration guide](https://py.sdk.modelcontextprotocol.io/migration/)
-- [Texts, entities and images for servers](../architecture.md#texts-entities-and-images-for-servers)
+対応表・実装上の細則・従来のコード例は [0004-mcp-server-in-the-python-package.en.md](0004-mcp-server-in-the-python-package.en.md) にも保存しています。
+
+<details>
+<summary>従来の見出しから詳細を探す</summary>
+
+<a id="0004-serve-drawings-to-ai-applications-through-an-mcp-server-in-the-python-package"></a>
+
+[0004-serve-drawings-to-ai-applications-through-an-mcp-server-in-the-python-package](0004-mcp-server-in-the-python-package.en.md#0004-serve-drawings-to-ai-applications-through-an-mcp-server-in-the-python-package)
+
+<a id="context"></a>
+
+[context](0004-mcp-server-in-the-python-package.en.md#context)
+
+<a id="options"></a>
+
+[options](0004-mcp-server-in-the-python-package.en.md#options)
+
+<a id="decision"></a>
+
+[decision](0004-mcp-server-in-the-python-package.en.md#decision)
+
+<a id="consequences"></a>
+
+[consequences](0004-mcp-server-in-the-python-package.en.md#consequences)
+
+<a id="references"></a>
+
+[references](0004-mcp-server-in-the-python-package.en.md#references)
+
+</details>

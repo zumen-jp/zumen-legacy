@@ -1,28 +1,20 @@
 # @zumenjs/dxf
 
-Reads DXF drawings (AutoCAD R12 to 2018, ASCII and binary) for [zumen](https://github.com/zumenjs/zumen).
-Written in TypeScript without WebAssembly; works in browsers and Node.js.
+テキスト・バイナリの DXF（R12〜2018）を読み取ります。Shift_JIS の日本語とモデル空間・レイアウトを扱います。AutoCAD の図面モデルは Rust の DWG と共通です。
 
-```ts
-import { readDrawing } from "@zumenjs/core";
-import { dxf, dxfToScene, parseDxf } from "@zumenjs/dxf";
+この TypeScript パッケージは、テストの正解を作るための参照実装としてリポジトリに残しています。npm には公開しません。アプリケーションからは、全形式で同じ Rust の読み取りを使う [`@zumenjs/reader`](../reader) を利用してください。
 
-const scene = readDrawing(bytes, [dxf]); // model space, or the layout the drawing was saved in
-const layout = readDrawing(bytes, [dxf], { view: "Layout1" }); // a layout; scene.views lists them
+形式の細則は [DXF の扱い](../../docs/formats/dxf.md)、全体の使い方は [README](../../README.md) を参照してください。
 
-const doc = parseDxf(bytes); // the AutoCAD drawing model: entities, layers, blocks, layouts
-const model = dxfToScene(doc, { layout: "Model" });
-```
+## 英語の補足資料
 
-- Text in `$DWGCODEPAGE` (including Japanese `ANSI_932`), UTF-8 for 2007 and later, and Shift_JIS detected in old files
-  without a code page.
-- Lines, arcs, polylines with bulges and widths, splines, text and formatted MTEXT, blocks with attributes and arrays,
-  dimensions, hatches, leaders and multileaders, multilines, solids and wipeouts, with layers, line types, line weights,
-  ACI and true colors and transparency.
-- Layout viewports are drawn at their scale, and measurements inside them return real-world units.
-- SHX fonts are not bundled: text is drawn with a substitute font and the count is reported in `scene.notices`.
+対応表・実装上の細則・従来のコード例は [README.en.md](README.en.md) にも保存しています。
 
-`DxfDocument` uses the attribute names of [ezdxf](https://ezdxf.mozman.at/) and [ezdwg](https://github.com/monozukuri-ai/ezdwg).
-Its Rust port (`zumen-dxf`) shares the model and the conversion with the Rust DWG reader (`zumen-dwg`).
-How the format is handled is described in
-[docs/formats/dxf.md](https://github.com/zumenjs/zumen/blob/main/docs/formats/dxf.md); see also THIRD_PARTY_NOTICES.md.
+<details>
+<summary>従来の見出しから詳細を探す</summary>
+
+<a id="zumenjsdxf"></a>
+
+[zumenjsdxf](README.en.md#zumenjsdxf)
+
+</details>
