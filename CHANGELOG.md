@@ -28,8 +28,9 @@ All packages share one version during 0.x.
   frame only; `IMAGEFRAME` 0 keeps the frame for selection only (`drawn: false`); brightness and contrast and
   images drawn over earlier entities are reported (`image-adjust`, `image-order`). The model keeps the brightness,
   contrast, fade, clip mode and loaded state of images, which the DXF and DWG writers write (versions before 2010
-  report an inverted clip, `version-image-clip`), and the image frame setting, which they report (`image-frame`). PDF, DWF and DGN underlays are still not read: the drawing does not hold
-  the page size. The playground draws the images of a drawing from image files chosen next to it.
+  report an inverted clip, `version-image-clip`), and the image frame setting, which they report (`image-frame`).
+  PDF, DWF and DGN underlays are still not read: the drawing does not hold the page size. The playground draws the
+  images of a drawing from image files chosen next to it.
 - Rust, Python and the command line: `edit` and `create` take `add-block` (with `"container": "block:<name>"` and
   `block-reference`), `"kind": "dimension"` and `"kind": "hatch"` for JWW and SXF too, as each format's own entities
   ([decision 0025](docs/decisions/0025-annotations-in-jww-and-sxf-edits.md)). JWW: a block definition named with
