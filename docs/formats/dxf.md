@@ -145,12 +145,55 @@ the differences that remain are in [How DWG is handled](dwg.md).
 | MULTILEADER (MLEADER) | Text content (MTEXT at the stored position, with background, frame and underline or overline) or block content with its attribute values; straight or spline leaders from the arrowhead to the landing point and the dogleg, with dimension breaks; the closed filled arrowhead or the arrow block (`_Dot`, `_ArchTick`…) scaled by the arrow size. Merged into one selectable entity |
 | MLINE | The elements of the MLINESTYLE at their miter offsets, without the parts cut by MLEDIT, with their colors and line types; fill, square and round caps, inner arcs and miters |
 | WIPEOUT | Filled with the background color |
-| IMAGE | The frame only (images are not loaded) |
+| IMAGE | The frame, and the picture as an underlay ([Images](#images)) |
 | XLINE, RAY | Clipped to the extents of the other entities (or the sheet) |
 | VIEWPORT | Its frame on the layout, and the model space inside |
 
 Not read, counted in `skipped` and reported: TOLERANCE, SHAPE, 3DSOLID, REGION, BODY, MESH, SURFACE,
-underlays (PDF, DWF, DGN), OLE frames, lights and proxy entities.
+underlays (PDF, DWF, DGN, see [Images](#images)), OLE frames, lights and proxy entities.
+
+### Images
+
+An IMAGE ([IMAGE](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-3A2FF847-BE14-4AC5-9BD4-BD3DCAEF2281.htm),
+[IMAGEDEF](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-EFE5319F-A71A-4612-9431-42B6C7C3941F.htm))
+draws its frame as an entity and its picture as an underlay in `Scene.underlays`
+([decision 0022](../decisions/0022-underlays-drawn-by-a-region-renderer.md)). zumen does not open the image file:
+the underlay's `file` is the IMAGEDEF's file name (1) as the drawing writes it, often relative to the drawing
+(`.\image.JPG`), and the application loads the image (`imageUnderlayRenderer` of `@zumenjs/viewer`).
+
+- **Content and placement**: the content is the image's pixels as the IMAGE counts them (13, the IMAGEDEF's size), with
+  the origin at the top left corner and y down. The content point (x, y) is at insert + U·x + V·(height − y) in the
+  coordinates of the block (U and V, 11 and 12, are the vectors of one pixel, which need not be square or at right
+  angles), the placement of ezdxf's `Image.boundary_path_wcs`. `matrix` adds the blocks and the viewport.
+- **Clipping**: the boundary (14, in pixels whose centers are integers, so the image spans −0.5 to the size − 0.5)
+  clips when the clipping state (280) is on. ezdxf clips by the flag 4 of 70 instead, which AutoCAD sets with it
+  (*inferred*). A clip mode (290) of 1 removes the inside of the boundary: the whole image and the boundary are the
+  two rings of `clip`. Viewports clip with their rectangle. When clipping is off, the frame is the whole image, as
+  AutoCAD's IMAGECLIP Off shows the whole image and frame.
+- **Display values**: the fade (283) becomes the opacity, 1 − fade / 100 (AutoCAD blends the image with the
+  background, which looks the same over the background). Brightness and contrast (281, 282) other than 50 are not
+  applied and are reported (`image-adjust`). The transparency flag (8 of 70) is not applied; the image is drawn with
+  its own alpha (*inferred*).
+- **Images without a picture**: an image whose show flag (1 of 70) is off or whose IMAGEDEF is unloaded (280 = 0)
+  shows its frame only, as AutoCAD does. An image without an IMAGEDEF, or whose file name is empty, shows its frame
+  only and is reported (`image`).
+- **Frame**: `IMAGEFRAME` (70 of the RASTERVARIABLES object in the `ACAD_IMAGE_VARS` dictionary) 0 keeps the frame of
+  images with a file for selection only (`drawn: false`); 1 and 2 (the default 1) draw it.
+- **Draw order**: underlays are drawn under every entity. An image that AutoCAD draws over earlier entities (in the
+  draw order above) whose extents it overlaps is reported (`image-order`).
+- **Ids and layers**: the underlay has the id and the layers of its frame, with the prefixes of blocks (`105>110`)
+  and viewports (`131:100`).
+
+PDF, DWF and DGN underlays (PDFUNDERLAY …,
+[UNDERLAY](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-3EC8FBCC-A85A-4B0B-93CD-C6C785959077.htm))
+are not read. Their definitions (PDFDEFINITION …) name the file (1) and the page or sheet (2) but not its size: the
+insertion point (10) is the lower left corner of the page, so placing the content, whose origin is its top left
+corner, needs the page height that only the PDF file has. DWF and DGN content has no renderer in zumen.
+
+External references are not read either. A block whose flags (BLOCK, 70) have 4 (an attached reference) or 8 (an
+overlay) stands for another drawing, whose path is group 1, and the drawing that refers to it keeps none of its
+entities. Each block reference to one that is drawn, also inside other blocks, is counted in the `xref` notice, whose
+message names the paths (or the block names of references without a path), sorted as JavaScript sorts strings.
 
 ### Multileaders and multilines
 
@@ -213,6 +256,7 @@ same place. What is left out is reported.
 | Pattern lines of one hatch, also when the count is not a number (NaN in binary DXF) or the line numbers pass 2⁵³ (a base point so far from the boundary that adding 1 no longer changes the number) | 5,000 (the outline is drawn instead) | `hatch-dense` |
 | Polygon mesh grid (71 × 72) | Only the positions that have vertices are visited | |
 | Segments of an arc or ellipse, steps of a spline | 4,096 | |
+| Comparisons of an image's extents with the earlier entities, per view | 1,000,000 (later images with an entity before them count as overlapping) | `image-order` |
 
 ### Text and fonts
 
@@ -280,7 +324,8 @@ mapping writes what zumen's reader draws the same way as the source scene, and w
   definitions point at the records written. **Wipeouts** are written without an image definition, as AutoCAD writes
   them. **Images** whose IMAGEDEF file name the model keeps (`DxfImage::path`) are written with an IMAGEDEF in
   `ACAD_IMAGE_DICT` (named as the editor names them), one IMAGEDEF_REACTOR each and the IMAGE classes; images that
-  pointed at the same IMAGEDEF share one. The IMAGEDEF's other values are written as the editor writes them (pixel
+  pointed at the same IMAGEDEF share one. The IMAGE keeps its brightness, contrast, fade and clip mode, and the
+  IMAGEDEF its loaded state; the IMAGEDEF's other values are written as the editor writes them (pixel
   size 1, no resolution units). **Gradients** keep their name, colors, angle, shift and tint (450 to 470, in AutoCAD's order).
 - **Multi-line attributes** (ATTRIB and ATTDEF with `mtext`) are written as AutoCAD 2018 writes them: the attribute
   type (71: 2 for an attribute, 4 for a definition) at the end of `AcDbAttribute` or `AcDbAttributeDefinition`, then
@@ -297,6 +342,7 @@ What cannot be written as it was is reported in `notices`:
 | Code | What is written |
 | --- | --- |
 | `image` | An IMAGE whose image definition (IMAGEDEF) the model does not know is left out |
+| `image-frame` | The setting that hides image frames (`IMAGEFRAME` 0) is not written; the frames show |
 | `helix` | HELIX is written as SPLINE, its curve, without the helix parameters |
 | `mpolygon` | MPOLYGON is written as HATCH |
 | `table` | ACAD_TABLE is written as the INSERT of its block (`*T…`) |
@@ -333,6 +379,7 @@ What cannot be written as it was is reported in `notices`:
 | `version-dimension` | 2000 | ARC_DIMENSION and LARGE_RADIAL_DIMENSION are written as the INSERT of their block |
 | `version-background` | 2000, 2004 | The background fill of MTEXT (90, 63, 421, 45, 441) is left out, also in blocks: the text fill of a dimension (DIMTFILL, 2007 and later) is the MTEXT in its block |
 | `version-mleader` | 2000, 2004 | MULTILEADER is written as it is, as ezdxf writes it; AutoCAD before 2008 does not know it |
+| `version-image-clip` | 2000 to 2007 | An image clip that removes the inside of its boundary (290) clips to the inside |
 
 #### R12 (`r12::prepare`)
 

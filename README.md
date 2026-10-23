@@ -349,6 +349,11 @@ data files from the URLs the application gives it.
    a view so that CAD and PDF drawings share it, which names the drawing by the hash of its bytes and is carried to new
    revisions through the comparison; drawn and edited by a layer on `DrawingViewer`, and read, drawn and carried in
    Python, the command line and the MCP server (done, [Drawing markup](docs/markup.md)).
+9. Building models ([decision 0028](docs/decisions/0028-ifc-in-rust.md)): IFC read by our own reader in Rust, on the
+   ISO 10303-21 syntax shared with SXF, in this order: the model (spatial structure, elements, types, properties and
+   quantities); 3D meshes, storey plans as scenes and a 3D engine to embed; what the BIM review of building
+   confirmation needs (editing properties in place, areas, checks against rule sets and the review items of the BIM
+   data review); then sheets drafted from models through the drawing spec.
 
 ## Documentation
 

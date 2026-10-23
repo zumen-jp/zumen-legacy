@@ -419,6 +419,7 @@ pub fn read_dwg(bytes: &[u8]) -> Result<DxfDocument, String> {
         layouts: Vec::new(),
         entities: Vec::new(),
         sort_handles: Vec::new(),
+        image_frame: None,
         skipped: Vec::new(),
         notices: Vec::new(),
     };
@@ -460,7 +461,7 @@ pub fn read_dwg(bytes: &[u8]) -> Result<DxfDocument, String> {
         }
     }
     doc.blocks = records.into_iter().map(|record| record.block).collect();
-    read_image_paths(&mut reader, &mut doc);
+    read_image_paths(&mut reader, header.named_objects, &mut doc);
     if !version_has_layouts(version) && !doc.layouts.iter().any(|layout| !layout.model) {
         add_paper_layout(&mut doc);
     }
@@ -1015,16 +1016,19 @@ fn read_mline_styles(reader: &mut Reader<'_>, header: &Header, doc: &mut DxfDocu
     }
 }
 
-/// 画像（IMAGE）が指す IMAGEDEF（20.4.82）の画像のファイルの名前
-fn read_image_paths(reader: &mut Reader<'_>, doc: &mut DxfDocument) {
-    let mut paths: HashMap<u64, Option<String>> = HashMap::new();
+/// 画像（IMAGE）が指す IMAGEDEF（20.4.82）の画像のファイルの名前と読み込んだ状態、画像があれば
+/// 名前付きオブジェクトの辞書の ACAD_IMAGE_VARS にある RASTERVARIABLES の外形の表示（IMAGEFRAME）
+fn read_image_paths(reader: &mut Reader<'_>, named_objects: u64, doc: &mut DxfDocument) {
+    let mut definitions: HashMap<u64, Option<(String, bool)>> = HashMap::new();
+    let mut images = false;
     for entity in &mut doc.entities {
         let DxfEntityData::Image(image) = &mut entity.data else { continue };
         let Some(handle) = image.definition_handle.as_deref().and_then(|handle| u64::from_str_radix(handle, 16).ok())
         else {
             continue;
         };
-        image.path = paths
+        images = true;
+        let definition = definitions
             .entry(handle)
             .or_insert_with(|| {
                 reader.object(handle, &["IMAGEDEF"], |object, _| {
@@ -1032,11 +1036,29 @@ fn read_image_paths(reader: &mut Reader<'_>, doc: &mut DxfDocument) {
                     let s = &mut object.streams;
                     s.data.bl()?;
                     s.data.rd2()?;
-                    Ok(decode_escapes(&s.tv()?))
+                    let path = decode_escapes(&s.tv()?);
+                    Ok((path, s.data.bit()?))
                 })
             })
             .clone();
+        if let Some((path, loaded)) = definition {
+            image.path = Some(path);
+            image.loaded = loaded;
+        }
     }
+    if !images {
+        return;
+    }
+    let named = reader.dictionary(named_objects);
+    let Some(&(_, handle)) = named.iter().find(|(name, _)| name.eq_ignore_ascii_case("ACAD_IMAGE_VARS")) else {
+        return;
+    };
+    doc.image_frame = reader.object(handle, &["RASTERVARIABLES"], |object, _| {
+        non_entity(object)?;
+        let s = &mut object.streams;
+        s.data.bl()?;
+        Ok(f64::from(s.data.bs()?))
+    });
 }
 
 /// LAYOUT（20.4.84）と、その前の PLOTSETTINGS の値。dictionary はレイアウトの辞書（ACAD_LAYOUT）

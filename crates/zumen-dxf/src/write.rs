@@ -393,6 +393,8 @@ struct ImageDefOut {
     handle: u64,
     path: String,
     size: [f64; 2],
+    /// 読み込んだ状態（IMAGEDEF の 280）
+    loaded: bool,
     /// この定義を使う画像のリアクタ（IMAGEDEF_REACTOR）のハンドルと、画像のハンドル
     reactors: Vec<(u64, u64)>,
 }
@@ -700,6 +702,7 @@ impl<'a> Writer<'a> {
                         handle,
                         path: image.path.clone().unwrap_or_default(),
                         size: image.image_size,
+                        loaded: image.loaded,
                         reactors: Vec::new(),
                     });
                     definitions.insert(original, self.image_defs.len() - 1);
@@ -1472,6 +1475,13 @@ impl<'a> Writer<'a> {
     /// 画像の辞書（ACAD_IMAGE_DICT）と、画像の定義（IMAGEDEF）・リアクタ（IMAGEDEF_REACTOR）。辞書の項目の名前は
     /// 編集と同じく、ファイルの名前から拡張子を除いたもの
     fn image_objects(&mut self, dictionary: u64, root: u64) {
+        if self.doc.image_frame == Some(0.0) {
+            self.notices.add(
+                NoticeLevel::Info,
+                "image-frame",
+                "画像の外形を表示しない設定（IMAGEFRAME）は書かず、外形を表示する図面にしました",
+            );
+        }
         let definitions = std::mem::take(&mut self.image_defs);
         let mut names: Vec<String> = Vec::new();
         for definition in &definitions {
@@ -1499,7 +1509,7 @@ impl<'a> Writer<'a> {
             out.str(1, &definition.path);
             out.point2(10, &definition.size);
             out.point2(11, &[1.0, 1.0]);
-            out.tag(280, 1);
+            out.tag(280, i32::from(definition.loaded));
             out.tag(281, 0);
             for (reactor, image) in &definition.reactors {
                 out.tag(0, "IMAGEDEF_REACTOR");
@@ -1845,6 +1855,13 @@ impl<'a> Writer<'a> {
             .image_links
             .get(&(std::ptr::from_ref(base) as usize))
             .map_or((0, 0), |(number, reactor)| (self.image_defs[*number].handle, *reactor));
+        if image.clip_inverted && self.version < DxfVersion::R2010 {
+            self.notices.add(
+                NoticeLevel::Info,
+                "version-image-clip",
+                "画像の境界の内側を消す切り抜きは、AutoCAD 2010 より前の版にないため、内側を描く切り抜きにしました",
+            );
+        }
         self.common("IMAGE", base, owner, paper);
         let out = &mut self.out;
         out.tag(100, "AcDbRasterImage");
@@ -1856,9 +1873,9 @@ impl<'a> Writer<'a> {
         out.handle(340, definition);
         out.int(70, image.flags);
         out.tag(280, i32::from(image.clipping));
-        out.tag(281, 50);
-        out.tag(282, 50);
-        out.tag(283, 0);
+        out.int(281, image.brightness);
+        out.int(282, image.contrast);
+        out.int(283, image.fade);
         out.handle(360, reactor);
         // 境界がなければ画像の全体の矩形（画素の座標）
         let whole = [[-0.5, -0.5], [image.image_size[0] - 0.5, image.image_size[1] - 0.5]];
@@ -1869,7 +1886,7 @@ impl<'a> Writer<'a> {
             out.point2(14, vertex);
         }
         if self.version >= DxfVersion::R2010 {
-            out.tag(290, 0);
+            out.tag(290, i32::from(image.clip_inverted));
         }
     }
 

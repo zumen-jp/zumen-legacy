@@ -115,6 +115,8 @@ class Parser {
   private readonly layoutRecords: { handle: string; block_record_handle: string; layout: DxfLayout }[] = [];
   private readonly sortTables: { owner: string; handles: Record<string, string> }[] = [];
   private hasPaperEntities = false;
+  /** IMAGEDEF のハンドル → 画像のファイルの名前と、読み込んだ状態 */
+  private readonly imageDefs = new Map<string, { path: string; loaded: boolean }>();
   /** タグごとの、そこまでのレコード（グループコード 0）の数。ハンドルのない図形があるときに作る */
   private records: Uint32Array | null = null;
 
@@ -1886,7 +1888,7 @@ class Parser {
       else if (this.code(k) === 24 && boundary.length > 0) (boundary[boundary.length - 1] as Vec2)[1] = this.num(k);
     }
     const size = this.point(body, 13);
-    return {
+    const image: DxfImage = {
       ...this.base(type, body, owner),
       insert: this.point(body, 10),
       u_pixel: this.point(body, 11),
@@ -1895,7 +1897,15 @@ class Parser {
       boundary,
       flags: this.number(body, 70, 0),
       clipping: this.number(body, 280, 0) !== 0,
+      clip_inverted: this.number(body, 290, 0) !== 0,
+      brightness: this.number(body, 281, 50),
+      contrast: this.number(body, 282, 50),
+      fade: this.number(body, 283, 0),
+      loaded: true,
     };
+    const definition = this.handleOf(body, 340);
+    if (definition && definition !== "0") image.definition_handle = definition;
+    return image;
   }
 
   // --- OBJECTS --------------------------------------------------------------
@@ -1913,6 +1923,17 @@ class Parser {
       if (type === "LAYOUT") this.layout(body);
       else if (type === "SORTENTSTABLE") this.sortTable(body);
       else if (type === "MLINESTYLE") this.mlineStyle(body);
+      else if (type === "IMAGEDEF") {
+        // DXF Reference「IMAGEDEF」: 1 画像のファイルの名前、280 読み込んだ状態（0 読み込みを外した）
+        const own = this.subclassBody(body, "AcDbRasterImageDef");
+        this.imageDefs.set(this.handleOf(body), {
+          path: this.text(own, 1),
+          loaded: this.number(own, 280, 1) !== 0,
+        });
+      } else if (type === "RASTERVARIABLES") {
+        // DXF Reference「RASTERVARIABLES」: 70 画像の外形の表示（IMAGEFRAME）
+        this.doc.image_frame = this.number(this.subclassBody(body, "AcDbRasterVariables"), 70, 1);
+      }
       this.i = end;
     }
     this.i++;
@@ -2016,6 +2037,16 @@ class Parser {
 
   private finish(): void {
     const doc = this.doc;
+    // 画像の定義は OBJECTS にあり、図形の後で読む
+    if (this.imageDefs.size > 0) {
+      for (const entity of doc.entities) {
+        if (entity.type !== "IMAGE" || !entity.definition_handle) continue;
+        const definition = this.imageDefs.get(entity.definition_handle);
+        if (!definition) continue;
+        entity.path = definition.path;
+        entity.loaded = definition.loaded;
+      }
+    }
     for (const { block_record_handle, layout } of this.layoutRecords) {
       const name = this.blockRecords.get(block_record_handle) ?? "";
       layout.block = name;

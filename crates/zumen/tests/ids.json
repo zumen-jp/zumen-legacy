@@ -262,6 +262,26 @@
       ]
     }
   },
+  "dxf/images.dxf": {
+    "bytes": "878ce1a94ebff665",
+    "views": {
+      "Layout1": [
+        "131:FF",
+        "131:100",
+        "131:101",
+        "131"
+      ],
+      "Model": [
+        "FF",
+        "100",
+        "101",
+        "102",
+        "103",
+        "104",
+        "105>110"
+      ]
+    }
+  },
   "dxf/layout.dxf": {
     "bytes": "33f8258d03374aad",
     "views": {
@@ -428,6 +448,15 @@
     "views": {
       "Model": [
         "#2"
+      ]
+    }
+  },
+  "dxf/xrefs.dxf": {
+    "bytes": "9ba61ffe93a1e20e",
+    "views": {
+      "Model": [
+        "20",
+        "24>B1"
       ]
     }
   },

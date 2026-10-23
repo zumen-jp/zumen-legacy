@@ -90,6 +90,7 @@ pub(crate) fn prepare(doc: &DxfDocument) -> Prepared {
             layouts,
             entities,
             sort_handles: doc.sort_handles.clone(),
+            image_frame: doc.image_frame,
             skipped: doc.skipped.clone(),
             notices: doc.notices.clone(),
         },
