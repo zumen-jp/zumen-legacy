@@ -16,14 +16,15 @@ format, version, authoring software, and the notices the viewer shows.
 - wasm-bindgen-cli of the version of `wasm-bindgen` in `Cargo.lock`, which builds the WebAssembly reader of
   `@zumenjs/reader` (`node scripts/install-wasm-bindgen.mjs` installs the locked version; `node scripts/wasm.mjs`
   prints the command for the current version when it differs).
-- Chromium for the tests of the engine and the React hooks, which run in a browser (`*.browser.test.*`):
-  `pnpm exec playwright install --only-shell chromium` installs the headless shell of the Playwright version in
-  `package.json`.
+- Chromium, Firefox and WebKit for the tests of the engine, the React hooks and the reader's worker, which run in a
+  browser (`*.browser.test.*`): `pnpm exec playwright install --only-shell chromium firefox webkit` installs the
+  browsers of the Playwright version in `package.json` (the headless shell for Chromium). `ZUMEN_BROWSERS` runs them
+  in fewer browsers, for example `ZUMEN_BROWSERS=chromium pnpm test`.
 - Install and run every check:
 
   ```bash
   pnpm install --frozen-lockfile
-  pnpm exec playwright install --only-shell chromium
+  pnpm exec playwright install --only-shell chromium firefox webkit
   pnpm run check
   ```
 
@@ -41,11 +42,13 @@ Use native PowerShell 7 and the MSVC Rust toolchain, with the C++ build tools an
 Run the checks in Developer PowerShell so native dependencies can find MSVC. Keep Node, Rust and Python on the
 Windows side. The Node and Python versions are pinned in `.node-version` and `bindings/python/.python-version`.
 If Python is already managed locally, set `$env:UV_PYTHON_DOWNLOADS = "never"` to use that installation.
+As in CI, the browser tests run in Chromium only on Windows (`ZUMEN_BROWSERS`).
 
 ```powershell
 pnpm install --frozen-lockfile
 node scripts/install-wasm-bindgen.mjs
 pnpm exec playwright install --only-shell chromium
+$env:ZUMEN_BROWSERS = "chromium"
 pnpm run check
 $env:ZUMEN_SAMPLES = "D:\zumen-samples"
 pnpm dev
@@ -90,9 +93,9 @@ people: the interface is the application's, and the playground has a sample.
 Keep tests few and meaningful. Add a test when a mistake would go unnoticed and produce wrong output:
 encodings, coordinate systems, scales, nesting, and regressions of serious bugs. Do not add tests that restate the
 implementation or check UI text. Build test drawings inside the test (see `packages/jww/tests`).
-Tests named `*.browser.test.ts` or `*.browser.test.tsx` run in Chromium (the `browser` project of `vitest.config.ts`):
-the engine and the React hooks are tested there with synthetic pointer, wheel and key events and the pixels of the
-canvas.
+Tests named `*.browser.test.ts` or `*.browser.test.tsx` run in Chromium, Firefox and WebKit (the `browser` project of
+`vitest.config.ts`; CI runs Firefox and WebKit on Ubuntu only): the engine and the React hooks are tested there with
+synthetic pointer, wheel and key events and the pixels of the canvas, and the reader in its Web Worker.
 
 The Rust readers must return the same scenes as the TypeScript readers. The synthetic drawings that the TypeScript
 tests build are also written to `tests/fixtures` with the scenes they produce; after changing a TypeScript reader, run

@@ -3,7 +3,8 @@
 - The entry point for verification is `pnpm run check` (Biome, the WebAssembly reader (`pnpm run wasm`, which needs
   wasm-bindgen-cli of the `Cargo.lock` version), the type checker, unit tests, `pnpm audit`,
   the builds of every package and the playground, then `check:rust` and `check:python`). Check visible changes in the `pnpm dev` playground
-  with real drawings. Tests named `*.browser.test.*` run in Chromium (`pnpm exec playwright install --only-shell chromium`).
+  with real drawings. Tests named `*.browser.test.*` run in Chromium, Firefox and WebKit
+  (`pnpm exec playwright install --only-shell chromium firefox webkit`; `ZUMEN_BROWSERS=chromium` runs one).
 - Follow the public specification of each format and cite the section in a comment.
   Write down inferred behavior in `docs/formats/`.
 - Report anything not drawn, or drawn differently, through `notices` with its kind and count. Never drop it silently.

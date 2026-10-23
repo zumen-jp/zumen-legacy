@@ -317,9 +317,9 @@ only. Measurements are from [Verification records](verification.md#the-readers-i
   Binaryen. `wasm-bindgen-cli` must be the version of the `wasm-bindgen` crate in `Cargo.lock`; the script checks it
   and prints the command that installs it.
 - **Tests.** `packages/reader/tests` reads every fixture through WebAssembly and compares the scene with the golden
-  file the TypeScript reader wrote, and `worker.browser.test.ts` runs `ReaderWorker` in Chromium (time limits, abort,
-  a module that fails to load). The DWG drawings in `tests/fixtures/dwg` are written by the Rust tests
-  (`crates/zumen-dwg/tests`, with `UPDATE_GOLDEN=1`), their scenes by `@zumenjs/reader` through WebAssembly
+  file the TypeScript reader wrote, and `worker.browser.test.ts` runs `ReaderWorker` in Chromium, Firefox and WebKit
+  (time limits, abort, a module that fails to load). The DWG drawings in `tests/fixtures/dwg` are written by the Rust
+  tests (`crates/zumen-dwg/tests`, with `UPDATE_GOLDEN=1`), their scenes by `@zumenjs/reader` through WebAssembly
   (`pnpm run golden`), and `crates/zumen/tests/golden.rs` checks that the native reader returns the same scenes.
   `pnpm run check` builds the module and compares it with every fixture (`pnpm run wasm`).
 
@@ -558,10 +558,12 @@ Cargo.lock.
   its output. When the Rust code has not changed, it takes well under a second.
 - `pnpm run build` compiles the packages in dependency order (core, then viewer, sxf, jww, dxf and reader, then react)
   into each `dist`.
-- `pnpm test` runs two Vitest projects: the unit tests in Node.js, and the tests of the engine and the hooks
-  (`*.browser.test.*`) in Chromium through Playwright, with synthetic pointer, wheel and key events and the pixels of
-  the canvas. The Chromium headless shell of the Playwright version in `package.json` is installed with
-  `pnpm exec playwright install --only-shell chromium`.
+- `pnpm test` runs two Vitest projects: the unit tests in Node.js, and the tests of the engine, the hooks and the
+  reader's worker (`*.browser.test.*`) in Chromium, Firefox and WebKit through Playwright, with synthetic pointer,
+  wheel and key events and the pixels of the canvas. The browsers of the Playwright version in `package.json` (the
+  headless shell for Chromium) are installed with `pnpm exec playwright install --only-shell chromium firefox webkit`,
+  and `ZUMEN_BROWSERS` (for example `chromium` or `firefox,webkit`) selects fewer of them. CI runs all three on Ubuntu
+  and Chromium only on Windows, whose job is the longer one.
 - `pnpm run check` runs Biome, builds the WebAssembly reader and compares it with the fixtures (`pnpm run wasm`), then
   runs the type checker, the unit tests, `pnpm audit` and all builds, then the Rust checks (`check:rust`: rustfmt,
   Clippy, tests and the wasm32 build) and the Python checks (`check:python`: Ruff, maturin, pytest).

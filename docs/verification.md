@@ -110,7 +110,8 @@ Checked on 2026-10-18 on macOS (Apple M2 Pro), Node.js 24.21.0 and Chromium, aga
 - The SXF and JWW unit tests still pass after the changes to `@zumenjs/core` (views, colors with alpha, near-black inversion) and
   `@zumenjs/react` (view selection, grid columns).
 - Not checked: client drawings, DXF files over 10 MB, external references, dynamic blocks, AutoCAD's own rendering of text widths and
-  ACI colors, Firefox and Safari. For MULTILEADER and MLINE: AutoCAD's own rendering of spline leaders, block content and the arrow
+  ACI colors, Firefox and Safari (Playwright's Firefox and WebKit since, see [Firefox and WebKit](#firefox-and-webkit)).
+  For MULTILEADER and MLINE: AutoCAD's own rendering of spline leaders, block content and the arrow
   blocks (the ACadSharp samples only have straight leaders with closed filled arrows and text), tolerance content, text columns,
   non-rectangular text frames, dimension breaks, MLINE fill breaks, and MLEDIT cuts in elements that start after the miter point.
 
@@ -366,8 +367,8 @@ Chromium 152. Times are medians of seven runs after a warm-up.
   loads the module in the development server (from `node_modules`, after dependency pre-bundling) and in a build
   (`assets/zumen_wasm_bg-[hash].wasm`, 5.97 kB of JavaScript), and the same installed package reads the R2018 fixture
   in Node.js.
-- Not checked: Firefox and Safari, webpack and other bundlers, Web Workers, slow networks and devices, and pages with a
-  Content Security Policy.
+- Not checked: Firefox and Safari (Playwright's Firefox and WebKit since, see [Firefox and WebKit](#firefox-and-webkit)),
+  webpack and other bundlers, Web Workers, slow networks and devices, and pages with a Content Security Policy.
 
 ## The readers in the browser
 
@@ -407,8 +408,8 @@ TypeScript DXF reader keeps the parsed document of a byte array it has seen).
   worker.
 - Size: the module is 1,607,157 bytes (gzip −9: 655,787, brotli −11: 507,428).
 - The playground (`pnpm dev`) opened SFC, JWW and DWG samples through `@zumenjs/reader` with no console errors.
-- Not checked: Firefox and Safari, webpack and Turbopack builds of the worker, and reading drawings larger than
-  `farmhouse.dwg` in a worker.
+- Not checked: Firefox and Safari (Playwright's Firefox and WebKit since, see [Firefox and WebKit](#firefox-and-webkit)),
+  webpack and Turbopack builds of the worker, and reading drawings larger than `farmhouse.dwg` in a worker.
 
 ## The 2D engine to embed
 
@@ -441,8 +442,55 @@ the first step of [decision 0005](decisions/0005-browser-packages-for-embedding.
   measuring inside its viewport gives 57.9 mm on paper and 83.1 mm real, as before; Shift adds a second wall of the
   Jw_cad sample to the selection and both are highlighted; the layer groups, the properties and the notices show as
   before; at 375 px the panels start closed and the page does not scroll sideways; ST-Bridge models still open in 3D.
-- Not checked: Firefox and Safari, real touch devices (pinching only with synthetic touch pointers), screen readers,
-  and the 3D view, which keeps its current interface until the next step.
+- Not checked: Firefox and Safari (Playwright's Firefox and WebKit since, see [Firefox and WebKit](#firefox-and-webkit)),
+  real touch devices (pinching only with synthetic touch pointers), screen readers, and the 3D view, which keeps its
+  current interface until the next step.
+
+## Firefox and WebKit
+
+Checked on 2026-10-23 on macOS 27.0.1 (Apple M2 Pro), Node.js 24.21.0, Vite 8.3.4 and Playwright 1.64.0 with its
+Chromium 156 (headless shell), Firefox 157.0 and WebKit 27.2, all headless. Playwright's WebKit is built from the
+WebKit sources with Playwright's patches; it is not Safari, and nothing here was checked in Safari.
+
+- The 29 browser tests (`packages/viewer/tests`, `packages/react/tests`, `packages/reader/tests/worker.browser.test.ts`)
+  pass in all three browsers, three times in a row (87 runs each time, about 12 s in all). CI runs them in all three
+  on Ubuntu and in Chromium only on Windows (`ZUMEN_BROWSERS` in `vitest.config.ts`), whose job already takes twice as
+  long; installing the Chromium headless shell alone takes about three minutes there.
+- In the playground (`pnpm dev`, a 1280 × 860 window, device pixel ratio 1), the same steps in each browser on ten
+  drawings: `D0LS004Z.SFC` and `.P21`, the Jw_cad samples `Ａマンション平面例.jww` and `サンプル.jww`, the Yokosuka
+  survey plan as DXF and as DWG (9,260 entities), the Imizu seating section (R12 DXF in Shift_JIS), the MULTILEADER
+  drawing generated with ezdxf, `sample_AC1032.dwg` in `Layout1` and `farmhouse.dwg` (25,873 entities). The steps:
+  fit, moving the pointer, wheel zoom with and without Ctrl, a drag, a double click, `+`, an arrow key and `0`, five
+  clicks to select, a Shift click, Escape, two measurement clicks, the selection tool, six wheel steps into the middle
+  and the light background. After every step the status bar (zoom, the paper point under the pointer, the selection
+  and the measured distance) was the same in the three browsers, and so were the element counts and the notices.
+  Clicking the canvas focuses it for the keys in all three.
+- The same steps at device pixel ratio 2 on the JWW apartment plan and the Yokosuka DWG gave the same status bars once
+  the wheel deltas were made equal: Playwright's Chromium divides the delta of `mouse.wheel` by the device pixel ratio
+  (−150 for −300), while Firefox and WebKit pass it as given. In each browser the zoom follows the `deltaY` it
+  receives, so this is a difference of the synthetic input, not of the viewer.
+- Text on the canvas: screenshots of the drawing, compared with Chromium's pixel by pixel (ImageMagick, 10% fuzz),
+  differ in at most 0.13% of the pixels in Firefox and 1.8% in WebKit (the Yokosuka plan zoomed in, whose coordinate
+  tables are text). Side by side, the glyphs are at the same places and sizes in all three: horizontal and vertical
+  Japanese text, half-width katakana and dimension values turned by 90°. WebKit draws them slightly heavier. All three
+  draw with Hiragino Kaku Gothic ProN and Hiragino Mincho ProN, the first installed families of the font lists (MS
+  Gothic and MS Mincho are not installed on this Mac), and `textBaseline = "middle"` puts 「図」 within 0.25 px of the
+  same place at 64 px. WebKit does not use Noto Sans CJK JP from `~/Library/Fonts`, which Chromium and Firefox use, so
+  fonts that a user installed may not reach it; the system fonts of the lists still do.
+- WebAssembly: the development server and the production build (`vite preview`) serve the module as
+  `application/wasm`. In the build, each browser compiles it once with `WebAssembly.instantiateStreaming` and logs
+  nothing; the JWW plan, the Yokosuka DWG and the SFC, chosen in the file input, appear in 51–215 ms. In the
+  development server, Firefox logs two deprecation warnings from the development build of React DOM
+  (`Window.fullScreen`, `InstallTrigger`), not from zumen.
+- The worker: on a page of the development server, `ReaderWorker` with the module of `@zumenjs/reader/worker` reads the
+  ten drawings into the same scenes as `readScene` on the page (equal `sceneToJson`), with `Float64Array` point lists,
+  in each browser. `farmhouse.dwg` with `limits.timeout` of 50 ms is rejected with a `LimitError` (`time`), and the
+  next read runs in a new worker. `farmhouse.dwg` takes 492, 761 and 439 ms in the worker and 427, 916 and 381 ms on
+  the page in Chromium, Firefox and WebKit.
+- Not checked: Safari itself and Safari on iOS, Firefox and WebKit on Windows, Firefox and Chrome on Android, real
+  mice, trackpads and touch screens (Playwright synthesizes every input, and pinching is tested only with synthetic
+  touch pointers), trackpad pinching in Safari, wheel deltas in lines or pages (`deltaMode` 1 and 2), the speed of a
+  real wheel in each browser, and fonts installed by the user in Safari.
 
 ## DXF writing
 

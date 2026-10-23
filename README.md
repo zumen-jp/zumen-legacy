@@ -313,8 +313,11 @@ sending them anywhere.
 
 ## Supported environments
 
-- Browsers with Canvas 2D and WebAssembly. Verified in Chromium; Firefox and Safari are expected to work but
-  are not tested yet.
+- Browsers with Canvas 2D and WebAssembly. The browser tests run in Playwright's Chromium, Firefox and WebKit, and
+  the playground was checked in all three on macOS with real drawings: text on the canvas, loading the WebAssembly
+  module, reading in a Web Worker, and pointer, wheel and key input ([records](docs/verification.md#firefox-and-webkit)).
+  Playwright's WebKit is not Safari: Safari itself, iOS and Android browsers, and real input devices (touch screens,
+  trackpads and mouse wheels) are not tested yet.
 - React 19.3 for the hooks of `@zumenjs/react`.
 - Node.js 24 for parsing and for development.
 
