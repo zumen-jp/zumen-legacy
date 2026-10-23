@@ -20,7 +20,8 @@ function toError(error: unknown): Error {
 
 /**
  * File・Blob を、渡した形式の読み取り（@zumenjs/reader の reader など）で読み、表示用の図面にする。
- * 中身を認めた読み取りに load があれば（@zumenjs/reader の WebAssembly など）、それを待ってから読む。ほかの読み取りの load は呼ばない。
+ * 中身を認めた読み取りに load があれば（@zumenjs/reader の WebAssembly など）、認めた形式を渡して待ってから読む。ほかの読み取りの
+ * load は呼ばない（@zumenjs/reader は PDF のときだけ PDF のモジュールを読み込む）。
  * 読み込み中に別のファイルへ変えたら、前の結果は捨てる。readers は読み始めたときの値を使う。
  * options.view を変えると、ファイルを読み直さずに、その表示の図面にする
  */
@@ -79,7 +80,7 @@ export function useDrawing(
     };
     if (!reader?.load) read();
     else {
-      reader.load().then(read, (error: unknown) => {
+      reader.load(format ?? undefined).then(read, (error: unknown) => {
         if (!cancelled) setState({ scene: null, error: toError(error), loading: false });
       });
     }
