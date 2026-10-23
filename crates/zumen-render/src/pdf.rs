@@ -3,14 +3,15 @@
 //! 使った字形だけを埋め込み（CID フォント、Identity-H）、ToUnicode を付けて検索・コピーできるようにする。
 //! 字形の置き方は PNG と同じ（字送りの中央と em の中央をセルの中心に置く）。
 
-use crate::vector::{DOT_MM, Page, dash_lengths};
-use crate::{BUNDLED_FONT, RenderError, RenderOptions, RenderReport, background_rgb, resolve_color, underlay_notices};
+use crate::underlay::Underlays;
+use crate::vector::{DOT_MM, Page, PageImage, dash_lengths, page_image};
+use crate::{BUNDLED_FONT, RenderError, RenderOptions, RenderReport, background_rgb, resolve_color, visible_underlays};
 use pdf_writer::types::{CidFontType, FontFlags, LineCapStyle, LineJoinStyle, SystemInfo, UnicodeCmap};
 use pdf_writer::{Content, Filter, Finish, Name, Pdf, Rect, Ref, Str};
 use std::collections::BTreeMap;
 use subsetter::GlyphRemapper;
 use ttf_parser::{Face, GlyphId};
-use zumen_core::{BBox, Background, Primitive, Scene, StrokePrimitive, TextPrimitive};
+use zumen_core::{BBox, Background, Primitive, Scene, StrokePrimitive, TextPrimitive, Underlay};
 
 /// 1 mm が何 pt か
 const PT_PER_MM: f64 = 72.0 / 25.4;
@@ -33,8 +34,9 @@ pub fn render_pdf(
         glyphs: GlyphRemapper::new(),
         used: BTreeMap::new(),
         alphas: BTreeMap::new(),
-        report: RenderReport { notices: underlay_notices(scene, page.region, options), ..RenderReport::default() },
+        report: RenderReport::default(),
         batch: None,
+        images: Vec::new(),
     };
     let k = PT_PER_MM as f32;
     painter.content.transform([k, 0.0, 0.0, k, 0.0, 0.0]);
@@ -44,6 +46,14 @@ pub fn render_pdf(
         painter.content.rect(0.0, 0.0, page.width() as f32, page.height() as f32).fill_nonzero();
     }
     painter.content.set_line_cap(LineCapStyle::RoundCap).set_line_join(LineJoinStyle::RoundJoin);
+    // 背景の上、用紙の枠と図形の下に underlay の画像
+    let mut underlays = Underlays::new(&options.underlays);
+    for underlay in visible_underlays(scene, page.region, options) {
+        if let Some(placed) = page_image(underlay, &page, options.underlay_dpi, &mut underlays) {
+            painter.image(underlay, placed);
+        }
+    }
+    painter.report.notices = underlays.notices();
     if page.frame
         && let Some(corners) = page.sheet_corners(scene)
     {
@@ -93,6 +103,30 @@ struct Painter<'a> {
     alphas: BTreeMap<u8, ()>,
     report: RenderReport,
     batch: Option<Batch>,
+    /// 埋め込む underlay の画像（Im0、Im1 …）
+    images: Vec<Image>,
+}
+
+/// 埋め込む画像。RGB と、不透明でない画素があればその不透明度（SMask）
+struct Image {
+    width: u32,
+    height: u32,
+    rgb: Vec<u8>,
+    alpha: Option<Vec<u8>>,
+}
+
+impl Image {
+    fn of(pixmap: &tiny_skia::Pixmap) -> Self {
+        let mut rgb = Vec::with_capacity(pixmap.pixels().len() * 3);
+        let mut alpha = Vec::with_capacity(pixmap.pixels().len());
+        for pixel in pixmap.pixels() {
+            let color = pixel.demultiply();
+            rgb.extend([color.red(), color.green(), color.blue()]);
+            alpha.push(color.alpha());
+        }
+        let opaque = alpha.iter().all(|value| *value == 255);
+        Self { width: pixmap.width(), height: pixmap.height(), rgb, alpha: (!opaque).then_some(alpha) }
+    }
 }
 
 fn unit(value: u8) -> f32 {
@@ -175,6 +209,29 @@ impl Painter<'_> {
         if stroke.closed {
             self.content.close_path();
         }
+    }
+
+    /// underlay の画像を、ページの mm の rect に置く。clip で切り取り、opacity で重ねる
+    fn image(&mut self, underlay: &Underlay, placed: PageImage) {
+        self.content.save_state();
+        if let Some(rings) = &underlay.clip {
+            // An explicit empty clipping region hides the page, as in PNG, SVG and Canvas.
+            if !self.rings(rings) {
+                self.content.restore_state();
+                return;
+            }
+            self.content.clip_even_odd().end_path();
+        }
+        let name = format!("Im{}", self.images.len());
+        self.images.push(Image::of(&placed.image));
+        let alpha = (underlay.opacity.unwrap_or(1.0).clamp(0.0, 1.0) * 255.0).round() as u8;
+        self.begin_alpha(alpha);
+        let rect = placed.rect;
+        let (w, h) = ((rect.max_x - rect.min_x) as f32, (rect.max_y - rect.min_y) as f32);
+        self.content.transform([w, 0.0, 0.0, h, rect.min_x as f32, rect.min_y as f32]);
+        self.content.x_object(Name(name.as_bytes()));
+        self.end_alpha(alpha);
+        self.content.restore_state();
     }
 
     /// 外形と中抜きの path を作る。描く点がなければ false
@@ -300,6 +357,8 @@ impl Painter<'_> {
         let (catalog, pages, page_id, content_id, info) = (new_ref(), new_ref(), new_ref(), new_ref(), new_ref());
         let font = (!self.used.is_empty()).then(|| (new_ref(), new_ref(), new_ref(), new_ref(), new_ref()));
         let alpha_refs: Vec<(u8, Ref)> = self.alphas.keys().map(|&alpha| (alpha, new_ref())).collect();
+        let image_refs: Vec<(Ref, Option<Ref>)> =
+            self.images.iter().map(|image| (new_ref(), image.alpha.as_ref().map(|_| new_ref()))).collect();
 
         pdf.catalog(catalog).pages(pages);
         pdf.pages(pages).kids([page_id]).count(1);
@@ -316,8 +375,36 @@ impl Painter<'_> {
                 states.pair(Name(alpha_name(*alpha).as_bytes()), *id);
             }
         }
+        if !image_refs.is_empty() {
+            let mut objects = resources.x_objects();
+            for (index, (id, _)) in image_refs.iter().enumerate() {
+                objects.pair(Name(format!("Im{index}").as_bytes()), *id);
+            }
+        }
         resources.finish();
         page.finish();
+
+        for (image, (id, mask)) in self.images.iter().zip(&image_refs) {
+            let compressed = miniz_oxide::deflate::compress_to_vec_zlib(&image.rgb, 6);
+            let mut xobject = pdf.image_xobject(*id, &compressed);
+            xobject.width(image.width as i32).height(image.height as i32).interpolate(true);
+            xobject.filter(Filter::FlateDecode);
+            xobject.color_space().device_rgb();
+            xobject.bits_per_component(8);
+            if let Some(mask) = mask {
+                xobject.s_mask(*mask);
+            }
+            xobject.finish();
+            if let (Some(alpha), Some(mask)) = (&image.alpha, mask) {
+                let compressed = miniz_oxide::deflate::compress_to_vec_zlib(alpha, 6);
+                let mut xobject = pdf.image_xobject(*mask, &compressed);
+                xobject.width(image.width as i32).height(image.height as i32);
+                xobject.filter(Filter::FlateDecode);
+                xobject.color_space().device_gray();
+                xobject.bits_per_component(8);
+                xobject.finish();
+            }
+        }
 
         let content = self.content.finish();
         let compressed = miniz_oxide::deflate::compress_to_vec_zlib(&content, 6);

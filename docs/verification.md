@@ -782,3 +782,24 @@ the reader is checked with PDFs whose answer is known.
   pdf.js (its `getViewport` multiplies the scale by it, as the underlay's size assumes, read in the source of 6.4.299);
   and PDFs larger than 3 MB.
 
+## PDF pages on servers
+
+Checked on 2026-10-24 on macOS 27 (Apple M2 Pro) with Rust 1.99.0 and hayro 0.8.0
+([issue #91](https://github.com/zumenjs/zumen/issues/91)).
+
+- `crates/zumen-render/tests/underlay.rs` draws the first page of `tests/fixtures/pdf/drawing.pdf` at 72 dpi: the red
+  and blue halves of its image land on the pixels the page puts them on, the page is white on a dark background, a
+  hidden page layer draws nothing and reports nothing, `clip` and `opacity` cut and fade the page, SVG embeds the page as
+  a PNG between the background and the sheet frame, PDF output embeds it as one image (596 × 421 px at 36 dpi, read back
+  by `zumen-pdf`), and images, other PDF files and a PDF that does not open are reported as `underlay-not-drawn`.
+- By eye: the PDF that `zumen render` wrote from `サンプル.jww`, read and rendered again (PNG at 80 dpi), looks like the
+  JWW rendered directly, and its SVG and PDF output (100 dpi) show the page upright.
+- Time with `zumen render` (release build, including reading): 0.47 s for the PNG of `サンプル` at 150 dpi, 0.45 s for
+  the PDF output of the Yokosuka survey plan (0.4 MB, 9,115 entities) at 150 dpi, and 35 to 40 s for `farmhouse`
+  (2.9 MB, 54,070 entities on a page of 518 × 594 m, most of it hayro interpreting the page once). Images embedded in
+  SVG and PDF are kept to 25 million pixels, so large sheets get a lower resolution; hayro renders a PNG in one pass up
+  to 16,384 px a side.
+- Not checked: scanned PDFs and PDFs written by CAD software (none are in `ZUMEN_SAMPLES`), Windows and Linux (CI only),
+  and whether the pages look the same as pdf.js draws them in `@zumenjs/pdf` (both draw white pages with annotation
+  appearances).
+
