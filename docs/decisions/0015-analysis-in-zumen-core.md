@@ -68,9 +68,9 @@ Each analysis has the same surfaces as the existing ones:
 
 | Surface | Regions (this decision) | Tables (next) | Checks (after) |
 | --- | --- | --- | --- |
-| Rust | `zumen_core::regions::closed_regions` | `zumen_core::tables` | `zumen_core::checks` |
-| Python | `Scene.regions` (all values), `zumen.tools.find_regions` (bounded JSON, `RegionPage`) | `Scene.tables`, `tools.find_tables` | `tools.check_drawing` |
-| Command line | `zumen regions` (JSON lines) | `zumen tables` (JSON, CSV) | `zumen check` |
+| Rust | `zumen_core::regions::closed_regions` | `zumen_core::tables::ruled_tables` | `zumen_core::checks` |
+| Python | `Scene.regions` (all values), `zumen.tools.find_regions` (bounded JSON, `RegionPage`) | `Scene.tables`, `tools.find_tables` (`TablePage`) | `tools.check_drawing` |
+| Command line | `zumen regions` (JSON lines) | `zumen tables` (JSON lines, CSV with `--csv`) | `zumen check` |
 | MCP | `find_regions` | `find_tables` | `check_drawing` |
 
 The browser gets them through `bindings/wasm` when an application needs them; there is no TypeScript port.
@@ -95,6 +95,25 @@ The browser gets them through `bindings/wasm` when an application needs them; th
   only the lines on layers that match `layer`, the regions with a text (`named`) or of a smallest real-world area
   (`min_area_m2`), and bounds the points of outlines with `max_points` as the other tools do.
 
+**Ruled tables**, the second piece:
+
+- The rules are the horizontal and vertical segments (within the tolerance) of the same boundary kinds and layers as
+  regions; other segments are dropped before the faces are found, so a slash across an empty cell, a circle or a
+  symbol does not split a cell. Tables turned against the sheet are not found.
+- Every face whose area equals that of its box is a cell (it may have holes, such as a boxed mark). Cells of one
+  placement that share an edge longer than the tolerance are joined, and a group that fills its box without gaps is a
+  table. Before that check, a cell that covers more than half of the group and is at least ten times the next largest
+  is left out and the rest is joined again: the drawing area inside a frame and the title block strip beside it share
+  edges, and only the strip is a table.
+- Column and row rules are the cell edges merged within twice the tolerance (x left to right, y top to bottom). A cell
+  has its row, column, the rows and columns it spans, its box, and the texts of the same placement whose box center
+  lies in it (the smallest cell when cells of different tables overlap), joined from the top line down: texts whose
+  centers are within half a text height are one line, joined left to right with a space, and lines with a line break.
+- Tables come in reading order for each placement. By default a table has at least two cells and one text
+  (`min_cells`, `empty`). `RuledTable::grid` gives the text by row and column with a merged cell's text in its top
+  left place, which `zumen tables --csv` writes and `tools.find_tables` returns, with the ids of the texts, the spans
+  and a page bound in cells (`max_cells`); `contains` keeps the tables with a cell whose text contains a word.
+
 **Order**: closed regions, then ruled tables built on the same faces, then checks. Regions answer the question asked
 most (areas) and stand alone; tables reuse their faces; checks need rule sets to be designed and written down from
 the standards, and can then also use regions and tables (the sheet frame, the title block, a drawing list).
@@ -111,6 +130,13 @@ the standards, and can then also use regions and tables (the sheet frame, the ti
 - The work grows with the number of segments: about 3 seconds in a release build for 5 million segments (a grid of
   22,500 rooms with a round column in each), most of it for the circles. Clients should pass a region for very large
   sheets.
+- Rooms drawn with single lines that fill a rectangle are also a table (the rooms of `rooms.dxf` are a table of one
+  row). The client tells them apart, by layer, by placement (plans sit in a scaled placement, tables mostly on the
+  sheet) or by the texts.
+- A table whose cells do not fill a rectangle (an L-shaped schedule, a column that stops short) is not found, and a
+  table with a gap in a rule (a cell whose line was left out) has one merged cell there.
+- A title block drawn as one column with a label and a value in each cell is a table of one column, with the label and
+  the value as two lines of one cell; `zumen_core::title` still reads its fields.
 - Decision 0009 still holds: shapes stay available as they were drawn, and regions add a computed fact with the
   entities it comes from, not an interpretation.
 
@@ -119,3 +145,5 @@ the standards, and can then also use regions and tables (the sheet frame, the ti
 - [Texts, entities and images for servers](../architecture.md#texts-entities-and-images-for-servers)
 - [Decision 0009](0009-geometry-for-ai-clients.md), [decision 0011](0011-tool-functions-for-agents.md)
 - [`tests/fixtures/dxf/rooms.dxf`](../../tests/fixtures/dxf/rooms.dxf), generated by `packages/dxf/tests/fixtures.ts`
+- The sample drawing spec of the drafting kit, [`crates/zumen-draft/examples/sheets.json`](../../crates/zumen-draft/examples/sheets.json),
+  whose tables and title blocks `crates/zumen/tests/tables.rs` reads back from DXF, DWG, JWW and SXF

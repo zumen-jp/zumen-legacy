@@ -167,6 +167,31 @@ class Region(RegionShape):
     boundary: list[str]
     texts: list[RegionText]
 
+class TableCell(TypedDict):
+    """A cell of a ruled table: its row and column from the top left, the rows and columns it spans, and its text
+    (type checking only)."""
+
+    row: int
+    column: int
+    row_span: int
+    column_span: int
+    bbox: Box
+    text: str
+    texts: list[RegionText]
+
+class Table(TypedDict):
+    """A table drawn with horizontal and vertical rules, in paper millimeters (type checking only)."""
+
+    bbox: Box
+    placement: Placement | None
+    row_count: int
+    column_count: int
+    columns: list[float]
+    rows: list[float]
+    cells: list[TableCell]
+    grid: list[list[str]]
+    boundary: list[str]
+
 class DrawnEntity(TypedDict):
     """An entity drawn in a ``Rendering``, with its box in pixels (type checking only)."""
 
@@ -284,6 +309,17 @@ class Scene:
         min_area: float = 0.0,
     ) -> list[Region]:
         """The regions that drawn lines close (rooms, when a text names them), in reading order by placement."""
+    def tables(
+        self,
+        *,
+        region: Box | None = None,
+        hidden_layers: list[int] | None = None,
+        layers: list[int] | None = None,
+        tolerance: float = 0.01,
+        min_cells: int = 2,
+        empty: bool = False,
+    ) -> list[Table]:
+        """The tables drawn with horizontal and vertical rules (schedules, title blocks), in reading order."""
     def to_arrow(self, *, region: Box | None = None, hidden_layers: list[int] | None = None) -> Any:
         """A ``pyarrow.Table`` of the entities (needs pyarrow)."""
 

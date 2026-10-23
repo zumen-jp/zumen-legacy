@@ -16,6 +16,7 @@ mod notices;
 mod read;
 pub mod regions;
 mod sort;
+pub mod tables;
 pub mod text;
 pub mod title;
 mod types;

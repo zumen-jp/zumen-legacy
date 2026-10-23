@@ -97,14 +97,55 @@ pub struct ClosedRegion {
 
 /// 線で閉じた領域を、配置ごとに、上から下・左から右の順に返す
 pub fn closed_regions(scene: &Scene, options: &RegionOptions) -> Vec<ClosedRegion> {
+    let selected = select_entities(scene, &options.filter);
+    let found = region_faces(&selected, options, |_| true);
+    let mut regions: Vec<ClosedRegion> = found.iter().map(|(_, region)| region.clone()).collect();
+
+    let texts: Vec<(&SceneEntity, EntityText)> = selected
+        .iter()
+        .filter(|entity| TEXT_KINDS.contains(&entity.kind))
+        .filter_map(|entity| Some((*entity, entity_text(entity)?)))
+        .collect();
+
+    // 文字は、同じ配置でその中心を含む領域に添える。異なる配置の面（用紙の枠と部分図など）は重なることがある
+    let grid = BoxGrid::new(regions.iter().enumerate().map(|(index, region)| (index, region.bbox)).collect());
+    for (entity, text) in &texts {
+        let x = (text.bbox.min_x + text.bbox.max_x) / 2.0;
+        let y = (text.bbox.min_y + text.bbox.max_y) / 2.0;
+        let found = grid.at(x, y).filter(|&index| {
+            let region = &regions[index];
+            same_placement(region.placement.as_deref(), entity.placement.as_deref())
+                && inside_rings(x, y, std::slice::from_ref(&region.paper.outline))
+                && !region.paper.holes.iter().any(|hole| inside_rings(x, y, std::slice::from_ref(hole)))
+        });
+        if let Some(index) = found.min() {
+            regions[index].texts.push(RegionText { entity: entity.id.clone(), text: text.text.clone(), x, y });
+        }
+    }
+
+    let mut order: Vec<usize> = (0..regions.len()).collect();
+    order.sort_by(|&a, &b| {
+        let (a_group, a) = (found[a].0, &regions[a]);
+        let (b_group, b) = (found[b].0, &regions[b]);
+        a_group.cmp(&b_group).then(b.bbox.max_y.total_cmp(&a.bbox.max_y)).then(a.bbox.min_x.total_cmp(&b.bbox.min_x))
+    });
+    let mut regions: Vec<Option<ClosedRegion>> = regions.into_iter().map(Some).collect();
+    order.into_iter().filter_map(|index| regions[index].take()).collect()
+}
+
+/// 選んだ図形の線のうち `keep` が残す線分で閉じた面を、配置の番号（最初に現れた順）とともに返す。文字は添えない
+pub(crate) fn region_faces(
+    selected: &[&SceneEntity],
+    options: &RegionOptions,
+    keep: impl Fn(&Segment) -> bool,
+) -> Vec<(usize, ClosedRegion)> {
     let tolerance = if options.tolerance.is_finite() && options.tolerance > 0.0 { options.tolerance } else { 0.01 };
     let kinds: &[EntityKind] = options.kinds.as_deref().unwrap_or(&BOUNDARY_KINDS);
-    let selected = select_entities(scene, &options.filter);
 
     // 配置ごとに線分を集める
     let mut groups: Vec<Group> = Vec::new();
     let mut group_of: HashMap<Option<[u64; 8]>, usize> = HashMap::new();
-    for entity in &selected {
+    for entity in selected {
         if !kinds.contains(&entity.kind) {
             continue;
         }
@@ -124,14 +165,9 @@ pub fn closed_regions(scene: &Scene, options: &RegionOptions) -> Vec<ClosedRegio
         add_segments(entity, source, &mut group.segments);
     }
 
-    let texts: Vec<(&SceneEntity, EntityText)> = selected
-        .iter()
-        .filter(|entity| TEXT_KINDS.contains(&entity.kind))
-        .filter_map(|entity| Some((*entity, entity_text(entity)?)))
-        .collect();
-
     let mut regions = Vec::new();
-    for group in &groups {
+    for (index, group) in groups.iter_mut().enumerate() {
+        group.segments.retain(&keep);
         let faces = faces(&group.segments, tolerance);
         for face in faces {
             if face.area < options.min_area || face.area <= tolerance * tolerance {
@@ -150,40 +186,23 @@ pub fn closed_regions(scene: &Scene, options: &RegionOptions) -> Vec<ClosedRegio
                 shape(outline, holes)
             });
             let boundary = face.sources.iter().map(|&source| group.entities[source].clone()).collect();
-            regions.push(ClosedRegion {
+            let region = ClosedRegion {
                 paper: shape(face.outline, face.holes),
                 real,
                 bbox,
                 placement: group.placement.clone(),
                 boundary,
                 texts: Vec::new(),
-            });
+            };
+            regions.push((index, region));
         }
     }
-
-    // 文字は、同じ配置でその中心を含む領域に添える。異なる配置の面（用紙の枠と部分図など）は重なることがある
-    let grid = BoxGrid::new(regions.iter().enumerate().map(|(index, region)| (index, region.bbox)).collect());
-    for (entity, text) in &texts {
-        let x = (text.bbox.min_x + text.bbox.max_x) / 2.0;
-        let y = (text.bbox.min_y + text.bbox.max_y) / 2.0;
-        let found = grid.at(x, y).filter(|&index| {
-            let region = &regions[index];
-            region.placement.as_deref().map(placement_key) == entity.placement.as_deref().map(placement_key)
-                && inside_rings(x, y, std::slice::from_ref(&region.paper.outline))
-                && !region.paper.holes.iter().any(|hole| inside_rings(x, y, std::slice::from_ref(hole)))
-        });
-        if let Some(index) = found.min() {
-            regions[index].texts.push(RegionText { entity: entity.id.clone(), text: text.text.clone(), x, y });
-        }
-    }
-
-    regions.sort_by(|a, b| {
-        let group = |region: &ClosedRegion| {
-            region.placement.as_deref().map(placement_key).and_then(|key| group_of.get(&Some(key)).copied())
-        };
-        group(a).cmp(&group(b)).then(b.bbox.max_y.total_cmp(&a.bbox.max_y)).then(a.bbox.min_x.total_cmp(&b.bbox.min_x))
-    });
     regions
+}
+
+/// 2 つの配置が同じか（どちらも配置の外なら同じ）
+pub(crate) fn same_placement(a: Option<&Placement>, b: Option<&Placement>) -> bool {
+    a.map(placement_key) == b.map(placement_key)
 }
 
 /// 配置の縮尺と変換が同じなら同じ配置とみなす
@@ -209,11 +228,11 @@ struct Group {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct Segment {
-    x1: f64,
-    y1: f64,
-    x2: f64,
-    y2: f64,
+pub(crate) struct Segment {
+    pub(crate) x1: f64,
+    pub(crate) y1: f64,
+    pub(crate) x2: f64,
+    pub(crate) y2: f64,
     source: usize,
 }
 
@@ -547,7 +566,7 @@ impl Hasher for FastHasher {
 type FastMap<K, V> = HashMap<K, V, BuildHasherDefault<FastHasher>>;
 
 /// 外接矩形を格子のマスに入れ、点を含むものを探す
-struct BoxGrid {
+pub(crate) struct BoxGrid {
     bounds: BBox,
     side: f64,
     cells: FastMap<(i64, i64), Vec<usize>>,
@@ -555,7 +574,7 @@ struct BoxGrid {
 }
 
 impl BoxGrid {
-    fn new(items: Vec<(usize, BBox)>) -> BoxGrid {
+    pub(crate) fn new(items: Vec<(usize, BBox)>) -> BoxGrid {
         let mut bounds = empty_box();
         for (_, b) in &items {
             extend_box(&mut bounds, b.min_x, b.min_y);
@@ -584,10 +603,22 @@ impl BoxGrid {
     }
 
     /// 外接矩形が点を含むもの
-    fn at(&self, x: f64, y: f64) -> impl Iterator<Item = usize> + '_ {
+    pub(crate) fn at(&self, x: f64, y: f64) -> impl Iterator<Item = usize> + '_ {
         self.cells.get(&self.cell(x, y)).into_iter().flatten().copied().filter(move |id| {
             let b = &self.boxes[id];
             x >= b.min_x && x <= b.max_x && y >= b.min_y && y <= b.max_y
+        })
+    }
+
+    /// 外接矩形が範囲と重なるもの（重なるマスの数だけ同じものが出る）
+    pub(crate) fn overlapping(&self, area: BBox) -> impl Iterator<Item = usize> + '_ {
+        let (x0, y0) = self.cell(area.min_x, area.min_y);
+        let (x1, y1) = self.cell(area.max_x, area.max_y);
+        (x0..=x1).flat_map(move |cx| (y0..=y1).map(move |cy| (cx, cy))).flat_map(move |key| {
+            self.cells.get(&key).into_iter().flatten().copied().filter(move |id| {
+                let b = &self.boxes[id];
+                b.min_x <= area.max_x && area.min_x <= b.max_x && b.min_y <= area.max_y && area.min_y <= b.max_y
+            })
         })
     }
 }

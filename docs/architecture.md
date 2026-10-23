@@ -369,10 +369,19 @@ placements at different scales are never joined, and a region inside a placement
 perimeter in real-world millimeters. Each region names the entities that bound it and the texts whose box center lies
 inside it. Which regions are rooms is left to the caller, with filters by layer, text and area.
 
+`zumen_core::tables` reads the tables drawn with rules (schedules, area tables, drawing lists, title blocks) on the
+same faces: only the horizontal and vertical segments of the boundary lines are kept, so that a slash across an empty
+cell or a symbol does not split a cell, and every rectangular face is a cell. Cells of one placement that share an
+edge longer than the tolerance are joined, and a group of cells that fills a rectangle is a table, after leaving out
+a cell that covers more than half of it and is at least ten times the next largest (the drawing area beside a title
+block strip). The rules between columns and rows are the cell edges merged within twice the tolerance; each cell has
+its row, column and spans, and the texts whose box center lies in it, joined from the top line down. `RuledTable::grid`
+gives the text by row and column, with a merged cell's text in its top left place.
+
 `zumen.tools` gives them to AI agents as functions with JSON results: summarize a drawing (with its placements and
 their conversion to real-world millimeters), render a region, find texts and entities, show one entity with its
 shapes, measure in real-world millimeters through the scale of a placement, find the closed regions with their
-real-world areas and compare two revisions. The results
+real-world areas, read the ruled tables as rows and columns and compare two revisions. The results
 follow `TypedDict` classes that are part of the API, are bounded by the arguments (items, characters of a text, points
 of shapes, pixels), and take regions in paper millimeters or as fractions of the frame (the scene's `bounds`, origin at
 the top left) ([decision 0011](decisions/0011-tool-functions-for-agents.md)). `zumen.mcp` serves the same functions as

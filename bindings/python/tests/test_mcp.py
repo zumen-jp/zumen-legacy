@@ -24,6 +24,7 @@ def test_wraps_the_functions_of_zumen_tools():
         "measure",
         "compare_revisions",
         "find_regions",
+        "find_tables",
         "draft_drawing",
     ]:
         assert getattr(mcp, name) is getattr(tools, name)
@@ -49,6 +50,7 @@ def test_serves_the_tools_over_mcp():
                 "get_entity",
                 "measure_distance",
                 "find_regions",
+                "find_tables",
                 "compare_drawings",
                 "draft_drawing",
             }
@@ -84,6 +86,9 @@ def test_serves_the_tools_over_mcp():
             rooms = await client.call_tool("find_regions", {"path": ROOMS, "layer": "wall", "named": True})
             assert [room["texts"][0]["text"] for room in rooms.structured_content["regions"]] == ["LDK", "寝室"]
             assert rooms.structured_content["regions"][1]["real_area_m2"] == 16.53
+
+            tables = await client.call_tool("find_tables", {"path": ROOMS, "empty": True})
+            assert tables.structured_content["tables"][0]["grid"] == [["LDK", "", "寝室"]]
 
             missing = await client.call_tool("get_entity", {"path": SFC, "id": "no such id"})
             assert missing.is_error and "no such id" in missing.content[0].text

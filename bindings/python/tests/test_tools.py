@@ -15,6 +15,7 @@ from zumen import tools
 FIXTURES = pathlib.Path(__file__).parents[3] / "tests" / "fixtures"
 SFC = str(FIXTURES / "sfc" / "features.sfc")
 ROOMS = FIXTURES / "dxf" / "rooms.dxf"
+SHEETS = pathlib.Path(__file__).parents[3] / "crates" / "zumen-draft" / "examples" / "sheets.json"
 
 
 def conforms(value: typing.Any, hint: typing.Any, path: str = "result") -> None:
@@ -101,6 +102,9 @@ def test_every_result_follows_the_documented_schema(tmp_path):
             check(tools.get_entity(scene, entity["id"], max_points=tools.MAX_POINTS), tools.EntityDetail)
         check(tools.find_regions(scene, all_layers=True, max_points=tools.MAX_POINTS), tools.RegionPage)
     check(tools.find_regions(zumen.read(ROOMS)), tools.RegionPage)
+    summary_sheet = zumen.read(zumen.draft(SHEETS, "dxf", sheet="A01-1").data)
+    check(tools.find_tables(summary_sheet), tools.TablePage)
+    check(tools.find_tables(summary_sheet, max_cells=10), tools.TablePage)
     scene = zumen.read(SFC)
     line = scene.entity("#810>#260>#220")
     x0, y0, x1, y1 = line["bbox"]
@@ -343,6 +347,36 @@ def test_finds_the_rooms_of_a_floor_plan_with_their_real_areas():
     assert first["regions"][0]["outline_omitted"] and "outline" not in first["regions"][0]
     with pytest.raises(tools.DrawingError):
         tools.find_regions(scene, tolerance=0)
+
+
+def test_reads_the_tables_of_a_drafted_sheet_as_rows_and_columns():
+    scene = zumen.read(zumen.draft(SHEETS, "dxf", sheet="A01-1").data)
+    page = tools.find_tables(scene)
+    assert page["total"] == 3 and page["next_offset"] is None
+    title, summary, finish = page["tables"]
+    assert (title["row_count"], title["column_count"]) == (6, 1)
+    assert title["grid"][5] == ["図面番号\nA01-1"]
+    assert summary["grid"][8] == ["建築面積", "", "616.12 ㎡", "0.00 ㎡", "616.12 ㎡"]
+    assert summary["columns"] == [25.0, 55.0, 115.0, 145.0, 175.0, 205.0]
+    heading = summary["cells"][0]
+    assert (heading["row"], heading["column"], heading["column_span"]) == (0, 0, 5) and "row_span" not in heading
+    assert scene.entity(heading["ids"][0])["kind"] == "text"
+    assert finish["grid"][1] == ["記号", "部位", "材料・規格・寸法"]
+    # contains finds a table by a text in one of its cells
+    found = tools.find_tables(scene, contains="外部仕上")
+    assert found["total"] == 1 and found["tables"][0]["grid"][0][0] == "■外部仕上表"
+    # A page ends before its cells pass max_cells, and the first table comes with the rows that fit
+    small = tools.find_tables(scene, offset=1, max_cells=20)
+    assert len(small["tables"]) == 1 and len(small["tables"][0]["grid"]) == 4
+    assert small["tables"][0]["rows_omitted"] == 9 and small["next_offset"] == 2
+    assert all(cell["row"] < 4 for cell in small["tables"][0]["cells"])
+    clipped = tools.find_tables(scene, contains="備考", max_text_length=5)["tables"][0]
+    assert clipped["truncated"] and clipped["grid"][12][1] == "この表は…"
+    # The Scene method gives every cell with its box
+    tables = scene.tables()
+    assert [len(table["cells"]) for table in tables] == [6, 31, 19]
+    with pytest.raises(tools.DrawingError):
+        tools.find_tables(scene, max_cells=0)
 
 
 def test_gives_real_areas_through_the_scale_of_a_viewport():

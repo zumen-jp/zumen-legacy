@@ -12,7 +12,8 @@ use zumen::compare::{CompareOptions, SceneDiff, compare_scenes, diff_scene};
 use zumen::extract::{
     EntityFilter, EntityText, Shape, entity_shapes, entity_text, layer_names, real_shapes, scene_texts, select_entities,
 };
-use zumen::regions::{ClosedRegion, RegionOptions, RegionShape, closed_regions};
+use zumen::regions::{ClosedRegion, RegionOptions, RegionShape, RegionText, closed_regions};
+use zumen::tables::{RuledTable, TableOptions, ruled_tables};
 use zumen::title::{TitleKey, title_fields};
 use zumen::{BBox, Background, Property, PropertyRaw, ReadDrawingOptions, SceneEntity};
 use zumen_render::{ImageSize, RenderOptions, View};
@@ -268,16 +269,49 @@ fn region_dict<'py>(py: Python<'py>, region: &ClosedRegion) -> PyResult<Bound<'p
     )?;
     dict.set_item("real", region.real.as_ref().map(|real| region_shape_dict(py, real)).transpose()?)?;
     dict.set_item("boundary", &region.boundary)?;
-    let texts = PyList::empty(py);
-    for text in &region.texts {
+    dict.set_item("texts", region_texts(py, &region.texts)?)?;
+    Ok(dict)
+}
+
+/// 領域やます目の中の文字の list（id、text、文字範囲の中心 x・y）
+fn region_texts<'py>(py: Python<'py>, texts: &[RegionText]) -> PyResult<Bound<'py, PyList>> {
+    let list = PyList::empty(py);
+    for text in texts {
         let item = PyDict::new(py);
         item.set_item("id", &text.entity)?;
         item.set_item("text", &text.text)?;
         item.set_item("x", text.x)?;
         item.set_item("y", text.y)?;
-        texts.append(item)?;
+        list.append(item)?;
     }
-    dict.set_item("texts", texts)?;
+    Ok(list)
+}
+
+/// 罫線で描いた表の dict（bbox、placement、row_count、column_count、columns、rows、cells、boundary）
+fn table_dict<'py>(py: Python<'py>, table: &RuledTable) -> PyResult<Bound<'py, PyDict>> {
+    let dict = PyDict::new(py);
+    dict.set_item("bbox", from_bbox(&table.bbox))?;
+    dict.set_item("placement", table.placement.as_deref().map(|placement| placement_dict(py, placement)).transpose()?)?;
+    let (rows, columns) = table.size();
+    dict.set_item("row_count", rows)?;
+    dict.set_item("column_count", columns)?;
+    dict.set_item("columns", &table.columns)?;
+    dict.set_item("rows", &table.rows)?;
+    let cells = PyList::empty(py);
+    for cell in &table.cells {
+        let item = PyDict::new(py);
+        item.set_item("row", cell.row)?;
+        item.set_item("column", cell.column)?;
+        item.set_item("row_span", cell.row_span)?;
+        item.set_item("column_span", cell.column_span)?;
+        item.set_item("bbox", from_bbox(&cell.bbox))?;
+        item.set_item("text", &cell.text)?;
+        item.set_item("texts", region_texts(py, &cell.texts)?)?;
+        cells.append(item)?;
+    }
+    dict.set_item("cells", cells)?;
+    dict.set_item("grid", table.grid())?;
+    dict.set_item("boundary", &table.boundary)?;
     Ok(dict)
 }
 
@@ -683,6 +717,44 @@ impl Scene {
         let list = PyList::empty(py);
         for region in &regions {
             list.append(region_dict(py, region)?)?;
+        }
+        Ok(list)
+    }
+
+    /// 罫線で描いた表（面積表・建具表・図面リスト・表題欄など）。水平と垂直の線だけで閉じた長方形の面をます目とし、
+    /// 辺を共有して長方形を隙間なく埋めるます目を 1 つの表にする（斜線は罫線にせず、図枠の内側のように表の大半を
+    /// 占めるます目は除く）。dict は bbox、placement（regions と同じ）、row_count・column_count、columns（列の境の
+    /// x、左から）、rows（行の境の y、上から）、cells（row、column、row_span、column_span、bbox、text、texts。行の順）、
+    /// grid（行ごとの文字。結合したます目の文字は左上に入れる）、boundary（罫線を描いた図形の id）。並びは配置ごとに
+    /// 上から下、左から右。region・hidden_layers・layers・tolerance は regions と同じ。min_cells より少ないます目の表と、
+    /// empty が False なら文字のない表は返さない
+    #[pyo3(signature = (*, region = None, hidden_layers = None, layers = None, tolerance = 0.01, min_cells = 2, empty = false))]
+    #[allow(clippy::too_many_arguments)]
+    fn tables<'py>(
+        &self,
+        py: Python<'py>,
+        region: Option<Region>,
+        hidden_layers: Option<Vec<u32>>,
+        layers: Option<Vec<u32>>,
+        tolerance: f64,
+        min_cells: usize,
+        empty: bool,
+    ) -> PyResult<Bound<'py, PyList>> {
+        if !(tolerance.is_finite() && tolerance > 0.0) {
+            return Err(PyValueError::new_err("tolerance は正の数（用紙の mm）にしてください"));
+        }
+        let options = TableOptions {
+            filter: filter(region, hidden_layers),
+            layers: layers.map(|ids| ids.into_iter().collect()),
+            tolerance,
+            min_cells,
+            empty,
+        };
+        let scene = self.inner.clone();
+        let tables = py.detach(move || ruled_tables(&scene, &options));
+        let list = PyList::empty(py);
+        for table in &tables {
+            list.append(table_dict(py, table)?)?;
         }
         Ok(list)
     }

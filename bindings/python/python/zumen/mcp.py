@@ -1,5 +1,5 @@
 """An MCP server that lets AI applications open, render, search, measure and compare drawings, read their geometry,
-find the regions (rooms) that their lines close, and draft drawings from a drawing spec.
+find the regions (rooms) that their lines close and the tables drawn with rules, and draft drawings from a drawing spec.
 
 Install it with ``pip install "zumen[mcp]"`` and start it with ``zumen-mcp`` (or ``python -m zumen.mcp``).
 It speaks MCP over stdio and reads drawing files from the local disk; ``--root`` limits the directories it may read.
@@ -20,9 +20,11 @@ from .tools import (
     DEFAULT_IMAGE_SIZE,
     DEFAULT_LIMIT,
     DEFAULT_MAX_BYTES,
+    DEFAULT_MAX_CELLS,
     DEFAULT_MAX_ENTITIES,
     DEFAULT_MAX_POINTS,
     DEFAULT_TIMEOUT,
+    MAX_CELLS,
     MAX_IMAGE_SIZE,
     MAX_LIMIT,
     MAX_PLACEMENTS,
@@ -34,6 +36,7 @@ from .tools import (
     draft_drawing,
     find_entities,
     find_regions,
+    find_tables,
     find_texts,
     get_entity,
     measure,
@@ -46,10 +49,12 @@ __all__ = [
     "DEFAULT_IMAGE_SIZE",
     "DEFAULT_LIMIT",
     "DEFAULT_MAX_BYTES",
+    "DEFAULT_MAX_CELLS",
     "DEFAULT_MAX_ENTITIES",
     "DEFAULT_MAX_POINTS",
     "DEFAULT_TIMEOUT",
     "INSTRUCTIONS",
+    "MAX_CELLS",
     "MAX_IMAGE_SIZE",
     "MAX_LIMIT",
     "MAX_PLACEMENTS",
@@ -61,6 +66,8 @@ __all__ = [
     "create_server",
     "draft_drawing",
     "find_entities",
+    "find_regions",
+    "find_tables",
     "find_texts",
     "get_entity",
     "main",
@@ -76,7 +83,8 @@ Start with open_drawing to see the sheet, views, layers, entity types and the pl
 render_drawing shows a region as an image; use its region and scale to turn pixels into paper millimeters.
 find_texts and find_entities search the contents, get_entity shows the properties and the geometry of one entity
 (find_entities with geometry gives the geometry of many), measure_distance converts lengths to real-world
-millimeters, and compare_drawings shows what changed between two revisions.
+millimeters, and compare_drawings shows what changed between two revisions. find_regions gives the areas that lines
+close (rooms) and find_tables the text of the tables drawn with rules (schedules, area tables, title blocks).
 Coordinates are paper millimeters with the Y axis up; geometry inside a placement also has real, the same
 coordinates in real-world millimeters (left out when they are the same as on the sheet, as in DXF model space).
 A region is [min_x, min_y, max_x, max_y] in paper millimeters, or frame_region [left, top, right, bottom] as
@@ -339,6 +347,51 @@ def create_server(drawings: Drawings | None = None) -> Any:
                 limit=limit,
                 offset=offset,
                 max_points=max_points,
+            )
+        except DrawingError as error:
+            raise ToolError(str(error)) from error
+        return result(data)
+
+    @server.tool(name="find_tables", annotations=read_only)
+    def find_tables_tool(
+        path: DrawingPath,
+        view: View = None,
+        region: Region = None,
+        frame_region: FrameRegion = None,
+        layer: Annotated[str | None, Field(description="Use only the rules on layers whose name contains this")] = None,
+        contains: Annotated[
+            str | None, Field(description="Keep the tables with a cell whose text contains this, such as 建具表")
+        ] = None,
+        all_layers: AllLayers = False,
+        tolerance: Annotated[
+            float, Field(description="Ends closer than this many paper millimeters are joined", gt=0)
+        ] = 0.01,
+        empty: Annotated[bool, Field(description="Also return the tables without any text")] = False,
+        limit: Limit = DEFAULT_LIMIT,
+        offset: Offset = 0,
+        max_cells: Annotated[
+            int, Field(description="Most cells (rows times columns) of the tables in one page", ge=1, le=MAX_CELLS)
+        ] = DEFAULT_MAX_CELLS,
+    ) -> CallToolResult:
+        """Find the tables drawn with horizontal and vertical rules, such as door and window schedules, area tables,
+        finish schedules, drawing lists and title blocks, and read them as rows and columns: grid has the text of
+        every cell (a merged cell's text in its top left place), cells the ids of the texts and the spans of merged
+        cells, columns and rows the positions of the rules in paper millimeters. Diagonal lines across empty cells do
+        not split cells, and the drawing area beside a title block is left out. Rooms drawn with single lines can also
+        appear as a table. A page ends before the cells pass max_cells; go on from next_offset."""
+        try:
+            data = find_tables(
+                scene_of(path, view),
+                region=region,
+                frame_region=frame_region,
+                layer=layer,
+                contains=contains,
+                all_layers=all_layers,
+                tolerance=tolerance,
+                empty=empty,
+                limit=limit,
+                offset=offset,
+                max_cells=max_cells,
             )
         except DrawingError as error:
             raise ToolError(str(error)) from error

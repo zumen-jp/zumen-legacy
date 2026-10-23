@@ -1,5 +1,5 @@
 //! zumen のコマンド。図面の形式の判定、表示用モデル（Scene）の JSON の出力、文字と図形の取り出し、PNG への描画、
-//! 線で閉じた領域（部屋）と面積の取り出し、2 つの版の比較、DXF への書き出しを行う。
+//! 線で閉じた領域（部屋）と面積の取り出し、罫線で描いた表の取り出し、2 つの版の比較、DXF への書き出しを行う。
 #![forbid(unsafe_code)]
 
 use serde_json::{Map, Value, json};
@@ -11,6 +11,7 @@ use zumen::extract::{
     EntityFilter, EntityText, Shape, entity_shapes, entity_text, layer_names, real_shapes, scene_texts, select_entities,
 };
 use zumen::regions::{ClosedRegion, RegionOptions, RegionShape, closed_regions};
+use zumen::tables::{RuledTable, TableOptions, ruled_tables};
 use zumen::title::{TitleKey, title_block, title_fields};
 use zumen::{BBox, Background, ReadDrawingOptions, ReadLimits, Scene, SceneEntity};
 use zumen_render::{ImageSize, RenderOptions, RenderedImage};
@@ -25,6 +26,8 @@ Usage:
   zumen title <file> [--format <name>] [--view <id>]
   zumen regions <file> [--region <x0>,<y0>,<x1>,<y1>] [--layer <name>]... [--tolerance <mm>]
                 [--min-area <mm2>] [--all-layers] [--format <name>] [--view <id>]
+  zumen tables <file> [--csv] [--empty] [--region <x0>,<y0>,<x1>,<y1>] [--layer <name>]... [--tolerance <mm>]
+               [--all-layers] [--format <name>] [--view <id>]
   zumen render <file> -o <out.png|out.svg|out.pdf> [--dpi <n> | --size <w>x<h> [--margin <px>]] [--dpr <n>]
                [--region <x0>,<y0>,<x1>,<y1>] [--all-layers] [--map <out.json>]
                [--theme light|dark] [--thin] [--format <name>] [--view <id>]
@@ -49,6 +52,11 @@ regions writes, one JSON object per line, the regions that drawn lines close (ro
 the outline and holes, the area (mm²) and perimeter on the sheet and in real-world millimeters, the entities
 that bound them and the texts inside. --layer keeps the lines on layers whose name contains the text (walls),
 --tolerance (default 0.01 paper mm) joins ends that nearly meet, and --min-area leaves out smaller regions.
+tables writes, one JSON object per line, the tables drawn with horizontal and vertical rules (schedules, area
+tables, drawing lists, title blocks): the lines between rows and columns, and each cell with its row, column, the
+rows and columns it spans and its text. --csv writes each table as CSV instead (a merged cell's text in its top left
+place), with an empty line between tables. --empty also writes tables without any text, and --layer, --tolerance
+and --region work as for regions.
 render writes SVG or PDF when the output ends in .svg or .pdf: the sheet (or --region) at its real size,
 with text that can be searched. --dpi, --size, --dpr and --map are for PNG only.
 --region selects a part of the sheet in paper millimeters, and --all-layers includes the layers
@@ -103,6 +111,8 @@ struct Args {
     into: Option<String>,
     style: bool,
     align: bool,
+    csv: bool,
+    empty: bool,
     limits: ReadLimits,
 }
 
@@ -156,6 +166,8 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
         into: None,
         style: false,
         align: true,
+        csv: false,
+        empty: false,
         limits: ReadLimits::default(),
     };
     while let Some(arg) = args.next() {
@@ -196,6 +208,8 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
             "--sheet" => parsed.sheet = Some(value("--sheet")?),
             "--into" => parsed.into = Some(value("--into")?),
             "--no-align" => parsed.align = false,
+            "--csv" => parsed.csv = true,
+            "--empty" => parsed.empty = true,
             "--max-bytes" => {
                 parsed.limits.max_bytes = Some(value("--max-bytes")?.parse().map_err(|_| "--max-bytes needs a count")?)
             }
@@ -221,6 +235,19 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
         return Err(USAGE.into());
     }
     Ok(parsed)
+}
+
+/// --layer の名前を含むレイヤの id。--layer がなければ None（すべてのレイヤ）
+fn layer_ids(scene: &Scene, names: &[String]) -> Option<HashSet<u32>> {
+    (!names.is_empty()).then(|| {
+        let wanted: Vec<String> = names.iter().map(|name| name.to_lowercase()).collect();
+        scene
+            .layers
+            .iter()
+            .filter(|layer| wanted.iter().any(|name| layer.name.to_lowercase().contains(name)))
+            .map(|layer| layer.id)
+            .collect()
+    })
 }
 
 /// 出力の数を丸める（用紙の mm は 0.001 まで、px は 0.1 まで）。-0 は 0 にする
@@ -415,6 +442,64 @@ fn region_json(region: &ClosedRegion) -> Value {
         .collect();
     object.insert("texts".into(), Value::Array(texts));
     Value::Object(object)
+}
+
+fn table_json(table: &RuledTable) -> Value {
+    let cells: Vec<Value> = table
+        .cells
+        .iter()
+        .map(|cell| {
+            let texts: Vec<Value> = cell
+                .texts
+                .iter()
+                .map(|text| json!({ "id": text.entity, "text": text.text, "x": mm(text.x), "y": mm(text.y) }))
+                .collect();
+            json!({
+                "row": cell.row,
+                "column": cell.column,
+                "rowSpan": cell.row_span,
+                "columnSpan": cell.column_span,
+                "bbox": bbox_json(&cell.bbox),
+                "text": cell.text,
+                "texts": texts,
+            })
+        })
+        .collect();
+    let (rows, columns) = table.size();
+    json!({
+        "bbox": bbox_json(&table.bbox),
+        "placement": table.placement.as_ref().map(|placement| json!({
+            "name": placement.name,
+            "scaleX": placement.scale_x,
+            "scaleY": placement.scale_y,
+        })),
+        "rowCount": rows,
+        "columnCount": columns,
+        "columns": table.columns.iter().map(|x| mm(*x)).collect::<Vec<_>>(),
+        "rows": table.rows.iter().map(|y| mm(*y)).collect::<Vec<_>>(),
+        "cells": cells,
+        "boundary": table.boundary,
+    })
+}
+
+/// RFC 4180 の CSV。区切り・引用符・改行を含む値を引用符で囲み、引用符は 2 つ重ねる
+fn table_csv(table: &RuledTable) -> String {
+    let mut out = String::new();
+    for row in table.grid() {
+        let fields: Vec<String> = row
+            .iter()
+            .map(|field| {
+                if field.contains([',', '"', '\n', '\r']) {
+                    format!("\"{}\"", field.replace('"', "\"\""))
+                } else {
+                    field.clone()
+                }
+            })
+            .collect();
+        out.push_str(&fields.join(","));
+        out.push_str("\r\n");
+    }
+    out
 }
 
 fn write_lines(lines: impl Iterator<Item = Value>) -> Result<(), String> {
@@ -642,23 +727,30 @@ fn run(args: Args) -> Result<(), String> {
             println!("{}", serde_json::to_string_pretty(&Value::Object(object)).map_err(|error| error.to_string())?);
         }
         "regions" => {
-            let layers = (!args.layers.is_empty()).then(|| {
-                let wanted: Vec<String> = args.layers.iter().map(|name| name.to_lowercase()).collect();
-                scene
-                    .layers
-                    .iter()
-                    .filter(|layer| wanted.iter().any(|name| layer.name.to_lowercase().contains(name)))
-                    .map(|layer| layer.id)
-                    .collect()
-            });
             let options = RegionOptions {
                 filter: filter.clone(),
-                layers,
+                layers: layer_ids(&scene, &args.layers),
                 tolerance: args.tolerance,
                 min_area: args.min_area,
                 ..RegionOptions::default()
             };
             write_lines(closed_regions(&scene, &options).iter().map(region_json))?
+        }
+        "tables" => {
+            let options = TableOptions {
+                filter: filter.clone(),
+                layers: layer_ids(&scene, &args.layers),
+                tolerance: args.tolerance,
+                empty: args.empty,
+                ..TableOptions::default()
+            };
+            let tables = ruled_tables(&scene, &options);
+            if args.csv {
+                let csv: Vec<String> = tables.iter().map(table_csv).collect();
+                print!("{}", csv.join("\r\n"));
+            } else {
+                write_lines(tables.iter().map(table_json))?
+            }
         }
         "entities" => write_lines(
             select_entities(&scene, &filter).into_iter().map(|entity| entity_json(&scene, entity, args.geometry)),

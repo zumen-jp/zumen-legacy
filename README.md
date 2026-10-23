@@ -211,6 +211,7 @@ json_text = scene.to_json()  # sceneFromJson() in @zumenjs/core turns it back in
 texts = scene.texts()  # text, position, height, angle and layers, in paper millimeters
 scene.title_block()  # drawing number, revision, title, project, scale and date from the title block
 rooms = scene.regions(layers=[1])  # regions that the lines on layer 1 close: outline, areas, texts inside
+tables = scene.tables()  # tables drawn with rules (schedules, title blocks): rows, columns, merged cells, texts
 door = scene.entity("#120")  # the type, layers, box, text and properties of one entity
 table = scene.to_arrow()  # every entity as a pyarrow.Table (pip install "zumen[arrow]")
 image = scene.render(size=(2000, 2000))  # a PNG with the conversion between pixels and paper millimeters
@@ -243,8 +244,8 @@ zumen.draft(spec, "dwg").save("plan.dwg")  # docs/drafting.md describes every it
 
 AI applications can read drawings through the MCP server of the Python package (`pip install "zumen[mcp]"`, then
 `zumen-mcp --root <dir>`): open, render a region, find texts and entities, read the shapes of entities in paper and
-real-world millimeters, measure in real-world units, find rooms with their areas and compare revisions. See
-[bindings/python](bindings/python/README.md#mcp-server). Applications that give an agent tools of their own call the
+real-world millimeters, measure in real-world units, find rooms with their areas, read schedules drawn as ruled
+tables and compare revisions. See [bindings/python](bindings/python/README.md#mcp-server). Applications that give an agent tools of their own call the
 same functions in `zumen.tools`, whose results are JSON with a documented schema and bounded sizes
 ([Tools for AI agents](bindings/python/README.md#tools-for-ai-agents)).
 
@@ -254,6 +255,7 @@ cargo run --release -p zumen-cli -- render plan.jww -o plan.pdf  # or plan.svg
 cargo run --release -p zumen-cli -- texts plan.jww --region 100,50,200,120  # one JSON object per line
 cargo run --release -p zumen-cli -- title plan.jww  # the fields of the title block
 cargo run --release -p zumen-cli -- regions plan.dxf --layer WALL  # closed regions (rooms) with their areas
+cargo run --release -p zumen-cli -- tables plan.jww --csv  # ruled tables (schedules, title blocks) as CSV
 cargo run --release -p zumen-cli -- convert plan.dwg -o plan.dxf
 cargo run --release -p zumen-cli -- convert plan.sfc -o plan.dxf
 cargo run --release -p zumen-cli -- convert plan.dxf -o plan.sfc  # or plan.p21 --target-version 2.0
@@ -288,7 +290,7 @@ drawing in any of them.
 
 | Crate | Contents |
 | --- | --- |
-| [`zumen-core`](crates/zumen-core) | The scene model (the same JSON as `@zumenjs/core`), geometry, text layout, the texts and entities of a scene, the fields of its title block, the closed regions (rooms) and their areas, the comparison of two revisions, and the edit operations |
+| [`zumen-core`](crates/zumen-core) | The scene model (the same JSON as `@zumenjs/core`), geometry, text layout, the texts and entities of a scene, the fields of its title block, the closed regions (rooms) and their areas, the ruled tables, the comparison of two revisions, and the edit operations |
 | [`zumen-sxf`](crates/zumen-sxf) | `parse_sfc` and `parse_p21` (the SXF feature model), `sxf_to_scene`, the `SXF` reader, and `write_sfc` (the feature model as SFC) |
 | [`zumen-jww`](crates/zumen-jww) | `read_jww` (the JWW document model), `jww_to_scene`, the `JWW` reader |
 | [`zumen-dxf`](crates/zumen-dxf) | `parse_dxf` (the AutoCAD drawing model, shared with DWG), `dxf_to_scene`, the `DXF` reader, `write_dxf` (the model as DXF of AutoCAD 2013), and `edit_dxf` (editing in place) |
@@ -297,7 +299,7 @@ drawing in any of them.
 | [`zumen-draft`](crates/zumen-draft) | `draft`: sheets, views, dimensions, hatches, tables, title blocks and symbols from a JSON drawing spec, into the AutoCAD drawing model ([Drafting](docs/drafting.md)) |
 | [`zumen`](crates/zumen) | `read` and `detect` over every reader, with limits on bytes, entities and time for untrusted drawings, `convert` (every format to DXF, DWG, JWW and SXF), `edit` and `create` (DXF, DWG, JWW and SXF), and `draft` (a drawing spec in every format) |
 | [`zumen-render`](crates/zumen-render) | PNG, SVG and PDF rendering with the rules of the browser renderer, and the pixel box of every entity drawn; BIZ UDGothic is bundled for Japanese text |
-| [`zumen-cli`](crates/zumen-cli) | The `zumen` command: `detect`, `scene` (JSON), `texts` and `entities` (JSON lines), `title`, `regions`, `render` (PNG), `compare`, `convert` (DXF, DWG, JWW, SXF), `edit`, `create` and `draft` |
+| [`zumen-cli`](crates/zumen-cli) | The `zumen` command: `detect`, `scene` (JSON), `texts` and `entities` (JSON lines), `title`, `regions`, `tables`, `render` (PNG), `compare`, `convert` (DXF, DWG, JWW, SXF), `edit`, `create` and `draft` |
 
 Reading, rendering, converting and editing release the GIL in Python.
 
@@ -322,8 +324,8 @@ sending them anywhere.
 4. DWG, read into the same AutoCAD object model (1.0 to 2018 done in Rust and in the browser through WebAssembly).
 5. Writing, converting and editing drawings (every format to DXF, DWG, JWW and SXF, and editing all four in place,
    done in Rust), and drafting whole sheets from a drawing spec ([decision 0018](docs/decisions/0018-drafting-kit.md)).
-6. Analysis (closed regions such as rooms with their areas and the comparison of revisions done; ruled tables and
-   checks against CAD standards next, [decision 0015](docs/decisions/0015-analysis-in-zumen-core.md)), markup and PDF
+6. Analysis (closed regions such as rooms with their areas, ruled tables and the comparison of revisions done; checks
+   against CAD standards next, [decision 0015](docs/decisions/0015-analysis-in-zumen-core.md)), markup and PDF
    drawings.
 
 ## Documentation
