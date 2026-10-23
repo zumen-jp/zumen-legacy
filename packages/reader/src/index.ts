@@ -163,7 +163,7 @@ export function readEmbeddedFiles(
   input: ArrayBuffer | Uint8Array,
   options: ReadEmbeddedFilesOptions = {},
 ): EmbeddedFiles {
-  if (!ready) throw new Error("図面を読む前に、initReader() で読み取り（WebAssembly）を読み込んでください");
+  if (!cad.ready) throw new Error("図面を読む前に、initReader() で読み取り（WebAssembly）を読み込んでください");
   const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
   let result: ReturnType<typeof embeddedFiles>;
   try {
