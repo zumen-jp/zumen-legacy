@@ -41,7 +41,7 @@ function Drawing({ scene }: { scene: Scene }) {
 - `useViewerState(viewer, selector, isEqual?)` re-renders only when the selected part of the state changes, and returns
   `undefined` while the viewer does not exist. Pass `isEqual` when the selector builds a new object.
 - `useViewerEvent(viewer, type, listener)` subscribes to `move`, `moveend` or `cursor`, which change at the pace of
-  the pointer and are not kept in the state.
+  the pointer and are not kept in the state, or to `underlay`, sent when a request to draw an underlay finishes.
 - `useDrawing(file, readers, { view })` reads a `File` or `Blob`. When the reader that recognizes the file has `load`
   (the reader of `@zumenjs/reader` loads its WebAssembly module), it waits for it, so the module is fetched when the
   first drawing is opened. `view` picks a DXF or DWG layout without reading the file again. To read in a Web Worker,

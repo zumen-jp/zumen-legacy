@@ -435,6 +435,62 @@ pub enum Background {
     Light,
 }
 
+/// underlay の中身の種類の、形式によらない英語のキー（`@zumenjs/core` の UnderlayKind と同じ）。Image は画素の画像
+/// （PNG・JPEG・TIFF など。中身の座標の単位は画素）、Pdf は PDF の 1 ページ（単位はページの pt、ページの回転を済ませた向き）
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UnderlayKind {
+    Image,
+    Pdf,
+}
+
+impl UnderlayKind {
+    pub const ALL: [UnderlayKind; 2] = [UnderlayKind::Image, UnderlayKind::Pdf];
+
+    /// JSON での名前（image、pdf）
+    pub fn name(self) -> &'static str {
+        match self {
+            UnderlayKind::Image => "image",
+            UnderlayKind::Pdf => "pdf",
+        }
+    }
+}
+
+/// 図形の下に描くラスタの中身（画像、PDF のページ。`@zumenjs/core` の Underlay と同じ JSON になる）。中身のバイトは
+/// 図面が持たず、描き手が中身の一部の範囲をある縮尺で描く（docs/decisions/0022）。中身の座標は、中身の左上を原点に
+/// 右が x、下が y で、範囲は 0〜width × 0〜height。underlay は `Scene::view` の表示に属し、配置は matrix と clip に解決済み
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Underlay {
+    /// 図面の中で underlay を指す識別子。同じバイトからは同じ id になる（DXF・DWG は図形のハンドルなど）
+    pub id: String,
+    pub kind: UnderlayKind,
+    /// 図面に書かれた、中身のファイルの名前（パスを含むことがある）。図面のファイルそのものの中身なら None
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
+    /// PDF のページ番号（1 から）。kind が Pdf のときだけ持つ
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page: Option<u32>,
+    /// 中身の幅と高さ（中身の座標）
+    pub width: f64,
+    pub height: f64,
+    /// 中身の座標から用紙の mm への変換
+    pub matrix: Matrix,
+    /// 描く範囲を切り取る、用紙の mm の多角形。偶奇規則で、外形と中抜き。None なら中身の全体を描く
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub clip: Option<Vec<Vec<f64>>>,
+    /// 不透明度（0〜1）。None なら 1
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub opacity: Option<f64>,
+    /// 自分と、配置元のレイヤ。`SceneEntity::layers` と同じく、すべて表示のときだけ描く
+    pub layers: Vec<u32>,
+    /// 中身の中で表示を切り替えるレイヤ（PDF の optional content group など）。None なら、中身はレイヤで変わらない
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_layers: Option<Vec<u32>>,
+    /// 描く範囲（clip で切り取った後）の外接矩形（用紙の mm）。`Scene::bounds` はこれも含む
+    pub bbox: BBox,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Scene {
     /// 形式の名前（sfc、p21、jww、dxf など）
@@ -453,10 +509,13 @@ pub struct Scene {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub view: Option<String>,
     pub sheet: Option<Sheet>,
-    /// すべての図形の外接矩形（用紙の mm）
+    /// すべての図形と underlay の外接矩形（用紙の mm）
     pub bounds: BBox,
     pub layers: Vec<SceneLayer>,
     pub entities: Vec<SceneEntity>,
+    /// 図形の下に、この順に描くラスタの中身。空なら JSON では省く
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub underlays: Vec<Underlay>,
     pub notices: Vec<Notice>,
     /// 表題欄・ファイルの情報
     pub metadata: Vec<Property>,
@@ -476,5 +535,77 @@ mod tests {
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), LengthUnit::ALL.len());
+    }
+
+    /// packages/core/tests/underlay.test.ts も同じファイルと比べ、TypeScript と同じ JSON になることを確かめる
+    #[test]
+    fn underlays_have_the_json_of_typescript() {
+        let layer = |id: u32, name: &str| SceneLayer { id, name: name.into(), visible: true, group: None };
+        let pt = 25.4 / 72.0;
+        let scene = Scene {
+            format: "test".into(),
+            version: "1".into(),
+            unit: None,
+            views: None,
+            view: None,
+            sheet: Some(Sheet { name: "A4".into(), size: "A4".into(), width: 297.0, height: 210.0 }),
+            bounds: BBox { min_x: 0.0, min_y: 0.0, max_x: 297.0, max_y: 210.0 },
+            layers: vec![layer(0, "0"), layer(1, "写真")],
+            entities: Vec::new(),
+            underlays: vec![
+                Underlay {
+                    id: "page-1".into(),
+                    kind: UnderlayKind::Pdf,
+                    file: None,
+                    page: Some(1),
+                    width: 841.89,
+                    height: 595.28,
+                    matrix: [pt, 0.0, 0.0, -pt, 0.0, 210.0],
+                    clip: None,
+                    opacity: None,
+                    layers: Vec::new(),
+                    content_layers: Some(vec![0]),
+                    bbox: BBox { min_x: 0.0, min_y: 0.0, max_x: 297.0, max_y: 210.0 },
+                },
+                Underlay {
+                    id: "1F".into(),
+                    kind: UnderlayKind::Image,
+                    file: Some("photos\\site.jpg".into()),
+                    page: None,
+                    width: 400.0,
+                    height: 300.0,
+                    matrix: [0.25, 0.0, 0.0, -0.25, 100.0, 175.0],
+                    clip: Some(vec![vec![100.0, 100.0, 200.0, 100.0, 200.0, 175.0, 100.0, 175.0]]),
+                    opacity: Some(0.5),
+                    layers: vec![1],
+                    content_layers: None,
+                    bbox: BBox { min_x: 100.0, min_y: 100.0, max_x: 200.0, max_y: 175.0 },
+                },
+            ],
+            notices: Vec::new(),
+            metadata: Vec::new(),
+            background: Background::Light,
+        };
+        // JSON の 297 と 297.0 を同じ数とみなす
+        fn floats(value: serde_json::Value) -> serde_json::Value {
+            use serde_json::Value;
+            match value {
+                Value::Number(n) => {
+                    serde_json::Number::from_f64(n.as_f64().unwrap()).map_or(Value::Null, Value::Number)
+                }
+                Value::Array(items) => Value::Array(items.into_iter().map(floats).collect()),
+                Value::Object(map) => Value::Object(map.into_iter().map(|(key, item)| (key, floats(item))).collect()),
+                other => other,
+            }
+        }
+        let expected: serde_json::Value =
+            serde_json::from_str(include_str!("../../../packages/core/tests/underlay.scene.json")).unwrap();
+        assert_eq!(floats(serde_json::to_value(&scene).unwrap()), floats(expected));
+        // underlay のない図面の JSON には、underlays を書かない
+        let plain = Scene { underlays: Vec::new(), ..scene };
+        assert!(serde_json::to_value(&plain).unwrap().get("underlays").is_none());
+        for kind in UnderlayKind::ALL {
+            assert_eq!(serde_json::to_value(kind).unwrap(), kind.name());
+        }
     }
 }

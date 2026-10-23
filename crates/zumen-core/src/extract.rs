@@ -5,7 +5,7 @@ use crate::geometry::{
     IDENTITY, apply, apply_vector, empty_box, extend_box, is_empty_box, multiply, rotation_deg, transform_points,
 };
 use crate::js;
-use crate::types::{BBox, Matrix, Primitive, Scene, SceneEntity, TextPrimitive};
+use crate::types::{BBox, Matrix, Primitive, Scene, SceneEntity, TextPrimitive, Underlay};
 use std::collections::HashSet;
 
 /// 取り出す図形の条件
@@ -43,6 +43,17 @@ pub fn select_entities<'a>(scene: &'a Scene, filter: &EntityFilter) -> Vec<&'a S
         .iter()
         .filter(|entity| is_entity_visible(entity, &hidden))
         .filter(|entity| filter.region.as_ref().is_none_or(|region| intersects(&entity.bbox, region)))
+        .collect()
+}
+
+/// 条件に合う underlay を、描く順に返す。図形と同じく、レイヤが 1 つでも非表示なら除き、外接矩形で範囲と比べる
+pub fn select_underlays<'a>(scene: &'a Scene, filter: &EntityFilter) -> Vec<&'a Underlay> {
+    let hidden = hidden_layers(scene, filter.hidden_layers.as_ref());
+    scene
+        .underlays
+        .iter()
+        .filter(|underlay| hidden.is_empty() || !underlay.layers.iter().any(|layer| hidden.contains(layer)))
+        .filter(|underlay| filter.region.as_ref().is_none_or(|region| intersects(&underlay.bbox, region)))
         .collect()
 }
 
@@ -285,6 +296,7 @@ mod tests {
                 SceneLayer { id: 1, name: "非表示".into(), visible: false, group: None },
             ],
             entities,
+            underlays: Vec::new(),
             notices: Vec::new(),
             metadata: Vec::new(),
             background: Background::Light,

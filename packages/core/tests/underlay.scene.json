@@ -1,0 +1,36 @@
+{
+  "format": "test",
+  "version": "1",
+  "sheet": { "name": "A4", "size": "A4", "width": 297, "height": 210 },
+  "bounds": { "minX": 0, "minY": 0, "maxX": 297, "maxY": 210 },
+  "layers": [{ "id": 0, "name": "0", "visible": true }, { "id": 1, "name": "写真", "visible": true }],
+  "entities": [],
+  "underlays": [
+    {
+      "id": "page-1",
+      "kind": "pdf",
+      "page": 1,
+      "width": 841.89,
+      "height": 595.28,
+      "matrix": [0.35277777777777775, 0, 0, -0.35277777777777775, 0, 210],
+      "layers": [],
+      "contentLayers": [0],
+      "bbox": { "minX": 0, "minY": 0, "maxX": 297, "maxY": 210 }
+    },
+    {
+      "id": "1F",
+      "kind": "image",
+      "file": "photos\\site.jpg",
+      "width": 400,
+      "height": 300,
+      "matrix": [0.25, 0, 0, -0.25, 100, 175],
+      "clip": [[100, 100, 200, 100, 200, 175, 100, 175]],
+      "opacity": 0.5,
+      "layers": [1],
+      "bbox": { "minX": 100, "minY": 100, "maxX": 200, "maxY": 175 }
+    }
+  ],
+  "notices": [],
+  "metadata": [],
+  "background": "light"
+}

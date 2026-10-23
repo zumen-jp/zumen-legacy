@@ -7,6 +7,7 @@ export {
   renderScene,
   toPaper,
   toScreen,
+  type UnderlayImage,
   type View,
   zoomAt,
 } from "./render.js";
@@ -18,6 +19,7 @@ export {
   type ViewerStylePatch,
 } from "./style.js";
 export type { ToolPointerEvent, ViewerTool } from "./tools.js";
+export { imageUnderlayRenderer, type UnderlayEvent, type UnderlayRenderer, type UnderlayTarget } from "./underlays.js";
 export {
   type Camera,
   type CursorEvent,
