@@ -88,7 +88,8 @@ viewer.addTool({
 viewer.setTool("pin");
 ```
 
-A tool with `dragPan: false` receives left-button drags instead of panning (markup, areas). `cancel` is called on
+A tool with `dragPan: false` receives left-button drags instead of panning (markup, areas), and one with
+`doubleClickZoom: false` receives both clicks of a double click without the view zooming in. `cancel` is called on
 Escape, when a second finger starts a pinch and when the scene changes.
 
 ## Style
@@ -141,12 +142,47 @@ that the view no longer needs. A renderer that rejects is not asked again for th
 Entities with `drawn: false` stand for what an underlay shows (the paths and texts of a PDF page): they are not
 drawn, but `entitiesAt`, `snapAt`, the tools and measurement use them, and the selection is drawn over the underlay.
 
+## Markup
+
+`MarkupLayer` draws and edits a markup document of `@zumenjs/core` (redlines, revision clouds, notes, review findings
+and photo positions, in paper millimeters of a view) on a viewer, through its public API. Items are drawn in the view
+they name; the document is saved by the application from the `change` event.
+
+```ts
+import { createMarkup, drawingHash, markupToJson } from "@zumenjs/core";
+import { cloudTool, findingTool, MarkupLayer, markupEditTool, redlineTool } from "@zumenjs/viewer";
+
+const layer = new MarkupLayer(viewer, {
+  document: createMarkup({ sha256: await drawingHash(bytes), format: scene.format }),
+  author: "u-128",
+});
+layer.on("change", ({ document }) => save(markupToJson(document)));
+viewer.addTool(redlineTool(layer, { mode: "freehand" }));
+viewer.addTool(cloudTool(layer));
+viewer.addTool(findingTool(layer, { create: async (draft) => ({ ...draft, text: await askForText() }) }));
+viewer.addTool(markupEditTool(layer));
+viewer.setTool("markup-cloud");
+```
+
+- `getState()` and `subscribe()` hold the document, the selection and the hovered item (ids), the filter and whether
+  `undo` and `redo` can run. `add`, `update` and `remove` check the items, are one step of the history each, and send
+  `change` with the ids added, updated and removed; `setDocument` replaces the document and clears the history.
+- `items()` returns the items drawn now and `itemsAt(x, y)` those under a paper point; `setFilter` hides items.
+- The tools (`redlineTool`, `cloudTool`, `textTool`, `findingTool`, `photoTool`, `markupEditTool`) pass each draft to
+  the application's `create` callback, which fills in the text with its own interface, or returns `null` to cancel.
+- Colors come from `--zumen-markup-dark` and `-light`, `--zumen-markup-category-<category>-dark` and `-light`, and
+  `--zumen-markup-selection-*`, `-changed-*` and `-removed-*`; `setStyle` overrides them.
+
+[Drawing markup](https://github.com/zumenjs/zumen/blob/main/docs/markup.md) describes the document and the shapes.
+
 ## Queries and overlays
 
 - `entitiesAt(x, y, { tolerance })` returns the visible entities near a paper point, nearest first,
   `entitiesIn(box)` those whose box overlaps a paper box, in drawing order, and `snapAt(x, y)` the snap point. Tools use
   them, and so can applications that handle input themselves.
-- `addOverlay((ctx, view) => …)` draws on top of the drawing whatever the tool; call `invalidate()` when it changes.
+- `addOverlay((ctx, view, frame) => …)` draws on top of the drawing whatever the tool; call `invalidate()` when it
+  changes. `frame` has the canvas size and device pixel ratio, for `renderPrimitives(ctx, primitives, view, width,
+  height, options)`, which draws primitives of the scene model in their own colors.
 
 The renderer itself is exported for thumbnails and images: `renderScene(ctx, scene, view, width, height, options)`
 draws with the same rules as the Rust renderer (`zumen-render`), and `renderHighlights` draws entities in a highlight

@@ -1,9 +1,17 @@
-import type { DrawingReader, Scene } from "@zumenjs/core";
-import type { DrawingViewer } from "@zumenjs/viewer";
-import { act } from "react";
+import { createMarkup, type DrawingReader, type MarkupDocument, type Scene } from "@zumenjs/core";
+import type { DrawingViewer, MarkupLayer } from "@zumenjs/viewer";
+import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { type DrawingState, useDrawing, useDrawingViewer, useViewerState } from "../src/index.js";
+import {
+  type DrawingState,
+  useDrawing,
+  useDrawingViewer,
+  useMarkupEvent,
+  useMarkupLayer,
+  useMarkupState,
+  useViewerState,
+} from "../src/index.js";
 
 // React のフックを Chromium で動かす。act で描き直しを待つ
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -95,6 +103,50 @@ describe("@zumenjs/react", () => {
   });
 
   // DWG の WebAssembly のように読み込みに時間がかかる読み取りは、その形式のファイルを開いたときにだけ読み込む
+  // アプリは change の文書を保存して戻す。戻した文書では作り直さず、ほかの文書に替えたときだけ setDocument する
+  it("useMarkupLayer は文書があるときだけ層を作り、戻した文書では取り消しの記録を消さない", async () => {
+    const drawing = scene();
+    const first = createMarkup({ sha256: "a".repeat(64), format: "test" });
+    const second = createMarkup({ sha256: "b".repeat(64), format: "test" });
+    let current: MarkupLayer | null = null;
+    let setDocument: (document: MarkupDocument | null) => void = () => {};
+    const counts: (number | undefined)[] = [];
+    function Markup({ author }: { author: string }) {
+      const { ref, viewer } = useDrawingViewer(drawing);
+      const [document, setState] = useState<MarkupDocument | null>(null);
+      setDocument = setState;
+      const layer = useMarkupLayer(viewer, { document, author });
+      current = layer;
+      counts.push(useMarkupState(layer, (state) => state.document.items.length));
+      useMarkupEvent(layer, "change", (event) => setState(event.document));
+      return <div ref={ref} style={{ width: 200, height: 100 }} />;
+    }
+    const root = render(<Markup author="u-1" />);
+    expect(current).toBeNull();
+    act(() => setDocument(first));
+    const layer = current as MarkupLayer | null;
+    if (!layer) throw new Error("層ができていない");
+    act(() => {
+      layer.add({ kind: "photo", position: [1, 1], photo: "p" });
+    });
+    expect(current).toBe(layer);
+    expect(layer.getState()).toMatchObject({ canUndo: true });
+    expect(layer.document.items[0]).toMatchObject({ author: "u-1" });
+    expect(counts.at(-1)).toBe(1);
+    act(() => root.render(<Markup author="u-2" />));
+    act(() => {
+      layer.add({ kind: "photo", position: [2, 2], photo: "p" });
+    });
+    expect(layer.document.items[1]).toMatchObject({ author: "u-2" });
+    act(() => setDocument(second));
+    expect(current).toBe(layer);
+    expect(layer.document).toBe(second);
+    expect(layer.getState()).toMatchObject({ canUndo: false });
+    expect(counts.at(-1)).toBe(0);
+    act(() => setDocument(null));
+    expect(current).toBeNull();
+  });
+
   it("useDrawing は中身を認めた読み取りの load だけを待ち、load の失敗はエラーにする", async () => {
     const loads: string[] = [];
     let finish = () => {};
