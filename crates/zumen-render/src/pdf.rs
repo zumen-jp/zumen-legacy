@@ -213,14 +213,17 @@ impl Painter<'_> {
 
     /// underlay の画像を、ページの mm の rect に置く。clip で切り取り、opacity で重ねる
     fn image(&mut self, underlay: &Underlay, placed: PageImage) {
-        let name = format!("Im{}", self.images.len());
-        self.images.push(Image::of(&placed.image));
         self.content.save_state();
-        if let Some(rings) = &underlay.clip
-            && self.rings(rings)
-        {
+        if let Some(rings) = &underlay.clip {
+            // An explicit empty clipping region hides the page, as in PNG, SVG and Canvas.
+            if !self.rings(rings) {
+                self.content.restore_state();
+                return;
+            }
             self.content.clip_even_odd().end_path();
         }
+        let name = format!("Im{}", self.images.len());
+        self.images.push(Image::of(&placed.image));
         let alpha = (underlay.opacity.unwrap_or(1.0).clamp(0.0, 1.0) * 255.0).round() as u8;
         self.begin_alpha(alpha);
         let rect = placed.rect;

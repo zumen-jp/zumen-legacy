@@ -126,3 +126,17 @@ fn counts_underlays_it_cannot_draw() {
     let (_, notices) = draw(&scene, &broken);
     assert_eq!(notices, ["underlay-not-drawn 3"]);
 }
+
+/// An explicit empty clip hides the page in all outputs, as Canvas clip(new Path2D()) does.
+#[test]
+fn an_empty_clip_does_not_reveal_the_page_in_pdf_output() {
+    let bytes = fixture();
+    let mut scene = scene(&bytes);
+    let options = RenderOptions { underlay_dpi: 12.0, ..with_content(&bytes) };
+    for rings in [vec![], vec![vec![]], vec![vec![0.0, 0.0, 1.0, 1.0]]] {
+        scene.underlays[0].clip = Some(rings);
+        let (pdf, _) = render_pdf(&scene, None, &options).unwrap();
+        let read = zumen_pdf::read_pdf(&pdf, None).unwrap();
+        assert!(!read.entities.iter().any(|entity| entity.kind == zumen_core::EntityKind::Image));
+    }
+}

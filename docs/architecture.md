@@ -636,7 +636,7 @@ drawings with hayro ([decision 0020](decisions/0020-pdf-drawings-in-rust.md)) fr
 caller passes in `RenderOptions::underlays` (`UnderlayContent::drawing`; the command line passes the file it read, and
 Python's `Scene` keeps the bytes it was read from): white pages with their annotation appearances, as pdf.js draws them.
 PNG renders the part of the page that the image shows directly in image pixels (`hayro::render_into` with the transform
-from the underlay's content coordinates to pixels, in tiles of at most 4,096 px), then applies the underlay's `clip`
+from the underlay's content coordinates to pixels, in tiles of at most 16,384 px), then applies the underlay's `clip`
 and `opacity`. SVG and PDF embed that part rendered at `RenderOptions::underlay_dpi` (150 by default; `--dpi` on the
 command line) as an image: a PNG data URL in SVG, an image XObject with a soft mask where it is transparent in PDF.
 Underlays it cannot draw (images, whose bytes it does not receive, PDF underlays that name another file, a PDF that does
