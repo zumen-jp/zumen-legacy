@@ -326,7 +326,9 @@ mapping writes what zumen's reader draws the same way as the source scene, and w
   `ACAD_IMAGE_DICT` (named as the editor names them), one IMAGEDEF_REACTOR each and the IMAGE classes; images that
   pointed at the same IMAGEDEF share one. The IMAGE keeps its brightness, contrast, fade and clip mode, and the
   IMAGEDEF its loaded state; the IMAGEDEF's other values are written as the editor writes them (pixel
-  size 1, no resolution units). **Gradients** keep their name, colors, angle, shift and tint (450 to 470, in AutoCAD's order).
+  size 1, no resolution units). The image frame setting (`DxfDocument::image_frame`) is written, when the model has
+  one, as a RASTERVARIABLES object in `ACAD_IMAGE_VARS` with its class (70 the frame, 71 1 for high quality, 72 0 for
+  no insertion units, the values ezdxf writes); R12 has no objects. **Gradients** keep their name, colors, angle, shift and tint (450 to 470, in AutoCAD's order).
 - **Multi-line attributes** (ATTRIB and ATTDEF with `mtext`) are written as AutoCAD 2018 writes them: the attribute
   type (71: 2 for an attribute, 4 for a definition) at the end of `AcDbAttribute` or `AcDbAttributeDefinition`, then
   `101`/`Embedded Object` and the values of the MTEXT, with its own extrusion. The attribute's own text (1 in
@@ -342,7 +344,6 @@ What cannot be written as it was is reported in `notices`:
 | Code | What is written |
 | --- | --- |
 | `image` | An IMAGE whose image definition (IMAGEDEF) the model does not know is left out |
-| `image-frame` | The setting that hides image frames (`IMAGEFRAME` 0) is not written; the frames show |
 | `helix` | HELIX is written as SPLINE, its curve, without the helix parameters |
 | `mpolygon` | MPOLYGON is written as HATCH |
 | `table` | ACAD_TABLE is written as the INSERT of its block (`*T…`) |

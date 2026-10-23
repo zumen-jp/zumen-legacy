@@ -1,5 +1,5 @@
 //! SXF・JWW から DXF への変換: tests/fixtures の SXF（SFC・P21）と JWW を DXF に書き直して読み直すと、
-//! DXF を開いたときの表示（用紙のレイアウト）に、元の図面と同じに描ける（比べ方は common/mod.rs）。
+//! DXF を開いたときの表示（用紙のレイアウト）に、元の図面と同じに描け、画像を同じ所に置く（比べ方は common/mod.rs）。
 
 mod common;
 
@@ -37,6 +37,7 @@ fn check(name: &str, bytes: &[u8]) -> (usize, Vec<String>) {
     let differences = common::differences(&original, &again, &sources)
         .into_iter()
         .filter(|line| !common::is_text_place(line, &distorted))
+        .chain(common::underlay_differences(&original, &again, &sources))
         .map(|line| format!("{name}: {line}"))
         .collect();
     (original.entities.len(), differences)
@@ -328,7 +329,8 @@ fn jww_check(doc: &JwwDocument) -> Mapped {
     let (original, _) = common::scale_texts(&zumen::jww::jww_to_scene(doc), true);
     let mapped = zumen::mapping::jww_to_dxf(doc);
     let again = zumen::dxf::dxf_to_scene(&written(&mapped), None);
-    let differences = common::differences(&original, &again, &mapped.sources);
+    let mut differences = common::differences(&original, &again, &mapped.sources);
+    differences.extend(common::underlay_differences(&original, &again, &mapped.sources));
     assert!(differences.is_empty(), "{differences:#?}");
     mapped
 }
@@ -503,4 +505,109 @@ fn keeps_one_scale_jww_drawings_in_model_space_and_reports_what_is_left_out() {
     for code in ["temporary-point", "jw-settings", "random-line", "layer-group"] {
         assert!(codes.contains(&code), "{code} not in {codes:?}");
     }
+}
+
+fn jww_text(base: JwwBase, x: f64, y: f64, angle: f64, content: &str) -> JwwEntity {
+    JwwEntity::Text(JwwText {
+        base,
+        x1: x,
+        y1: y,
+        x2: x + 10.0,
+        y2: y,
+        text_type: 0,
+        size_x: 3.0,
+        size_y: 3.0,
+        spacing: 0.0,
+        angle,
+        font: "Century".into(),
+        content: content.into(),
+    })
+}
+
+/// DXF の画像（IMAGE）とその画素数・画像の定義のファイル
+fn images(doc: &DxfDocument) -> Vec<(&zumen::dxf::DxfImage, &DxfEntity)> {
+    doc.entities
+        .iter()
+        .filter_map(|entity| match &entity.data {
+            DxfEntityData::Image(image) if entity.base.kind == "IMAGE" => Some((image, entity)),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn writes_jww_images_as_images_without_frames_at_a_hundred_pixels_per_millimeter() {
+    let image = jww_base(0, 1, 2, 1);
+    let block = JwwBlockDefinition {
+        number: 1,
+        name: "ロゴ".into(),
+        entities: vec![jww_text(image, 0.0, 0.0, 0.0, "^@BMlogo.png,10,5")],
+    };
+    let entities = vec![
+        JwwEntity::Line(jww_line(jww_base(0, 0, 2, 1), -100.0, 0.0, 0.0, 0.0)),
+        jww_text(image, -50.0, -30.0, 0.0, "^@BM%temp%photo.bmp,40,20,0,0,1,0,255,255,255"),
+        jww_text(image, 20.0, 10.0, 30.0, "^@BMC:\\images\\site.jpg,30,15,0.1,0,1,0,255,255,255"),
+        jww_text(image, 0.0, 50.0, 0.0, "^@BMbroken.bmp,0,10"),
+        jww_text(image, 0.0, 60.0, 0.0, "^@XX"),
+        JwwEntity::Block(JwwBlock {
+            base: jww_base(0, 0, 2, 1),
+            x: -100.0,
+            y: 50.0,
+            scale_x: 2.0,
+            scale_y: 2.0,
+            rotation: std::f64::consts::FRAC_PI_2,
+            definition: 1,
+        }),
+    ];
+    let mapped = jww_check(&jww(entities, vec![block]));
+    let doc = written(&mapped);
+    assert_eq!(doc.image_frame, Some(0.0));
+    let images = images(&doc);
+    let mut paths: Vec<&str> = images.iter().filter_map(|(image, _)| image.path.as_deref()).collect();
+    paths.sort_unstable();
+    assert_eq!(paths, ["%temp%photo.bmp", "C:\\images\\site.jpg", "logo.png"]);
+    let by_path = |path: &str| *images.iter().find(|(image, _)| image.path.as_deref() == Some(path)).unwrap();
+    // 40 × 20 mm の画像は 4000 × 2000 画素。レイヤグループの縮尺 1/100 の実寸で 1 画素は 1 mm
+    let (photo, entity) = by_path("%temp%photo.bmp");
+    assert_eq!(photo.image_size, [4000.0, 2000.0]);
+    assert!((photo.u_pixel[0] - 1.0).abs() < 1e-9 && photo.v_pixel[1] > 0.0, "{photo:?}");
+    assert_eq!(entity.base.space, DxfSpace::Model);
+    // ブロックの中の画像は、最初の配置の縮尺（2 倍）の用紙の大きさで数える
+    let (logo, entity) = by_path("logo.png");
+    assert_eq!(logo.image_size, [2000.0, 1000.0]);
+    assert_eq!(entity.base.space, DxfSpace::Block);
+    let codes = codes(&mapped.notices);
+    for code in ["embedded-file", "image-trim", "image", "embedded-image"] {
+        assert!(codes.contains(&code), "{code} not in {codes:?}");
+    }
+}
+
+#[test]
+fn writes_sxf_rasters_as_images_before_their_outline() {
+    let bytes = fs::read(fixtures().join("sfc/rasters.sfc")).unwrap();
+    let drawing = zumen::sxf::parse_sxf(&bytes, "sfc").unwrap();
+    let mapped = zumen::mapping::sxf_to_dxf(&drawing);
+    let doc = written(&mapped);
+    assert_eq!(doc.image_frame, Some(0.0));
+    let images = images(&doc);
+    let paths: Vec<&str> = images.iter().filter_map(|(image, _)| image.path.as_deref()).collect();
+    assert_eq!(paths, ["GENKYOU.TIF", "photo.jpg"]);
+    assert_eq!(images[0].0.image_size, [10000.0, 5000.0]);
+    for (_, entity) in &images {
+        // 画像はグループのブロックの中で、範囲の折線の前にあり、同じ元の図形から書く
+        let block = entity.base.block.as_deref();
+        let members: Vec<&DxfEntity> =
+            doc.entities.iter().filter(|other| other.base.block.as_deref() == block).collect();
+        let at = members.iter().position(|other| other.base.handle == entity.base.handle).unwrap();
+        assert_eq!(members[at + 1].base.kind, "LWPOLYLINE");
+        let source = |entity: &DxfEntity| mapped.sources.get(&entity.base.handle).cloned();
+        assert_eq!(source(entity), source(members[at + 1]));
+    }
+    let original = zumen::sxf::sxf_to_scene(&drawing);
+    let again = zumen::dxf::dxf_to_scene(&doc, None);
+    assert_eq!(again.underlays.len(), original.underlays.len());
+    let differences = common::underlay_differences(&original, &again, &mapped.sources);
+    assert!(differences.is_empty(), "{differences:#?}");
+    // グループの中に範囲の折線のない画像は、書かずに知らせる
+    assert!(codes(&mapped.notices).contains(&"raster"), "{:?}", mapped.notices);
 }

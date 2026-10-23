@@ -22,7 +22,7 @@ const TOLERANCE: f64 = 0.02;
 /// （docs/decisions/0031）
 const IMAGE_UNITS_PER_MM: f64 = 100.0;
 /// 画像の配置の文字の、トリミングと透過の値の既定（Jw_cad が書く値。ezjww の IMAGE_DEFAULT_EXTRA）
-const IMAGE_DEFAULT_EXTRA: &str = "0,0,1,0,255,255,255";
+pub const IMAGE_DEFAULT_EXTRA: &str = "0,0,1,0,255,255,255";
 
 fn number(value: f64) -> String {
     js::format_number(value, 3)

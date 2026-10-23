@@ -87,6 +87,7 @@ layout of the written DXF draws the same shapes at the same places as the JWW.
 | Solid, circle solid | SOLID, and a solid-fill HATCH (circles, sectors and segments with arc bulges, ellipses with the same points as the scene) |
 | Block | Block definitions and INSERTs; the insertion scale is multiplied by the scale of the layer group |
 | Dimension | A rotated DIMENSION whose display block (`*D`) holds the dimension line, extension lines, end points and text. The definition points are the ends of the dimension line and the ends of the extension lines away from it |
+| Image (`^@BM`) | An IMAGE whose IMAGEDEF names the file as the text gives it (`C:\images\site.jpg`, or `%temp%<name>` for embedded images), at the same corner, size and angle. JWW does not record the pixel count, so the IMAGE has one pixel per hundredth of a sheet millimeter, as the content of the reader's underlay ([decision 0031](../decisions/0031-image-units-without-a-pixel-count.md)): the width and height on the sheet × 100, rounded to whole pixels, with the pixel vectors dividing the placed size by them (an image in a block counts the sheet size of the block's first placement). The DXF scene then places the same content at the same place. The pixel count is not the file's: zumen stretches the file over the content, and how AutoCAD fits a file of another pixel count has not been checked. Jw_cad draws no frame around images, so the drawing hides image frames (`IMAGEFRAME` 0, RASTERVARIABLES; DWG does not write it yet and reports `image-frame`) |
 
 What cannot be mapped, or is mapped differently, is returned in notices (kind and count).
 
@@ -95,7 +96,10 @@ What cannot be mapped, or is mapped differently, is returned in notices (kind an
 | `view-moved` | Layer groups of different scales would overlap in model space, so the smaller one was moved (the real coordinates of its entities change) |
 | `temporary-point` | Temporary points (not printed) are not written |
 | `jw-settings` | Jw_cad's settings stored as text at (0, −1000) are not entities and are not written |
-| `embedded-image` | Images embedded in text (`^@BM` …) are not written |
+| `embedded-image` | Control texts starting with `^@` that are not images are not written |
+| `embedded-file` | The files of images embedded in the drawing cannot be written to DXF; the IMAGE names them as the text does (`%temp%<name>`), so the application or the user places the files (`zumen::embedded_files`) |
+| `image-trim` | The trimming and transparency values of an image other than Jw_cad's defaults are not written |
+| `image` | An image placement whose file, width or height cannot be read is not written, as in the scene |
 | `random-line` | Random (hand-drawn style) lines became solid |
 | `text-spacing` | Character spacing cannot be written, so the text is widened to the same box |
 | `layer-group` | Layer group names cannot be written to DXF; only the number in the layer name shows the group |
@@ -123,11 +127,12 @@ the same places as the layout (or model space) the DXF opens in.
 | LINE, CIRCLE, ARC, ELLIPSE, LWPOLYLINE, POLYLINE | Lines and arcs; bulges become arcs, and circles and ellipses stay arcs through any affine transform. Arcs run counterclockwise |
 | POINT, SOLID, TRACE | Points and solids |
 | INSERT, TABLE | Block definitions and placements. A definition holds the block in mm on the sheet at its layer group's scale, so most placements have scale 1. A block is defined again for each different inherited BYBLOCK value or layer-0 layer, each scale, and each sheet scale of dashed content. Skewed placements are written as the block's entities (`skewed`) |
-| Text, MTEXT, attributes, dimensions, leaders, multileaders, multilines, hatches, splines, wide polylines, images, wipeouts | The lines, fills and text the scene draws: lines; fills split into horizontal trapezoid solids (`fill-solids`); hatch pattern lines cut to the hatch area (`hatch-lines`); text whose height is the TEXT height (the box the scene draws shrunk by 0.88 or 0.72 about the start of the baseline, [decision 0019](../decisions/0019-text-heights-between-formats.md)), start point the lower left of that box, end point at its width, and character width the width divided by the characters (full width 1, half width 0.5). SHX fonts become `ＭＳ ゴシック`; mirrored and oblique text is written upright (`text-mirror`, `text-oblique`) |
+| IMAGE | An image the scene draws (its IMAGEDEF names a file, the show flag 1 of 70 is on and the IMAGEDEF is loaded) that is a rectangle turned by an angle in the JWW coordinates (not skewed or mirrored) and not clipped (or clipped by the whole image) becomes an image placement text `^@BM<file>,<width>,<height>,0,0,1,0,255,255,255`: the start point is its lower left corner, the width and height are its sides in the coordinates of its container (sheet millimeters, or the block's), the angle is the text's, the trimming and transparency values are Jw_cad's defaults, and the size of the text is 3 mm (*inferred*: Jw_cad does not draw images by the text size). A fade is not written (`image-fade`). Other images are reported (`image`). The frame is written as the lines the scene draws only when the scene draws it (`IMAGEFRAME` other than 0, or an image without a file), as Jw_cad draws no frame |
+| Text, MTEXT, attributes, dimensions, leaders, multileaders, multilines, hatches, splines, wide polylines, wipeouts | The lines, fills and text the scene draws: lines; fills split into horizontal trapezoid solids (`fill-solids`); hatch pattern lines cut to the hatch area (`hatch-lines`); text whose height is the TEXT height (the box the scene draws shrunk by 0.88 or 0.72 about the start of the baseline, [decision 0019](../decisions/0019-text-heights-between-formats.md)), start point the lower left of that box, end point at its width, and character width the width divided by the characters (full width 1, half width 0.5). SHX fonts become `ＭＳ ゴシック`; mirrored and oblique text is written upright (`text-mirror`, `text-oblique`) |
 
 Other notices: `layouts`, `outside-viewports`, `viewport-view`, `scale-merged`, `complex-linetype`, `transparency`,
-`dimension`, `drawn-shapes`, `spline`, `polyline-width`, `fill-complex`, `hatch-dense`, `gradient`, `image`, `wipeout`,
-`xline`, `minsert`, `missing-block`, `block-depth`, `dimension-block`, `text-skew`.
+`dimension`, `drawn-shapes`, `spline`, `polyline-width`, `fill-complex`, `hatch-dense`, `gradient`, `image`,
+`image-fade`, `wipeout`, `xline`, `minsert`, `missing-block`, `block-depth`, `dimension-block`, `text-skew`.
 
 ## Writing
 
