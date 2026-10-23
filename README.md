@@ -350,7 +350,7 @@ data files from the URLs the application gives it.
    hayro) that reads the pages, paths and texts of PDF drawings for Python, the command line, the MCP server and
    browsers alike (done, with a WebAssembly module of its own for browsers,
    [decision 0030](docs/decisions/0030-pdf-in-a-webassembly-module-of-its-own.md)), with the pages drawn by hayro on
-   servers; then `@zumenjs/pdf`, which draws the pages with pdf.js in browsers under the snapping, measurement and
+   servers (done); then `@zumenjs/pdf`, which draws the pages with pdf.js in browsers under the snapping, measurement and
    layers of zumen (done, [decision 0029](docs/decisions/0029-pdf-js-owned-by-the-application.md)).
 8. Drawing markup (redlines, revision clouds, review findings, photo positions,
    [decision 0021](docs/decisions/0021-drawing-markup.md)): a JSON document beside the drawing, in paper millimeters of

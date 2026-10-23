@@ -4,10 +4,9 @@
 [hayro-interpret](https://github.com/LaurenzV/hayro) 0.8.0 interpreting the pages
 ([decision 0020](../decisions/0020-pdf-drawings-in-rust.md)). It reads what interaction and analysis need: the pages as
 views, the painted paths, glyph runs and images as entities, and the scales of the measured viewports. It does not draw:
-each page is the underlay of its view, drawn by a PDF engine (pdf.js in browsers through `@zumenjs/pdf`), and every
-entity has `drawn: false`. Native rendering of PDF underlays is tracked separately in
-[issue #91](https://github.com/zumenjs/zumen/issues/91); a server renderer without a PDF engine reports the undrawn
-underlay in its notices. Sections are those of ISO 32000-1:2008.
+each page is the underlay of its view, drawn by a PDF engine (pdf.js in browsers through `@zumenjs/pdf`, hayro in
+`zumen-render` on servers, see [Drawing the pages](#drawing-the-pages)), and every entity has `drawn: false`. Sections
+are those of ISO 32000-1:2008.
 
 There is no TypeScript PDF reader. The `zumen` command, Python, the MCP server and the PDF module of `@zumenjs/reader`
 (`bindings/wasm-pdf`, [decision 0030](../decisions/0030-pdf-in-a-webassembly-module-of-its-own.md)) read PDF with this
@@ -89,6 +88,15 @@ appearances (not read, see below). The device turns them into entities:
   does not meet it is not read (`clipped-out`), so that content outside a viewport's clip or outside the page is not
   selected. An entity that the clip cuts keeps its whole shape (*inferred*).
 - **Colors** are those of hayro-interpret converted to sRGB (`#rrggbb`, with alpha `#rrggbbaa`).
+
+## Drawing the pages
+
+The page is the underlay of its view and the entities are not drawn. In browsers `@zumenjs/pdf` draws it with pdf.js
+([decision 0029](../decisions/0029-pdf-js-owned-by-the-application.md)); on servers `zumen-render` draws it with hayro
+from the drawing's bytes (`RenderOptions::underlays`): PNG at the image's resolution, SVG and PDF as an embedded image at
+`underlay_dpi` ([Architecture](../architecture.md#rust-dependencies)). Both draw a white page with its annotation
+appearances. `zumen render`, Python's `Scene.render_png`, `render_svg` and `render_pdf`, and `render_drawing` of the MCP
+server pass the bytes they read.
 
 ## Not read, and reported
 

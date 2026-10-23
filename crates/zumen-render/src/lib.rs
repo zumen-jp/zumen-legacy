@@ -9,10 +9,12 @@
 
 mod pdf;
 mod svg;
+mod underlay;
 mod vector;
 
 pub use pdf::render_pdf;
 pub use svg::render_svg;
+pub use underlay::UnderlayContent;
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt;
@@ -21,10 +23,11 @@ use tiny_skia::{
     Color, FillRule, LineCap, LineJoin, Mask, Paint, Path, PathBuilder, Pixmap, Rect, Stroke, StrokeDash, Transform,
 };
 use ttf_parser::{Face, OutlineBuilder};
+use underlay::Underlays;
 use zumen_core::extract::{EntityFilter, select_entities, select_underlays};
+use zumen_core::geometry::multiply;
 use zumen_core::{
-    BACKGROUND_COLOR, BBox, Background, Matrix, Notice, NoticeLevel, Primitive, Scene, SceneEntity, StrokePrimitive,
-    TextPrimitive,
+    BACKGROUND_COLOR, BBox, Background, Matrix, Primitive, Scene, SceneEntity, StrokePrimitive, TextPrimitive, Underlay,
 };
 
 pub use zumen_core::extract::is_entity_visible;
@@ -135,11 +138,23 @@ pub struct RenderOptions {
     pub sheet_frame: bool,
     /// 画像の px と CSS px の比（ブラウザの devicePixelRatio）。点の大きさと、字形を描く最小の文字の大きさに使う
     pub device_pixel_ratio: f64,
+    /// underlay の中身（PDF の図面のページを描く図面のバイト列）。渡さなければ underlay は描かず、notices で数える
+    pub underlays: UnderlayContent,
+    /// SVG と PDF に埋め込む underlay の画像の解像度（dpi）。PNG は画像の解像度で描く
+    pub underlay_dpi: f64,
 }
 
 impl Default for RenderOptions {
     fn default() -> Self {
-        Self { theme: None, line_weights: true, hidden_layers: None, sheet_frame: true, device_pixel_ratio: 1.0 }
+        Self {
+            theme: None,
+            line_weights: true,
+            hidden_layers: None,
+            sheet_frame: true,
+            device_pixel_ratio: 1.0,
+            underlays: UnderlayContent::default(),
+            underlay_dpi: 150.0,
+        }
     }
 }
 
@@ -148,24 +163,15 @@ impl Default for RenderOptions {
 pub struct RenderReport {
     /// 同梱のフォントに字形がなく、描かなかった文字
     pub missing_glyphs: BTreeSet<char>,
-    /// 描かなかった内容の種類と件数（`underlay-not-drawn`: 範囲に写る underlay）
-    pub notices: Vec<Notice>,
+    /// 描かなかった内容の種類と件数（`underlay-not-drawn`: 範囲に写るのに、中身を受け取らなかったか読めなかった
+    /// underlay）
+    pub notices: Vec<zumen_core::Notice>,
 }
 
-/// 描く範囲 region に写り、表示するレイヤにある underlay（画像・PDF のページ）の notice。zumen-render は underlay の
-/// 中身（画像・PDF のバイト）を受け取らないので描かず、件数を返す（docs/decisions/0022）
-pub(crate) fn underlay_notices(scene: &Scene, region: BBox, options: &RenderOptions) -> Vec<Notice> {
+/// 描く範囲 region に写り、表示するレイヤにある underlay（画像・PDF のページ）。この順に、図形の下に描く
+pub(crate) fn visible_underlays<'a>(scene: &'a Scene, region: BBox, options: &RenderOptions) -> Vec<&'a Underlay> {
     let filter = EntityFilter { region: Some(region), hidden_layers: options.hidden_layers.clone() };
-    let count = select_underlays(scene, &filter).len();
-    if count == 0 {
-        return Vec::new();
-    }
-    vec![Notice {
-        level: NoticeLevel::Warning,
-        code: "underlay-not-drawn".into(),
-        message: "underlay（画像・PDF のページ）は中身を受け取らないので描いていません".into(),
-        count: count as u64,
-    }]
+    select_underlays(scene, &filter)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -219,6 +225,11 @@ pub fn render(
         report: RenderReport::default(),
         batch: None,
     };
+    // 背景の上、用紙の枠と図形の下に underlay（@zumenjs/viewer の renderScene と同じ順）
+    let mut underlays = Underlays::new(&options.underlays);
+    for underlay in visible_underlays(scene, view.visible_region(width, height), options) {
+        painter.underlay(underlay, &mut underlays);
+    }
     if options.sheet_frame {
         painter.sheet(scene);
     }
@@ -229,7 +240,7 @@ pub fn render(
     }
     painter.flush(None);
     let mut report = painter.report;
-    report.notices = underlay_notices(scene, view.visible_region(width, height), options);
+    report.notices = underlays.notices();
     Ok((pixmap, report))
 }
 
@@ -455,6 +466,41 @@ impl Painter<'_> {
         if primitive.closed {
             path.close();
         }
+    }
+
+    /// underlay の中身を画像の px で描き、clip で切り取り、opacity で重ねる
+    fn underlay(&mut self, underlay: &Underlay, underlays: &mut Underlays<'_>) {
+        let (width, height) = (self.pixmap.width(), self.pixmap.height());
+        // underlay の外接矩形の px（画像と重なる部分）
+        let (x0, y0) = zumen_core::geometry::apply(&self.base, underlay.bbox.min_x, underlay.bbox.max_y);
+        let (x1, y1) = zumen_core::geometry::apply(&self.base, underlay.bbox.max_x, underlay.bbox.min_y);
+        let left = x0.min(x1).floor().max(0.0);
+        let top = y0.min(y1).floor().max(0.0);
+        let right = x0.max(x1).ceil().min(f64::from(width));
+        let bottom = y0.max(y1).ceil().min(f64::from(height));
+        if !(right > left && bottom > top) {
+            return;
+        }
+        let to_pixels = multiply(&[1.0, 0.0, 0.0, 1.0, -left, -top], &multiply(&self.base, &underlay.matrix));
+        let Some(image) = underlays.rasterize(underlay, &to_pixels, (right - left) as u32, (bottom - top) as u32)
+        else {
+            return;
+        };
+        let clip = underlay.clip.as_deref().and_then(|rings| {
+            let path = self.rings_path(rings)?;
+            let mut mask = Mask::new(width, height)?;
+            mask.fill_path(&path, FillRule::EvenOdd, true, Transform::identity());
+            Some(mask)
+        });
+        // 切り取りの多角形が描けなければ（点の足りない輪郭）、何も描かない
+        if underlay.clip.is_some() && clip.is_none() {
+            return;
+        }
+        let paint = tiny_skia::PixmapPaint {
+            opacity: underlay.opacity.unwrap_or(1.0).clamp(0.0, 1.0) as f32,
+            ..tiny_skia::PixmapPaint::default()
+        };
+        self.pixmap.draw_pixmap(left as i32, top as i32, image.as_ref(), &paint, Transform::identity(), clip.as_ref());
     }
 
     fn rings_path(&self, rings: &[Vec<f64>]) -> Option<Path> {

@@ -4,6 +4,13 @@ All packages share one version during 0.x.
 
 ## Unreleased
 
+- Rust, Python, the command line and the MCP server: `zumen-render` draws the pages of PDF drawings under the scene
+  with hayro, so PNG, SVG and PDF output, `zumen render` and `render_drawing` show PDF drawings, scans included
+  ([issue #91](https://github.com/zumenjs/zumen/issues/91)). `RenderOptions::underlays` (`UnderlayContent`) carries
+  the drawing's bytes and `RenderOptions::underlay_dpi` the resolution of the page embedded as an image in SVG and PDF;
+  the command line passes the file it read (and `--dpi`), and Python's `Scene` keeps the bytes it was read from
+  (`render_svg` and `render_pdf` take `underlay_dpi`). Underlays that it cannot draw are still reported as
+  `underlay-not-drawn`.
 - Browsers, Rust, Python and the command line: files that start with `ISO-10303-21` but whose `FILE_SCHEMA` does not
   begin with SXF's schema `ASSOCIATIVE_DRAUGHTING`, such as IFC (`IFC2X3`, `IFC4`, `IFC4X3_ADD2`) and STEP AP203, AP214
   and AP242 files, are no longer detected as SXF P21. Reading them gives the error for a format no reader knows instead

@@ -16,7 +16,7 @@ use zumen::regions::{ClosedRegion, RegionOptions, RegionShape, closed_regions};
 use zumen::tables::{RuledTable, TableOptions, ruled_tables};
 use zumen::title::{TitleKey, title_block, title_fields};
 use zumen::{BBox, Background, ReadDrawingOptions, ReadLimits, Scene, SceneEntity};
-use zumen_render::{ImageSize, RenderOptions, RenderedImage};
+use zumen_render::{ImageSize, RenderOptions, RenderedImage, UnderlayContent};
 
 const USAGE: &str = "\
 Usage:
@@ -47,8 +47,8 @@ reading an untrusted drawing that is too large (P2Z and SFZ after unpacking), to
 
 Reads SXF, JWW (also JWC and JWS), DXF, DWG and PDF drawings into zumen's scene model. A PDF page is a view
 (--view 2 for the second page) whose paths, texts and images are read for texts, entities, regions, tables, title,
-check and compare, but not drawn: the page shows them, and render reports it as underlay-not-drawn. convert, edit
-and draft do not take PDF.
+check and compare, but not drawn: render draws the page itself under them (in SVG and PDF as an image at --dpi,
+150 by default). convert, edit and draft do not take PDF.
 texts and entities write one JSON object per line, in paper millimeters (Y up) rounded to 0.001.
 --geometry adds the shapes drawn to each entity (polylines, segments, fills, hatches, points and text
 parts; curves as the polyline drawn), with real for the same coordinates in real-world millimeters
@@ -69,7 +69,8 @@ value that breaks it with its count, entity ids and layers. --rules names a buil
 drafting standard of the Ministry of Land, Infrastructure, Transport and Tourism of Japan, by default) or a JSON
 file of rules (docs/checks.md). The command fails when a rule of level error is broken.
 render writes SVG or PDF when the output ends in .svg or .pdf: the sheet (or --region) at its real size,
-with text that can be searched. --dpi, --size, --dpr and --map are for PNG only.
+with text that can be searched. --size, --dpr and --map are for PNG only; --dpi is also the resolution of the PDF
+pages embedded in SVG and PDF.
 --region selects a part of the sheet in paper millimeters, and --all-layers includes the layers
 that the drawing hides. --map writes the size of the image,
 the conversion between pixels and paper millimeters, and the pixel box of every entity drawn.
@@ -786,11 +787,19 @@ fn run(args: Args) -> Result<(), String> {
         )?,
         "render" => {
             let output = args.output.ok_or("render needs -o <out.png>")?;
+            // PDF の図面のページ（file のない underlay）は、図面のバイト列から描く
+            let underlays = if scene.underlays.iter().any(|underlay| underlay.file.is_none()) {
+                UnderlayContent::drawing(bytes)
+            } else {
+                UnderlayContent::default()
+            };
             let options = RenderOptions {
                 theme: args.theme,
                 line_weights: !args.thin,
                 device_pixel_ratio: args.dpr,
                 hidden_layers: filter.hidden_layers.clone(),
+                underlays,
+                underlay_dpi: args.dpi,
                 ..RenderOptions::default()
             };
             let extension = output.rsplit_once('.').map(|(_, extension)| extension.to_ascii_lowercase());

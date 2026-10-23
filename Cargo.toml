@@ -25,6 +25,8 @@ zumen-render = { path = "crates/zumen-render" }
 encoding_rs = "0.8.42"
 # zumen-pdf は hayro-interpret の呼び出しの順に図形の id を振るので、版を固定する。上げるのは読み取りの変更（決定 0020）
 hayro-interpret = "=0.8.0"
+# zumen-render が PDF のページの underlay を描く（hayro-interpret と同じ版）
+hayro = "=0.8.0"
 kurbo = "0.13.1"
 libm = "0.2.16"
 miniz_oxide = "0.8.9"

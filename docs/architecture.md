@@ -314,7 +314,7 @@ bytes ─▶ zumen-sxf, zumen-jww, zumen-dxf, zumen-dwg, zumen-pdf ─▶ Scene 
 | `zumen-convert` | Maps SXF and JWW into the AutoCAD drawing model (`sxf_to_dxf`, `jww_to_dxf` → `Mapped`: the `DxfDocument`, the notices, and the source of each entity), so that they can be written as DXF ([decision 0007](decisions/0007-mapping-crate-between-formats.md)), and maps the AutoCAD drawing model into the SXF feature model (`dxf_to_sxf` → `MappedSxf`), so that it can be written as SXF ([decision 0010](decisions/0010-write-sxf-from-the-autocad-model.md)), and into the JWW document model (`dxf_to_jww` → `MappedJww`). |
 | `zumen-draft` | Draws a drawing from a JSON drawing spec into the AutoCAD drawing model with the builder of `zumen-convert` (`draft` → `Drafted`: the `DxfDocument`, the notices and the place in the spec of each entity): one layout per sheet, a viewport for each view at its scale, sizes in paper millimeters, dimensions with their blocks, hatches with pattern lines, tables, title blocks, blocks with attributes ([decision 0018](decisions/0018-drafting-kit.md), [Drafting](drafting.md)). |
 | `zumen` | `read` and `detect` over every reader (PDF with the default feature `pdf`), with limits for untrusted drawings (`ReadDrawingOptions::limits`, through `read_drawing_with_limits` of `zumen-core`), `convert` (every format to DXF, DWG, JWW and SXF through the AutoCAD model; `mapping` re-exports `zumen-convert`), `edit` and `create` (DXF, DWG, JWW and SXF), and `draft` (a drawing spec written in any of those formats; `draft` re-exports `zumen-draft`). The entry point for applications. |
-| `zumen-render` | Draws a scene to PNG with the rules of `render.ts` in `@zumenjs/viewer` (color inversion, line weights with a 1 px minimum, dash rules, even-odd fills, clipping, per-character text, small text as a line), and reports which entities it drew and where (`render_image`, `drawn_entities`, `View::pixel_box`). It also writes SVG (`render_svg`) and one-page PDF (`render_pdf`) with the same colors, fills, clipping and text placement. |
+| `zumen-render` | Draws a scene to PNG with the rules of `render.ts` in `@zumenjs/viewer` (color inversion, line weights with a 1 px minimum, dash rules, even-odd fills, clipping, per-character text, small text as a line), and reports which entities it drew and where (`render_image`, `drawn_entities`, `View::pixel_box`). It also writes SVG (`render_svg`) and one-page PDF (`render_pdf`) with the same colors, fills, clipping and text placement, and draws the pages of PDF drawings under the scene with hayro (`RenderOptions::underlays`). |
 | `zumen-cli` | The `zumen` command (`detect`, `scene`, `texts`, `entities`, `title`, `render`, `compare`, `convert`). |
 | `bindings/python` | PyO3 bindings, built with maturin as an abi3 wheel for Python 3.12 and later. The GIL is released while reading, rendering and converting. `Scene.to_arrow` needs pyarrow (Apache-2.0, `zumen[arrow]`), and the MCP server `zumen.mcp` needs the MCP SDK (MIT, `zumen[mcp]`); both are optional dependencies. `zumen.tools`, the functions behind the MCP tools, needs neither. |
 | `bindings/wasm` | wasm-bindgen bindings that detect the format (`detect`) and return scene JSON (`readSceneJson`, with the limits on bytes and entities; a failure throws a `ReadFailure` with the message and the exceeded limit), for every format but PDF (`zumen` without its feature `pdf`). `scripts/wasm.mjs` builds them into `packages/reader/wasm` for `@zumenjs/reader`. |
@@ -613,6 +613,7 @@ Runtime dependencies are permissive and work in WebAssembly. Recorded with the r
 | `wasm-bindgen` | MIT OR Apache-2.0 | WebAssembly bindings |
 | `hayro-interpret` (with `hayro-syntax`, `hayro-cmap`, `hayro-postscript`, `hayro-jbig2`, `hayro-jpeg2000`, `hayro-ccitt`) | Apache-2.0 OR MIT | The PDF reader: objects, filters, encryption, the graphics and text state, fonts and CMaps, interpreted into a `Device` ([decision 0020](decisions/0020-pdf-drawings-in-rust.md)). Pure Rust; its demo runs in WebAssembly. Pinned to `=0.8.0`, since ids follow its calls. Its default features embed substitutes of the 14 standard fonts (Foxit fonts from PDFium, BSD-3-Clause) and the predefined CMaps (Adobe, BSD-3-Clause), which `THIRD_PARTY_LICENSES.txt` carries. It always compiles in the image decoders, although the reader decodes no image |
 | `kurbo` | Apache-2.0 OR MIT | The paths that hayro-interpret gives, and flattening their curves; already a dependency of hayro-interpret |
+| `hayro` (with `vello_cpu`, `vello_common`, `pic-scale`, `image` and what they depend on) | Apache-2.0 OR MIT, and the permissive licenses of its dependencies | `zumen-render` only: rasterizes the pages of PDF drawings for PNG, SVG and PDF output on the CPU ([issue #91](https://github.com/zumenjs/zumen/issues/91)). Pinned to `=0.8.0` with hayro-interpret. Not in the WebAssembly modules |
 | `skrifa`, `read-fonts`, `font-types`, `moxcms`, `pxfm`, `zune-jpeg`, `brotli-decompressor` and the rest of what hayro-interpret depends on | Apache-2.0, MIT, BSD-3-Clause, Zlib, Unicode-3.0 | Fonts, color management, JPEG and the compressed CMaps, through hayro-interpret only |
 
 SVG and PDF draw the sheet, or a region given in paper millimeters, at its real size; without a sheet, the bounds of
@@ -627,9 +628,20 @@ its cell. A page that is the sheet itself has no sheet frame.
 
 `zumen-render` bundles BIZ UDGothic Regular (SIL Open Font License 1.1, `crates/zumen-render/fonts/OFL.txt`),
 a Japanese gothic close to the MS Gothic that SXF and Jw_cad drawings assume. Characters without a glyph are reported
-(`RenderReport.missing_glyphs`, a Python warning). It does not draw underlays, whose content it does not receive, and
-reports them as `underlay-not-drawn` in `RenderReport.notices` with their number
-([decision 0022](decisions/0022-underlays-drawn-by-a-region-renderer.md)).
+(`RenderReport.missing_glyphs`, a Python warning).
+
+Underlays are drawn over the background and under the sheet frame and the entities, as `renderScene` does
+([decision 0022](decisions/0022-underlays-drawn-by-a-region-renderer.md)). `zumen-render` draws the pages of PDF
+drawings with hayro ([decision 0020](decisions/0020-pdf-drawings-in-rust.md)) from the drawing's own bytes, which the
+caller passes in `RenderOptions::underlays` (`UnderlayContent::drawing`; the command line passes the file it read, and
+Python's `Scene` keeps the bytes it was read from): white pages with their annotation appearances, as pdf.js draws them.
+PNG renders the part of the page that the image shows directly in image pixels (`hayro::render_into` with the transform
+from the underlay's content coordinates to pixels, in tiles of at most 4,096 px), then applies the underlay's `clip`
+and `opacity`. SVG and PDF embed that part rendered at `RenderOptions::underlay_dpi` (150 by default; `--dpi` on the
+command line) as an image: a PNG data URL in SVG, an image XObject with a soft mask where it is transparent in PDF.
+Underlays it cannot draw (images, whose bytes it does not receive, PDF underlays that name another file, a PDF that does
+not open) are reported as `underlay-not-drawn` in `RenderReport.notices` with their number. hayro and vello_cpu are
+not in the WebAssembly modules: browsers draw PDF pages with pdf.js through `@zumenjs/pdf`.
 
 Release packages include source files for source maps. `scripts/notices.mjs` records the license texts of normal Rust
 dependencies linked into the Python extension and WebAssembly reader; `pnpm run check` verifies these files against

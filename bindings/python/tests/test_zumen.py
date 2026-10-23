@@ -3,6 +3,7 @@
 import json
 import math
 import pathlib
+import warnings
 
 import pytest
 import zumen
@@ -82,6 +83,19 @@ def test_reads_a_pdf_page_as_a_view_with_texts_that_are_not_drawn():
     assert texts == ["PLAN 1:100", "図面"]
     with pytest.raises(zumen.ReadError):
         zumen.convert(pdf, "dxf")
+
+
+def test_renders_the_page_of_a_pdf_drawing_under_its_entities():
+    # The scene keeps the bytes it was read from, and draws the page with hayro (the entities are not drawn)
+    scene = zumen.read(FIXTURES / "pdf" / "drawing.pdf")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        png = scene.render_png(dpi=30)
+        svg = scene.render_svg(underlay_dpi=30)
+        pdf = scene.render_pdf(underlay_dpi=30)
+    assert png.startswith(b"\x89PNG")
+    assert "<image " in svg and "data:image/png;base64," in svg
+    assert b"/Subtype /Image" in pdf
 
 
 def test_renders_png_and_reports_unreadable_input():
