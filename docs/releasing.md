@@ -32,7 +32,8 @@ Release for every tag.)
    upload from the workflow create the project, so the first PyPI release needs no hand work.
 8. **Third-party rights.** Keep third-party license texts with distributed binaries. ST-Bridge is outside this repository ([decision 0013](decisions/0013-st-bridge-out-of-zumen.md)).
 9. **Lift the two guards.** Done for 0.1.0 after the repository review: `packages/core`, `packages/viewer`,
-   `packages/reader` and `packages/react` have no `"private": true`, and `bindings/python/pyproject.toml` has no
+   `packages/reader` and `packages/react` have no `"private": true` (nor has `packages/pdf`, added after 0.1.1; see
+   [A package added after the first release](#a-package-added-after-the-first-release)), and `bindings/python/pyproject.toml` has no
    `Private :: Do Not Upload` classifier. The Python license is the SPDX expression `license = "MIT"`; do not add a
    deprecated license classifier alongside it ([Python packaging specification](https://packaging.python.org/en/latest/specifications/pyproject-toml/#classifiers)).
 
@@ -67,7 +68,8 @@ first release by hand; if it does, add the trusted publishers first (step 3) and
 
 1. Run `pnpm install --frozen-lockfile` and `pnpm run check` on a clean checkout of `main`, at the commit with step 9.
 2. Publish in dependency order with two-factor authentication:
-   `pnpm --filter @zumenjs/core publish`, then `@zumenjs/viewer` and `@zumenjs/reader`, then `@zumenjs/react`. `@zumenjs/reader` publishes the WebAssembly reader in
+   `pnpm --filter @zumenjs/core publish`, then `@zumenjs/viewer` and `@zumenjs/reader`, then `@zumenjs/pdf` and
+   `@zumenjs/react`. `@zumenjs/reader` publishes the WebAssembly reader in
    `packages/reader/wasm`, which `pnpm run check` has just built from the same commit. pnpm replaces `workspace:*` with the
    version, and `publishConfig.exports` drops the development-only condition. Add `--no-provenance` to each command:
    provenance needs a CI that npm knows, not a laptop.
@@ -76,6 +78,14 @@ first release by hand; if it does, add the trusted publishers first (step 3) and
    publish within two days, so tag the next release right after this.
 4. From then on, `npm-release.yml` publishes with provenance (it is automatic for a public repository and public
    packages).
+
+### A package added after the first release
+
+`@zumenjs/pdf` was added after 0.1.1, so npm has no package of that name and no trusted publisher for it.
+`npm-release.yml` packs it after `@zumenjs/reader`. Before the first tag that includes it, add its trusted publisher on
+npm as in step 3 if npm allows it for a package that does not exist yet. Otherwise the workflow stops at
+`@zumenjs/pdf`: publish that version by hand as in step 2, add the trusted publisher, and run the workflow again, which
+skips the packages that npm already has.
 
 ## Later releases
 
