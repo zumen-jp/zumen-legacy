@@ -18,6 +18,7 @@ use crate::write::real;
 use dimension::{DimStyleValues, DimensionInput, DimensionKind, DxfDimension, Part, Role};
 use raw::{RawDxf, Tag};
 use std::collections::{BTreeMap, HashMap, HashSet};
+use zumen_core::edit::style::{LineTypeInput, TextStyleInput};
 use zumen_core::edit::{
     BLOCK_REFERENCE, EditColor, EditError, EditLineWidth, EditOperation, EditValue, EditValues, Edited, StyleKind,
     ValueReader,
@@ -3028,19 +3029,11 @@ impl<'a> Editor<'a> {
     /// 文字スタイル（DXF Reference「STYLE」）。font は SHX・TrueType のファイル（拡張子つき）か TrueType の書体の名前で、
     /// 書体の名前は拡張データ（ACAD の 1000）に書き、3 にはその書体のファイルを書く（font_file）
     fn add_text_style(&mut self, index: usize, name: &str, reader: &ValueReader<'_>) -> Result<(), EditError> {
-        reader.allow(&["font", "bigFont", "height", "widthFactor", "oblique"], "文字スタイル")?;
-        let font = reader.name("font")?.unwrap_or("txt");
-        let big_font = reader.text("bigFont")?.unwrap_or("");
-        let height = reader.number("height")?.unwrap_or(0.0);
-        let width = reader.positive("widthFactor")?.unwrap_or(1.0);
-        let oblique = reader.number("oblique")?.unwrap_or(0.0);
-        if height < 0.0 {
-            return Err(EditError::at(index, "invalid-value", "height は 0 以上の数にしてください"));
-        }
-        let (file, family) = font_file(font);
+        let style = TextStyleInput::read(reader, index)?;
+        let (file, family) = font_file(style.font.as_deref().unwrap_or("txt"));
         let mut record = self.table_record(index, "STYLE", "AcDbTextStyleTableRecord", name)?;
-        record.int(70, 0).real(40, height).real(41, width).real(50, oblique).int(71, 0).real(42, 2.5);
-        record.tag(3, file).tag(4, big_font);
+        record.int(70, 0).real(40, style.height).real(41, style.width_factor).real(50, style.oblique);
+        record.int(71, 0).real(42, 2.5).tag(3, file).tag(4, &style.big_font);
         if let Some(family) = family {
             if self.r13 && self.appids.contains("ACAD") {
                 record.tag(1001, "ACAD").tag(1000, family).int(1071, 0);
@@ -3063,18 +3056,9 @@ impl<'a> Editor<'a> {
 
     /// 線種（DXF Reference「LTYPE」）。pattern は線（正）・空白（負）・点（0）の長さ
     fn add_line_type(&mut self, index: usize, name: &str, reader: &ValueReader<'_>) -> Result<(), EditError> {
-        reader.allow(&["description", "pattern"], "線種")?;
-        let description = reader.text("description")?.unwrap_or("");
-        let pattern = match reader.value("pattern") {
-            None => Vec::new(),
-            Some(EditValue::Numbers(values)) if values.len() <= 12 => values.clone(),
-            Some(EditValue::Number(value)) => vec![*value],
-            Some(_) => {
-                return Err(EditError::at(index, "invalid-value", "pattern は 12 個までの数の配列にしてください"));
-            }
-        };
+        let LineTypeInput { description, pattern } = LineTypeInput::read(reader, index)?;
         let mut record = self.table_record(index, "LTYPE", "AcDbLinetypeTableRecord", name)?;
-        record.int(70, 0).tag(3, description).int(72, 65).int(73, pattern.len() as i64);
+        record.int(70, 0).tag(3, &description).int(72, 65).int(73, pattern.len() as i64);
         record.real(40, pattern.iter().map(|dash| dash.abs()).sum());
         for dash in &pattern {
             record.real(49, *dash);
@@ -3089,7 +3073,6 @@ impl<'a> Editor<'a> {
 
     /// 寸法スタイル（DXF Reference「DIMSTYLE」）。from（省略は Standard）の項目を写し、指定された変数を書く
     fn add_dimension_style(&mut self, index: usize, name: &str, reader: &ValueReader<'_>) -> Result<(), EditError> {
-        reader.allow(&dimension::STYLE_KEYS, "寸法スタイル")?;
         let variables = dimension::style_variables(reader, index)?;
         let from = reader.name("from")?.unwrap_or("Standard");
         let template = self.dimstyles.get(&upper(from)).cloned().ok_or_else(|| {

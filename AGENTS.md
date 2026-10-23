@@ -20,10 +20,14 @@
   need (drawing, input, hit testing) to `@zumenjs/viewer`.
   DWG has no TypeScript reader: `zumen-dwg` reads it in Rust into the AutoCAD drawing model of `zumen-dxf` and draws it
   with `dxf_to_scene`, the one format crate that depends on another format crate. `zumen-convert`, which maps SXF and
-  JWW into that model for writing, is not a format crate and depends on several of them. Browsers read every format
-  with `@zumenjs/reader`, which wraps the WebAssembly build of `bindings/wasm` (`packages/reader/wasm`, built by
-  `scripts/wasm.mjs`, not in Git) and depends only on `@zumenjs/core`; its format detection (`detectDrawing`) repeats
-  the rules of the Rust readers so that it runs before the module loads, and a test compares the two. The TypeScript
+  JWW into that model for writing, is not a format crate and depends on several of them. PDF has no TypeScript reader
+  either: `zumen-pdf` reads it in Rust with hayro-interpret, pinned to one version because ids follow its calls, and
+  `convert`, `edit` and `draft` refuse it. Browsers read every format with `@zumenjs/reader`, which wraps the
+  WebAssembly builds of `bindings/wasm` and, for PDF only, `bindings/wasm-pdf`, loaded the first time a PDF is read
+  ([decision 0030](docs/decisions/0030-pdf-in-a-webassembly-module-of-its-own.md); `packages/reader/wasm`, built by
+  `scripts/wasm.mjs`, not in Git), and depends only on `@zumenjs/core`; its format detection (`detectDrawing`) repeats
+  the rules of the Rust readers so that it runs before the modules load, and a test compares them. The `zumen` crate
+  reads PDF with its feature `pdf`, which `bindings/wasm` leaves out. The TypeScript
   readers (`@zumenjs/sxf`, `@zumenjs/jww`, `@zumenjs/dxf`) stay as the reference that writes the golden files and are
   not published.
 - Parsing (`parse*`, `read*` and everything below them) must not depend on the DOM, React or the renderer, and uses
@@ -39,7 +43,8 @@
   decision in `docs/decisions/` ([decision 0013](docs/decisions/0013-st-bridge-out-of-zumen.md)).
 - Never put client names, client drawings or private repository details in this repository.
 - The Rust readers (`crates/`) are ports of the TypeScript readers and must return the same scene (`zumen-dwg`, which has
-  no TypeScript reader, is checked against the DXF that AutoCAD writes for the same drawing). Keep the structure
+  no TypeScript reader, is checked against the DXF that AutoCAD writes for the same drawing, and `zumen-pdf` against
+  the PDF that `render_pdf` writes for every fixture and, reporting only, against pdf.js with `pnpm run parity`). Keep the structure
   and order of operations, format user-visible numbers and sort with `zumen_core::js` (`js::sort_by` orders like V8),
   bound recursion and loops on malformed input with limits that both readers share, add entities through
   `zumen_core::limits::admit` and call `limits::tick` in loops over input records (applications set their own limits
@@ -52,7 +57,8 @@
   unchanged bytes needs a decision first.
 - Rust runtime dependencies follow the same rules as npm ones (no GPL or AGPL, works in WebAssembly) and are recorded
   with the reason in `docs/architecture.md`. The license texts of the crates that are linked into the Python extension
-  and into the WebAssembly reader of `@zumenjs/dwg` are in the two `THIRD_PARTY_LICENSES.txt` files. After a change of
+  and into the WebAssembly modules of `@zumenjs/reader`, and of the data they embed (the fonts and CMaps of hayro), are
+  in the two `THIRD_PARTY_LICENSES.txt` files. After a change of
   `Cargo.lock` that adds, removes or updates a crate, run `pnpm run notices` and commit them; `check:rust` fails if
   they are out of date.
 - Work on a branch cut from the latest `origin/main` and open a pull request for every change; do not push to `main`.

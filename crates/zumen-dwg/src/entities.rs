@@ -1378,12 +1378,10 @@ fn image(s: &mut Streams<'_>) -> Read<DxfImage> {
     let size = s.data.rd2()?;
     let flags = f64::from(s.data.bs()?);
     let clipping = s.data.bit()?;
-    s.data.rc()?;
-    s.data.rc()?;
-    s.data.rc()?;
-    if s.format.r2010() {
-        s.data.bit()?;
-    }
+    let brightness = f64::from(s.data.rc()?);
+    let contrast = f64::from(s.data.rc()?);
+    let fade = f64::from(s.data.rc()?);
+    let clip_inverted = s.format.r2010() && s.data.bit()?;
     let mut boundary = Vec::new();
     match s.data.bs()? {
         1 => {
@@ -1414,8 +1412,13 @@ fn image(s: &mut Streams<'_>) -> Read<DxfImage> {
         boundary,
         flags,
         clipping,
+        clip_inverted,
+        brightness,
+        contrast,
+        fade,
         definition_handle: (definition != 0).then(|| format!("{definition:X}")),
         path: None,
+        loaded: true,
     })
 }
 

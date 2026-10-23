@@ -15,7 +15,7 @@ crate-type = ["cdylib"]
 pyo3 = { workspace = true, features = ["abi3-py312"] }
 serde.workspace = true
 serde_json.workspace = true
-zumen.workspace = true
+zumen = { workspace = true, features = ["pdf"] }
 zumen-render.workspace = true
 
 [lints]

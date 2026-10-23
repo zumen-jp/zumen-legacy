@@ -194,3 +194,52 @@ export function buildSolids(version: number): Uint8Array {
   w.u32(0); // No images.
   return Uint8Array.from(w.bytes);
 }
+
+/**
+ * 画像の配置（^@BM ファイル名,幅,高さ,トリミングと透過の値）の文字。文字の始点が画像の左下で、文字の向きに回る。
+ * 読み違えると、画像が黙ってずれたり回ったりする
+ */
+export function buildImages(version: number): Uint8Array {
+  const w = header(version);
+  const text = (x: number, y: number, angle: number, content: string) => {
+    w.base(version, { layer: 1 });
+    for (const value of [x, y, x + 10, y]) w.f64(value);
+    w.u32(0);
+    for (const value of [3, 3, 0, angle]) w.f64(value);
+    w.cstring("Century");
+    w.cstring(content);
+  };
+  // クラス番号: CDataSen 1、CDataMoji 3、CDataBlock 8、CDataList 10
+  w.u16(6);
+  w.newClass("CDataSen", version);
+  w.base(version);
+  for (const value of [-120, -20, 40, -20]) w.f64(value);
+  w.newClass("CDataMoji", version);
+  // 同梱した画像（%temp%）を 40 × 20 mm、既定のトリミング・透過の値で
+  text(-50, -30, 0, "^@BM%temp%photo.bmp,40,20,0,0,1,0,255,255,255");
+  // 30° 回した、別のファイルの画像。トリミングの値が既定でない
+  w.u16(0x8000 | 3);
+  text(20, 10, 30, "^@BMC:\\images\\site.jpg,30,15,0.1,0,1,0,255,255,255");
+  // 幅のない画像と、画像でない制御の文字
+  w.u16(0x8000 | 3);
+  text(0, 50, 0, "^@BMbroken.bmp,0,10");
+  w.u16(0x8000 | 3);
+  text(0, 60, 0, "^@XX");
+  // ブロックの中の画像を、2 倍・90° 回して置く
+  w.newClass("CDataBlock", version);
+  w.base(version);
+  for (const value of [-100, 50, 2, 2, Math.PI / 2]) w.f64(value);
+  w.u32(7);
+  w.u16(1);
+  w.newClass("CDataList", version);
+  w.base(version);
+  w.u32(7);
+  w.u32(1);
+  w.u32(0);
+  w.cstring("logo");
+  w.u16(1);
+  w.u16(0x8000 | 3);
+  text(0, 0, 0, "^@BMlogo.png,10,5");
+  w.u32(0); // 画像の件数
+  return Uint8Array.from(w.bytes);
+}

@@ -374,7 +374,7 @@ fn adds_block_definitions_and_dimensions_to_every_format() {
     assert!(checked >= 20, "checked only {checked} drawings");
 }
 
-/// Git に入れない図面（ZUMEN_SAMPLES のフォルダー）に、ブロック・寸法・ハッチングを足す。
+/// Git に入れない図面（ZUMEN_SAMPLES のフォルダー）に、ブロック・寸法・ハッチング・スタイルを足す。
 /// `ZUMEN_SAMPLES=<folder> cargo test -p zumen --release --test edit -- --ignored`
 #[test]
 #[ignore = "needs drawings in ZUMEN_SAMPLES"]
@@ -385,11 +385,12 @@ fn adds_blocks_dimensions_and_hatches_to_samples() {
         for file in drawings(Path::new(&folder), extensions) {
             let name = file.file_name().unwrap().to_string_lossy().to_string();
             let bytes = fs::read(&file).unwrap();
-            let found: Vec<String> = [check_blocks_and_dimensions(&name, &bytes), check_hatches(&name, &bytes)]
-                .into_iter()
-                .flatten()
-                .flatten()
-                .collect();
+            let found: Vec<String> =
+                [check_blocks_and_dimensions(&name, &bytes), check_hatches(&name, &bytes), check_styles(&name, &bytes)]
+                    .into_iter()
+                    .flatten()
+                    .flatten()
+                    .collect();
             println!("{name}: {} problems", found.len());
             problems.extend(found.into_iter().take(5));
         }
@@ -512,6 +513,116 @@ fn creates_jww_and_sxf_drawings_with_dimensions_and_hatches() {
     }
     let error = zumen::create("jww", "mm", &operations(true)).unwrap_err();
     assert_eq!((error.code, error.operation), ("unsupported-kind", Some(4)));
+}
+
+/// 文字スタイル・線種・寸法スタイルを足して使う（docs/decisions/0026）。JWW・SXF の図面に、足した線種の線と寸法
+/// スタイルの寸法が描け、ほかの図形の数は変わらない。版 420 より前の JWW は線種を足せない（unsupported-kind）ので、
+/// 線種なしで確かめる。JWW・SXF でなければ None
+fn check_styles(name: &str, bytes: &[u8]) -> Option<Vec<String>> {
+    let format = zumen::detect(bytes)?;
+    if !matches!(format, "jww" | "sfc" | "p21") {
+        return None;
+    }
+    let mut list = vec![
+        json!({"op": "add-text-style", "name": "ZUMEN-EDIT-FONT", "font": "ＭＳ 明朝"}),
+        json!({"op": "add-line-type", "name": "ZUMEN-EDIT-DASH", "pattern": [3, -1]}),
+        json!({"op": "add-dimension-style", "name": "ZUMEN-EDIT-DIM", "textHeight": 5, "decimals": 1, "textStyle": "ZUMEN-EDIT-FONT"}),
+        json!({"op": "add", "kind": "line", "lineType": "ZUMEN-EDIT-DASH", "start": [0, 0], "end": [100, 0]}),
+        json!({"op": "add", "kind": "dimension", "dimensionStyle": "ZUMEN-EDIT-DIM", "start": [0, 0], "end": [100, 0], "position": [0, -30]}),
+    ];
+    let options = ReadDrawingOptions::default();
+    let edit = |list: &[Value]| zumen::edit(bytes, &parse_operations(&json!(list).to_string()).unwrap(), &options);
+    let edited = match edit(&list) {
+        Err(error) if error.code == "unsupported-kind" && error.operation == Some(1) && format == "jww" => {
+            list.remove(1);
+            list[2].as_object_mut().unwrap().remove("lineType");
+            edit(&list)
+        }
+        result => result,
+    };
+    let edited = match edited {
+        Ok(edited) => edited,
+        Err(error) => return Some(vec![format!("{name}: {error}")]),
+    };
+    let (before, after) = (read(bytes), read(&edited.bytes));
+    let mut problems = Vec::new();
+    for id in &edited.created[edited.created.len() - 2..] {
+        if !after.entities.iter().any(|entity| &entity.id == id && !entity.primitives.is_empty()) {
+            problems.push(format!("{name}: {id} is not drawn"));
+        }
+    }
+    if after.entities.len() != before.entities.len() + 2 {
+        problems.push(format!("{name}: {} entities before, {} after", before.entities.len(), after.entities.len()));
+    }
+    Some(problems)
+}
+
+/// すべての JWW・SXF の fixtures に、文字スタイル・線種・寸法スタイルを足して使う
+#[test]
+fn adds_styles_to_every_jww_and_sxf_fixture() {
+    let mut problems = Vec::new();
+    let mut checked = 0;
+    for (_, folder, extensions) in FOLDERS {
+        for file in drawings(&fixtures().join(folder), extensions) {
+            let name = file.file_name().unwrap().to_string_lossy().to_string();
+            if let Some(found) = check_styles(&name, &fs::read(&file).unwrap()) {
+                problems.extend(found);
+                checked += 1;
+            }
+        }
+    }
+    assert!(problems.is_empty(), "{problems:#?}");
+    assert!(checked >= 5, "checked only {checked} drawings");
+}
+
+/// 寸法スタイルの操作で、JWW・SXF の寸法の大きさと書き方が変わる（docs/decisions/0026）。新しい図面に、スタイルの
+/// ない寸法と、寸法値 5 mm・小数点以下 1 桁のスタイルの寸法を足し、読み直して描いた寸法値の高さと文字を比べる。
+/// 文字スタイルと線種も足して使う
+#[test]
+fn sizes_jww_and_sxf_dimensions_with_dimension_styles() {
+    let operations = parse_operations(
+        r#"[
+            {"op": "add-text-style", "name": "JP", "font": "ＭＳ ゴシック"},
+            {"op": "add-line-type", "name": "DASH-6-3", "description": "__ __", "pattern": [6, -3]},
+            {"op": "add-dimension-style", "name": "DIM-5", "textHeight": 5, "decimals": 1, "suppressTrailingZeros": false, "textStyle": "JP"},
+            {"op": "add", "kind": "line", "lineType": "DASH-6-3", "start": [0, 0], "end": [100, 0]},
+            {"op": "add", "kind": "dimension", "start": [0, 0], "end": [100, 0], "position": [0, -20]},
+            {"op": "add", "kind": "dimension", "dimensionStyle": "DIM-5", "start": [0, 0], "end": [100, 0], "position": [0, -40]}
+        ]"#,
+    )
+    .unwrap();
+    for format in ["jww", "sfc", "p21", "sfz", "p2z", "dxf", "dwg"] {
+        let created = zumen::create(format, "mm", &operations).unwrap_or_else(|error| panic!("{format}: {error}"));
+        assert_eq!(created.created[..3], ["JP", "DASH-6-3", "DIM-5"], "{format}");
+        let scene = read(&created.bytes);
+        let entity = |id: &str| scene.entities.iter().find(|entity| entity.id == id).unwrap();
+        let value = |id: &str| {
+            let dimension = entity(id);
+            assert!(dimension.kind.name() == "dimension" && !dimension.primitives.is_empty(), "{format}");
+            entity_shapes(dimension, None)
+                .into_iter()
+                .find_map(|shape| match shape {
+                    Shape::Text { text, height, .. } => Some((text, height)),
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("{format}: no value"))
+        };
+        let (plain, plain_height) = value(&created.created[4]);
+        let (styled, styled_height) = value(&created.created[5]);
+        let autocad = matches!(format, "dxf" | "dwg");
+        // zumen が書く DXF・DWG の Standard は小数点以下 4 桁
+        assert_eq!(plain, if autocad { "100.0000" } else { "100" }, "{format}");
+        assert_eq!(styled, "100.0", "{format}");
+        if !autocad {
+            // JWW と SXF の寸法値は 2.5 mm（Jw_cad の文字種 2、ISO-25）から 5 mm に
+            assert!((styled_height - 2.0 * plain_height).abs() < 1e-6, "{format}: {plain_height} {styled_height}");
+        }
+        let dashed = entity(&created.created[3]).primitives.iter().any(|primitive| match primitive {
+            zumen::Primitive::Stroke(stroke) => !stroke.dashes.is_empty(),
+            _ => false,
+        });
+        assert!(dashed, "{format}");
+    }
 }
 
 /// 画像を足す（docs/decisions/0017）。R14 以降の DXF・DWG のすべての fixtures で、足した画像が描け、ほかの図形の数は

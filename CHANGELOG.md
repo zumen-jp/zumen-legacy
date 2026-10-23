@@ -4,11 +4,45 @@ All packages share one version during 0.x.
 
 ## Unreleased
 
+- Rust, Python, the command line and the MCP server: drawing markup on servers
+  ([decision 0021](docs/decisions/0021-drawing-markup.md), [Drawing markup](docs/markup.md)). `zumen_core::markup`
+  reads and writes the documents with the same checks and JSON as `@zumenjs/core` (unknown keys kept) and gives the
+  same shapes, checked against `tests/fixtures/markup`; `drawing_hash` uses the `sha2` crate. `zumen::carry_markup`
+  carries a document to a new revision view by view through `compare_scenes`: items move by the offset, `entities`
+  point at the matching entities, and `carried` marks them `unchanged`, `changed` or `removed`, with a map of views
+  (a DXF layout to a PDF page). `zumen_render::RenderOptions::markup` draws items over PNG, SVG and PDF. Python has
+  `read_markup` (with `TypedDict` classes), `markup_schema`, `drawing_hash`, `carry_markup`, `MarkupError`,
+  `CarryError` and `markup=` on the `render_*` methods; the command line `zumen markup carry` and
+  `zumen render --markup`; `zumen.tools` `list_markup`, `write_markup` and `carry_markup_revision`; and the MCP server
+  `markup` on `render_drawing`, `read_markup`, `write_markup` and `carry_markup`.
 - Browsers, Rust, Python and the command line: files that start with `ISO-10303-21` but whose `FILE_SCHEMA` does not
   begin with SXF's schema `ASSOCIATIVE_DRAUGHTING`, such as IFC (`IFC2X3`, `IFC4`, `IFC4X3_ADD2`) and STEP AP203, AP214
   and AP242 files, are no longer detected as SXF P21. Reading them gives the error for a format no reader knows instead
   of an empty drawing with the `no-sheet` notice. SXF files without `FILE_SCHEMA` are still detected
   ([How SXF is handled](docs/formats/sxf.md#reading)).
+- Rust, Python and the command line: SXF user-defined line types written by `edit` and by converting to SFC hold at
+  most 8 dash and gap lengths, as SXF holds 2, 4, 6 or 8 (the rule ezsxf checks). The dashes of a hatch pattern line
+  keep the first 8, unless they are the lengths of a predefined line type, and the base point moves by whole periods
+  of those (`edit-hatch-dash-count`); a longer DXF or DWG line type converted to SFC keeps the first 8
+  (`linetype-long`). `zumen_core::edit::style::cut_pitches` cuts lengths by pairs for `line_type_pitches` and the SXF
+  hatches.
+- Rust, Python, the command line, the MCP server and browsers: PDF drawings are read
+  ([decision 0020](docs/decisions/0020-pdf-drawings-in-rust.md), [How PDF is handled](docs/formats/pdf.md)). The new
+  crate `zumen-pdf` (`read_pdf`, the `PDF` reader of `zumen::read` and `zumen::detect`, on hayro-interpret 0.8.0)
+  reads each page as a view (id `"1"`, `"2"` …, named by its page label) in paper millimeters of the crop box with
+  `Rotate` and `UserUnit` applied, with the page as its underlay (`kind: "pdf"`) and the painted paths (`line`,
+  `polyline`, `spline`, `solid`), glyph runs (`text`, with Unicode, position, height, rotation and font) and images
+  (`image` frames) as entities that are not drawn (`drawn: false`), numbered `#n` in paint order. Viewports with a
+  rectilinear measure dictionary give the entities inside them a placement with the scale. Shadings, tiling patterns,
+  content outside the clip, annotations, optional content and glyphs without Unicode are reported in `notices`.
+  `convert`, `edit` and `draft_into` refuse PDF. The `zumen` crate reads PDF with its default feature `pdf`.
+- Browsers: `@zumenjs/reader` reads PDF with a WebAssembly module of its own, `zumen_wasm_pdf_bg.wasm`, loaded only
+  for PDF drawings ([decision 0030](docs/decisions/0030-pdf-in-a-webassembly-module-of-its-own.md)): `initPdfReader`
+  and `isPdfReaderReady`, `reader.load("pdf")`, `ReaderWorkerOptions.pdfWasm`, `isPdf`, and `detectDrawing` returns
+  `pdf`. `DrawingReader.load` receives the detected format, which `useDrawing` passes, so `useDrawing(file, [reader])`
+  loads the PDF module only when a PDF is opened. The CAD module does not change.
+- `pnpm run parity` compares the texts of PDF files with pdf.js page by page and reports the differences, and
+  `THIRD_PARTY_LICENSES.txt` also carries the licenses of the data that crates embed (the fonts and CMaps of hayro).
 - Browsers: drawing markup, kept in a JSON document beside the drawing in paper millimeters of a view
   ([decision 0021](docs/decisions/0021-drawing-markup.md), [Drawing markup](docs/markup.md)). `@zumenjs/core` has the
   model (`MarkupDocument`, `MarkupItem` and its kinds `redline`, `cloud`, `text`, `finding` and `photo`),
@@ -26,6 +60,23 @@ All packages share one version during 0.x.
   The application opens the documents with its own pdf.js (`pdfjs-dist` 5 or 6, a peer dependency) and passes them in
   ([decision 0029](docs/decisions/0029-pdf-js-owned-by-the-application.md)). It reads no entities; those come from
   the reader.
+- Browsers, Rust and Python: SXF raster images and JWW images draw as underlays of `Scene.underlays`. SXF images are
+  the drawing groups named `$$ATRU$$…$$画像$$<file>` or `$$RASTER$$<file>`, drawn over the polyline of the group;
+  JWW images are the `^@BM<file>,<width>,<height>` texts, turned with the text, and keep an entity of the kind `image`
+  for selection only (`drawn: false`). Neither format records the pixel count, so their content is measured in
+  hundredths of a sheet millimeter ([decision 0031](docs/decisions/0031-image-units-without-a-pixel-count.md)).
+  SXF images placed over earlier entities, image groups without a polyline, JWW trimming values and unreadable
+  placements are reported (`raster-order`, `raster`, `image-trim`, `image`).
+- Browsers, Rust and Python: DXF and DWG images (IMAGE) draw their picture as an underlay of `Scene.underlays`,
+  named by the file of their IMAGEDEF, placed by their pixel vectors and clipped by their boundary (also inverted),
+  by viewports and with the fade as opacity ([docs/formats/dxf.md](docs/formats/dxf.md#images)). The application
+  loads the files (`imageUnderlayRenderer`). Images that the drawing hides, unloads or does not define keep their
+  frame only; `IMAGEFRAME` 0 keeps the frame for selection only (`drawn: false`); brightness and contrast and
+  images drawn over earlier entities are reported (`image-adjust`, `image-order`). The model keeps the brightness,
+  contrast, fade, clip mode and loaded state of images, which the DXF and DWG writers write (versions before 2010
+  report an inverted clip, `version-image-clip`), and the image frame setting, which they report (`image-frame`).
+  PDF, DWF and DGN underlays are still not read: the drawing does not hold the page size. The playground draws the
+  images of a drawing from image files chosen next to it.
 - Rust, Python and the command line: `edit` and `create` take `add-block` (with `"container": "block:<name>"` and
   `block-reference`), `"kind": "dimension"` and `"kind": "hatch"` for JWW and SXF too, as each format's own entities
   ([decision 0025](docs/decisions/0025-annotations-in-jww-and-sxf-edits.md)). JWW: a block definition named with
@@ -38,6 +89,18 @@ All packages share one version during 0.x.
   built-in hatch patterns move to `zumen_core::edit::dimension` and `zumen_core::edit::hatch` (re-exported by
   zumen-dxf; `HatchInput::pattern_type` becomes `custom`, and a dimension's DXF flags and display block are the
   `DxfDimension` trait), and `JwwDimension` keeps its SXF mode (`sxf_mode`).
+- Rust, Python and the command line: JWW and SXF edits take `add-dimension-style`, `add-text-style` and
+  `add-line-type` too ([decision 0026](docs/decisions/0026-styles-in-jww-and-sxf-edits.md)). Neither format has named
+  dimension or text styles, so their names last for the edit: a dimension style sizes and formats each dimension that
+  names it (the value's height and font, its gap from the line, the extension lines, decimals, trailing zeros and the
+  linear factor; in SXF also the arrows, or slashes for `tickSize`), with lengths in paper millimeters or, with
+  `scale`, times `scale` in the drawing's own coordinates, as DIMSCALE in DXF. A text style is a font (an SXF font,
+  a JWW font name; JWW `text` gains `textStyle`), and a line type becomes an SXF user-defined line type or a free
+  JWW SXF line type (47–62), with its pattern in paper millimeters. What a format cannot hold is written the nearest
+  way and reported (`edit-dimension-decimals`, `edit-dimension-text-position`, `edit-dimension-end`,
+  `edit-style-values`, `edit-line-type-pattern`). Every editor reads the values of the three ops with
+  `zumen_core::edit::style`, which also holds the conversion of dashes to SXF line lengths; DXF, DWG and SXF hatch
+  output is unchanged.
 - Browsers, Rust and Python: entities can be kept for interaction only, with `drawn: false` (`SceneEntity.drawn` in
   `zumen-core`), for the content that an underlay already shows such as the paths and texts of a PDF page
   ([decision 0022](docs/decisions/0022-underlays-drawn-by-a-region-renderer.md)). `renderScene` and `zumen-render`
@@ -122,6 +185,9 @@ All packages share one version during 0.x.
   `ACAD_IMAGE_DICT` that keeps `path`, for raster location maps. Reading keeps the image's file name
   (`DxfImage::path`), and converting to DXF and DWG now writes IMAGE with its IMAGEDEF instead of leaving it out
   (`version-image` in R12 DXF and R13 DWG; `image` only when the image definition is unknown).
+- Readers: DXF and DWG report the block references to external drawings (xrefs, blocks whose flags have 4 or 8) in
+  the new `xref` notice, with their number and the paths they refer to, instead of drawing nothing without a word. The
+  drawings they refer to are still not read ([#108](https://github.com/zumenjs/zumen/issues/108)).
 
 ## 0.1.1 — 2026-10-21
 

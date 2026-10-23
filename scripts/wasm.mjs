@@ -1,4 +1,5 @@
-// WebAssembly の読み取り（bindings/wasm）を作り、@zumenjs/reader が読み込む packages/reader/wasm に置く。
+// WebAssembly の読み取り（bindings/wasm と、PDF だけの bindings/wasm-pdf。決定 0030）を作り、@zumenjs/reader が読み込む
+// packages/reader/wasm に置く。
 //
 //   node scripts/wasm.mjs
 //
@@ -28,13 +29,16 @@ if (installed !== version) {
   process.exit(1);
 }
 
-// cargo が書いた .wasm の場所は、ビルドの結果の JSON から取る（CARGO_TARGET_DIR などに左右されない）
+// cargo が書いた .wasm の場所は、ビルドの結果の JSON から取る（CARGO_TARGET_DIR などに左右されない）。2 つのモジュールは
+// zumen の機能 pdf を共有しないので（bindings/wasm-pdf は zumen を使わない）、1 度の cargo で作ってよい
 const messages = execFileSync(
   "cargo",
   [
     "build",
     "-p",
     "zumen-wasm",
+    "-p",
+    "zumen-wasm-pdf",
     "--target",
     "wasm32-unknown-unknown",
     "--release",
@@ -42,15 +46,25 @@ const messages = execFileSync(
   ],
   { cwd: root, encoding: "utf8", maxBuffer: 1 << 28, stdio: ["ignore", "pipe", "inherit"] },
 );
-const wasm = messages
+const artifacts = messages
   .split("\n")
   .filter((line) => line.startsWith("{"))
   .map((line) => JSON.parse(line))
-  .filter((message) => message.reason === "compiler-artifact" && message.target?.name === "zumen_wasm")
-  .flatMap((message) => message.filenames)
-  .find((name) => name.endsWith(".wasm"));
-if (!wasm) throw new Error("cargo が zumen_wasm.wasm を書きませんでした");
+  .filter((message) => message.reason === "compiler-artifact");
+const wasmOf = (/** @type {string} */ target) => {
+  const wasm = artifacts
+    .filter((message) => message.target?.name === target)
+    .flatMap((message) => message.filenames)
+    .find((name) => name.endsWith(".wasm"));
+  if (!wasm) throw new Error(`cargo が ${target}.wasm を書きませんでした`);
+  return wasm;
+};
+const modules = [wasmOf("zumen_wasm"), wasmOf("zumen_wasm_pdf")];
 
 rmSync(out, { recursive: true, force: true });
-execFileSync("wasm-bindgen", ["--target", "web", "--out-dir", out, wasm], { cwd: root, stdio: "inherit" });
-console.log(`packages/reader/wasm/zumen_wasm_bg.wasm: ${statSync(join(out, "zumen_wasm_bg.wasm")).size} bytes`);
+for (const wasm of modules) {
+  execFileSync("wasm-bindgen", ["--target", "web", "--out-dir", out, wasm], { cwd: root, stdio: "inherit" });
+}
+for (const name of ["zumen_wasm_bg.wasm", "zumen_wasm_pdf_bg.wasm"]) {
+  console.log(`packages/reader/wasm/${name}: ${statSync(join(out, name)).size} bytes`);
+}

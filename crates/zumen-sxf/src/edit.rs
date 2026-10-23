@@ -11,6 +11,8 @@
 //! - SXF にない指定（レイヤから継ぐ色・線幅、レイヤの色・線種・線幅）は、いちばん近い値にして知らせる。
 //! - ブロック定義は作図部品（複合図形定義の種別 4）で、container の block:<名前> で中に要素を足せる。寸法は寸法の
 //!   フィーチャ、ハッチングは見えない複合曲線の上の塗り・ハッチング（ユーザ定義）にする（docs/decisions/0025）。
+//! - 寸法スタイル・文字スタイルは編集の中だけの名前で、後の操作が名前で使う。寸法スタイルの大きさと書き方は寸法の
+//!   フィーチャごとに書き、文字スタイルは文字フォントを足す。線種はユーザ定義線種にする（docs/decisions/0026）。
 
 mod dimension;
 mod hatch;
@@ -26,8 +28,9 @@ use std::collections::HashMap;
 use std::f64::consts::PI;
 use zumen_core::edit::dimension::{DimensionGeometry, DimensionInput};
 use zumen_core::edit::hatch::PatternLine;
+use zumen_core::edit::style::{DimensionStyleInput, LineTypeInput, TextStyleInput, line_type_pitches};
 use zumen_core::edit::{
-    BLOCK_REFERENCE, EditColor, EditError, EditLineWidth, EditOperation, EditValues, Edited, ValueReader,
+    BLOCK_REFERENCE, EditColor, EditError, EditLineWidth, EditOperation, EditValues, Edited, StyleKind, ValueReader,
 };
 use zumen_core::{NoticeLevel, NoticeList, js};
 
@@ -51,6 +54,9 @@ const MAX_DEPTH: usize = 32;
 
 /// ユーザ定義線種の数の上限（線種コード 17〜32）
 const MAX_USER_LINE_TYPES: usize = 16;
+
+/// ユーザ定義線種の線と空白の長さの数の上限（2・4・6・8 個。ezsxf の検証と同じ）
+const MAX_LINE_TYPE_SEGMENTS: usize = 8;
 
 /// 要素に共通する値のキー
 const COMMON: [&str; 4] = ["layer", "color", "lineType", "lineWidth"];
@@ -76,6 +82,12 @@ struct Editor {
     created: Vec<Created>,
     /// この編集で足した作図部品の基点（名前から、部品の座標）
     bases: HashMap<String, [f64; 2]>,
+    /// この編集で足した寸法スタイル（大文字の名前から。SXF には書かない。docs/decisions/0026）
+    dimension_styles: HashMap<String, dimension::Style>,
+    /// この編集で足した文字スタイルの文字フォントのコード（大文字の名前から）
+    text_styles: HashMap<String, f64>,
+    /// この編集で足した、空白のない（実線の）線種の線種コード（大文字の名前から。SXF には書かない）
+    line_type_aliases: HashMap<String, f64>,
 }
 
 enum Created {
@@ -94,8 +106,16 @@ pub fn edit_sxf(bytes: &[u8], format: &str, operations: &[EditOperation]) -> Res
     if operations.is_empty() {
         return Ok(Edited { bytes: bytes.to_vec(), created: Vec::new(), notices: Vec::new() });
     }
-    let mut editor =
-        Editor { drawing, notices: NoticeList::new(), next: -1.0, created: Vec::new(), bases: HashMap::new() };
+    let mut editor = Editor {
+        drawing,
+        notices: NoticeList::new(),
+        next: -1.0,
+        created: Vec::new(),
+        bases: HashMap::new(),
+        dimension_styles: HashMap::new(),
+        text_styles: HashMap::new(),
+        line_type_aliases: HashMap::new(),
+    };
     for (index, operation) in operations.iter().enumerate() {
         match operation {
             EditOperation::Add { kind, container, values } => editor.add(index, kind, container.as_deref(), values)?,
@@ -107,13 +127,7 @@ pub fn edit_sxf(bytes: &[u8], format: &str, operations: &[EditOperation]) -> Res
             EditOperation::AddLayout { .. } | EditOperation::UpdateLayout { .. } => {
                 return Err(EditError::at(index, "unsupported-kind", "SXF の編集ではレイアウトを扱えません"));
             }
-            EditOperation::AddStyle { kind, .. } => {
-                return Err(EditError::at(
-                    index,
-                    "unsupported-kind",
-                    format!("SXF の編集では {} をまだ使えません", kind.op()),
-                ));
-            }
+            EditOperation::AddStyle { kind, name, values } => editor.add_style(index, *kind, name, values)?,
         }
     }
     let written =
@@ -345,6 +359,10 @@ impl Editor {
     }
 
     fn line_type_code(&self, index: usize, name: &str) -> Result<f64, EditError> {
+        // この編集で足した実線の線種
+        if let Some(code) = self.line_type_aliases.get(&js::trim(name).to_uppercase()) {
+            return Ok(*code);
+        }
         let lower = js::trim(name).to_lowercase();
         if let Some(position) = PREDEFINED_LINE_TYPES.iter().position(|line_type| line_type.name == lower) {
             return Ok((position + 1) as f64);
@@ -524,7 +542,7 @@ impl Editor {
                 let height = reader.required("height", reader.positive("height")?)?;
                 let rotation = reader.number("rotation")?.unwrap_or(0.0);
                 let font = match reader.name("textStyle")? {
-                    Some(name) => self.font_code(name),
+                    Some(name) => self.text_font(name),
                     None => 0.0,
                 };
                 let width = reader.positive("width")?.unwrap_or_else(|| natural_width(text, height));
@@ -555,18 +573,15 @@ impl Editor {
                 if text.contains(['\n', '\r']) {
                     return Err(EditError::at(index, "invalid-value", "SXF の寸法値は 1 行です"));
                 }
-                if reader.name("dimensionStyle")?.is_some() {
-                    self.notices.add(
-                        NoticeLevel::Info,
-                        "edit-dimension-style",
-                        "SXF は寸法スタイルを持たないため、寸法を既定の大きさで描きました",
-                    );
-                }
+                let look = match reader.name("dimensionStyle")? {
+                    Some(name) => self.dimension_style(name),
+                    None => dimension::Style::default(),
+                };
                 let geometry = input.geometry().map_err(|message| EditError::at(index, "invalid-value", message))?;
                 let geometry = shifted(geometry, origin);
                 self.apply_common(index, &reader, &mut style)?;
                 let container = dimension::Container { scale: self.figure_scale(&figure) };
-                dimension::feature(&geometry, text, style, &container, natural_width)
+                dimension::feature(&geometry, text, style, &look, container, natural_width)
             }
             "hatch" => {
                 reader.allow(&keys(&zumen_core::edit::hatch::KEYS), "ハッチング")?;
@@ -684,6 +699,13 @@ impl Editor {
                     "SXF のハッチング線は線ごとの破線のずれを持たないため、模様の破線を線ごとにずらさずに書きました",
                 );
             }
+            if hatch.cut {
+                self.notices.add(
+                    NoticeLevel::Info,
+                    "edit-hatch-dash-count",
+                    "線と空白が 8 を超える模様の破線は、SXF のユーザ定義線種（2・4・6・8 個）に書けないため、初めの 8 だけにしました",
+                );
+            }
             let line_type =
                 if hatch.pitch.is_empty() { style.line_type } else { self.line_type_for(&input.pattern, hatch.pitch) };
             patterns.push(HatchPattern {
@@ -699,16 +721,14 @@ impl Editor {
         Ok(SxfFeature::FillAreaStyleHatching { id: style.id, layer: style.layer, patterns, region })
     }
 
-    /// 破線のピッチ（用紙の mm）の線種コード。同じピッチの既定義線種・ユーザ定義線種、なければユーザ定義線種を足す。
-    /// ユーザ定義線種の数が上限（16）なら実線にして知らせる
+    /// 破線のピッチ（用紙の mm。既定義線種でなければ 8 個まで）の線種コード。同じピッチの既定義線種・ユーザ定義線種、
+    /// なければユーザ定義線種を足す。ユーザ定義線種の数が上限（16）なら実線にして知らせる
     fn line_type_for(&mut self, name: &str, pitch: Vec<f64>) -> f64 {
-        let same =
-            |other: &[f64]| other.len() == pitch.len() && other.iter().zip(&pitch).all(|(a, b)| (a - b).abs() < 1e-9);
-        if let Some(position) = PREDEFINED_LINE_TYPES.iter().position(|line_type| same(line_type.pitch)) {
-            return (position + 1) as f64;
+        if let Some(code) = predefined_line_type(&pitch) {
+            return code;
         }
         let doc = &self.drawing.document;
-        if let Some(position) = doc.user_line_types.iter().position(|line_type| same(&line_type.pitch)) {
+        if let Some(position) = doc.user_line_types.iter().position(|line_type| same_pitch(&line_type.pitch, &pitch)) {
             return (position + 17) as f64;
         }
         if doc.user_line_types.len() >= MAX_USER_LINE_TYPES {
@@ -722,6 +742,151 @@ impl Editor {
         let id = self.temporary();
         self.drawing.document.user_line_types.push(UserLineType { id, name: name.to_string(), pitch });
         (self.drawing.document.user_line_types.len() + 16) as f64
+    }
+
+    /// 寸法スタイル・文字スタイル・線種を足す（docs/decisions/0026）。名前は大文字・小文字を区別せずに比べる
+    fn add_style(&mut self, index: usize, kind: StyleKind, name: &str, values: &EditValues) -> Result<(), EditError> {
+        if name.trim().is_empty() || name.chars().any(char::is_control) {
+            return Err(EditError::at(
+                index,
+                "invalid-value",
+                format!("名前 {name} は使えません（空、制御文字を含む名前は使えません）"),
+            ));
+        }
+        let reader = ValueReader::new(values, index);
+        match kind {
+            StyleKind::Dimension => self.add_dimension_style(index, name, &reader)?,
+            StyleKind::Text => self.add_text_style(index, name, &reader)?,
+            StyleKind::LineType => self.add_line_type(index, name, &reader)?,
+        }
+        self.created.push(Created::Name(name.to_string()));
+        Ok(())
+    }
+
+    /// 寸法スタイル。SXF は寸法スタイルを持たないので、編集の中だけに持ち、dimensionStyle で名前を指す寸法の
+    /// フィーチャにその大きさと書き方を書く。from（この編集で足した寸法スタイル）か ISO-25 の値から始める
+    fn add_dimension_style(&mut self, index: usize, name: &str, reader: &ValueReader<'_>) -> Result<(), EditError> {
+        let input = DimensionStyleInput::read(reader, index)?;
+        let key = js::trim(name).to_uppercase();
+        if self.dimension_styles.contains_key(&key) {
+            return Err(EditError::at(index, "already-exists", format!("寸法スタイル {name} はすでにあります")));
+        }
+        if input.text_height == Some(0.0) {
+            return Err(EditError::at(
+                index,
+                "invalid-value",
+                "textHeight は 0 より大きい数にしてください（SXF は高さ 0 の寸法値を書けません）",
+            ));
+        }
+        let mut style = match input.from.as_deref() {
+            Some(from) => self.dimension_style(from),
+            None => dimension::Style::default(),
+        };
+        let font = input.text_style.as_deref().map(|style| self.text_font(style));
+        style.apply(&input, font);
+        if input.text_above == Some(false) {
+            self.notices.add(
+                NoticeLevel::Info,
+                "edit-dimension-text-position",
+                "寸法のフィーチャの寸法線は 1 本で寸法値のところで切れないため、寸法線の上に置かない寸法値は寸法線に重ねて中央に置きました",
+            );
+        }
+        self.dimension_styles.insert(key, style);
+        Ok(())
+    }
+
+    /// 名前の寸法スタイル（この編集で足したもの）。ほかの名前は既定の大きさにして知らせる
+    fn dimension_style(&mut self, name: &str) -> dimension::Style {
+        if let Some(style) = self.dimension_styles.get(&js::trim(name).to_uppercase()) {
+            return style.clone();
+        }
+        self.notices.add(
+            NoticeLevel::Info,
+            "edit-dimension-style",
+            "SXF は寸法スタイルを持たないため、この編集で足していない寸法スタイルは既定の大きさ（ISO-25）にしました",
+        );
+        dimension::Style::default()
+    }
+
+    /// 文字スタイル。SXF の文字フォントは名前だけを持つので、font（なければスタイルの名前）の文字フォントを足し、
+    /// 後の操作の textStyle はそのフォントになる。フォントのほかの値は持てないので知らせる
+    fn add_text_style(&mut self, index: usize, name: &str, reader: &ValueReader<'_>) -> Result<(), EditError> {
+        let input = TextStyleInput::read(reader, index)?;
+        let key = js::trim(name).to_uppercase();
+        if self.text_styles.contains_key(&key)
+            || self.drawing.document.fonts.iter().any(|font| font.name.to_uppercase() == key)
+        {
+            return Err(EditError::at(
+                index,
+                "already-exists",
+                format!("文字スタイル・文字フォント {name} はすでにあります"),
+            ));
+        }
+        if input.has_more_than_font() {
+            self.notices.add(
+                NoticeLevel::Info,
+                "edit-style-values",
+                "SXF の文字フォントは名前だけ、線種は名前と線・空白の長さだけを持つため、ほかの値（bigFont・height・widthFactor・oblique・description）を書きませんでした",
+            );
+        }
+        let code = self.font_code(input.font.as_deref().unwrap_or(name));
+        self.text_styles.insert(key, code);
+        Ok(())
+    }
+
+    /// 文字スタイルの名前の文字フォントのコード。この編集で足した文字スタイルでなければ、その名前の文字フォント
+    /// （図面になければ足す）
+    fn text_font(&mut self, name: &str) -> f64 {
+        match self.text_styles.get(&js::trim(name).to_uppercase()) {
+            Some(code) => *code,
+            None => self.font_code(name),
+        }
+    }
+
+    /// 線種をユーザ定義線種（線種コード 17〜32）として足す。長さは用紙の mm で、線から始まる線と空白の長さ（点は
+    /// 0.25 mm の線）にし、8 を超える分は切る。空白のない模様は実線で、名前は編集の中で実線（1）を指す
+    fn add_line_type(&mut self, index: usize, name: &str, reader: &ValueReader<'_>) -> Result<(), EditError> {
+        let input = LineTypeInput::read(reader, index)?;
+        let key = js::trim(name).to_uppercase();
+        let doc = &self.drawing.document;
+        let exists = PREDEFINED_LINE_TYPES.iter().any(|line_type| line_type.name.to_uppercase() == key)
+            || doc.user_line_types.iter().any(|line_type| {
+                line_type.name.to_uppercase() == key
+                    || line_type.name.trim_start_matches("$$SXF_").to_uppercase() == key
+            })
+            || self.line_type_aliases.contains_key(&key);
+        if exists {
+            return Err(EditError::at(index, "already-exists", format!("線種 {name} はすでにあります")));
+        }
+        let (pitch, changed) = line_type_pitches(&input.pattern, MAX_LINE_TYPE_SEGMENTS);
+        if pitch.is_empty() {
+            self.line_type_aliases.insert(key, DEFAULT_LINE_TYPE);
+        } else {
+            if doc.user_line_types.len() >= MAX_USER_LINE_TYPES {
+                return Err(EditError::at(
+                    index,
+                    "name-exhausted",
+                    format!("ユーザ定義線種が上限（{MAX_USER_LINE_TYPES}）に達しているため、線種を足せません"),
+                ));
+            }
+            let id = self.temporary();
+            self.drawing.document.user_line_types.push(UserLineType { id, name: name.to_string(), pitch });
+        }
+        if changed {
+            self.notices.add(
+                NoticeLevel::Info,
+                "edit-line-type-pattern",
+                "SXF のユーザ定義線種は線から始まる線と空白の長さ（2・4・6・8 個）なので、線種の模様をいちばん近い長さにしました（点は 0.25 mm の線）",
+            );
+        }
+        if !input.description.is_empty() {
+            self.notices.add(
+                NoticeLevel::Info,
+                "edit-style-values",
+                "SXF の文字フォントは名前だけ、線種は名前と線・空白の長さだけを持つため、ほかの値（bigFont・height・widthFactor・oblique・description）を書きませんでした",
+            );
+        }
+        Ok(())
     }
 
     /// 空のブロック定義を作図部品（複合図形定義の種別 4）として足す（docs/decisions/0017）。複合図形定義は基点を
@@ -871,7 +1036,7 @@ impl Editor {
                     text.angle = rotation;
                 }
                 if let Some(name) = reader.name("textStyle")? {
-                    text.font = self.font_code(name);
+                    text.font = self.text_font(name);
                 }
                 let mut style = Styled { id: 0.0, layer: *layer, color: *color, line_type: 1.0, line_width: 1.0 };
                 self.apply_common(index, &reader, &mut style)?;
@@ -946,6 +1111,18 @@ impl Editor {
         }
         Ok(())
     }
+}
+
+/// 線と空白の長さ（用紙の mm）が同じ既定義線種のコード（既定義線種は 10 個の長さの三点二短鎖線まで）
+fn predefined_line_type(pitch: &[f64]) -> Option<f64> {
+    PREDEFINED_LINE_TYPES
+        .iter()
+        .position(|line_type| same_pitch(line_type.pitch, pitch))
+        .map(|position| (position + 1) as f64)
+}
+
+fn same_pitch(a: &[f64], b: &[f64]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-9)
 }
 
 /// 寸法の形を、作図部品の基点を原点にした座標にする

@@ -9222,12 +9222,6 @@
       "count": 2
     },
     {
-      "level": "info",
-      "code": "raster",
-      "message": "ラスタ画像（別の TIFF・JPEG ファイル）は表示していません",
-      "count": 1
-    },
-    {
       "level": "warning",
       "code": "unknown-color",
       "message": "定義のない色コードを白で表示しました",

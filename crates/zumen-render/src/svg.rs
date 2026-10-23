@@ -3,7 +3,9 @@
 //! フォント。1 文字ずつ、セルの中心に置く）。線は 100% の表示で 1 px（0.2646 mm）より細くしない。
 
 use crate::vector::{DOT_MM, PX_MM, Page, dash_lengths};
-use crate::{RenderError, RenderOptions, RenderReport, background_rgb, resolve_color, underlay_notices};
+use crate::{
+    RenderError, RenderOptions, RenderReport, background_rgb, markup_entities_for, resolve_color, underlay_notices,
+};
 use std::fmt::Write;
 use zumen_core::{BBox, Primitive, Scene, StrokePrimitive, TextPrimitive};
 
@@ -44,6 +46,11 @@ pub fn render_svg(
         );
     }
     for entity in page.entities(scene, options) {
+        for primitive in &entity.primitives {
+            writer.primitive(primitive);
+        }
+    }
+    for entity in markup_entities_for(options, PX_MM) {
         for primitive in &entity.primitives {
             writer.primitive(primitive);
         }

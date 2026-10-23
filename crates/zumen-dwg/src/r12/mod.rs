@@ -523,6 +523,7 @@ fn build(version: Old, vars: Vars, parsed: Parsed) -> DxfDocument {
         layouts: Vec::new(),
         entities: Vec::new(),
         sort_handles: Vec::new(),
+        image_frame: None,
         skipped: Vec::new(),
         notices: Vec::new(),
     };
