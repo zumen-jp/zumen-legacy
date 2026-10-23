@@ -16,6 +16,9 @@ and gives you a framework-agnostic drawing engine to embed in your own interface
 - **DXF** from AutoCAD and other CAD software is read, including Japanese drawings in Shift_JIS and binary DXF.
   **DWG** (AutoCAD 1.0 to 2018) is read into the same AutoCAD drawing model by our own decoder in Rust, without GPL
   components.
+- **PDF** drawings are read page by page in Rust: the paths, texts and images of a page become entities that are
+  selected, snapped to, measured (at the scale of the page's measured viewports) and analyzed, while a PDF engine draws
+  the page itself under them.
 - Every format is read by the same Rust code on servers, in Python and in the browser, where `@zumenjs/reader` runs its
   WebAssembly build on the page or in a Web Worker.
 
@@ -26,7 +29,8 @@ and gives you a framework-agnostic drawing engine to embed in your own interface
   DXF R12 to 2018 in ASCII and binary (lines, arcs, polylines with bulges and widths, splines, text and formatted MTEXT,
   blocks with attributes and arrays, dimensions, hatches, leaders, solids, wipeouts), with layers, line types,
   line weights, ACI and true colors, transparency and text styles;
-  DWG AutoCAD 1.0 to 2018, drawn like DXF (see [How DWG is handled](docs/formats/dwg.md)).
+  DWG AutoCAD 1.0 to 2018, drawn like DXF (see [How DWG is handled](docs/formats/dwg.md));
+  PDF, read only, each page a view with its paths, texts and images (see [How PDF is handled](docs/formats/pdf.md)).
 - Drawings you receive: limits on bytes, entities and time, and reading in a Web Worker that can be stopped.
 - DXF and DWG model space and layouts: viewports draw model space at their scale, and measurements inside them return
   real-world units.
@@ -58,7 +62,7 @@ and gives you a framework-agnostic drawing engine to embed in your own interface
 | --- | --- |
 | [`@zumenjs/core`](packages/core) | Format-neutral scene model, `readDrawing` and the `DrawingReader` interface, geometry, text layout and measurement (no DOM) |
 | [`@zumenjs/viewer`](packages/viewer) | The 2D engine to embed: Canvas renderer, hit testing and snapping, and `DrawingViewer` (view, state, input handlers, tools, style) |
-| [`@zumenjs/reader`](packages/reader) | Every format (SXF, JWW, DXF, DWG) with the Rust readers built to WebAssembly: the `reader` for `readDrawing` and `useDrawing`, read limits, and `ReaderWorker` for reading in a Web Worker |
+| [`@zumenjs/reader`](packages/reader) | Every format (SXF, JWW, DXF, DWG and PDF) with the Rust readers built to WebAssembly (PDF in a module of its own, loaded only for PDF drawings): the `reader` for `readDrawing` and `useDrawing`, read limits, and `ReaderWorker` for reading in a Web Worker |
 | [`@zumenjs/pdf`](packages/pdf) | PDF pages under the drawing with pdf.js: `pdfUnderlayRenderer`, an `UnderlayRenderer` for the pages of PDF drawings and the PDF underlays of DXF drawings, with optional content as layers |
 | [`@zumenjs/react`](packages/react) | Hooks: `useDrawingViewer`, `useViewerState`, `useViewerEvent` and `useDrawing` |
 
@@ -89,7 +93,8 @@ const READERS = [reader];
 
 export function DrawingView({ file }: { file: File | null }) {
   // The reader loads its WebAssembly module (507 KB with brotli) when the first drawing is opened.
-  // Pass { view } to pick a DXF or DWG layout.
+  // Pass { view } to pick a DXF or DWG layout, or a PDF page. A PDF loads the PDF module first; the entities of
+  // its page are not drawn (drawn: false): pdfUnderlayRenderer of @zumenjs/pdf draws the page under them.
   const { scene, error, loading } = useDrawing(file, READERS);
   if (loading) return <p>Loading…</p>;
   if (error) return <p role="alert">{error.message}</p>;
@@ -300,6 +305,7 @@ drawing in any of them.
 | [`zumen-jww`](crates/zumen-jww) | `read_jww` (the JWW document model), `jww_to_scene`, the `JWW` reader |
 | [`zumen-dxf`](crates/zumen-dxf) | `parse_dxf` (the AutoCAD drawing model, shared with DWG), `dxf_to_scene`, the `DXF` reader, `write_dxf` (the model as DXF of AutoCAD 2013), and `edit_dxf` (editing in place) |
 | [`zumen-dwg`](crates/zumen-dwg) | `read_dwg` (DWG 1.0 to 2018 into the AutoCAD drawing model of `zumen-dxf`), the `DWG` reader |
+| [`zumen-pdf`](crates/zumen-pdf) | `read_pdf` (the pages of a PDF drawing as views, with hayro-interpret), the `PDF` reader |
 | [`zumen-convert`](crates/zumen-convert) | `sxf_to_dxf` and `jww_to_dxf` (SXF and JWW into the AutoCAD drawing model, to be written as DXF), and `dxf_to_sxf` (the model as an SXF drawing, to be written as SFC) |
 | [`zumen-draft`](crates/zumen-draft) | `draft`: sheets, views, dimensions, hatches, tables, title blocks and symbols from a JSON drawing spec, into the AutoCAD drawing model ([Drafting](docs/drafting.md)) |
 | [`zumen`](crates/zumen) | `read` and `detect` over every reader, with limits on bytes, entities and time for untrusted drawings, `convert` (every format to DXF, DWG, JWW and SXF), `edit` and `create` (DXF, DWG, JWW and SXF), and `draft` (a drawing spec in every format) |
@@ -342,8 +348,10 @@ data files from the URLs the application gives it.
    done, [decision 0022](docs/decisions/0022-underlays-drawn-by-a-region-renderer.md)); the images that the readers
    skip today (DXF IMAGE and underlays, SXF raster images, JWW images in text); a PDF reader in Rust (`zumen-pdf`, on
    hayro) that reads the pages, paths and texts of PDF drawings for Python, the command line, the MCP server and
-   browsers alike, with the pages drawn by hayro on servers; then `@zumenjs/pdf`, which draws the pages with pdf.js in
-   browsers under the snapping, measurement and layers of zumen.
+   browsers alike (done, with a WebAssembly module of its own for browsers,
+   [decision 0030](docs/decisions/0030-pdf-in-a-webassembly-module-of-its-own.md)), with the pages drawn by hayro on
+   servers; then `@zumenjs/pdf`, which draws the pages with pdf.js in browsers under the snapping, measurement and
+   layers of zumen (done, [decision 0029](docs/decisions/0029-pdf-js-owned-by-the-application.md)).
 8. Drawing markup (redlines, revision clouds, review findings, photo positions,
    [decision 0021](docs/decisions/0021-drawing-markup.md)): a JSON document beside the drawing, in paper millimeters of
    a view so that CAD and PDF drawings share it, which names the drawing by the hash of its bytes and is carried to new
@@ -357,6 +365,7 @@ data files from the URLs the application gives it.
 - [How JWW is handled](docs/formats/jww.md) (Japanese)
 - [How DXF is handled](docs/formats/dxf.md)
 - [How DWG is handled](docs/formats/dwg.md)
+- [How PDF is handled](docs/formats/pdf.md)
 - [Drafting sheets from a drawing spec](docs/drafting.md)
 - [Checks against CAD standards](docs/checks.md)
 - [Drawing markup](docs/markup.md)

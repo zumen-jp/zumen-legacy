@@ -1,9 +1,10 @@
 import { type DrawingReader, type ReadDrawingOptions, type Scene, sceneFromJson } from "@zumenjs/core";
 import init, { ReadFailure, readSceneJson } from "../wasm/zumen_wasm.js";
+import initPdf, { ReadFailure as PdfReadFailure, readSceneJson as readPdfSceneJson } from "../wasm/zumen_wasm_pdf.js";
 import { detectDrawing, FORMATS } from "./detect.js";
 import { type Limit, LimitError, type ReadLimits } from "./limits.js";
 
-export { detectDrawing, FORMATS, isDwg } from "./detect.js";
+export { detectDrawing, FORMATS, isDwg, isPdf } from "./detect.js";
 export { type Limit, LimitError, type ReadLimits } from "./limits.js";
 export { ReaderWorker, type ReaderWorkerOptions, type WorkerReadOptions } from "./worker-client.js";
 
@@ -14,39 +15,75 @@ export interface ReadSceneOptions extends ReadDrawingOptions {
   limits?: ReadLimits;
 }
 
-let loading: Promise<void> | undefined;
-let ready = false;
+/**
+ * WebAssembly のモジュールの読み込み。PDF の読み取りは大きいので、ほかの形式のモジュールとは別に読み込む（決定 0030）。
+ * 読み込めなかったときは、次の呼び出しで読み込み直す
+ */
+class Module {
+  #loading: Promise<void> | undefined;
+  ready = false;
+
+  constructor(
+    readonly init: (input: { module_or_path: ReaderWasmSource }) => Promise<unknown>,
+    readonly file: () => URL,
+  ) {}
+
+  load(source: ReaderWasmSource | Promise<ReaderWasmSource> | undefined): Promise<void> {
+    this.#loading ??= this.#load(source).then(
+      () => {
+        this.ready = true;
+      },
+      (error: unknown) => {
+        this.#loading = undefined;
+        throw error;
+      },
+    );
+    return this.#loading;
+  }
+
+  async #load(source: ReaderWasmSource | Promise<ReaderWasmSource> | undefined): Promise<void> {
+    const input = (await source) ?? this.file();
+    // Node.js の fetch は file: の URL を読めないので、ファイルを読んで渡す
+    await this.init({
+      module_or_path: input instanceof URL && input.protocol === "file:" ? await readFile(input) : input,
+    });
+  }
+}
+
+// new URL(…, import.meta.url) はバンドラーがビルドの出力に含める形のまま書く（関数の中で、読み込むときに作る）
+const cad = new Module(init, () => new URL("../wasm/zumen_wasm_bg.wasm", import.meta.url));
+const pdf = new Module(initPdf, () => new URL("../wasm/zumen_wasm_pdf_bg.wasm", import.meta.url));
 
 /**
- * 図面の読み取り（Rust の読み取りを WebAssembly にしたもの）を読み込む。読む前に 1 度だけ待てばよい。
- * 2 度目からは同じ Promise を返し（source は最初のものを使う）、読み込めなかったときは次の呼び出しで読み込み直す。
+ * 図面の読み取り（Rust の読み取りを WebAssembly にしたもの）のうち、PDF 以外の形式のものを読み込む。読む前に 1 度だけ
+ * 待てばよい。2 度目からは同じ Promise を返し（source は最初のものを使う）、読み込めなかったときは次の呼び出しで
+ * 読み込み直す。PDF は initPdfReader で読み込む。
  *
  * source を省略すると、このモジュールから相対の ../wasm/zumen_wasm_bg.wasm を、ブラウザでは取得し、Node.js では
  * ファイルから読む。Vite と webpack は new URL(…, import.meta.url) の .wasm をビルドの出力に含める。
  * 別の場所に置いたときは、その URL・Response・バイト列・コンパイル済みの WebAssembly.Module を渡す
  */
 export function initReader(source?: ReaderWasmSource | Promise<ReaderWasmSource>): Promise<void> {
-  loading ??= load(source).then(
-    () => {
-      ready = true;
-    },
-    (error: unknown) => {
-      loading = undefined;
-      throw error;
-    },
-  );
-  return loading;
+  return cad.load(source);
 }
 
-/** initReader が終わり、読める状態か */
+/** initReader が終わり、PDF 以外の形式を読める状態か */
 export function isReaderReady(): boolean {
-  return ready;
+  return cad.ready;
 }
 
-async function load(source: ReaderWasmSource | Promise<ReaderWasmSource> | undefined): Promise<void> {
-  const input = (await source) ?? new URL("../wasm/zumen_wasm_bg.wasm", import.meta.url);
-  // Node.js の fetch は file: の URL を読めないので、ファイルを読んで渡す
-  await init({ module_or_path: input instanceof URL && input.protocol === "file:" ? await readFile(input) : input });
+/**
+ * PDF の読み取り（zumen-pdf の WebAssembly）を読み込む。initReader と同じく、読む前に 1 度だけ待てばよい。
+ * source を省略すると ../wasm/zumen_wasm_pdf_bg.wasm（@zumenjs/reader/zumen_wasm_pdf_bg.wasm）。PDF の図面を初めて
+ * 開くときにだけ呼べば、PDF を開かないアプリケーションはこのファイルを取得しない
+ */
+export function initPdfReader(source?: ReaderWasmSource | Promise<ReaderWasmSource>): Promise<void> {
+  return pdf.load(source);
+}
+
+/** initPdfReader が終わり、PDF を読める状態か */
+export function isPdfReaderReady(): boolean {
+  return pdf.ready;
 }
 
 /** Node.js の node:fs/promises の一部。import しないので、ブラウザ向けのバンドルに node: のモジュールが入らない */
@@ -61,8 +98,8 @@ async function readFile(url: URL): Promise<Uint8Array> {
 }
 
 /**
- * 図面を読み、表示用の図面にする。format を省略すると中身から判定する。読む前に initReader を待つ。
- * 読めない図面は Rust の読み取りのメッセージの Error、上限を超えたら LimitError を投げる
+ * 図面を読み、表示用の図面にする。format を省略すると中身から判定する。読む前に initReader（PDF は initPdfReader）を
+ * 待つ。読めない図面は Rust の読み取りのメッセージの Error、上限を超えたら LimitError を投げる
  */
 export function readScene(input: ArrayBuffer | Uint8Array, options: ReadSceneOptions = {}): Scene {
   return sceneFromJson(readJson(input instanceof Uint8Array ? input : new Uint8Array(input), options));
@@ -70,12 +107,19 @@ export function readScene(input: ArrayBuffer | Uint8Array, options: ReadSceneOpt
 
 /** readScene と同じく読み、Scene の JSON（sceneToJson と同じ形）を返す。Web Worker から JSON のまま渡すときなどに使う */
 export function readJson(bytes: Uint8Array, options: ReadSceneOptions = {}): string {
-  if (!ready) throw new Error("図面を読む前に、initReader() で読み取り（WebAssembly）を読み込んでください");
   const { format, view, limits } = options;
+  const isPdf = (format ?? detectDrawing(bytes)) === "pdf";
+  if (isPdf && !pdf.ready) {
+    throw new Error("PDF を読む前に、initPdfReader() で PDF の読み取り（WebAssembly）を読み込んでください");
+  }
+  if (!isPdf && !cad.ready) {
+    throw new Error("図面を読む前に、initReader() で読み取り（WebAssembly）を読み込んでください");
+  }
   try {
-    return readSceneJson(bytes, format, view, limits?.maxBytes, limits?.maxEntities);
+    const read = isPdf ? readPdfSceneJson : readSceneJson;
+    return read(bytes, format, view, limits?.maxBytes, limits?.maxEntities);
   } catch (error) {
-    if (!(error instanceof ReadFailure)) throw error;
+    if (!(error instanceof ReadFailure || error instanceof PdfReadFailure)) throw error;
     const { message, limit } = error;
     error.free();
     throw limit ? new LimitError(message, limit as Limit) : new Error(message);
@@ -84,14 +128,15 @@ export function readJson(bytes: Uint8Array, options: ReadSceneOptions = {}): str
 
 /**
  * readDrawing・useDrawing に渡す読み取りを作る。limits は読むたびに Rust の読み取りに渡す上限。
- * detect は WebAssembly を使わないので、読み込む前でも形式を見分けられる。load は initReader() を呼ぶ
+ * detect は WebAssembly を使わないので、読み込む前でも形式を見分けられる。load(format) は、PDF なら initPdfReader()、
+ * ほかの形式（と形式を渡さないとき）は initReader() を呼ぶ
  */
 export function createReader(options: { limits?: ReadLimits } = {}): DrawingReader {
   const limits = options.limits;
   return {
     formats: FORMATS,
     detect: detectDrawing,
-    load: () => initReader(),
+    load: (format) => (format === "pdf" ? initPdfReader() : initReader()),
     read(bytes, format, readOptions) {
       if (!FORMATS.includes(format)) throw new Error(`図面の読み取りは ${format} を読めません`);
       const options: ReadSceneOptions = { format };
@@ -103,7 +148,7 @@ export function createReader(options: { limits?: ReadLimits } = {}): DrawingRead
 }
 
 /**
- * readDrawing・useDrawing に渡す、どの形式（SXF の SFC・P21・P2Z・SFZ、JWW・JWC・JWS、DXF、DWG）も読む読み取り。上限はない。
- * options.view は DXF・DWG のモデル空間（Model）かレイアウトの名前
+ * readDrawing・useDrawing に渡す、どの形式（SXF の SFC・P21・P2Z・SFZ、JWW・JWC・JWS、DXF、DWG、PDF）も読む読み取り。
+ * 上限はない。options.view は DXF・DWG のモデル空間（Model）かレイアウトの名前、PDF のページの番号（"1" から）
  */
 export const reader: DrawingReader = createReader();

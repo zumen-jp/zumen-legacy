@@ -1,8 +1,9 @@
 //! zumen: 建築・土木の 2D 図面を読み、形式に依存しない表示用モデル（`Scene`）にする。
 //!
-//! 形式は拡張子ではなく中身で判定する。読める形式は SXF（SFC・P21、圧縮した P2Z・SFZ）・JWW（JWC・JWS も）・DXF・DWG。
+//! 形式は拡張子ではなく中身で判定する。読める形式は SXF（SFC・P21、圧縮した P2Z・SFZ）・JWW（JWC・JWS も）・DXF・DWG・
+//! PDF（読むだけ。ページがビューで、図形はページの下敷きが描く）。
 //! 受け取った図面を信用できないときは、`ReadDrawingOptions::limits` でバイト数・図形の数・時間の上限を指定する。
-//! どの図面も AutoCAD の図面のモデルを経て、DXF・DWG・JWW・SXF に書き直せる（`convert`）。
+//! PDF 以外の図面は AutoCAD の図面のモデルを経て、DXF・DWG・JWW・SXF に書き直せる（`convert`）。
 //! 図面をその場で編集し（`edit`）、新しい図面を作れる（`create`）。操作は形式によらない（`edit::parse_operations`）。
 //! 図面の仕様（JSON）から、用紙・ビュー・寸法・表のそろった図面を描ける（`draft`、決定 0018）。
 //!
@@ -23,18 +24,29 @@ pub use zumen_draft as draft;
 pub use zumen_dwg as dwg;
 pub use zumen_dxf as dxf;
 pub use zumen_jww as jww;
+#[cfg(feature = "pdf")]
+pub use zumen_pdf as pdf;
 pub use zumen_sxf as sxf;
 
-/// 組み込みの読み取り（判定する順）
+/// 組み込みの読み取り（判定する順）。PDF は機能 pdf のとき
 pub fn readers() -> Vec<&'static dyn DrawingReader> {
-    vec![&zumen_sxf::SXF, &zumen_jww::JWW, &zumen_jww::JWC, &zumen_jww::JWS, &zumen_dxf::DXF, &zumen_dwg::DWG]
+    vec![
+        &zumen_sxf::SXF,
+        &zumen_jww::JWW,
+        &zumen_jww::JWC,
+        &zumen_jww::JWS,
+        &zumen_dxf::DXF,
+        &zumen_dwg::DWG,
+        #[cfg(feature = "pdf")]
+        &zumen_pdf::PDF,
+    ]
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ReadDrawingOptions {
-    /// 分かっている場合の形式（sfc・p21・p2z・sfz・jww・jwc・jws・dxf・dwg）。省略すると中身から判定する
+    /// 分かっている場合の形式（sfc・p21・p2z・sfz・jww・jwc・jws・dxf・dwg・pdf）。省略すると中身から判定する
     pub format: Option<String>,
-    /// 描く表示（Scene.views の id）。省略すると形式ごとの既定の表示
+    /// 描く表示（Scene.views の id。DXF・DWG のレイアウト、PDF のページの番号）。省略すると形式ごとの既定の表示
     pub view: Option<String>,
     /// 読み取りの上限。超えたら途中でやめ、`ReadError::exceeded` で上限の種類が分かるエラーを返す
     pub limits: ReadLimits,
@@ -44,6 +56,10 @@ pub struct ReadDrawingOptions {
 pub fn detect(bytes: &[u8]) -> Option<&'static str> {
     detect_format(bytes, &readers())
 }
+
+/// PDF は読むだけ（決定 0020）。図面は zumen-render の render_pdf で PDF に書ける
+const READ_ONLY_PDF: &str =
+    "PDF の図面は読むだけで、書き直し・編集・描き込みはできません（図面を PDF にするには描画の PDF 出力を使います）";
 
 /// 書き出した図面と、書けなかった・形を変えて書いた内容（読み取りの notices と同じ形）
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -145,6 +161,7 @@ pub fn convert_with(
                 notices = NoticeList::from_notices(&mapped.notices);
                 return Ok(mapped.document);
             }
+            "pdf" => return Err(ReadError::new(READ_ONLY_PDF)),
             other => return Err(ReadError::new(format!("{} の図面は書き直せません", other.to_uppercase()))),
         };
         let mapped = mapping::jww_to_dxf(&jww);
@@ -243,6 +260,9 @@ pub fn draft_into(bytes: &[u8], spec: &str, options: &DraftIntoOptions) -> Resul
         Some(format) => format,
         None => detect(bytes).ok_or_else(|| error("unreadable", "対応していない形式のファイルです".into()))?,
     };
+    if format == "pdf" {
+        return Err(error("unsupported-format", READ_ONLY_PDF.into()));
+    }
     if format != "dxf" && format != "dwg" {
         return Err(error(
             "unsupported-format",
@@ -303,6 +323,7 @@ pub fn edit(
         "dwg" => dwg::edit_dwg(bytes, operations),
         "jww" => jww::edit_jww(bytes, operations),
         "sfc" | "p21" | "sfz" | "p2z" => sxf::edit_sxf(bytes, format, operations),
+        "pdf" => Err(edit::EditError::new("unsupported-format", READ_ONLY_PDF)),
         other => Err(unsupported_edit(other)),
     }
 }
@@ -346,36 +367,8 @@ fn unsupported_edit(format: &str) -> edit::EditError {
 
 /// 図面のバイト列を読み、表示用の図面にする。上限（`options.limits`）を超えたら、途中でやめて上限のエラーを返す
 pub fn read(bytes: &[u8], options: &ReadDrawingOptions) -> Result<Scene, ReadError> {
-    let limits = &options.limits;
-    if limits.max_bytes.is_some_and(|max| bytes.len() as u64 > max) {
-        return Err(limit_error(Limit::Bytes, limits));
-    }
     let read_options = ReadOptions { view: options.view.clone() };
-    let (result, exceeded) = zumen_core::limits::with_limits(limits, || {
-        read_drawing(bytes, &readers(), options.format.as_deref(), &read_options)
-    });
-    // 上限を超えたときは、途中までの結果や、途中でやめたために起きた読み取りのエラーより上限のエラーを返す
-    match (exceeded, result) {
-        (Some(_), Err(error)) if error.exceeded().is_some() => Err(error),
-        (Some(limit), _) => Err(limit_error(limit, limits)),
-        (None, result) => result,
-    }
-}
-
-/// 上限を超えたときのエラー（利用者に見せる文）
-pub fn limit_error(limit: Limit, limits: &ReadLimits) -> ReadError {
-    let count = |value: Option<u64>| value.map_or_else(String::new, |value| js::format_ja(value as f64, 0));
-    let message = match limit {
-        Limit::Bytes => format!("図面が上限の {} バイトより大きいため、読みませんでした", count(limits.max_bytes)),
-        Limit::Entities => {
-            format!("図形が上限の {} 個を超えたため、読むのを途中でやめました", count(limits.max_entities))
-        }
-        Limit::Time => {
-            let seconds = limits.max_duration.map_or(0.0, |duration| duration.as_secs_f64());
-            format!("読み取りが上限の {} 秒を超えたため、途中でやめました", js::number_to_string(seconds))
-        }
-    };
-    ReadError::limit(limit, message)
+    read_drawing_with_limits(bytes, &readers(), options.format.as_deref(), &read_options, &options.limits)
 }
 
 #[cfg(test)]

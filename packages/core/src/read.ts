@@ -16,9 +16,10 @@ export interface DrawingReader {
   read(bytes: Uint8Array, format: DrawingFormat, options?: ReadOptions): Scene;
   /**
    * 読む前に待つ準備（WebAssembly の読み込みなど）。持たない読み取りは、すぐに読める。
-   * 何度呼んでもよく、準備ができた後はすぐに終わる。@zumenjs/react の useDrawing は、中身を認めた読み取りのものだけを待つ
+   * 何度呼んでもよく、準備ができた後はすぐに終わる。@zumenjs/react の useDrawing は、中身を認めた読み取りのものだけを、
+   * detect が返した形式を format に渡して待つ（形式ごとにモジュールを分ける読み取りは、その形式のものだけを読み込める）
    */
-  load?(): Promise<void>;
+  load?(format?: DrawingFormat): Promise<void>;
 }
 
 export interface ReadOptions {

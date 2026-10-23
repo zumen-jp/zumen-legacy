@@ -4,6 +4,23 @@ All packages share one version during 0.x.
 
 ## Unreleased
 
+- Rust, Python, the command line, the MCP server and browsers: PDF drawings are read
+  ([decision 0020](docs/decisions/0020-pdf-drawings-in-rust.md), [How PDF is handled](docs/formats/pdf.md)). The new
+  crate `zumen-pdf` (`read_pdf`, the `PDF` reader of `zumen::read` and `zumen::detect`, on hayro-interpret 0.8.0)
+  reads each page as a view (id `"1"`, `"2"` …, named by its page label) in paper millimeters of the crop box with
+  `Rotate` and `UserUnit` applied, with the page as its underlay (`kind: "pdf"`) and the painted paths (`line`,
+  `polyline`, `spline`, `solid`), glyph runs (`text`, with Unicode, position, height, rotation and font) and images
+  (`image` frames) as entities that are not drawn (`drawn: false`), numbered `#n` in paint order. Viewports with a
+  rectilinear measure dictionary give the entities inside them a placement with the scale. Shadings, tiling patterns,
+  content outside the clip, annotations, optional content and glyphs without Unicode are reported in `notices`.
+  `convert`, `edit` and `draft_into` refuse PDF. The `zumen` crate reads PDF with its default feature `pdf`.
+- Browsers: `@zumenjs/reader` reads PDF with a WebAssembly module of its own, `zumen_wasm_pdf_bg.wasm`, loaded only
+  for PDF drawings ([decision 0030](docs/decisions/0030-pdf-in-a-webassembly-module-of-its-own.md)): `initPdfReader`
+  and `isPdfReaderReady`, `reader.load("pdf")`, `ReaderWorkerOptions.pdfWasm`, `isPdf`, and `detectDrawing` returns
+  `pdf`. `DrawingReader.load` receives the detected format, which `useDrawing` passes, so `useDrawing(file, [reader])`
+  loads the PDF module only when a PDF is opened. The CAD module does not change.
+- `pnpm run parity` compares the texts of PDF files with pdf.js page by page and reports the differences, and
+  `THIRD_PARTY_LICENSES.txt` also carries the licenses of the data that crates embed (the fonts and CMaps of hayro).
 - Browsers: drawing markup, kept in a JSON document beside the drawing in paper millimeters of a view
   ([decision 0021](docs/decisions/0021-drawing-markup.md), [Drawing markup](docs/markup.md)). `@zumenjs/core` has the
   model (`MarkupDocument`, `MarkupItem` and its kinds `redline`, `cloud`, `text`, `finding` and `photo`),

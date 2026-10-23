@@ -1,7 +1,7 @@
 {
   "name": "@zumenjs/reader",
   "version": "0.1.1",
-  "description": "Read every zumen format (SXF, JWW, DXF, DWG) in browsers and Node.js with zumen's Rust readers built to WebAssembly, on the page or in a Web Worker",
+  "description": "Read every zumen format (SXF, JWW, DXF, DWG and PDF) in browsers and Node.js with zumen's Rust readers built to WebAssembly, on the page or in a Web Worker",
   "keywords": [
     "cad",
     "drawing",
@@ -9,6 +9,7 @@
     "jww",
     "dxf",
     "dwg",
+    "pdf",
     "autocad",
     "viewer",
     "webassembly"
@@ -34,6 +35,9 @@
     "wasm/zumen_wasm.js",
     "wasm/zumen_wasm.d.ts",
     "wasm/zumen_wasm_bg.wasm",
+    "wasm/zumen_wasm_pdf.js",
+    "wasm/zumen_wasm_pdf.d.ts",
+    "wasm/zumen_wasm_pdf_bg.wasm",
     "THIRD_PARTY_LICENSES.txt"
   ],
   "exports": {
@@ -48,6 +52,7 @@
       "default": "./dist/worker.js"
     },
     "./zumen_wasm_bg.wasm": "./wasm/zumen_wasm_bg.wasm",
+    "./zumen_wasm_pdf_bg.wasm": "./wasm/zumen_wasm_pdf_bg.wasm",
     "./package.json": "./package.json"
   },
   "publishConfig": {
@@ -63,6 +68,7 @@
         "default": "./dist/worker.js"
       },
       "./zumen_wasm_bg.wasm": "./wasm/zumen_wasm_bg.wasm",
+      "./zumen_wasm_pdf_bg.wasm": "./wasm/zumen_wasm_pdf_bg.wasm",
       "./package.json": "./package.json"
     }
   },

@@ -1,14 +1,25 @@
 import type { DrawingFormat } from "@zumenjs/core";
 
-// 中身から形式を見分ける規則。Rust の zumen::detect（zumen-sxf・zumen-jww・zumen-dxf・zumen-dwg の detect）と同じで、
-// WebAssembly を読み込まずに判定できる。tests/reader.test.ts がどの図面でも WebAssembly の detect と比べる
+// 中身から形式を見分ける規則。Rust の zumen::detect（zumen-sxf・zumen-jww・zumen-dxf・zumen-dwg・zumen-pdf の detect）と
+// 同じで、WebAssembly を読み込まずに判定できる。どちらのモジュールを読み込むかもこれで決める（決定 0030）。
+// tests/reader.test.ts がどの図面でも WebAssembly の detect と比べる
 
-/** 読める形式。圧縮した SXF は sfz（中が SFC）と p2z（中が P21） */
-export const FORMATS: readonly DrawingFormat[] = ["sfc", "p21", "sfz", "p2z", "jww", "jwc", "jws", "dxf", "dwg"];
+/** 読める形式。圧縮した SXF は sfz（中が SFC）と p2z（中が P21）。pdf は PDF のモジュールで読む */
+export const FORMATS: readonly DrawingFormat[] = ["sfc", "p21", "sfz", "p2z", "jww", "jwc", "jws", "dxf", "dwg", "pdf"];
 
-/** 図面の形式を中身から判定する（SXF・JWW・DXF・DWG の順に見る）。読めない形式なら null */
+/** 図面の形式を中身から判定する（SXF・JWW・DXF・DWG・PDF の順に見る）。読めない形式なら null */
 export function detectDrawing(bytes: Uint8Array): DrawingFormat | null {
-  return detectSxf(bytes) ?? detectJw(bytes) ?? (isDxf(bytes) ? "dxf" : isDwg(bytes) ? "dwg" : null);
+  return (
+    detectSxf(bytes) ?? detectJw(bytes) ?? (isDxf(bytes) ? "dxf" : isDwg(bytes) ? "dwg" : isPdf(bytes) ? "pdf" : null)
+  );
+}
+
+/**
+ * 中身が PDF か。先頭の 1,024 バイトの中に、ファイルのヘッダ %PDF- があれば PDF とみなす（ISO 32000-1:2008 の 7.5.2。
+ * ヘッダの前の余計なバイトは Acrobat と pdf.js と同じく 1,024 バイトまで読む）。Rust の zumen_pdf::is_pdf と同じ
+ */
+export function isPdf(bytes: Uint8Array): boolean {
+  return latin1(bytes, 0, Math.min(bytes.length, 1024)).includes("%PDF-");
 }
 
 /**
