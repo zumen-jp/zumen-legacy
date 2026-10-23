@@ -54,4 +54,4 @@ Choices made before this folder existed are described in [the architecture notes
 - [0023: Resize existing layouts through an edit operation](0023-resize-existing-layouts.md) (2026-10-23, Accepted)
 - [0024: Keep the declared text height with each text primitive](0024-declared-text-height.md) (2026-10-23, Accepted)
 - [0025: Add block definitions, dimensions and hatches to JWW and SXF edits as each format's own entities](0025-annotations-in-jww-and-sxf-edits.md) (2026-10-23, Proposed)
-- [0026: Let JWW and SXF edits add dimension styles, text styles and line types, named for the edit and written into what each format stores](0026-styles-in-jww-and-sxf-edits.md) (2026-10-23, Proposed)
+- [0029: Let the application own pdf.js, and draw the pdf.js documents it opens](0029-pdf-js-owned-by-the-application.md) (2026-10-23, Proposed)
