@@ -63,6 +63,10 @@ DEFAULT_TEXT_LENGTH = 1000
 DEFAULT_MAX_POINTS = 1000
 #: Most points of shapes one call may return.
 MAX_POINTS = 10_000
+#: Most cells of tables one call returns when the caller does not ask for a number.
+DEFAULT_MAX_CELLS = 1000
+#: Most cells of tables one call may return.
+MAX_CELLS = 10_000
 #: Most placements (scaled parts of the sheet) that ``summary`` lists, the largest first.
 MAX_PLACEMENTS = 100
 #: Largest drawing that ``Drawings`` reads (bytes; P2Z and SFZ after unpacking). Received files are not trusted.
@@ -437,6 +441,51 @@ class RegionPage(TypedDict):
     offset: int
     next_offset: int | None
     regions: list[RegionInfo]
+
+
+class _TableCellInfo(TypedDict):
+    row: int
+    column: int
+    ids: list[str]
+
+
+class TableCellInfo(_TableCellInfo, total=False):
+    """A cell of a table that has texts or spans several rows or columns: its row and column (from 0, at the top
+    left), the ids of the texts inside, and ``row_span`` and ``column_span`` when they are more than 1."""
+
+    row_span: int
+    column_span: int
+
+
+class _TableInfo(TypedDict):
+    bbox: list[float]
+    placement: PlacementName | None
+    row_count: int
+    column_count: int
+    columns: list[float]
+    rows: list[float]
+    grid: list[list[str]]
+    cells: list[TableCellInfo]
+
+
+class TableInfo(_TableInfo, total=False):
+    """A table drawn with horizontal and vertical rules: its box, the x of the rules between columns (left to
+    right) and the y of the rules between rows (top to bottom), in paper millimeters, and ``grid``, the text of each
+    row and column, with a merged cell's text in its top left place and the other places empty. A cell's texts are
+    joined from the top line down, with a space between texts on the same line and a line break between lines.
+    ``rows_omitted`` counts the rows left out of ``grid`` and ``cells`` when they did not fit in ``max_cells``."""
+
+    rows_omitted: int
+    truncated: bool
+
+
+class TablePage(TypedDict):
+    """A page of ``find_tables``: ``total`` tables match, and ``next_offset`` goes on (``None`` at the end)."""
+
+    total: int
+    offset: int
+    next_offset: int | None
+    tables: list[TableInfo]
 
 
 class _MeasurementInfo(TypedDict):
@@ -1269,6 +1318,107 @@ def find_regions(
         "offset": offset,
         "next_offset": following if following < len(regions) else None,
         "regions": page,
+    }
+
+
+def find_tables(
+    scene: Scene,
+    *,
+    region: Sequence[float] | None = None,
+    frame_region: Sequence[float] | None = None,
+    layer: str | None = None,
+    contains: str | None = None,
+    all_layers: bool = False,
+    tolerance: float = 0.01,
+    empty: bool = False,
+    limit: int = DEFAULT_LIMIT,
+    offset: int = 0,
+    max_cells: int = DEFAULT_MAX_CELLS,
+    max_text_length: int | None = DEFAULT_TEXT_LENGTH,
+) -> TablePage:
+    """The tables drawn with horizontal and vertical rules, such as schedules, area tables, drawing lists and title
+    blocks, with the text of every cell, in reading order (top to bottom, then left to right) for each placement.
+
+    The rules are the horizontal and vertical lines of lines, polylines and the outlines of solids, split and joined
+    as in ``find_regions``; every rectangle they close is a cell, and cells that share edges and fill a rectangle are
+    a table. Diagonal lines (a slash across an empty cell) and symbols do not split cells. A cell that covers most of
+    the table, such as the drawing area beside a title block, is left out. Tables turned against the sheet are not
+    found, and rooms drawn with single lines that fill a rectangle are found as a table too. ``layer`` keeps only the
+    rules on layers whose name contains it, ``contains`` keeps the tables with a cell whose text contains it, and
+    ``empty`` also returns tables without any text.
+    """
+    if not (math.isfinite(tolerance) and tolerance > 0):
+        raise DrawingError("tolerance must be a positive number of millimeters")
+    if not 1 <= max_cells <= MAX_CELLS:
+        raise DrawingError(f"max_cells must be between 1 and {MAX_CELLS:,}")
+    limit, offset = _page(limit, offset)
+    length = _text_length(max_text_length)
+    layers = None
+    if layer:
+        wanted = normalize(layer)
+        layers = [item["id"] for item in scene.layers if wanted in normalize(str(item["name"]))]
+    tables = scene.tables(
+        region=_region(scene, region, frame_region),
+        hidden_layers=[] if all_layers else None,
+        layers=layers,
+        tolerance=tolerance,
+        empty=empty,
+    )
+    if contains:
+        needle = normalize(contains)
+        tables = [item for item in tables if any(needle in normalize(cell["text"]) for cell in item["cells"])]
+    budget = max_cells
+    page: list[TableInfo] = []
+    for found in tables[offset : offset + limit]:
+        columns = max(found["column_count"], 1)
+        rows = found["row_count"]
+        # The first table of a page always comes, with the rows that fit, so that paging goes on
+        fit = min(rows, budget // columns)
+        if fit < rows and page:
+            break
+        fit = max(fit, 1)
+        placement = _placement(found["placement"]) if found["placement"] else None
+        info: TableInfo = {
+            "bbox": _box(found["bbox"]),
+            "placement": {"name": placement["name"], "scale": placement["scale"]} if placement else None,
+            "row_count": rows,
+            "column_count": found["column_count"],
+            "columns": [_mm(x) for x in found["columns"]],
+            "rows": [_mm(y) for y in found["rows"]],
+            "grid": [],
+            "cells": [],
+        }
+        for row in found["grid"][:fit]:
+            texts = []
+            for text in row:
+                clipped, cut = _clip(text, length)
+                if cut:
+                    info["truncated"] = True
+                texts.append(clipped)
+            info["grid"].append(texts)
+        for cell in found["cells"]:
+            if cell["row"] >= fit or (not cell["texts"] and cell["row_span"] == 1 and cell["column_span"] == 1):
+                continue
+            item: TableCellInfo = {
+                "row": cell["row"],
+                "column": cell["column"],
+                "ids": [text["id"] for text in cell["texts"]],
+            }
+            if cell["row_span"] > 1:
+                item["row_span"] = cell["row_span"]
+            if cell["column_span"] > 1:
+                item["column_span"] = cell["column_span"]
+            info["cells"].append(item)
+        if fit < rows:
+            info["rows_omitted"] = rows - fit
+        budget -= fit * columns
+        page.append(info)
+    following = offset + len(page)
+    return {
+        "total": len(tables),
+        "offset": offset,
+        "next_offset": following if following < len(tables) else None,
+        "tables": page,
     }
 
 

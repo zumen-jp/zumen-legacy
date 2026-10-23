@@ -4,6 +4,12 @@ All packages share one version during 0.x.
 
 ## Unreleased
 
+- Rust, Python, the command line and the MCP server: read the tables drawn with rules (schedules, area tables,
+  drawing lists, title blocks) as rows and columns, with merged cells and the texts of each cell
+  ([decision 0015](docs/decisions/0015-analysis-in-zumen-core.md)). Only horizontal and vertical lines are rules, so
+  a slash across an empty cell does not split it, and the drawing area beside a title block is left out.
+  `zumen_core::tables::ruled_tables`, `Scene.tables` and `zumen.tools.find_tables` in Python, `zumen tables`
+  (JSON lines, or CSV with `--csv`), and the `find_tables` MCP tool.
 - Rust, Python, the command line and the MCP server: draft whole drawings from a JSON drawing spec
   ([decision 0018](docs/decisions/0018-drafting-kit.md), [Drafting](docs/drafting.md)). Sheets become layouts with
   a border and a title block (a strip on the right or a table at the bottom right), views are viewports at their

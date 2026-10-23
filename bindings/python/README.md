@@ -195,6 +195,27 @@ that touch no other line (columns, furniture) are holes. `layers` keeps the line
 changes the kinds used, and `min_area` leaves out smaller regions. A room whose walls have an opening drawn as a gap
 joins the next one ([decision 0015](https://github.com/zumenjs/zumen/blob/main/docs/decisions/0015-analysis-in-zumen-core.md)).
 
+## Tables
+
+`tables` reads the tables drawn with rules, such as door and window schedules, area tables, drawing lists and title
+blocks, as rows and columns:
+
+```python
+for table in scene.tables():
+    print(table["row_count"], table["column_count"], table["bbox"])
+    for row in table["grid"]:  # a merged cell's text in its top left place, the other places empty
+        print(row)
+```
+
+The horizontal and vertical lines are the rules (a slash across an empty cell and symbols are not), every rectangle
+they close is a cell, and cells that share edges and fill a rectangle are a table. A cell that covers most of the
+table, such as the drawing area beside a title block strip, is left out. Each table has `columns` (the x of the rules,
+left to right) and `rows` (the y, top to bottom) in paper millimeters, and `cells` with their `row`, `column`,
+`row_span`, `column_span`, `bbox`, `text` and `texts`; a cell's texts are joined from the top line down, with a space
+between texts on one line. `layers`, `tolerance` and `region` work as for `regions`, `min_cells` (2) leaves out
+smaller tables, and `empty=True` also returns tables without any text. Tables turned against the sheet are not found,
+and rooms drawn with single lines that fill a rectangle are found as a table too.
+
 ## MCP server
 
 `zumen-mcp` lets AI applications that speak the Model Context Protocol open, render, search, measure and compare drawings
@@ -215,6 +236,7 @@ claude mcp add zumen -- zumen-mcp --root ~/drawings  # Claude Code; other client
 | `get_entity` | One entity with its properties (key, label and value), its values by key, the scale of its placement and its geometry: the shapes drawn, in paper millimeters and, inside a placement, in real-world millimeters |
 | `measure_distance` | The distance between two points on the sheet and in real-world millimeters |
 | `find_regions` | The regions that the drawn lines close, such as rooms: areas in square meters, perimeters, outlines and holes, the entities that bound them and the texts inside, filtered by layer, text and area |
+| `find_tables` | The tables drawn with rules (schedules, area tables, title blocks): the text of every row and column, merged cells, the ids of the texts and the positions of the rules, filtered by layer and text |
 | `compare_drawings` | What changed between two revisions: an image of the changes, the regions that changed and the changed entities with their texts |
 
 Geometry is the agent's to interpret: the server gives the shapes as drawn and their coordinates, and the regions
@@ -246,6 +268,7 @@ walls = tools.find_entities(scene, kind="polyline", layer="壁", geometry=True) 
 entity = tools.get_entity(scene, page["texts"][0]["id"])  # properties, values, placement and shapes
 tools.measure(scene, [10, 20], [110, 20])  # on the sheet, and in real-world millimeters through the scale
 rooms = tools.find_regions(scene, layer="壁", named=True)  # rooms with their areas in square meters
+doors = tools.find_tables(scene, contains="建具表")  # a schedule as rows and columns of text
 ```
 
 | Function | Result | What it returns |
@@ -257,6 +280,7 @@ rooms = tools.find_regions(scene, layer="壁", named=True)  # rooms with their a
 | `get_entity` | `EntityDetail` | One entity: properties (key, label, value), values by key, placement with its scale and `to_real`, and its shapes |
 | `measure` | `MeasurementInfo` | A distance on the sheet and in real-world millimeters |
 | `find_regions` | `RegionPage` | Closed regions (rooms) with their real-world areas in square meters, outlines, boundary entities and texts inside |
+| `find_tables` | `TablePage` | Ruled tables as a grid of texts, with merged cells, the ids of the texts and the positions of the rules; a page stops before `max_cells` cells (1,000 by default) |
 | `compare_revisions` | `bytes`, `ComparisonInfo` | An image of the changes between two revisions, the regions that changed and the changed entities |
 
 - **Coordinates.** Paper millimeters with the Y axis up, rounded to 0.001: boxes `[min_x, min_y, max_x, max_y]`,
