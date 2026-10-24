@@ -31,7 +31,7 @@ mcp = ["mcp>=2.3,<3"]
 zumen-mcp = "zumen.mcp:main"
 
 [project.urls]
-Repository = "https://github.com/zumenjs/zumen"
+Repository = "https://github.com/zumen-jp/zumen-legacy"
 
 [dependency-groups]
 # ezdxf（MIT）は、書き出した DXF を別の実装で読めるか確かめるテストだけに使う

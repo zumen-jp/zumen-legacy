@@ -14,13 +14,13 @@
     "viewer",
     "webassembly"
   ],
-  "homepage": "https://github.com/zumenjs/zumen/tree/main/packages/reader#readme",
+  "homepage": "https://github.com/zumen-jp/zumen-legacy/tree/main/packages/reader#readme",
   "bugs": {
-    "url": "https://github.com/zumenjs/zumen/issues"
+    "url": "https://github.com/zumen-jp/zumen-legacy/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/zumenjs/zumen.git",
+    "url": "git+https://github.com/zumen-jp/zumen-legacy.git",
     "directory": "packages/reader"
   },
   "type": "module",

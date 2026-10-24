@@ -30,7 +30,7 @@ Release for every tag.)
 6. **npm.** Create the `zumenjs` organization with two-factor authentication required for all members. For the first
    release by hand and the trusted publishers, see [First release](#first-release).
 7. **PyPI.** Sign in with two-factor authentication and add a pending trusted publisher: project `zumen`, owner
-   `zumenjs`, repository `zumen`, workflow `python-wheels.yml`, environment `pypi`. A pending publisher lets the first
+   `zumen-jp`, repository `zumen-legacy`, workflow `python-wheels.yml`, environment `pypi`. A pending publisher lets the first
    upload from the workflow create the project, so the first PyPI release needs no hand work.
 8. **Third-party rights.** Keep third-party license texts with distributed binaries. ST-Bridge is outside this repository ([decision 0013](decisions/0013-st-bridge-out-of-zumen.md)).
 9. **Lift the two guards.** Done for 0.1.0 after the repository review: `packages/core`, `packages/viewer`,
@@ -75,8 +75,8 @@ first release by hand; if it does, add the trusted publishers first (step 3) and
    `packages/reader/wasm`, which `pnpm run check` has just built from the same commit. pnpm replaces `workspace:*` with the
    version, and `publishConfig.exports` drops the development-only condition. Add `--no-provenance` to each command:
    provenance needs a CI that npm knows, not a laptop.
-3. On npm, add a trusted publisher to each of the four public packages: GitHub Actions, organization `zumenjs`, repository
-   `zumen`, workflow `npm-release.yml`, environment `npm`. npm expires a new trusted publisher that has not completed a
+3. On npm, add a trusted publisher to each of the four public packages: GitHub Actions, organization `zumen-jp`, repository
+   `zumen-legacy`, workflow `npm-release.yml`, environment `npm`. npm expires a new trusted publisher that has not completed a
    publish within two days, so tag the next release right after this.
 4. From then on, `npm-release.yml` publishes with provenance (it is automatic for a public repository and public
    packages).
@@ -124,7 +124,7 @@ it without a Rust toolchain, and uploads it to PyPI when the variable `PUBLISH_T
   file of the platform:
 
   ```bash
-  gh release download v0.1.0 --repo zumenjs/zumen --pattern '*manylinux_2_28_x86_64.whl' --dir wheels
+  gh release download v0.1.0 --repo zumen-jp/zumen-legacy --pattern '*manylinux_2_28_x86_64.whl' --dir wheels
   pip install wheels/zumen-0.1.0-cp312-abi3-manylinux_2_28_x86_64.whl
   ```
 
