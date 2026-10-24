@@ -2546,7 +2546,7 @@ class Builder {
       this.notices.add(
         "info",
         "underlay",
-        "PDF のファイルかページが分からない PDF の underlay（PDFUNDERLAY）は、描きませんでした",
+        "PDF のファイルかページが分からない PDF の下敷き（PDFUNDERLAY）は、描きませんでした",
       );
       return;
     }
@@ -2610,14 +2610,14 @@ class Builder {
     this.notices.add(
       "info",
       "pdf-underlay",
-      "PDF の underlay（PDFUNDERLAY）は、図面がページの大きさを持たないため、アプリケーションが PDF を開いて置くまで" +
-        "描きません。枠と、underlay のレイヤの切り替えは反映していません",
+      "PDF の下敷き（PDFUNDERLAY）は、図面がページの大きさを持たないため、利用側が PDF を開いて置くまで" +
+        "描きません。枠と、下敷きのレイヤの切り替えは反映していません",
     );
     if (entity.contrast !== 100 || entity.flags & 12) {
       this.notices.add(
         "info",
         "underlay-adjust",
-        "PDF の underlay（PDFUNDERLAY）のコントラスト・単色・背景に合わせた色は反映していません",
+        "PDF の下敷き（PDFUNDERLAY）のコントラスト・単色・背景に合わせた色は反映していません",
       );
     }
     // 描く順で前にある図形に重なる（範囲が分からなければ、重なるかもしれない）underlay は、AutoCAD ではその図形の上に
@@ -2633,7 +2633,7 @@ class Builder {
       this.notices.add(
         "info",
         "underlay-order",
-        "描く順で図形の後にある PDF の underlay（PDFUNDERLAY）を、すべての図形の下に描きました",
+        "描く順で図形の後にある PDF の下敷き（PDFUNDERLAY）を、すべての図形の下に描きました",
       );
     }
     this.underlays.push(underlay);

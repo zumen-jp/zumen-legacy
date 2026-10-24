@@ -239,25 +239,25 @@
     {
       "level": "info",
       "code": "pdf-underlay",
-      "message": "PDF の underlay（PDFUNDERLAY）は、図面がページの大きさを持たないため、アプリケーションが PDF を開いて置くまで描きません。枠と、underlay のレイヤの切り替えは反映していません",
+      "message": "PDF の下敷き（PDFUNDERLAY）は、図面がページの大きさを持たないため、利用側が PDF を開いて置くまで描きません。枠と、下敷きのレイヤの切り替えは反映していません",
       "count": 4
     },
     {
       "level": "info",
       "code": "underlay-order",
-      "message": "描く順で図形の後にある PDF の underlay（PDFUNDERLAY）を、すべての図形の下に描きました",
+      "message": "描く順で図形の後にある PDF の下敷き（PDFUNDERLAY）を、すべての図形の下に描きました",
       "count": 3
     },
     {
       "level": "info",
       "code": "underlay-adjust",
-      "message": "PDF の underlay（PDFUNDERLAY）のコントラスト・単色・背景に合わせた色は反映していません",
+      "message": "PDF の下敷き（PDFUNDERLAY）のコントラスト・単色・背景に合わせた色は反映していません",
       "count": 2
     },
     {
       "level": "info",
       "code": "underlay",
-      "message": "PDF のファイルかページが分からない PDF の underlay（PDFUNDERLAY）は、描きませんでした",
+      "message": "PDF のファイルかページが分からない PDF の下敷き（PDFUNDERLAY）は、描きませんでした",
       "count": 2
     }
   ],

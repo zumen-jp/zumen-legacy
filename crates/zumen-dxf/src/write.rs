@@ -2010,7 +2010,7 @@ impl<'a> Writer<'a> {
             self.notices.add(
                 NoticeLevel::Warning,
                 "pdf-underlay",
-                "PDF の underlay（PDFUNDERLAY）は、書けないため省きました",
+                "PDF の下敷き（PDFUNDERLAY）は、書けないため省きました",
             );
             return;
         }
