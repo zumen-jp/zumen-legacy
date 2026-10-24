@@ -12,6 +12,22 @@
 
 npm は公開対象パッケージだけをビルドして公開します。TypeScript の SXF・JWW・DXF は参照実装のため公開しません。認証情報・OIDC・権限などの公開先設定が必要です。初回公開と追加パッケージの設定を含む具体的な操作は、既存の[詳細手順](releasing.en.md)と `.github/workflows/npm-release.yml` を参照してください。
 
+## リポジトリ移行後の公開設定
+
+旧版の公開元は `zumen-jp/zumen-legacy` です。作り直しの `zumen-jp/zumen` から旧版を公開しません。
+既存の npm パッケージ名（`@zumenjs/*`）と PyPI のプロジェクト名（`zumen`）は維持します。
+
+| 公開先 | GitHub の owner | リポジトリ | ワークフロー | environment |
+| --- | --- | --- | --- | --- |
+| npm の各パッケージ | `zumen-jp` | `zumen-legacy` | `npm-release.yml` | `npm` |
+| PyPI の `zumen` | `zumen-jp` | `zumen-legacy` | `python-wheels.yml` | `pypi` |
+
+上の値を公開先の trusted publisher に設定します。npm は `@zumenjs/core`・`viewer`・`reader`・`react` の各設定を更新し、
+新たな公開パッケージにも同じ公開元を登録します。npm の provenance には、`package.json` の `repository.url` が
+公開元のリポジトリと一致することも必要です（[npm の公式手順](https://docs.npmjs.com/trusted-publishers)）。
+
+旧版のデモは <https://zumen-jp.github.io/zumen-legacy/> です。旧 Pages URL は転送されないため、デモを案内するときはこの URL を使います。
+
 ## バージョン
 
 初期リリースは 0.x です。利用側への影響を変更履歴に記載し、互換性に関わる変更は設計判断と合わせます。コミット・PR は Conventional Commits に従います。

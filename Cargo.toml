@@ -6,7 +6,7 @@ members = ["crates/zumen-core", "crates/zumen-jww", "crates/zumen-sxf", "crates/
 version = "0.1.1"
 edition = "2024"
 license = "MIT"
-repository = "https://github.com/zumenjs/zumen"
+repository = "https://github.com/zumen-jp/zumen-legacy"
 # crates.io へはまだ公開しない（公開先は npm と PyPI。docs/releasing.md）
 publish = false
 

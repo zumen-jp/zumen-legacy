@@ -8,13 +8,13 @@
     "scene",
     "aec"
   ],
-  "homepage": "https://github.com/zumenjs/zumen/tree/main/packages/core#readme",
+  "homepage": "https://github.com/zumen-jp/zumen-legacy/tree/main/packages/core#readme",
   "bugs": {
-    "url": "https://github.com/zumenjs/zumen/issues"
+    "url": "https://github.com/zumen-jp/zumen-legacy/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/zumenjs/zumen.git",
+    "url": "git+https://github.com/zumen-jp/zumen-legacy.git",
     "directory": "packages/core"
   },
   "type": "module",
