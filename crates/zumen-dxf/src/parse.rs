@@ -35,7 +35,7 @@ pub(crate) fn is_paper_block(name: &str) -> bool {
 }
 
 /// 図形の種類ごとに読む図形。ここにない種類は件数だけを skipped に数える
-const READ_TYPES: [&str; 32] = [
+const READ_TYPES: [&str; 33] = [
     "LINE",
     "POINT",
     "CIRCLE",
@@ -67,6 +67,7 @@ const READ_TYPES: [&str; 32] = [
     "RAY",
     "IMAGE",
     "WIPEOUT",
+    "PDFUNDERLAY",
     "ACAD_TABLE",
 ];
 
@@ -120,6 +121,8 @@ struct Parser<'a> {
     sort_tables: Vec<(String, HashMap<String, String>)>,
     /// IMAGEDEF のハンドル → 画像のファイルの名前と、読み込んだ状態
     image_paths: HashMap<String, (String, bool)>,
+    /// PDFDEFINITION のハンドル → PDF のファイルの名前とページ
+    underlay_paths: HashMap<String, (String, String)>,
     has_paper_entities: bool,
     /// タグごとの、そこまでのレコード（グループコード 0）の数。ハンドルのない図形があるときに作る
     records: OnceCell<Vec<u32>>,
@@ -872,6 +875,7 @@ impl<'a> Parser<'a> {
                 DxfEntityData::XLine { start: self.point(&body, 10), unit_vector: self.point(&body, 11) },
             ),
             "IMAGE" | "WIPEOUT" => Some(self.image(kind, &body, owner)),
+            "PDFUNDERLAY" => Some(self.underlay(&body, owner)),
             "ACAD_TABLE" => {
                 // 表は AcDbBlockReference の部分（ブロックの名前と位置）だけを読む
                 let reference = self.subclass_body(&body, "AcDbBlockReference");
@@ -2024,6 +2028,41 @@ impl<'a> Parser<'a> {
         DxfEntity { base, data: DxfEntityData::Image(image) }
     }
 
+    /// DXF Reference「UNDERLAY」: 340 定義、10 挿入点（OCS）、41〜43 縮尺、50 回転、280 表示のフラグ、281 コントラスト、
+    /// 282 フェード、11・21 切り抜きの境界。省略した値は ezdxf 1.4（entities/underlay.py）の既定（フラグ 10、縮尺 1）で、
+    /// 縮尺 0 も 1 にする
+    fn underlay(&self, body: &[usize], owner: Option<&Owner>) -> DxfEntity {
+        let own = self.subclass_body(body, "AcDbUnderlayReference");
+        let mut boundary: Vec<Vec2> = Vec::new();
+        for &k in &own {
+            match self.code(k) {
+                11 => boundary.push([self.num(k), 0.0]),
+                21 => {
+                    if let Some(last) = boundary.last_mut() {
+                        last[1] = self.num(k);
+                    }
+                }
+                _ => {}
+            }
+        }
+        let base = self.base("PDFUNDERLAY", body, owner);
+        let underlay = DxfUnderlay {
+            insert: self.point(&own, 10),
+            xscale: or(self.number(&own, 41, 1.0), 1.0),
+            yscale: or(self.number(&own, 42, 1.0), 1.0),
+            zscale: or(self.number(&own, 43, 1.0), 1.0),
+            rotation: self.number(&own, 50, 0.0),
+            flags: self.number(&own, 280, 10.0),
+            contrast: self.number(&own, 281, 100.0),
+            fade: self.number(&own, 282, 0.0),
+            boundary,
+            definition_handle: Some(self.handle_of(&own, 340)).filter(|handle| !handle.is_empty() && handle != "0"),
+            path: None,
+            page: None,
+        };
+        DxfEntity { base, data: DxfEntityData::Underlay(underlay) }
+    }
+
     // --- OBJECTS --------------------------------------------------------------
 
     fn objects(&mut self) {
@@ -2048,6 +2087,13 @@ impl<'a> Parser<'a> {
                     let path = self.text(&own, 1, "");
                     let loaded = self.number(&own, 280, 1.0) != 0.0;
                     self.image_paths.insert(self.handle_of(&body, 5), (path, loaded));
+                }
+                "PDFDEFINITION" => {
+                    // DXF Reference「UNDERLAYDEFINITION」: 1 ファイルの名前、2 underlay の名前（PDF ではページの番号）
+                    let own = self.subclass_body(&body, "AcDbUnderlayDefinition");
+                    let path = self.text(&own, 1, "");
+                    let page = self.text(&own, 2, "");
+                    self.underlay_paths.insert(self.handle_of(&body, 5), (path, page));
                 }
                 "RASTERVARIABLES" => {
                     // DXF Reference「RASTERVARIABLES」: 70 画像の外形の表示（IMAGEFRAME）
@@ -2173,6 +2219,17 @@ impl<'a> Parser<'a> {
                 }
             }
         }
+        if !self.underlay_paths.is_empty() {
+            for entity in &mut self.doc.entities {
+                if let DxfEntityData::Underlay(underlay) = &mut entity.data
+                    && let Some(handle) = &underlay.definition_handle
+                    && let Some((path, page)) = self.underlay_paths.get(handle)
+                {
+                    underlay.path = Some(path.clone());
+                    underlay.page = Some(page.clone());
+                }
+            }
+        }
         for (record, mut layout) in std::mem::take(&mut self.layout_records) {
             let name = self.block_records.get(&record).cloned().unwrap_or_default();
             layout.model = is_model_block(&name) || upper_is(&layout.name, "MODEL");
@@ -2287,6 +2344,7 @@ pub fn parse_dxf(bytes: &[u8]) -> DxfDocument {
         layout_records: Vec::new(),
         sort_tables: Vec::new(),
         image_paths: HashMap::new(),
+        underlay_paths: HashMap::new(),
         has_paper_entities: false,
         records: OnceCell::new(),
     };

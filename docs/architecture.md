@@ -12,10 +12,10 @@ zumen は日本の建築・土木向けの図面ライブラリです。読み�
 
 | パッケージ | 役割 |
 | --- | --- |
-| `@zumenjs/core` | 形式に依存しない Scene・JSON・読み取りの共通 API・幾何・文字配置・計測・マークアップ。DOM は使わない |
+| `@zumenjs/core` | 形式に依存しない Scene・JSON・読み取りの共通 API・幾何・文字配置・計測・マークアップ、大きさの分からない下敷きを置く `placeUnderlays`。DOM は使わない |
 | `@zumenjs/viewer` | Canvas 描画・当たり判定・吸着・表示範囲・入力・選択・計測・ツール・MarkupLayer |
 | `@zumenjs/reader` | Rust の WebAssembly 読み取り、形式判定、入力上限、同梱ファイル、Web Worker |
-| `@zumenjs/pdf` | 利用側の pdf.js 文書を使って PDF ページを下に描く。図形は読み取らない |
+| `@zumenjs/pdf` | 利用側の pdf.js 文書を使って PDF ページを下に描く。DXF・DWG の PDF の下敷きをページの大きさで置く `placePdfUnderlays` も持つ。図形は読み取らない |
 | `@zumenjs/react` | エンジン・状態・イベント・ファイル読み取り・マークアップのフック |
 | `@zumenjs/sxf`・`@zumenjs/jww`・`@zumenjs/dxf` | テストの正解を作る TypeScript の参照実装。公開しない |
 
@@ -28,7 +28,7 @@ React・PDF → viewer → core、reader と各形式 → core の方向だけ�
 - `Scene` の座標は用紙上の mm、Y 軸は上向きです。部分図・部品・ブロックなどの配置を解決します。
 - 図形は描画要素、外接矩形、所属・配置元のレイヤ、属性、必要なら縮尺と元の実寸座標へ戻す `Placement` を持ちます。
 - 線・塗り・切り取り・点・文字を描画要素として表します。文字の `height` は描画用の em、`characterHeight` は図面が宣言する文字高です。製図基準の確認には宣言値を使います。
-- `scene.underlays` は画像・PDF ページの配置を持ち、実体のバイト列は持ちません。利用側の描画処理が必要な範囲を描きます。
+- `scene.underlays` は画像・PDF ページの配置を持ち、実体のバイト列は持ちません。利用側の描画処理が必要な範囲を描きます。図面が中身の大きさを持たない下敷き（DXF・DWG の PDF の下敷き）は `width`・`height` が 0 で、利用側が大きさを知って `placeUnderlays` で置くまで描きません（[決定 0034](decisions/0034-place-pdf-underlays-after-reading.md)）。
 - `drawn: false` の図形は下敷きですでに表示される内容です。選択・計測・解析には使い、二重に描きません。
 - 複数表示は `scene.views` に列挙し、`scene.view` が現在の表示です。DXF・DWG のモデル空間・レイアウト、PDF のページに使います。
 - `scene.unit` と属性の未整形値は元の図面の単位を保ちます。実寸計測は配置を通して mm に換算します。

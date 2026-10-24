@@ -100,7 +100,7 @@ fn dxf_kind(kind: &str) -> &str {
 }
 
 /// 読む図形（ほかは skipped に数える）
-const READ_KINDS: [&str; 39] = [
+const READ_KINDS: [&str; 40] = [
     "LINE",
     "POINT",
     "CIRCLE",
@@ -137,6 +137,7 @@ const READ_KINDS: [&str; 39] = [
     "RAY",
     "IMAGE",
     "WIPEOUT",
+    "PDFUNDERLAY",
     "ACAD_TABLE",
     "ARC_DIMENSION",
     "LARGE_RADIAL_DIMENSION",
@@ -462,6 +463,7 @@ pub fn read_dwg(bytes: &[u8]) -> Result<DxfDocument, String> {
     }
     doc.blocks = records.into_iter().map(|record| record.block).collect();
     read_image_paths(&mut reader, header.named_objects, &mut doc);
+    read_underlay_paths(&mut reader, &mut doc);
     if !version_has_layouts(version) && !doc.layouts.iter().any(|layout| !layout.model) {
         add_paper_layout(&mut doc);
     }
@@ -1059,6 +1061,35 @@ fn read_image_paths(reader: &mut Reader<'_>, named_objects: u64, doc: &mut DxfDo
         s.data.bl()?;
         Ok(f64::from(s.data.bs()?))
     });
+}
+
+/// PDF の underlay が指す PDFDEFINITION の、PDF のファイルの名前とページ。ODA の仕様にはなく、ACadSharp 3（MIT）の
+/// DwgObjectReader.readPdfDefinition の並び（ファイルの名前とページの TV）
+fn read_underlay_paths(reader: &mut Reader<'_>, doc: &mut DxfDocument) {
+    let mut definitions: HashMap<u64, Option<(String, String)>> = HashMap::new();
+    for entity in &mut doc.entities {
+        let DxfEntityData::Underlay(underlay) = &mut entity.data else { continue };
+        let Some(handle) =
+            underlay.definition_handle.as_deref().and_then(|handle| u64::from_str_radix(handle, 16).ok())
+        else {
+            continue;
+        };
+        let definition = definitions
+            .entry(handle)
+            .or_insert_with(|| {
+                reader.object(handle, &["PDFDEFINITION"], |object, _| {
+                    non_entity(object)?;
+                    let s = &mut object.streams;
+                    let path = decode_escapes(&s.tv()?);
+                    Ok((path, decode_escapes(&s.tv()?)))
+                })
+            })
+            .clone();
+        if let Some((path, page)) = definition {
+            underlay.path = Some(path);
+            underlay.page = Some(page);
+        }
+    }
 }
 
 /// LAYOUT（20.4.84）と、その前の PLOTSETTINGS の値。dictionary はレイアウトの辞書（ACAD_LAYOUT）

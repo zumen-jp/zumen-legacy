@@ -18,7 +18,7 @@
     "minX": 0,
     "minY": 0,
     "maxX": 88.66025403784438,
-    "maxY": 25
+    "maxY": 40
   },
   "layers": [
     {
@@ -720,8 +720,8 @@
     {
       "level": "info",
       "code": "skipped-types",
-      "message": "読み取りに対応していない図形を表示していません（PDFUNDERLAY 1、DWFUNDERLAY 1）",
-      "count": 2
+      "message": "読み取りに対応していない図形を表示していません（DWFUNDERLAY 1）",
+      "count": 1
     },
     {
       "level": "info",
@@ -739,6 +739,18 @@
       "level": "info",
       "code": "image",
       "message": "画像のファイルが分からない画像（IMAGE）は、外形だけを描きました",
+      "count": 1
+    },
+    {
+      "level": "info",
+      "code": "pdf-underlay",
+      "message": "PDF の下敷き（PDFUNDERLAY）は、図面がページの大きさを持たないため、利用側が PDF を開いて置くまで描きません。枠と、下敷きのレイヤの切り替えは反映していません",
+      "count": 1
+    },
+    {
+      "level": "info",
+      "code": "underlay-order",
+      "message": "描く順で図形の後にある PDF の下敷き（PDFUNDERLAY）を、すべての図形の下に描きました",
       "count": 1
     }
   ],
@@ -884,6 +896,31 @@
         "minY": 0,
         "maxX": 88.66025403784438,
         "maxY": 13.660254037844387
+      }
+    },
+    {
+      "id": "106",
+      "kind": "pdf",
+      "file": "plan.pdf",
+      "page": 1,
+      "width": 0,
+      "height": 0,
+      "matrix": [
+        0.013888888888888888,
+        0,
+        0,
+        -0.013888888888888888,
+        0,
+        40
+      ],
+      "layers": [
+        1
+      ],
+      "bbox": {
+        "minX": 0,
+        "minY": 40,
+        "maxX": 0,
+        "maxY": 40
       }
     }
   ]

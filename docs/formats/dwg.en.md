@@ -183,10 +183,11 @@ made with (coordinates, scales, rotations, texts, layers, block names).
   images.
 - Entities: LINE, POINT, CIRCLE, ARC, ELLIPSE, LWPOLYLINE, POLYLINE (2D, 3D, polyface and polygon meshes), SPLINE, TEXT,
   ATTRIB, ATTDEF, MTEXT, INSERT, MINSERT, the seven DIMENSION types, ARC_DIMENSION, LARGE_RADIAL_DIMENSION, HATCH, SOLID,
-  TRACE, 3DFACE, LEADER, MULTILEADER, MLINE (with its element parameters), VIEWPORT, XLINE, RAY, IMAGE, WIPEOUT and
-  ACAD_TABLE (its anonymous block, as for DXF).
+  TRACE, 3DFACE, LEADER, MULTILEADER, MLINE (with its element parameters), VIEWPORT, XLINE, RAY, IMAGE, WIPEOUT,
+  PDFUNDERLAY (with the file and page of its PDFDEFINITION, drawn as from DXF: [PDF underlays](dxf.md#pdf-underlays))
+  and ACAD_TABLE (its anonymous block, as for DXF).
 - Not read, counted and reported: HELIX and MPOLYGON (drawn from DXF), REGION, 3DSOLID, BODY, MESH, SURFACE, TOLERANCE,
-  SHAPE, underlays, OLE frames, lights and proxy entities.
+  SHAPE, DWF and DGN underlays, OLE frames, lights and proxy entities.
 - External references: the bits of BLOCK_HEADER for an attached and an overlaid reference (20.4.52) become the flags 4
   and 8 of DXF, and its path the path (group 1), so references to them are counted in the `xref` notice as from DXF
   ([Entities](dxf.md#entities)). The drawings they refer to are not read.
@@ -213,6 +214,12 @@ return what `parse_dxf` returns for that DXF. All are *inferred* from the sample
 - **IMAGE**: brightness, contrast and fade (20.4.80, RC) are DXF 281, 282 and 283, and the clip mode bit (R2010 and
   later) is 290. The IMAGEDEF (20.4.82) gives the file name and the loaded bit (DXF 280). The ACadSharp samples of R2000
   to R2018 give the same underlay from the DWG and from the DXF that AutoCAD wrote.
+- **PDFUNDERLAY**: the specification does not describe it. Its data is read in the order of ACadSharp 3 (MIT,
+  `DwgObjectReader.readPdfUnderlay`): the normal (3BD, DXF 210), the insertion point (3BD, 10), the rotation (BD in
+  radians, 50), the three scales (BD, 41 to 43), the flags, contrast and fade (RC, 280 to 282), the number of clip
+  boundary points (BL) and the points (2RD, 11), and the handle of the PDFDEFINITION, whose data is the file name and
+  the page (TV, 1 and 2, `readPdfDefinition`). Scales of 0 are read as 1, as from DXF. The ACadSharp samples of R14 to
+  R2018 give the same underlay from the DWG and from the DXF that AutoCAD wrote.
 - **LEADER**: AutoCAD writes the hook of a leader with an annotation (annotation type below 3) as an extra vertex in DXF;
   DWG does not store it. It is added before the last vertex, at the arrow size times `DIMSCALE` along the leader's
   horizontal direction, backwards unless the hook is on the X direction.
@@ -515,6 +522,7 @@ The codes of the DXF writer, with the same messages, and two more:
 | `attrib-alone` | An ATTRIB that no INSERT owns | A TEXT or MTEXT |
 | `image` | An IMAGE whose image definition (IMAGEDEF) the model does not know | Nothing |
 | `image-frame` | The drawing hides image frames (`IMAGEFRAME` 0) | Nothing: the frames show |
+| `pdf-underlay` | A PDF underlay (PDFUNDERLAY), which reading did not keep before either | Nothing |
 | `dimension-block` | A dimension without its block | Nothing |
 | `mleader-block` | A MULTILEADER whose block content is not defined | No content |
 | `multiline-attrib` | A multi-line attribute, which DWG before AutoCAD 2018 cannot hold (the embedded MTEXT is R2018) | A single-line attribute with the text on one line |

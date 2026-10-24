@@ -1,4 +1,11 @@
-import { measureDistance, readDrawing, type SceneEntity, type TextPrimitive } from "@zumenjs/core";
+import {
+  measureDistance,
+  placeUnderlays,
+  readDrawing,
+  type SceneEntity,
+  type TextPrimitive,
+  type Underlay,
+} from "@zumenjs/core";
 import { apply } from "@zumenjs/core/geometry";
 import { describe, expect, it } from "vitest";
 import {
@@ -11,6 +18,7 @@ import {
   type DxfMLine,
   type DxfMText,
   type DxfText,
+  type DxfUnderlay,
   dxf,
   dxfToScene,
   parseDxf,
@@ -31,6 +39,7 @@ import {
   MISALIGNED,
   MLEADER,
   MLINE,
+  PDF_UNDERLAYS,
   R12_SHIFT_JIS,
   VERTICAL_TEXT,
   WESTERN,
@@ -352,7 +361,7 @@ describe("DXF の画像", () => {
   it("大きすぎる表示フラグも ToInt32 で読み、Rust と同じく表示しない", () => {
     const doc = parseDxf(IMAGES);
     for (const entity of doc.entities) if (entity.type === "IMAGE") entity.flags = 1e100;
-    expect(dxfToScene(doc).underlays).toBeUndefined();
+    expect(dxfToScene(doc).underlays?.filter((underlay) => underlay.kind === "image")).toEqual([]);
   });
 
   it("IMAGEDEF のファイルの名前・読み込んだ状態と、明るさ・フェード・反転した切り抜き・IMAGEFRAME を読む", () => {
@@ -383,7 +392,82 @@ describe("DXF の画像", () => {
     // 内側を消す切り抜きは、画像の全体と境界の 2 つの輪
     expect(underlay.clip).toHaveLength(2);
     expect(scene.entities.find((entity) => entity.id === "101")?.drawn).toBe(false);
-    // 表示しない画像・読み込みを外した画像・定義のない画像は、中身を描かない
-    expect(scene.underlays?.map((candidate) => candidate.id)).toEqual(["100", "101", "105>110"]);
+    // 表示しない画像・読み込みを外した画像・定義のない画像は、中身を描かない（106 は PDF の underlay）
+    expect(scene.underlays?.map((candidate) => candidate.id)).toEqual(["100", "101", "105>110", "106"]);
+  });
+});
+
+describe("DXF の PDF の underlay", () => {
+  const close = (point: [number, number], expected: [number, number]) => {
+    expect(point[0]).toBeCloseTo(expected[0], 9);
+    expect(point[1]).toBeCloseTo(expected[1], 9);
+  };
+  // A4 の縦（595 × 842 pt）。縮尺 25.4 の mm の図面では 1 pt が 25.4 / 72 mm
+  const A4 = { width: 595, height: 842 };
+  const pt = 25.4 / 72;
+
+  it("PDFDEFINITION のファイルの名前とページ、縮尺・回転・フラグ・切り抜きの境界を読み、DWF の underlay は読まない", () => {
+    const doc = parseDxf(PDF_UNDERLAYS);
+    const underlays = doc.entities.filter((entity): entity is DxfUnderlay => entity.type === "PDFUNDERLAY");
+    const byHandle = new Map(underlays.map((underlay) => [underlay.handle, underlay]));
+    expect(byHandle.get("101")).toMatchObject({
+      path: "..\\plans\\plan.pdf",
+      page: "2",
+      insert: [300, 0, 0],
+      xscale: 25.4,
+      rotation: 30,
+      flags: 3,
+      contrast: 80,
+      fade: 30,
+      boundary: [
+        [1, 1],
+        [5, 4],
+      ],
+    });
+    expect(byHandle.get("102")?.extrusion).toEqual([0, 0, -1]);
+    expect(byHandle.get("103")).toMatchObject({ flags: 0, xscale: 1, contrast: 100 });
+    expect(byHandle.get("104")?.path).toBeUndefined();
+    expect(byHandle.get("105")).toMatchObject({ path: "plan.pdf", page: "first" });
+    expect(byHandle.get("110")?.block).toBe("SHEET");
+    expect(doc.skipped).toEqual({ DWFUNDERLAY: 1 });
+  });
+
+  it("挿入点にページの左下の角を置き、縮尺 1 で PDF の 1 インチを図面の 1 単位にする", () => {
+    const scene = readDrawing(PDF_UNDERLAYS, [dxf]);
+    const placed = placeUnderlays(scene, (underlay) => (underlay.file === "..\\plans\\plan.pdf" ? A4 : null));
+    const byId = new Map((placed.underlays ?? []).map((underlay) => [underlay.id, underlay]));
+    const whole = byId.get("100") as Underlay;
+    close(apply(whole.matrix, 0, 842), [10, 20]);
+    close(apply(whole.matrix, 595, 0), [10 + 595 * pt, 20 + 842 * pt]);
+    expect(whole.bbox.maxX).toBeCloseTo(10 + 595 * pt, 9);
+    // 30° 回したページの左下の角は挿入点 (300, 0)。矩形の切り抜き（インチ）の外接矩形がそのまま範囲になる
+    const turned = byId.get("101") as Underlay;
+    close(apply(turned.matrix, 0, 842), [300, 0]);
+    const c = Math.cos(Math.PI / 6);
+    const s = Math.sin(Math.PI / 6);
+    close(apply(turned.matrix, 72, 842 - 72), [300 + 25.4 * (c - s), 25.4 * (s + c)]);
+    expect(turned.clip).toHaveLength(1);
+    expect(turned.opacity).toBeCloseTo(0.7, 12);
+    // 押し出し方向が −Z のページは X が反転し、内側を消す切り抜きの空の輪がページの外形になる
+    const mirrored = byId.get("102") as Underlay;
+    close(apply(mirrored.matrix, 595, 842), [-595 * pt, 400]);
+    const outline = [...(mirrored.clip?.[0] ?? [])];
+    expect(outline).toHaveLength(8);
+    outline.forEach((value, i) => {
+      expect(value).toBeCloseTo([0, 400 + 842 * pt, -595 * pt, 400 + 842 * pt, -595 * pt, 400, 0, 400][i] as number, 9);
+    });
+    expect(mirrored.bbox.minX).toBeCloseTo(-595 * pt, 9);
+    expect(mirrored.bbox.minY).toBeCloseTo(400, 9);
+    // ブロックの中のページは、ブロックの縮尺（2 倍）も掛ける
+    close(apply((byId.get("106>110") as Underlay).matrix, 595, 0), [600 + 595 * pt * 2, 842 * pt * 2]);
+    expect(placed.bounds.maxY).toBeCloseTo(400 + 842 * pt, 9);
+  });
+
+  it("ビューポートの矩形で切った underlay は、置いた後にページがその外にあれば除く", () => {
+    const placed = placeUnderlays(readDrawing(PDF_UNDERLAYS, [dxf], { view: "Layout1" }), () => A4);
+    expect(placed.underlays?.map((underlay) => underlay.id)).toEqual(["131:100", "131:101"]);
+    const box = placed.underlays?.[0]?.bbox;
+    expect(box).toMatchObject({ minX: 55, minY: 65, maxY: 155 });
+    expect(box?.maxX).toBeCloseTo(55 + 595 * pt * 0.5, 9);
   });
 });

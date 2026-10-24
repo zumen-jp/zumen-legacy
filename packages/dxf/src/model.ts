@@ -604,6 +604,34 @@ export interface DxfImage extends DxfEntityBase {
   loaded: boolean;
 }
 
+/**
+ * PDF の underlay（PDFUNDERLAY、DXF Reference「UNDERLAY」）。ページの大きさは図面になく、PDF のファイルだけが持つ
+ * （docs/decisions/0034）
+ */
+export interface DxfUnderlay extends DxfEntityBase {
+  type: "PDFUNDERLAY";
+  /** OCS の挿入点（10）。ページの左下の角 */
+  insert: Vec3;
+  /** 41・42・43 */
+  xscale: number;
+  yscale: number;
+  zscale: number;
+  /** OCS の回転（50、度） */
+  rotation: number;
+  /** 280。1 切り抜き、2 表示、4 単色、8 背景に合わせた色、16 境界の内側を消す */
+  flags: number;
+  /** 281・282。コントラスト（20〜100、既定 100）・フェード（0〜80、既定 0） */
+  contrast: number;
+  fade: number;
+  /** 切り抜きの境界（11・21、挿入点を原点とする縮尺・回転の前の図面の単位。2 点なら矩形） */
+  boundary: Vec2[];
+  /** underlay の定義（PDFDEFINITION）のハンドル（340） */
+  definition_handle?: string;
+  /** 定義が指す PDF のファイルの名前（PDFDEFINITION の 1）とページ（2） */
+  path?: string;
+  page?: string;
+}
+
 /** 表（ACAD_TABLE）。表示の図形は INSERT と同じくブロック（*T…）で持つ */
 export interface DxfTable extends DxfEntityBase {
   type: "ACAD_TABLE";
@@ -638,6 +666,7 @@ export type DxfEntity =
   | DxfViewport
   | DxfXLine
   | DxfImage
+  | DxfUnderlay
   | DxfTable;
 
 export interface DxfLayer {

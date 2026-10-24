@@ -84,6 +84,27 @@ zumen's PDF reader gives one layer per page until it can tell which group an ent
 ([decision 0020](../../docs/decisions/0020-pdf-drawings-in-rust.md)); until then pages have no content layers and are
 drawn with the default visibility of the document.
 
+### PDF underlays of DXF and DWG
+
+A DXF or DWG drawing places a page by its lower left corner and does not store the page size, so the reader returns
+its PDF underlays unplaced (`width` and `height` 0) and they are not drawn
+([decision 0034](../../docs/decisions/0034-place-pdf-underlays-after-reading.md)). Open the files that `underlay.file`
+names, and `placePdfUnderlays` places each page at the size pdf.js gives it, through the same `document` function as
+the renderer:
+
+```ts
+import { placePdfUnderlays, pdfUnderlayRenderer } from "@zumenjs/pdf";
+
+// file is the name the drawing writes, often relative to the drawing (..\plans\plan.pdf)
+const options = { document: (file: string | undefined) => (file === undefined ? null : openPdf(file)) };
+const placed = await placePdfUnderlays(scene, options);
+viewer.setScene(placed);
+viewer.setUnderlayRenderer(pdfUnderlayRenderer(options));
+```
+
+Underlays whose document or page cannot be opened stay unplaced. Pass `background: "rgba(0, 0, 0, 0)"` to the
+renderer to draw the page without its paper over the drawing's background.
+
 ### Images and PDF pages together
 
 A drawing can have both (DXF IMAGE and PDF underlays). Pass one renderer that chooses by kind:

@@ -68,3 +68,4 @@ export type {
   UnderlayRequest,
 } from "./types.js";
 export { BACKGROUND_COLOR, ENTITY_KINDS, LENGTH_UNITS, UNDERLAY_KINDS } from "./types.js";
+export { placeUnderlays, type UnderlaySize } from "./underlay.js";

@@ -459,6 +459,12 @@ fn image_ring(entity: &DxfImage, pixels: &[Vec2]) -> Vec<f64> {
     ring
 }
 
+/// PDF の underlay の定義のページ（2）。1 から 2³¹ − 1 の整数でなければ None（JavaScript の Number で読む）
+fn page_number(text: &str) -> Option<u32> {
+    let page = js::string_to_number(text);
+    (page.fract() == 0.0 && (1.0..=2_147_483_647.0).contains(&page)).then_some(page as u32)
+}
+
 /// 多角形の外接矩形
 fn rings_box(rings: &[Vec<f64>]) -> BBox {
     let mut b = empty_box();
@@ -536,7 +542,7 @@ struct PartColor {
 struct Builder<'a> {
     doc: &'a DxfDocument,
     entities: Vec<SceneEntity>,
-    /// 画像（IMAGE）の中身。すべての図形の下に、この順に描く
+    /// 画像（IMAGE）と PDF の underlay の中身。すべての図形の下に、この順に描く
     underlays: Vec<Underlay>,
     /// 画像の描く順を調べた、外接矩形の比較の数
     order_checks: u64,
@@ -1211,6 +1217,7 @@ impl<'a> Builder<'a> {
             DxfEntityData::MLine(mline) => self.mline(base, mline, ctx),
             DxfEntityData::XLine { .. } => self.infinite.push((entity.clone(), ctx.clone())),
             DxfEntityData::Image(image) => self.image(base, image, ctx),
+            DxfEntityData::Underlay(underlay) => self.underlay(base, underlay, ctx),
             DxfEntityData::Viewport(_) => {}
         }
     }
@@ -3184,6 +3191,151 @@ impl<'a> Builder<'a> {
         self.underlays.push(underlay);
     }
 
+    /// PDF の underlay（docs/decisions/0034）。中身の座標はページの pt（左上が原点で Y は下向き）で、高さ h のページの点
+    /// (x, y) は、挿入点（ページの左下の角）を原点とする underlay の座標の (x / 72, (h − y) / 72) に縮尺・回転を掛けた
+    /// ところ（縮尺 1 で PDF の 1 インチが図面の 1 単位。推定、docs/formats/dxf.md）。ページの大きさは図面になく、
+    /// アプリケーションが placeUnderlays（@zumenjs/core）で置くまで、幅と高さを 0 にし、matrix は高さ 0 のページの
+    /// ものにする。切り抜きの空の輪は、まだ分からないページの外形
+    fn underlay(&mut self, base: &DxfEntityBase, entity: &DxfUnderlay, ctx: &Ctx) {
+        let flags = js::to_int32(entity.flags);
+        // 表示を切った underlay（280 の 2 がない）は、AutoCAD も表示しない
+        if flags & 2 == 0 {
+            return;
+        }
+        let path = entity.path.as_deref().filter(|path| !path.is_empty());
+        let page = page_number(entity.page.as_deref().unwrap_or(""));
+        let (Some(path), Some(page)) = (path, page) else {
+            self.notices.add(
+                NoticeLevel::Info,
+                "underlay",
+                "PDF のファイルかページが分からない PDF の下敷き（PDFUNDERLAY）は、描きませんでした",
+            );
+            return;
+        };
+        let placement = multiply(
+            &multiply(
+                &multiply(
+                    &ocs_matrix(base.extrusion.as_ref(), entity.insert[2]),
+                    &translate(entity.insert[0], entity.insert[1]),
+                ),
+                &rotate(entity.rotation),
+            ),
+            &scale(entity.xscale, entity.yscale),
+        );
+        let m = multiply(&ctx.m, &placement);
+        let matrix = multiply(&m, &[1.0 / 72.0, 0.0, 0.0, -1.0 / 72.0, 0.0, 0.0]);
+        // 境界（2 点なら矩形）で切るのは、切り抜き（280 の 1）が入っているとき。16 は境界の内側を消す
+        let mut corners: Vec<Vec2> = if flags & 1 != 0 { entity.boundary.clone() } else { Vec::new() };
+        if corners.len() == 2 {
+            let (a, b) = (corners[0], corners[1]);
+            corners = vec![a, [b[0], a[1]], b, [a[0], b[1]]];
+        }
+        let boundary = (corners.len() >= 3)
+            .then(|| transform_points(&m, &corners.iter().flat_map(|p| [p[0], p[1]]).collect::<Vec<f64>>()));
+        let inverted = boundary.is_some() && flags & 16 != 0;
+        let mut clip: Option<Vec<Vec<f64>>> =
+            boundary.clone().map(|ring| if inverted { vec![Vec::new(), ring] } else { vec![ring] });
+        // 描く範囲の外接矩形。範囲が分からない（切り抜かないか、内側を消す）あいだは挿入点
+        let (ax, ay) = apply(&matrix, 0.0, 0.0);
+        let mut bounded = boundary.is_some() && !inverted;
+        let mut bbox = match &clip {
+            Some(rings) if bounded => rings_box(rings),
+            _ => BBox { min_x: ax, min_y: ay, max_x: ax, max_y: ay },
+        };
+        if let Some(viewport) = &ctx.clip {
+            if bounded {
+                if !inside(&bbox, viewport) {
+                    if !intersects(&bbox, viewport) {
+                        return;
+                    }
+                    let rings: Vec<Vec<f64>> = clip
+                        .unwrap_or_default()
+                        .iter()
+                        .map(|ring| clip_polygon(ring, viewport))
+                        .filter(|ring| ring.len() >= 6)
+                        .collect();
+                    bbox = rings_box(&rings);
+                    if is_empty_box(&bbox) {
+                        return;
+                    }
+                    clip = Some(rings);
+                }
+            } else {
+                // ページの範囲が分からないので、ビューポートの矩形で切る。内側を消す境界は、その矩形の中に切って加える
+                let BBox { min_x, min_y, max_x, max_y } = *viewport;
+                let mut rings = vec![vec![min_x, min_y, max_x, min_y, max_x, max_y, min_x, max_y]];
+                if let Some(ring) = boundary.as_ref().filter(|_| inverted) {
+                    let cut = clip_polygon(ring, viewport);
+                    if cut.len() >= 6 {
+                        rings.push(cut);
+                    }
+                }
+                clip = Some(rings);
+                bbox = *viewport;
+                bounded = true;
+            }
+        }
+        let own = self.layer(effective_layer(base, ctx), None);
+        let mut layers = ctx.layers.clone();
+        if !layers.contains(&own) {
+            layers.push(own);
+        }
+        // 読み取りの上限（zumen_core::limits）。図形と同じく数え、上限を超えたら加えない
+        if !zumen_core::limits::admit() {
+            return;
+        }
+        for id in &layers {
+            *self.used_layers.entry(*id).or_insert(0) += 1;
+        }
+        let underlay = Underlay {
+            id: format!("{}{}", ctx.path, handle_or_unknown(base)),
+            kind: UnderlayKind::Pdf,
+            file: Some(path.to_string()),
+            page: Some(page),
+            width: 0.0,
+            height: 0.0,
+            matrix,
+            clip,
+            // フェード（0〜80）は画像と同じく背景の色に近づける
+            opacity: (entity.fade > 0.0).then(|| (1.0 - entity.fade / 100.0).max(0.0)),
+            layers,
+            content_layers: None,
+            bbox,
+        };
+        self.notices.add(
+            NoticeLevel::Info,
+            "pdf-underlay",
+            "PDF の下敷き（PDFUNDERLAY）は、図面がページの大きさを持たないため、利用側が PDF を開いて置くまで\
+             描きません。枠と、下敷きのレイヤの切り替えは反映していません",
+        );
+        if entity.contrast != 100.0 || flags & 12 != 0 {
+            self.notices.add(
+                NoticeLevel::Info,
+                "underlay-adjust",
+                "PDF の下敷き（PDFUNDERLAY）のコントラスト・単色・背景に合わせた色は反映していません",
+            );
+        }
+        // 描く順で前にある図形に重なる（範囲が分からなければ、重なるかもしれない）underlay は、AutoCAD ではその図形の上に
+        // 描く
+        let mut over = false;
+        for other in &self.entities {
+            self.order_checks += 1;
+            over = self.order_checks > MAX_ORDER_CHECKS
+                || (other.drawn && (!bounded || intersects(&other.bbox, &underlay.bbox)));
+            if over {
+                break;
+            }
+        }
+        if over {
+            self.notices.add(
+                NoticeLevel::Info,
+                "underlay-order",
+                "描く順で図形の後にある PDF の下敷き（PDFUNDERLAY）を、すべての図形の下に描きました",
+            );
+        }
+        self.underlays.push(underlay);
+    }
+
     /// 構築線・放射線を、ほかの図形の範囲（limit）で切って描く
     fn finish_infinite(&mut self, limit: BBox) {
         if self.infinite.is_empty() {
@@ -3420,7 +3572,8 @@ pub(crate) fn anchor_of(entity: &DxfEntity) -> Option<Vec2> {
         DxfEntityData::MText(DxfMText { insert, .. })
         | DxfEntityData::Insert(DxfInsert { insert, .. })
         | DxfEntityData::Table(DxfTable { insert, .. })
-        | DxfEntityData::Image(DxfImage { insert, .. }) => Some([insert[0], insert[1]]),
+        | DxfEntityData::Image(DxfImage { insert, .. })
+        | DxfEntityData::Underlay(DxfUnderlay { insert, .. }) => Some([insert[0], insert[1]]),
         DxfEntityData::Dimension(dimension) => Some([dimension.defpoint[0], dimension.defpoint[1]]),
         DxfEntityData::Solid { vtx0, .. } => Some([vtx0[0], vtx0[1]]),
         DxfEntityData::Leader(DxfLeader { points, .. }) | DxfEntityData::MLine(DxfMLine { points, .. }) => {

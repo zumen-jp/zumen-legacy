@@ -14,6 +14,17 @@ npm install @zumenjs/core @zumenjs/viewer @zumenjs/pdf pdfjs-dist
 - `pdfjs-dist` 5 または 6 が peer dependency です。zumen のパッケージに pdf.js の実装は含みません。
 - pdf.js が必要とする CMap・フォント・画像の復号器の配信設定と、それぞれのライセンスは利用側で確認します。
 
+DXF・DWG の PDF の下敷きは、図面がページの大きさを持たないため、読み取り直後は置かれていません（`width`・`height` が 0）。`underlay.file` のファイルを pdf.js で開き、`placePdfUnderlays(scene, { document })` で pdf.js のページの大きさに置いてから表示します。`document` は `pdfUnderlayRenderer` と同じ関数を渡します。開けない文書・ページの下敷きは置かれずに残ります（[決定 0034](../../docs/decisions/0034-place-pdf-underlays-after-reading.md)）。
+
+```ts
+import { placePdfUnderlays, pdfUnderlayRenderer } from "@zumenjs/pdf";
+
+// file は図面に書かれた名前（..\plans\plan.pdf など、図面からの相対のことが多い）
+const options = { document: (file: string | undefined) => (file === undefined ? null : openPdf(file)) };
+viewer.setScene(await placePdfUnderlays(scene, options));
+viewer.setUnderlayRenderer(pdfUnderlayRenderer(options));
+```
+
 具体的な初期化は[PDF のサンプル](../../playground/pdf-sample.ts)、設計理由は[決定 0029](../../docs/decisions/0029-pdf-js-owned-by-the-application.md)を参照してください。
 
 ## 英語の補足資料

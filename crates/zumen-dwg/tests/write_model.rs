@@ -17,7 +17,7 @@ use serde_json::{Value, json};
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use zumen_core::Scene;
+use zumen_core::{Scene, UnderlayKind};
 use zumen_dwg::DwgVersion;
 use zumen_dxf::{DxfDocument, DxfEntity, DxfEntityData, DxfSpace, DxfVersion, dxf_to_scene, parse_dxf};
 
@@ -187,6 +187,8 @@ fn differences(original: &Scene, again: &Scene, skipped: &HashSet<String>) -> Ve
         let values: Vec<Value> = scene
             .underlays
             .iter()
+            // PDF の underlay は書かないので比べない（notices の pdf-underlay で知らせる）
+            .filter(|underlay| underlay.kind != UnderlayKind::Pdf)
             .map(|underlay| {
                 json!({
                     "file": underlay.file,

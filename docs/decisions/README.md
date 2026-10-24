@@ -60,6 +60,7 @@
 - [0031: 画素数のない画像は用紙上の 0.01 mm を内容単位にする](0031-image-units-without-a-pixel-count.md)（2026-10-23、提案）
 - [0032: 正解ファイルで確認済みの値の重複テストを除く](0032-avoid-duplicate-golden-assertions.md)（2026-10-24、採用）
 - [0033: 日本の実務と日本語を標準にする](0033-japanese-first.md)（2026-10-24、採用）
+- [0034: DXF・DWG の PDF の下敷きは置かずに読み、描く PDF エンジンのページの大きさで置く](0034-place-pdf-underlays-after-reading.md)（2026-10-24、提案）
 
 ## 英語の補足資料
 

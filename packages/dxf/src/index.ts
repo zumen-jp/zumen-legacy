@@ -47,6 +47,7 @@ export type {
   DxfText,
   DxfTextBase,
   DxfTextStyle,
+  DxfUnderlay,
   DxfVertexList,
   DxfViewport,
   DxfXLine,

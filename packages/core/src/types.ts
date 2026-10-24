@@ -258,12 +258,21 @@ export interface Underlay {
   file?: string;
   /** PDF のページ番号（1 から）。kind が "pdf" のときだけ持つ */
   page?: number;
-  /** 中身の幅と高さ（中身の座標） */
+  /**
+   * 中身の幅と高さ（中身の座標）。図面が中身の大きさを持たない underlay（DXF・DWG の PDF の underlay）は、
+   * placeUnderlays で置くまでどちらも 0 で、描かない（docs/decisions/0034）
+   */
   width: number;
   height: number;
-  /** 中身の座標から用紙の mm への変換 [a, b, c, d, e, f]（x' = a x + c y + e, y' = b x + d y + f） */
+  /**
+   * 中身の座標から用紙の mm への変換 [a, b, c, d, e, f]（x' = a x + c y + e, y' = b x + d y + f）。置く前の underlay は
+   * 高さ 0 の中身のもので、中身の左下の角が (e, f) にある
+   */
   matrix: readonly [number, number, number, number, number, number];
-  /** 描く範囲を切り取る、用紙の mm の多角形。偶奇規則で、外形と中抜き。省略すると中身の全体を描く */
+  /**
+   * 描く範囲を切り取る、用紙の mm の多角形。偶奇規則で、外形と中抜き。省略すると中身の全体を描く。置く前の
+   * underlay の空の輪は、まだ分からない中身の外形
+   */
   clip?: Float64Array[];
   /** 不透明度（0〜1）。省略すると 1 */
   opacity?: number;
