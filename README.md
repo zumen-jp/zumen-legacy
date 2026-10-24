@@ -1,86 +1,98 @@
 # zumen
 
-English | [日本語](README.ja.md)
+日本語 | [English](README.en.md)
 
-Read, view and measure architectural and civil engineering 2D drawings in the browser.
-**zumen** (図面, "drawing" in Japanese) parses the drawing files themselves, so nothing is uploaded to a server,
-and gives you a framework-agnostic drawing engine to embed in your own interface, with React hooks and a sample UI.
+**日本の建築・土木の図面を扱う、日本語ファーストのライブラリです。**
+ブラウザ・Rust・Python で、図面の読み取り・表示・計測・解析・編集・作図を行えます。
+ブラウザで開いた図面はサーバーに送らず、端末の中で読み取ります。
+国交省の電子納品で使う **SXF（SFC・P21）** を公開仕様から、Jw_cad の **JWW** を形式の解説から実装した。
+2026-10 の調査では、SXF をブラウザで読める JS ライブラリはなく、JWW もブラウザ向けの npm と React の部品がなかった。
+AutoCAD などの **DXF**（Shift_JIS の日本語、バイナリを含む）も読む。
+**DWG**（AutoCAD 1.0〜2018）は、GPL の部品を使わない自前の読み取りで、Rust から同じ AutoCAD の図形モデルに読む。
+どの形式も Rust の同じ読み取りで読み、ブラウザでは `@zumenjs/reader` がその WebAssembly のビルド をページか Web Worker で動かす。
+読み取りは Rust で書き、Python（サーバーやデータ処理）と WebAssembly（ブラウザ）から同じ結果で使う。
 
-> **Status:** early release (0.x). The API may change between minor versions.
+> 状態: 初期リリース（0.x）。マイナーバージョン間で API が変わることがある。
 
-## Why
+<a id="why"></a>
 
-- Japanese public works deliver drawings in **SXF** (SFC and P21), and many design offices use Jw_cad's **JWW**.
-  In our survey (October 2026) we found no JavaScript library that reads SXF in the browser,
-  and no browser package or React component for JWW.
-- **DXF** from AutoCAD and other CAD software is read, including Japanese drawings in Shift_JIS and binary DXF.
-  **DWG** (AutoCAD 1.0 to 2018) is read into the same AutoCAD drawing model by our own decoder in Rust, without GPL
-  components.
-- **PDF** drawings are read page by page in Rust: the paths, texts and images of a page become entities that are
-  selected, snapped to, measured (at the scale of the page's measured viewports) and analyzed, while a PDF engine draws
-  the page itself under them.
-- Every format is read by the same Rust code on servers, in Python and in the browser, where `@zumenjs/reader` runs its
-  WebAssembly build on the page or in a Web Worker.
+## 日本向けの開発方針
 
-## Features
+- 日本の建築・土木の実務を優先します。SXF による電子納品、Jw_cad、日本語の図面、国土交通省の CAD 製図基準を中心に改善します。
+- README・利用ガイド・API の説明・エラー・CLI・MCP・サンプル画面は日本語を標準にします。英語版は補助として提供できます。
+- 関数名・型名・コマンド名・JSON キーなどの識別子は、既存のコードとの互換性を保ちます。図面に書かれた名称や文字もそのまま扱います。
 
-- Formats: SXF Ver.2.0–3.1 SFC (all 34 features) and P21 (the STEP AP202 subset);
-  JWW versions 600 and 700 (lines, arcs, ellipses, points, text, solids, blocks, dimensions);
-  DXF R12 to 2018 in ASCII and binary (lines, arcs, polylines with bulges and widths, splines, text and formatted MTEXT,
-  blocks with attributes and arrays, dimensions, hatches, leaders, solids, wipeouts), with layers, line types,
-  line weights, ACI and true colors, transparency and text styles;
-  DWG AutoCAD 1.0 to 2018, drawn like DXF (see [How DWG is handled](docs/formats/dwg.md));
-  PDF, read only, each page a view with its paths, texts and images (see [How PDF is handled](docs/formats/pdf.md)).
-- Drawings you receive: limits on bytes, entities and time, and reading in a Web Worker that can be stopped.
-- DXF and DWG model space and layouts: viewports draw model space at their scale, and measurements inside them return
-  real-world units.
-- Fit, zoom (wheel, pinch, buttons, keyboard), pan (drag, arrow keys) and rotate (`rotateBy`, by any angle).
-- An engine to embed: set and read the view (and follow it with events, to keep HTML on the drawing in place), select
-  several entities, highlight named sets such as search results, add your own tools, turn each input handler off
-  (the wheel can zoom only with Ctrl or ⌘), and take colors from CSS custom properties. The engine has no text and the
-  packages ship no CSS, so the interface around it is yours; the playground has a sample built on the public API.
-- Layer visibility. JWW layer groups can be toggled at once.
-- Pick an entity to see its properties: type, layer, color, line type, width, coordinates, dimension values, scale.
-- Measure distances with snapping to vertices and lines, in paper millimeters and in **real-world units**
-  from the scale of SXF sub-figures, JWW layer groups, DXF units and DXF layout viewports.
-- Dark and light backgrounds; true line weights or hairlines.
-- Drawing metadata (title block, authoring software, sheet) and a list of everything that was skipped or substituted.
-- Writing in Rust and Python: every format as DXF (R12 to 2018), DWG (AutoCAD 2013), JWW and SXF (SFC, P21, SFZ and
-  P2Z of Ver.2.0, 3.0 or 3.1).
-- Editing in Rust and Python: add, change and delete entities and layers of a DXF, DWG, JWW or SXF drawing in place,
-  keeping its version, encoding and everything the edit does not name, and create new drawings
-  ([decision 0012](docs/decisions/0012-edit-in-place-and-write-every-format.md)).
-- Drafting in Rust, Python, the command line and the MCP server: draw complete sheets from one JSON drawing spec
-  (border and title block, views at their scales, text, dimensions, hatches, tables, grid lines and symbols) and
-  write them in every format ([Drafting](docs/drafting.md), [decision 0018](docs/decisions/0018-drafting-kit.md)).
-- No runtime dependencies; `@zumenjs/reader` ships its WebAssembly readers, and `@zumenjs/pdf` draws PDF pages with
-  the pdf.js of the application. Reading also runs in Node.js.
+詳しくは[言語と対象利用者の方針](docs/language-policy.md)を参照してください。
 
-## Packages
+<a id="packages"></a>
 
-| Package | Contents |
-| --- | --- |
-| [`@zumenjs/core`](packages/core) | Format-neutral scene model, `readDrawing` and the `DrawingReader` interface, geometry, text layout and measurement (no DOM) |
-| [`@zumenjs/viewer`](packages/viewer) | The 2D engine to embed: Canvas renderer, hit testing and snapping, and `DrawingViewer` (view, state, input handlers, tools, style) |
-| [`@zumenjs/reader`](packages/reader) | Every format (SXF, JWW, DXF, DWG and PDF) with the Rust readers built to WebAssembly (PDF in a module of its own, loaded only for PDF drawings): the `reader` for `readDrawing` and `useDrawing`, read limits, and `ReaderWorker` for reading in a Web Worker |
-| [`@zumenjs/pdf`](packages/pdf) | PDF pages under the drawing with pdf.js: `pdfUnderlayRenderer`, an `UnderlayRenderer` for the pages of PDF drawings and the PDF underlays of DXF drawings, with optional content as layers |
-| [`@zumenjs/react`](packages/react) | Hooks: `useDrawingViewer`, `useViewerState`, `useViewerEvent` and `useDrawing` |
+## パッケージ
 
-Format packages and `@zumenjs/viewer` depend only on `@zumenjs/core`, `@zumenjs/react` and `@zumenjs/pdf` on
-`@zumenjs/viewer` and `@zumenjs/core` (`@zumenjs/pdf` also on the types of pdf.js, a peer dependency), and
-`@zumenjs/core` knows nothing about formats and does not use the DOM.
-Formats are detected from the file contents, not from the file name. See [docs/architecture.md](docs/architecture.md).
-The TypeScript readers in `packages/sxf`, `packages/jww` and `packages/dxf` are kept in the repository as the reference
-that writes the expected scenes of the tests, and are not published.
-
-## Quick start
+pnpm のワークスペース で、形式ごとの読み取りと、形式に依存しないモデル、利用側の画面に組み込む図面エンジン、React のフックに分ける。
 
 ```bash
 npm install @zumenjs/core @zumenjs/viewer @zumenjs/reader @zumenjs/react
 ```
 
-React: `useDrawing` reads a file with the readers you pass, `useDrawingViewer` creates the engine on an element of
-your interface, and `useViewerState` reads the part of its state a component needs.
+| パッケージ | フォルダー | 中身 |
+| --- | --- | --- |
+| `@zumenjs/core` | `packages/core` | 表示用モデル（`Scene`）と JSON、`readDrawing` と読み取りの口（`DrawingReader`）、距離の計測、読み取りの注意。DOM を使わない。幾何は `/geometry`、文字の配置は `/text` |
+| `@zumenjs/viewer` | `packages/viewer` | 画面に組み込む 2D のエンジン。Canvas の描画、当たり判定と吸着、`DrawingViewer`（表示範囲・状態・操作のハンドラ・道具・見た目） |
+| `@zumenjs/reader` | `packages/reader` | どの形式（SXF・JWW・DXF・DWG・PDF）も、Rust の読み取りを WebAssembly にしたもので読む。`readDrawing`・`useDrawing` に渡す `reader`（`initReader` か `reader.load` で読み込む）、読み取りの上限、Web Worker で読む `ReaderWorker` |
+| `@zumenjs/pdf` | `packages/pdf` | PDF のページを pdf.js で図形の下に描く。PDF の図面のページと DXF の PDF の下敷き を描く `UnderlayRenderer` の `pdfUnderlayRenderer`（PDF の表示グループをレイヤで切り替える） |
+| `@zumenjs/react` | `packages/react` | フックだけ。`useDrawingViewer`・`useViewerState`・`useViewerEvent`・`useDrawing` |
+
+依存の向きは `@zumenjs/react` → `@zumenjs/viewer` → `@zumenjs/core`、`@zumenjs/pdf` → `@zumenjs/viewer` → `@zumenjs/core`、
+`@zumenjs/reader` → `@zumenjs/core` だけ。`@zumenjs/pdf` は pdf.js の型も使い、pdf.js は利用側が入れる（peer dependency）。
+TypeScript の読み取り（`packages/sxf`・`packages/jww`・`packages/dxf`）は、テストの正解を書く参照としてリポジトリに残し、
+公開しない（DWG と PDF は Rust だけで読む）。パッケージは画面の文言と CSS を持たず、画面は利用側が作る
+（試用画面にサンプルがある）。
+`@zumenjs/core` は形式を知らず、使う形式の読み取りを `readDrawing` に渡す。形式は拡張子ではなく中身で判定する。
+
+<a id="features"></a>
+
+## できること
+
+- 図面全体の表示、拡大・縮小（ホイール・ピンチ・ボタン・キー）、移動（ドラッグ・矢印キー）、回転（`rotateBy`、任意の角度）。
+- 利用側の画面への組み込み。表示範囲を指定・保存・復元し、変化をイベントで受ける（図面の上に置いた HTML を追従させる）。
+  複数の図形の選択、検索結果などの名前付きの強調、利用側の道具（書き込み・ピン・範囲など）、操作のハンドラごとの停止
+  （ホイールは Ctrl・⌘ を押したときだけ拡大、なども選べる）、CSS のカスタムプロパティによる配色。
+- レイヤごとの表示・非表示。図面の表示指定を初期状態にする。JWW はレイヤグループごとにまとめて切り替えられる。
+- 図形を選んで属性を確認する。種類、レイヤ、色・線種・線幅、座標、寸法値、部分図の縮尺など。
+- DXF の R12〜2018（テキスト・バイナリ）。線分・円弧・ふくらみと幅のあるポリライン・スプライン・文字・書式つきの複数行文字・
+  属性と配列のあるブロック・寸法・ハッチング・引出線・ソリッド・ワイプアウトを、レイヤ・線種・線の太さ・ACI とトゥルーカラー・透過度・文字スタイルとともに描く。
+- DWG の AutoCAD 1.0〜2018。DXF と同じく描く（[DWG の扱い](docs/formats/dwg.md)）。
+- PDF の図面（読むだけ）。ページを表示に、ページの線・文字・画像を、選択・吸着・計測（ページの計測辞書のある
+  ビューポートの縮尺で実寸も）・解析に使う図形として読む。ページそのものは PDF の描画部品が図形の下に描く
+  （[PDF の扱い](docs/formats/pdf.md)）。
+- 受け取った図面のための、大きさ・図形の数・時間の上限と、止められる Web Worker での読み取り。
+- DXF・DWG のモデル空間とレイアウト（紙空間）の切り替え。ビューポートの中はその縮尺で描き、計測すると実寸を返す。
+- 2 点間の距離の計測。端点・頂点、なければ線上の点に吸着し、部分図・部品（JWW はレイヤグループ、DXF は単位とビューポート）の縮尺から**実寸**も出す。
+- 黒背景と白背景の切り替え。初期値は図面の想定（SXF は黒、JWW はヘッダの背景色）。
+  背景と見分けにくい色（白背景の白、黒背景の黒）は反対の色で描く。
+- 線の太さどおりの表示と、細線表示の切り替え。
+- 図面の情報（表題欄、作成ソフト、用紙）と、省略・代替した内容の件数（読み取りの注意）。
+- 線で閉じた領域（部屋）の検出。外形・穴・面積・周長を用紙と実寸（㎡）で求め、境界の図形と中の室名を添える。
+  Rust・Python・コマンド・MCP サーバーで使える（[決定 0015](docs/decisions/0015-analysis-in-zumen-core.md)）。
+- 罫線で描いた表（建具表・面積表・図面リスト・表題欄など）の読み取り。行と列、結合したます目、ます目の文字を返し、
+  CSV にも書ける。斜線の入った空欄も 1 つのます目として読む。Rust・Python・コマンド・MCP サーバーで使える。
+- CAD 製図の規則の確認。レイヤ名・色・線種・線の太さ・用紙の上の文字の高さ・機種依存文字・用紙の大きさと向き・尺度を、
+  国土交通省の CAD製図基準（令和7年12月）の組み込みの規則集か、JSON で書いた自前の規則集で調べ、規則に合わない値ごとに
+  図形の id とレイヤを返す。Rust・Python・コマンド・MCP サーバーで使える（[製図基準の確認](docs/checks.md)）。
+- Rust と Python での書き出し。どの形式も DXF（R12〜2018）・DWG（AutoCAD 2013）・JWW・SXF（SFC・P21・SFZ・P2Z。
+  Ver.2.0・3.0・3.1）に書ける。
+- Rust と Python での編集。DXF・DWG・JWW・SXF の図形とレイヤを、その場で足す・変える・消す。版・文字コードと、操作で名指ししない
+  内容は元のまま残す。新しい図面も作れる（[決定 0012](docs/decisions/0012-edit-in-place-and-write-every-format.md)）。
+- Rust・Python・コマンド・MCP サーバーでの作図。1 つの JSON の図面の仕様から、図枠と表題欄、縮尺ごとのビュー、文字・寸法・
+  ハッチング・表・通り芯・記号のそろった図面を描き、どの形式にも書ける（[作図](docs/drafting.md)、
+  [決定 0018](docs/decisions/0018-drafting-kit.md)）。
+
+<a id="quick-start"></a>
+
+## 使い方
+
+React では、`useDrawing` で渡した読み取りを使ってファイルを読み、`useDrawingViewer` で画面の要素の上にエンジンを作り、
+`useViewerState` で状態のうち部品が使う部分を読む。
 
 ```tsx
 "use client";
@@ -92,13 +104,13 @@ import { reader } from "@zumenjs/reader";
 const READERS = [reader];
 
 export function DrawingView({ file }: { file: File | null }) {
-  // The reader loads its WebAssembly module (507 KB with brotli) when the first drawing is opened.
-  // Pass { view } to pick a DXF or DWG layout, or a PDF page. A PDF loads the PDF module first; the entities of
-  // its page are not drawn (drawn: false): pdfUnderlayRenderer of @zumenjs/pdf draws the page under them.
+  // 読み取りは、初めて図面を開いたときに WebAssembly（brotli で 507 KB）を読み込む。
+  // DXF・DWG のレイアウトと PDF のページは { view } で選ぶ。PDF は先に PDF のモジュールを読み込む。PDF のページの図形は
+  // 描かない（drawn: false）ので、ページは @zumenjs/pdf の pdfUnderlayRenderer が図形の下に描く
   const { scene, error, loading } = useDrawing(file, READERS);
-  if (loading) return <p>Loading…</p>;
+  if (loading) return <p>読み込み中…</p>;
   if (error) return <p role="alert">{error.message}</p>;
-  return scene ? <Drawing scene={scene} label={file?.name ?? "Drawing"} /> : null;
+  return scene ? <Drawing scene={scene} label={file?.name ?? "図面"} /> : null;
 }
 
 function Drawing({ scene, label }: { scene: Scene; label: string }) {
@@ -107,23 +119,22 @@ function Drawing({ scene, label }: { scene: Scene; label: string }) {
   const distance = useViewerState(viewer, (state) => state.distance);
   return (
     <>
-      <button type="button" onClick={() => viewer?.fit()}>Fit</button>
+      <button type="button" onClick={() => viewer?.fit()}>全体</button>
       <button type="button" aria-pressed={tool === "measure"} onClick={() => viewer?.setTool("measure")}>
-        Measure
+        計測
       </button>
       <div ref={ref} style={{ height: 480 }} />
-      {distance ? <p>{distance.paper.toFixed(1)} mm on paper, {distance.real?.toFixed(0) ?? "-"} mm real</p> : null}
+      {distance ? <p>用紙 {distance.paper.toFixed(1)} mm、実寸 {distance.real?.toFixed(0) ?? "-"} mm</p> : null}
     </>
   );
 }
 ```
 
-The playground's [2D sample](playground/drawing-sample.tsx) builds a complete viewer this way: toolbar, layer list,
-properties, notices and status bar. Its [PDF sample](playground/pdf-sample.ts) draws the pages of PDF drawings with
-`@zumenjs/pdf`, loading pdf.js only when a PDF is opened.
+試用画面の [2D のサンプル](playground/drawing-sample.tsx) は、この形で操作盤・レイヤの一覧・属性・読み取りの注意・
+状態の欄を作っている。
 
-Without React: load the reader once, then give `DrawingViewer` an element and a scene. To read drawings you receive
-in a Web Worker, with limits on bytes, entities and time, see [packages/reader](packages/reader/README.md).
+React を使わない場合は、読み取りを 1 度読み込み、`DrawingViewer` に要素と図面を渡す。受け取った図面を、大きさ・図形の数・
+時間の上限を付けて Web Worker で読む方法は [packages/reader](packages/reader/README.md)にある。
 
 ```ts
 import { readDrawing } from "@zumenjs/core";
@@ -131,25 +142,24 @@ import { initReader, reader } from "@zumenjs/reader";
 import { DrawingViewer } from "@zumenjs/viewer";
 
 const bytes = new Uint8Array(await file.arrayBuffer());
-await initReader(); // the first call loads the WebAssembly module; later calls return at once
+await initReader(); // 最初の呼び出しで WebAssembly を読み込む。2 度目からはすぐに終わる
 const scene = readDrawing(bytes, [reader]);
 const viewer = new DrawingViewer(element, scene, { label: file.name });
 
-viewer.fitBounds(scene.entities[0].bbox, { padding: 40 }); // go to an entity
-const { center, zoom } = viewer.getView(); // viewer.jumpTo({ center, zoom }) restores this view
+viewer.fitBounds(scene.entities[0].bbox, { padding: 40 }); // 図形へ移る
+const { center, zoom } = viewer.getView(); // viewer.jumpTo({ center, zoom }) でこの表示範囲に戻る
 viewer.on("move", () => {
-  // keep an HTML marker on the paper point (120, 80) while the view moves
+  // 用紙の点 (120, 80) に置いた HTML を、表示範囲の変化に追従させる
   const [px, py] = viewer.toScreen(120, 80);
   marker.style.transform = `translate(${px}px, ${py}px)`;
 });
-viewer.on("cursor", ({ point }) => console.log(point)); // paper millimeters under the pointer
-viewer.setHighlight("search", found); // entities your search found, in their own color
+viewer.on("cursor", ({ point }) => console.log(point)); // ポインターの下の用紙の座標（mm）
+viewer.setHighlight("search", found); // 検索で見つけた図形を、その名前の色で強調する
 viewer.subscribe(() => console.log(viewer.getState().selection));
 ```
 
-Tools receive pointer events in paper millimeters and draw on top of the drawing; the built-in selection, measurement
-and panning are tools too. Colors come from CSS custom properties on the element, for the dark and the light
-background, so they follow the theme of your application:
+道具は用紙の mm でポインターのイベントを受け、図面の上に描く。組み込みの選択・計測・移動も同じ口の道具である。
+色は要素の CSS のカスタムプロパティ（黒背景用と白背景用）から読むので、利用側の配色に合わせられる。
 
 ```ts
 const pins: [number, number][] = [];
@@ -171,230 +181,225 @@ viewer.setTool("pin");
 
 ```css
 .drawing {
-  --zumen-background-dark: #1f2023; /* a dark color, so near-black lines are drawn white */
+  --zumen-background-dark: #1f2023; /* 暗い色なので、黒に近い線は白で描く */
   --zumen-selection-dark: #ffd43d;
   --zumen-highlight-search-dark: #5ad2ff;
   --zumen-fit-padding: 16;
 }
 ```
 
-See [packages/viewer](packages/viewer/README.md) for the view, the state, the input handlers, the tools and the style.
+表示範囲・状態・操作のハンドラ・道具・見た目の詳細は [packages/viewer](packages/viewer/README.md)を参照。
 
-Reading without a viewer (also works in Node.js):
+表示せずに図面を読む場合も、同じ読み取りを使う（Node.js でも動く）。
 
 ```ts
 import { initReader, readScene } from "@zumenjs/reader";
 
 await initReader();
-const scene = readScene(bytes); // the format is detected from the contents
-const sheet = readScene(dxfBytes, { view: "Layout1" }); // or the default view (model space or the saved layout)
+const scene = readScene(bytes); // 形式は中身で判定する
 ```
 
-A `Scene` uses paper millimeters with the Y axis up. Placements of sub-figures and blocks are resolved,
-and each entity keeps its properties and, inside a scaled placement, the transform back to real-world coordinates.
-Pick entities and attributes by keys that are the same in every format, and show the Japanese text to people:
+`Scene` は用紙の mm・Y 軸上向きの座標で、部分図・作図部品の配置を解決済みの図形を持つ。
+要素ごとに属性の一覧と、部分図の中の要素なら元の座標への変換（実寸の計測用、`toReal`）を持つ。
+図形と属性は、どの形式でも同じ英語のキーで選び、人には日本語の名前を見せる。
 
 ```ts
-const circles = scene.entities.filter((entity) => entity.kind === "circle"); // entity.type is 円
-const radius = circles[0]?.properties.find((property) => property.key === "radius")?.raw; // label 半径, value "25"
+const circles = scene.entities.filter((entity) => entity.kind === "circle"); // entity.type は「円」
+const radius = circles[0]?.properties.find((property) => property.key === "radius")?.raw; // label は「半径」
 ```
 
-## Rust and Python
+<a id="rust-and-python"></a>
 
-The readers are written in Rust (`crates/`), with Python bindings (`bindings/python`) and a WebAssembly build
-(`bindings/wasm`, which `@zumenjs/reader` brings to the browser), so servers, data pipelines and browsers read the same
-drawings into the same `Scene`. JWW, SXF and DXF were first written in TypeScript and ported; the two are compared on
-the drawings in `tests/fixtures`, and on local samples with `pnpm run parity`. DWG is read in Rust only and checked
-against the DXF that AutoCAD writes for the same drawing.
+## Rust と Python
+
+読み取りは Rust（`crates/`）で書き、Python の結合部（`bindings/python`）と WebAssembly（`bindings/wasm`。ブラウザでは
+`@zumenjs/reader`）から使う。サーバー・データ処理・ブラウザが同じ図面を同じ `Scene` に読む。JWW・SXF・DXF は
+TypeScript で書いてから移植したもので、`tests/fixtures` の図面で両方の結果を比べ、手元の図面は `pnpm run parity` で
+比べる。DWG は Rust だけで読み、AutoCAD が同じ図面を書き出した DXF と比べて確かめる。
 
 ```python
 import zumen
 
-scene = zumen.read("plan.jww")  # the format is detected from the contents
-received = zumen.read("D0001.P2Z", max_bytes=200_000_000, max_entities=1_000_000, timeout=30)  # untrusted files
-png = scene.render_png(dpi=150)  # thumbnails, or images for vision models
-pdf = scene.render_pdf()  # the sheet at its real size, with searchable text (also render_svg)
-part = scene.render_png(dpi=300, region=(100, 50, 200, 120))  # a part, in paper millimeters
-json_text = scene.to_json()  # sceneFromJson() in @zumenjs/core turns it back into a Scene
+scene = zumen.read("plan.jww")  # 形式は中身で判定する
+received = zumen.read("D0001.P2Z", max_bytes=200_000_000, max_entities=1_000_000, timeout=30)  # 受け取った図面
+png = scene.render_png(dpi=150)  # サムネイルや、画像を読む AI への添付
+pdf = scene.render_pdf()  # 用紙を実寸で、検索できる文字つきで（render_svg も同じ）
+part = scene.render_png(dpi=300, region=(100, 50, 200, 120))  # 用紙の mm で範囲を指定して拡大
+json_text = scene.to_json()  # @zumenjs/core の sceneFromJson で Scene に戻せる
 
-texts = scene.texts()  # text, position, height, angle and layers, in paper millimeters
-scene.title_block()  # drawing number, revision, title, project, scale and date from the title block
-rooms = scene.regions(layers=[1])  # regions that the lines on layer 1 close: outline, areas, texts inside
-tables = scene.tables()  # tables drawn with rules (schedules, title blocks): rows, columns, merged cells, texts
-report = scene.check("mlit-cad-2025")  # layer names, colors, line types, widths, text heights against a CAD standard
-door = scene.entity("#120")  # the type, layers, box, text and properties of one entity
-table = scene.to_arrow()  # every entity as a pyarrow.Table (pip install "zumen[arrow]")
-image = scene.render(size=(2000, 2000))  # a PNG with the conversion between pixels and paper millimeters
-changes = zumen.compare(zumen.read("plan-rev1.jww"), scene)  # removed, added and changed entities
-changes.scene.render_png(dpi=150)  # red before, blue after, gray unchanged
-for entity in image.entities_at(640, 480):  # the entities drawn under a pixel, smallest first
+texts = scene.texts()  # 文字列・位置・高さ・向き・レイヤ（用紙の mm）
+scene.title_block()  # 表題欄の図面番号・改訂・図面名・工事名・縮尺・作成年月日
+rooms = scene.regions(layers=[1])  # レイヤ 1 の線で閉じた領域（部屋）の外形・面積・中の文字
+tables = scene.tables()  # 罫線で描いた表（建具表・表題欄など）の行・列・結合したます目・文字
+report = scene.check("mlit-cad-2025")  # CAD製図基準のレイヤ名・色・線種・線の太さ・文字の高さなど
+door = scene.entity("#120")  # 1 つの図形の種類・レイヤ・外接矩形・文字・属性
+table = scene.to_arrow()  # すべての図形を pyarrow.Table に（pip install "zumen[arrow]"）
+image = scene.render(size=(2000, 2000))  # PNG と、画像の px と用紙の mm の変換
+changes = zumen.compare(zumen.read("plan-rev1.jww"), scene)  # 削除・追加・変更した図形
+changes.scene.render_png(dpi=150)  # 変更前は赤、変更後は青、変わらない図形は灰
+for entity in image.entities_at(640, 480):  # その画素に描いた図形（外接矩形の小さい順）
     print(entity["id"], entity["box"], entity["text"])
 
-zumen.convert("plan.jww", "dxf").save("plan.dxf")  # any format as DXF of AutoCAD 2013, with notices of what changed
-zumen.convert("plan.dwg", "sfc").save("plan.sfc")  # or as SXF (SFC of SXF Ver.3.1; also p21, sfz and p2z)
-zumen.convert("plan.dxf", "jww").save("plan.jww")  # or as JWW, or as DWG of AutoCAD 2013 ("dwg")
+zumen.convert("plan.jww", "dxf").save("plan.dxf")  # どの形式も AutoCAD 2013 の DXF に。変えた内容は notices で分かる
+zumen.convert("plan.dwg", "sfc").save("plan.sfc")  # SXF（SXF Ver.3.1 の SFC。p21・sfz・p2z も）にも
+zumen.convert("plan.dxf", "jww").save("plan.jww")  # JWW にも、AutoCAD 2013 の DWG（"dwg"）にも
 
-# Edit in place: everything the operations do not name stays as it was (DXF, DWG, JWW and SXF)
+# その場の編集。操作で名指ししないものは元のまま（DXF・DWG・JWW・SXF）
 edited = zumen.edit("plan.dxf", [
     {"op": "add", "kind": "text", "layer": "NOTE", "position": [1200, 300], "text": "確認済み", "height": 350},
     {"op": "update", "id": "3F2", "set": {"end": [5200, 0], "color": "#ff0000"}},
     {"op": "delete", "id": "3F5"},
 ])
-edited.save("plan.dxf")  # edited.created holds the ids of what was added
-zumen.create("dxf", [{"op": "add", "kind": "line", "start": [0, 0], "end": [5000, 0]}], units="mm")  # a new drawing
-
-# Draft whole sheets from a drawing spec: sizes in paper millimeters, view coordinates in real millimeters
-spec = {"sheets": [{"name": "A01", "paper": "A3", "frame": {}, "views": [{
-    "scale": 100, "viewport": [30, 30, 400, 280], "center": [5000, 3000], "title": {"number": "1", "text": "平面図"},
-    "items": [{"type": "rectangle", "from": [0, 0], "to": [10000, 6000]},
-              {"type": "dimensionChain", "points": [[0, 0], [4000, 0], [10000, 0]], "offset": -10, "total": True}],
-}]}]}
-zumen.draft(spec, "dwg").save("plan.dwg")  # docs/drafting.md describes every item
+edited.save("plan.dxf")  # edited.created に足したものの id
+zumen.create("dxf", [{"op": "add", "kind": "line", "start": [0, 0], "end": [5000, 0]}], units="mm")  # 新しい図面
 ```
 
-AI applications can read drawings through the MCP server of the Python package (`pip install "zumen[mcp]"`, then
-`zumen-mcp --root <dir>`): open, render a region, find texts and entities, read the shapes of entities in paper and
-real-world millimeters, measure in real-world units, find rooms with their areas, read schedules drawn as ruled
-tables, check a drawing against a CAD standard and compare revisions. See [bindings/python](bindings/python/README.md#mcp-server). Applications that give an agent tools of their own call the
-same functions in `zumen.tools`, whose results are JSON with a documented schema and bounded sizes
-([Tools for AI agents](bindings/python/README.md#tools-for-ai-agents)).
+AI のアプリは、Python のパッケージの MCP サーバー（`pip install "zumen[mcp]"` の後に `zumen-mcp --root <フォルダ>`）で
+図面を読める。開く、範囲を描く、文字と図形を探す、図形の形を用紙の mm と実寸の mm で読む、実寸で測る、部屋と面積を求める、
+罫線の表を読む、CAD 製図の規則で調べる、版を比べる、の道具がある。
+[bindings/python](bindings/python/README.md#mcp-server) を参照。エージェントに自前の道具を持たせるアプリは、同じ関数を
+`zumen.tools` から呼ぶ。結果は形の決まった JSON で、大きさに上限がある
+（[Tools for AI agents](bindings/python/README.md#tools-for-ai-agents)）。
 
 ```bash
 cargo run --release -p zumen-cli -- render plan.jww -o plan.png --dpi 150 --map plan.json
-cargo run --release -p zumen-cli -- render plan.jww -o plan.pdf  # or plan.svg
-cargo run --release -p zumen-cli -- texts plan.jww --region 100,50,200,120  # one JSON object per line
-cargo run --release -p zumen-cli -- title plan.jww  # the fields of the title block
-cargo run --release -p zumen-cli -- regions plan.dxf --layer WALL  # closed regions (rooms) with their areas
-cargo run --release -p zumen-cli -- tables plan.jww --csv  # ruled tables (schedules, title blocks) as CSV
-cargo run --release -p zumen-cli -- check plan.sfc  # the CAD drafting standard of MLIT, or --rules rules.json
+cargo run --release -p zumen-cli -- render plan.jww -o plan.pdf  # plan.svg でも
+cargo run --release -p zumen-cli -- texts plan.jww --region 100,50,200,120  # 1 行に 1 つの JSON
+cargo run --release -p zumen-cli -- title plan.jww  # 表題欄の項目
+cargo run --release -p zumen-cli -- regions plan.dxf --layer WALL  # 線で閉じた領域（部屋）と面積
+cargo run --release -p zumen-cli -- tables plan.jww --csv  # 罫線で描いた表（建具表・表題欄など）を CSV で
+cargo run --release -p zumen-cli -- check plan.sfc  # CAD製図基準で調べる（--rules rules.json で自前の規則集）
 cargo run --release -p zumen-cli -- convert plan.dwg -o plan.dxf
 cargo run --release -p zumen-cli -- convert plan.sfc -o plan.dxf
-cargo run --release -p zumen-cli -- convert plan.dxf -o plan.sfc  # or plan.p21 --target-version 2.0
-cargo run --release -p zumen-cli -- convert plan.sfc -o plan.dwg  # or plan.jww
+cargo run --release -p zumen-cli -- convert plan.dxf -o plan.sfc  # plan.p21 --target-version 2.0 も
+cargo run --release -p zumen-cli -- convert plan.sfc -o plan.dwg  # plan.jww も
 cargo run --release -p zumen-cli -- edit plan.dxf operations.json -o edited.dxf
 cargo run --release -p zumen-cli -- create operations.json -o new.dxf --units mm
+cargo run --release -p zumen-cli -- draft sheets.json -o sheets.dwg  # 図面の仕様から作図（--sheet A10-1 で 1 枚）
 ```
 
-`convert` writes every format as DXF of AutoCAD 2013 through the AutoCAD drawing model (`--target-version` chooses
-R12, 2000, 2004, 2007, 2010 or 2018; versions before 2007 are written in a code page, such as ANSI_932 for Japanese,
-and R12 explodes what it lacks, such as multiline text and hatches). DXF and DWG keep their handles, tables, blocks
-and layouts. SXF and JWW are mapped into the model with real-size model
-space: each SXF sub-figure and each JWW layer group scale is shown through a viewport of the sheet's layout at its
-scale, and what is drawn on the sheet itself (frames and title blocks) is in paper space. Layers, colors, line types,
-line weights, fonts, vertical text, blocks, dimensions and hatches become their AutoCAD counterparts, and the layout
-draws the same as the original drawing ([decision 0008](docs/decisions/0008-sheets-and-scales-in-the-autocad-model.md)).
-`convert` also writes every format as SXF (SFC of SXF Ver.3.1) from the same model: the layout that the drawing opens in
-is the sheet, each viewport a sub-figure at real size placed at its scale, and each block a drawing part. What SXF has
-no feature for (multiline texts, leaders, dimensions, solids) is written as the lines, fills and texts that zumen draws
-for it, so the SFC draws the same as the drawing it came from
-([decision 0010](docs/decisions/0010-write-sxf-from-the-autocad-model.md)). P21, SFZ and P2Z are written the same way,
-and `--target-version` chooses SXF Ver.2.0 or 3.0. The model is also written as DWG of AutoCAD 2013, and as JWW, where
-the layout is the sheet and the model space in each viewport is a layer group at the viewport's scale.
+`convert` は、どの形式の図面も AutoCAD の図面のモデルを経て AutoCAD 2013 の DXF に書く（`--target-version` で
+R12・2000・2004・2007・2010・2018 を選べ、2007 より前は日本語なら ANSI_932 のようなコードページで書き、R12 は複数行の
+文字・ハッチングなど R12 にない図形を崩して書く）。DXF・DWG はハンドル・表・ブロック・レイアウトを保つ。SXF・JWW はモデル空間を実寸にして写す。SXF の部分図・JWW のレイヤグループの
+縮尺ごとに、用紙のレイアウトのビューポートがその縮尺で見せ、用紙にじかに描いたもの（図枠・表題欄）は紙空間に置く。
+レイヤ・色・線種・線の太さ・フォント・縦書き・ブロック・寸法・ハッチングを AutoCAD の図形にし、レイアウトは元の図面と
+同じに描ける（[決定 0008](docs/decisions/0008-sheets-and-scales-in-the-autocad-model.md)）。
+同じモデルから SXF（SXF Ver.3.1 の SFC）にも書く。図面を開くレイアウトが用紙、ビューポートはそれぞれ実寸の部分図をその縮尺で
+配置したもの、ブロックは作図部品になる。SXF にない図形（複数行文字・引出線・寸法・塗り）は zumen が描く線・塗り・文字にするので、
+SFC は元の図面と同じに描ける（[決定 0010](docs/decisions/0010-write-sxf-from-the-autocad-model.md)）。
+P21・SFZ・P2Z も同じに書き、`--target-version` で SXF Ver.2.0・3.0 を選べる。モデルは AutoCAD 2013 の DWG にも、JWW にも
+書く。JWW では、レイアウトが用紙、ビューポートに映るモデル空間はそのビューポートの縮尺のレイヤグループになる。
 
-`edit` changes a drawing in place with operations that are the same for every format: add, update and delete
-entities, and add and update layers, chosen by the ids, kinds and property keys that the scene reports, with
-coordinates in the drawing's own units. The format, its version and encoding, and everything the operations do not name
-(extended data, objects, entities that zumen does not read) stay as they were. All operations are checked before
-anything is written. DXF (R12 to 2018, ASCII and binary), DWG (R13 to 2018), JWW and SXF (SFC, P21, SFZ and P2Z)
-can be edited ([decision 0012](docs/decisions/0012-edit-in-place-and-write-every-format.md)). `create` starts a new
-drawing in any of them.
+`edit` は図面をその場で編集する。操作はどの形式でも同じで、図形を足す・変える・消す、レイヤを足す・変える、の
+5 つ。図形は表示用モデルの id・種類（kind）・属性のキーで選び、座標は図面自体の単位で書く。形式・版・文字コードと、
+操作が名指ししないもの（拡張データ、オブジェクト、zumen が読まない図形）は元のまま残る。すべての操作を確かめてから書く。
+DXF（R12〜2018、テキストとバイナリ）・DWG（R13〜2018）・JWW・SXF（SFC・P21・SFZ・P2Z）を編集できる
+（[決定 0012](docs/decisions/0012-edit-in-place-and-write-every-format.md)）。`create` はどの形式でも新しい図面を作る。
 
-| Crate | Contents |
+`draft` は図面の仕様（JSON）から図面を描く。用紙ごとにレイアウトを作り、ビューはモデル空間に実寸で描いてその縮尺の
+ビューポートで見せる。文字の高さ・矢印・表の幅などの大きさは用紙の mm で指定する。仕様の誤りは、場所
+（`sheets[0].views[1].items[4]`）と変わらない code で返す（[作図](docs/drafting.md)）。
+
+| クレート | 中身 |
 | --- | --- |
-| [`zumen-core`](crates/zumen-core) | The scene model (the same JSON as `@zumenjs/core`), geometry, text layout, the texts and entities of a scene, the fields of its title block, the closed regions (rooms) and their areas, the ruled tables, checks against CAD standards, the comparison of two revisions, and the edit operations |
-| [`zumen-sxf`](crates/zumen-sxf) | `parse_sfc` and `parse_p21` (the SXF feature model), `sxf_to_scene`, the `SXF` reader, and `write_sfc` (the feature model as SFC) |
-| [`zumen-jww`](crates/zumen-jww) | `read_jww` (the JWW document model), `jww_to_scene`, the `JWW` reader |
-| [`zumen-dxf`](crates/zumen-dxf) | `parse_dxf` (the AutoCAD drawing model, shared with DWG), `dxf_to_scene`, the `DXF` reader, `write_dxf` (the model as DXF of AutoCAD 2013), and `edit_dxf` (editing in place) |
-| [`zumen-dwg`](crates/zumen-dwg) | `read_dwg` (DWG 1.0 to 2018 into the AutoCAD drawing model of `zumen-dxf`), the `DWG` reader |
-| [`zumen-pdf`](crates/zumen-pdf) | `read_pdf` (the pages of a PDF drawing as views, with hayro-interpret), the `PDF` reader |
-| [`zumen-convert`](crates/zumen-convert) | `sxf_to_dxf` and `jww_to_dxf` (SXF and JWW into the AutoCAD drawing model, to be written as DXF), and `dxf_to_sxf` (the model as an SXF drawing, to be written as SFC) |
-| [`zumen-draft`](crates/zumen-draft) | `draft`: sheets, views, dimensions, hatches, tables, title blocks and symbols from a JSON drawing spec, into the AutoCAD drawing model ([Drafting](docs/drafting.md)) |
-| [`zumen`](crates/zumen) | `read` and `detect` over every reader, with limits on bytes, entities and time for untrusted drawings, `convert` (every format to DXF, DWG, JWW and SXF), `edit` and `create` (DXF, DWG, JWW and SXF), and `draft` (a drawing spec in every format) |
-| [`zumen-render`](crates/zumen-render) | PNG, SVG and PDF rendering with the rules of the browser renderer, and the pixel box of every entity drawn; BIZ UDGothic is bundled for Japanese text |
-| [`zumen-cli`](crates/zumen-cli) | The `zumen` command: `detect`, `scene` (JSON), `texts` and `entities` (JSON lines), `title`, `regions`, `tables`, `check`, `render` (PNG), `compare`, `convert` (DXF, DWG, JWW, SXF), `edit`, `create` and `draft` |
+| `zumen-core` | 表示用モデル（`@zumenjs/core` と同じ JSON）、幾何、文字の配置、図面の文字と図形と表題欄の項目の取り出し、線で閉じた領域（部屋）と面積、罫線で描いた表、CAD 製図の規則の確認、2 つの版の比較、編集の操作 |
+| `zumen-sxf` | `parse_sfc`・`parse_p21`（SXF のフィーチャのモデル）、`sxf_to_scene`、読み取りの `SXF`、`write_sfc`（フィーチャのモデルを SFC に書く） |
+| `zumen-jww` | `read_jww`（JWW のままのモデル）、`jww_to_scene`、読み取りの `JWW` |
+| `zumen-dxf` | `parse_dxf`（DWG と共有する AutoCAD の図形モデル）、`dxf_to_scene`、読み取りの `DXF`、`write_dxf`（モデルを AutoCAD 2013 の DXF に書く）、`edit_dxf`（その場の編集） |
+| `zumen-dwg` | `read_dwg`（DWG 1.0〜2018 を `zumen-dxf` の AutoCAD の図形モデルにする）、読み取りの `DWG` |
+| `zumen-convert` | `sxf_to_dxf`・`jww_to_dxf`（SXF・JWW を AutoCAD の図形モデルに写し、DXF に書けるようにする）、`dxf_to_sxf`（モデルを SXF の図面に写し、SFC に書けるようにする） |
+| `zumen-draft` | `draft`（図面の仕様から、用紙・ビュー・寸法・ハッチング・表・表題欄・記号を AutoCAD の図形モデルに描く） |
+| `zumen` | すべての読み取りをまとめた `read`・`detect` と、`convert`（どの形式も DXF・DWG・JWW・SXF に書き直す）、`edit`・`create`（DXF・DWG・JWW・SXF）、`draft`（図面の仕様をどの形式にも書く）。受け取った図面のためのバイト数・図形の数・時間の上限 |
+| `zumen-render` | ブラウザの描画と同じ規則で PNG・SVG・PDF に描き、描いた図形の画像の上の位置を返す。日本語の文字は同梱の BIZ UDゴシックで描く |
+| `zumen-cli` | `zumen` コマンド（`detect`、`scene` で JSON、`texts`・`entities` で 1 行 1 つの JSON、`title` で表題欄、`regions` で部屋と面積、`tables` で罫線の表、`check` で製図の規則の確認、`render` で PNG、`compare` で版の比較、`convert` で DXF・DWG・JWW・SXF、`edit` で編集、`create` で新しい図面、`draft` で図面の仕様から作図） |
 
-Reading, rendering, converting and editing release the GIL in Python.
+Python では、読み取り・描画・書き出し・編集の間 GIL を外す。
 
-## Privacy
+<a id="privacy"></a>
 
-Drawings are read from memory in the browser. The libraries make no network requests, except that `@zumenjs/reader`
-fetches its own WebAssembly file from where the application serves it, so confidential drawings can be viewed without
-sending them anywhere. `@zumenjs/pdf` draws with the pdf.js that the application sets up, which fetches its worker and
-data files from the URLs the application gives it.
+## 図面と通信
 
-## Supported environments
+図面はブラウザのメモリ内で読み、サーバーへ送りません。`@zumenjs/reader` は利用側が配信する WebAssembly を取得します。PDF の描画には利用側の pdf.js を使い、Worker・CMap などは利用側が指定する URL から取得します。
 
-- Browsers with Canvas 2D and WebAssembly. The browser tests run in Playwright's Chromium, Firefox and WebKit, and
-  the playground was checked in all three on macOS with real drawings: text on the canvas, loading the WebAssembly
-  module, reading in a Web Worker, and pointer, wheel and key input ([records](docs/verification.md#firefox-and-webkit)).
-  Playwright's WebKit is not Safari: Safari itself, iOS and Android browsers, and real input devices (touch screens,
-  trackpads and mouse wheels) are not tested yet.
-- React 19.3 for the hooks of `@zumenjs/react`.
-- pdf.js 5 or 6 (`pdfjs-dist`) for `@zumenjs/pdf`; its tests draw with 5.0 and 6.4.
-- Node.js 24 for parsing and for development.
+<a id="roadmap"></a>
 
-## Roadmap
+## 今後の開発
 
-1. Split into readers, the drawing engine and React (done).
-2. DXF, with an AutoCAD object model shared with DWG (done, including MULTILEADER and MLINE).
-3. Rust readers with Python and WebAssembly bindings, and PNG, SVG and PDF rendering on servers (JWW, SXF and DXF done).
-4. DWG, read into the same AutoCAD object model (1.0 to 2018 done in Rust and in the browser through WebAssembly).
-5. Writing, converting and editing drawings (every format to DXF, DWG, JWW and SXF, and editing all four in place,
-   done in Rust), and drafting whole sheets from a drawing spec ([decision 0018](docs/decisions/0018-drafting-kit.md)).
-6. Analysis: closed regions such as rooms with their areas, ruled tables, checks against CAD standards and the
-   comparison of revisions (done, [decision 0015](docs/decisions/0015-analysis-in-zumen-core.md)).
-7. Raster content and PDF drawings ([decisions 0002](docs/decisions/0002-pdf-and-parapdf.md) and
-   [0020](docs/decisions/0020-pdf-drawings-in-rust.md)), in this order: an underlay in `@zumenjs/core` that a renderer
-   passed in draws under the scene, and entities that take part in hit testing and snapping without being drawn (both
-   done, [decision 0022](docs/decisions/0022-underlays-drawn-by-a-region-renderer.md)); the images that the readers
-   skip today (DXF IMAGE and underlays, SXF raster images, JWW images in text); a PDF reader in Rust (`zumen-pdf`, on
-   hayro) that reads the pages, paths and texts of PDF drawings for Python, the command line, the MCP server and
-   browsers alike (done, with a WebAssembly module of its own for browsers,
-   [decision 0030](docs/decisions/0030-pdf-in-a-webassembly-module-of-its-own.md)), with the pages drawn by hayro on
-   servers (done); then `@zumenjs/pdf`, which draws the pages with pdf.js in browsers under the snapping, measurement and
-   layers of zumen (done, [decision 0029](docs/decisions/0029-pdf-js-owned-by-the-application.md)).
-8. Drawing markup (redlines, revision clouds, review findings, photo positions,
-   [decision 0021](docs/decisions/0021-drawing-markup.md)): a JSON document beside the drawing, in paper millimeters of
-   a view so that CAD and PDF drawings share it, which names the drawing by the hash of its bytes and is carried to new
-   revisions through the comparison; drawn and edited by a layer on `DrawingViewer`, and read, drawn and carried in
-   Python, the command line and the MCP server (done, [Drawing markup](docs/markup.md)).
-9. Building models ([decision 0028](docs/decisions/0028-ifc-in-rust.md)): IFC read by our own reader in Rust, on the
-   ISO 10303-21 syntax shared with SXF, in this order: the model (spatial structure, elements, types, properties and
-   quantities); 3D meshes, storey plans as scenes and a 3D engine to embed; what the BIM review of building
-   confirmation needs (editing properties in place, areas, checks against rule sets and the review items of the BIM
-   data review); then sheets drafted from models through the drawing spec.
+読み取り・表示・計測・形式変換・編集・作図・領域と表の解析・製図基準・PDF・マークアップを基礎に、日本の実務での品質を優先して改善します。
 
-## Documentation
+IFC の建物モデルは[決定 0028](docs/decisions/0028-ifc-in-rust.md)の計画段階です。Rust の読み取り、空間構造・属性・数量、3D と階の平面図、BIM の確認、モデルからの作図を順に検討します。現時点の対応形式とは区別します。ST-Bridge は[決定 0013](docs/decisions/0013-st-bridge-out-of-zumen.md)に従い、許可が得られるまで含めません。
 
-- [Architecture and extension points](docs/architecture.md)
-- [How SXF is handled](docs/formats/sxf.md) (Japanese)
-- [How JWW is handled](docs/formats/jww.md) (Japanese)
-- [How DXF is handled](docs/formats/dxf.md)
-- [How DWG is handled](docs/formats/dwg.md)
-- [How PDF is handled](docs/formats/pdf.md)
-- [Drafting sheets from a drawing spec](docs/drafting.md)
-- [Checks against CAD standards](docs/checks.md)
-- [Drawing markup](docs/markup.md)
-- [Verification records](docs/verification.md)
-- [Design decisions](docs/decisions/README.md)
+<a id="supported-environments"></a>
 
-## Contributing
+## 対応環境
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Please never attach confidential drawings to issues or pull requests.
-Report security issues as described in [SECURITY.md](SECURITY.md).
+- Canvas 2D と WebAssembly を使えるブラウザ。ブラウザのテストは Playwright の Chromium・Firefox・WebKit で動かし、
+  試用画面も macOS のこの 3 つで実際の図面を開いて確かめた（Canvas の文字、WebAssembly の読み込み、Web Worker での読み取り、
+  ポインター・ホイール・キーの操作。[記録](docs/verification.md#firefox-and-webkit)）。
+  Playwright の WebKit は Safari そのものではない。Safari、iOS と Android のブラウザ、実際の入力機器（タッチ画面・
+  トラックパッド・マウスのホイール）はまだ確かめていない。
+- `@zumenjs/react` のフックは React 19.3。
+- `@zumenjs/pdf` は pdf.js 5 か 6（`pdfjs-dist`）。テストは 5.0 と 6.4 で描く。
+- 読み取りと開発は Node.js 24。
 
-## Acknowledgments
+<a id="documentation"></a>
 
-- The JWW reader follows the file layout documented in [ezjww](https://github.com/monozukuri-ai/ezjww) (MIT).
-- The SXF reader follows the SXF Ver.3.1 specifications published by the Ministry of Land, Infrastructure,
-  Transport and Tourism of Japan, and the display requirements published by NILIM.
-- The DXF reader follows the Autodesk DXF Reference and was checked against [ezdxf](https://ezdxf.mozman.at/) (MIT);
-  the code page table and some interpretations follow ezdxf.
+## 文書
 
-## License
+- [構成と拡張の口](docs/architecture.md)
+- [SXF（SFC・P21）の扱い](docs/formats/sxf.md)
+- [JWW の扱い](docs/formats/jww.md)
+- [DXF の扱い](docs/formats/dxf.md)
+- [DWG の扱い](docs/formats/dwg.md)
+- [PDF の扱い](docs/formats/pdf.md)
+- [図面の仕様からの作図](docs/drafting.md)
+- [CAD 製図の規則の確認](docs/checks.md)
+- [検証の記録](docs/verification.md)
+- [マークアップ](docs/markup.md)
+- [言語と対象利用者の方針](docs/language-policy.md)
+- [設計の判断の記録](docs/decisions/README.md)
+- [開発への参加](CONTRIBUTING.md)
 
-MIT — see [LICENSE](LICENSE). Contributions follow the [Code of Conduct](CODE_OF_CONDUCT.md).
-Third-party notices: [packages/jww/THIRD_PARTY_NOTICES.md](packages/jww/THIRD_PARTY_NOTICES.md),
-[packages/dxf/THIRD_PARTY_NOTICES.md](packages/dxf/THIRD_PARTY_NOTICES.md).
-The bundled font of `zumen-render` is BIZ UDGothic under the SIL Open Font License 1.1
-([crates/zumen-render/fonts/OFL.txt](crates/zumen-render/fonts/OFL.txt)).
+<a id="contributing"></a>
+
+## 開発
+
+```bash
+pnpm install --frozen-lockfile
+pnpm exec playwright install --only-shell chromium firefox webkit
+pnpm run check
+```
+
+`check` は Biome、WebAssembly の読み取りのビルドと正解との比較（`pnpm run wasm`）、型検査、単体テスト、依存監査、
+各パッケージ（core、viewer、sxf・jww・dxf・reader、pdf、react の順）と試用画面のビルドに加え、
+Rust（rustfmt・Clippy・テスト・wasm32 のビルド）と Python の結合部（Ruff・maturin・pytest）を検査する。
+WebAssembly の読み取りは `scripts/wasm.mjs` が cargo と wasm-bindgen-cli（`Cargo.lock` の wasm-bindgen と同じ版）で
+`packages/reader/wasm` に作る。`pnpm dev` と `check` は最初にこれを走らせる。
+Rust は `rust-toolchain.toml`、Python は uv と `bindings/python/.python-version` に固定する。
+TS の読み取りを変えたら `pnpm run golden` で `tests/fixtures` の正解を作り直し、Rust の読み取りも同じ結果に直す。
+エンジン・React のフック・Web Worker のテスト（`*.browser.test.*`）は Canvas とポインターのイベントを使うので、Playwright の
+Chromium（headless shell）・Firefox・WebKit で動かす。`ZUMEN_BROWSERS=chromium` のように指定すると、そのブラウザだけで動かす。
+開発中は、パッケージ同士が `package.json` の exports の `@zumenjs/source` 条件で `src` を読むため、ビルドしなくても変更がすぐ反映される。
+Node.js は `.node-version`、pnpm は `package.json` の `packageManager` に固定する。
+
+試用画面は `pnpm dev` で開く（ポートは [config/local-ports.json](config/local-ports.json) の `playground`、既定 24100）。
+Git に入れない図面は、置いたフォルダーを `ZUMEN_SAMPLES` に指定し、`http://127.0.0.1:24100/?sample=<ファイル名>` で開く。
+ファイルの選択・ドロップでも開ける。図面は公開 API だけで作った 2D のサンプル（`playground/drawing-sample.tsx`）で表示する。
+図面は初めて開いたときに WebAssembly の読み取りを読み込む。PDF の図面のページは、PDF のサンプル（`playground/pdf-sample.ts`）が
+`@zumenjs/pdf` と pdf.js で描く。pdf.js は PDF を開いたときに初めて読み込み、pdf.js が読む CMap と画像の復号器は
+`vite.config.ts` が `pdfjs/` に置く。
+
+<a id="acknowledgments"></a>
+
+## 参照した資料
+
+JWW は Jw_cad の形式資料と ezjww、SXF は国土交通省の公開仕様と国総研の表示要件、DXF は Autodesk の公開仕様と ezdxf を参照しました。第三者の権利とライセンスは各形式の資料に記録しています。
+
+<a id="license"></a>
+
+## ライセンス
+
+MIT ライセンスです。[LICENSE](LICENSE)を参照してください。開発への参加には[行動規範](CODE_OF_CONDUCT.md)が適用されます。
+参照した第三者のソフトウェア・資料は [packages/jww/THIRD_PARTY_NOTICES.md](packages/jww/THIRD_PARTY_NOTICES.md)、
+[packages/dxf/THIRD_PARTY_NOTICES.md](packages/dxf/THIRD_PARTY_NOTICES.md) に記録した。
+`zumen-render` に同梱するフォントは BIZ UDゴシック（SIL Open Font License 1.1、[crates/zumen-render/fonts/OFL.txt](crates/zumen-render/fonts/OFL.txt)）。

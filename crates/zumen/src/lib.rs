@@ -10,7 +10,7 @@
 //! ```no_run
 //! let bytes = std::fs::read("plan.jww").unwrap();
 //! let scene = zumen::read(&bytes, &zumen::ReadDrawingOptions::default()).unwrap();
-//! println!("{} entities", scene.entities.len());
+//! println!("{} 図形", scene.entities.len());
 //!
 //! let dwg = std::fs::read("plan.dwg").unwrap();
 //! let converted = zumen::convert(&dwg, "dxf", &zumen::ReadDrawingOptions::default()).unwrap();

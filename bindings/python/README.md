@@ -1,383 +1,132 @@
-# zumen for Python
+# Python で使う zumen
 
-Read 2D drawings of Japanese construction and render them, with the Rust implementation of
-[zumen](https://github.com/zumenjs/zumen). The result is the same `Scene` model as the
-`@zumenjs/core` viewer in the browser.
+日本の建築・土木の 2D 図面を、共通の Rust 実装で読み取り・描画・解析・編集します。SXF・JWW（JWC・JWS を含む）・DXF・DWG・PDF に対応し、ブラウザの `@zumenjs/core` と同じ `Scene` を使います。
 
-> Status: early release (0.x), for Python 3.12 or newer. SXF (SFC and P21, also compressed as P2Z and SFZ),
-> Jw_cad JWW, DXF and DWG (AutoCAD 1.0 to 2018) are supported.
+Python 3.12 以降が必要です。初期リリース（0.x）のため、マイナーバージョン間で API が変わることがあります。[GitHub Releases](https://github.com/zumenjs/zumen/releases/latest) から環境に合う wheel を取得し、`pip install <wheelのパス>` で導入してください。
 
-Download a wheel for your platform from the [GitHub release](https://github.com/zumenjs/zumen/releases/latest)
-and install it with `pip install path/to/zumen-0.1.1-….whl`. The release includes wheels for Linux x86_64 and
-aarch64 (glibc 2.28 or newer), macOS arm64, and a source distribution for other platforms.
+## 読み取りと描画
 
 ```python
 import zumen
 
-scene = zumen.read("plan.jww")  # the format is detected from the contents
+scene = zumen.read("平面図.jww")  # 拡張子ではなく中身で判定します
 print(scene.version, len(scene), scene.sheet)
-png = scene.render_png(dpi=150)  # for thumbnails or as an image for vision models
-pdf = scene.render_pdf()  # one page, the sheet at its real size, with searchable text
-svg = scene.render_svg()  # millimeters, with text as <text>
-part = scene.render_png(dpi=300, region=(100, 50, 200, 120))  # paper millimeters
-json_text = scene.to_json()  # pass to sceneFromJson in @zumenjs/core
+scene.render_png(dpi=150)  # PNG のバイト列
+scene.render_pdf()  # 実寸の用紙。文字を検索できます
+scene.render_svg()  # 用紙上の mm の SVG
+part = scene.render_png(dpi=300, region=(100, 50, 200, 120))
+json_text = scene.to_json()  # ブラウザの sceneFromJson に渡せます
 ```
 
-Texts and entities, in paper millimeters with the Y axis up:
+用紙上の座標は mm、Y 軸は上向きです。`scene.unit` と属性の `values` は元の図面の単位を保ちます。PDF のページ、DXF・DWG のレイアウトは `view` で選びます。
+
+## 文字・図形・形の抽出
 
 ```python
-for text in scene.texts(region=(100, 50, 200, 120)):  # omit region for the whole sheet
-    print(text["id"], text["text"], text["x"], text["y"], text["height"], text["angle"])
-entity = scene.entity("#120")  # id, kind, type, source, layers, bbox, text, properties, values, placement
-entity["kind"], entity["values"]["radius"]  # "circle", 25.0: the same keys in every format
-rows = scene.entities(hidden_layers=[])  # [] includes the layers that the drawing hides
-table = scene.to_arrow()  # a pyarrow.Table, for pandas, Polars or DuckDB (pip install "zumen[arrow]")
+for text in scene.texts():
+    print(text["id"], text["text"], text["x"], text["y"])
+
+entity = scene.entity("#120", geometry=True)  # id は図面から取得したものを指定します
+rows = scene.entities(hidden_layers=[])  # 非表示のレイヤも含めます
 ```
 
-`scene.unit` is the length unit of the drawing's own coordinates, those of `values` (`"millimeter"` in SXF and JWW,
-the unit of `$INSUNITS` in DXF and DWG, such as `"inch"` or `"meter"`). Entity ids come from the file (an SXF instance
-number, a JWW record, a DXF or DWG handle, with the placements or block references the entity sits in) and stay the
-same for the same bytes in every version, so they can be stored and looked up again with `scene.entity(id)`
-([Entity ids](../../docs/architecture.md#entity-ids)).
+`kind` と属性キーは形式によらず、`type` と属性ラベルは日本語です。図形 id は同じバイト列なら将来の版でも同じ値を保ちます。
 
-`texts` joins the parts of a text that share a line and puts a line break between lines.
-`properties` are the label and value pairs that the format gives, as in the viewer's property panel, and `values`
-maps their stable keys (`layer`, `start`, `radius`, `text` …) to the unformatted values, such as numbers and `(x, y)`.
-`kind` (`line`, `text`, `dimension` …) and the keys are the same in every format, while `type` and the labels are
-Japanese ([the list](../../docs/architecture.md#stable-keys)). `scene.metadata_values` does the same for the metadata.
+`geometry=True` は折線・線分・塗り・ハッチング・点・文字の形を描画順で返します。座標は用紙上の mm、配置があれば `real` に実寸の mm も返します。中心・半径などの定義は `values` にあります。
 
-`geometry=True` adds the shapes drawn, in drawing order, so that an application or an AI model can compute with
-the coordinates of lines, outlines and hatched areas:
+`scene.to_arrow()` は `pyarrow.Table` を返します（pyarrow が必要）。`scene.render(size=(2000, 2000))` は PNG と座標変換、図形のピクセル範囲を返し、`to_paper`・`to_pixel` で相互に変換できます。
+
+## 変換・編集・作図
 
 ```python
-entity = scene.entity("#120", geometry=True)  # also scene.entities(region=..., geometry=True)
-for shape in entity["geometry"]:
-    shape["shape"]  # "polyline", "segments", "fill", "hatch", "point" or "text"
-    shape["points"]  # polyline: [(x, y), ...] in paper millimeters, with shape["closed"]
-    shape["real"]  # the same coordinates in real-world millimeters, or None outside a placement
+zumen.convert("平面図.jww", "dxf").save("平面図.dxf")
+zumen.convert("平面図.dxf", "p21", version="2.0").save("平面図.p21")
+zumen.draft(spec, "dwg").save("作図.dwg")
+zumen.draft_into(spec, "ひな形.dwg").save("作図.dwg")
 ```
 
-Segments have `segments` (pairs of points), fills and hatches `rings` (the outline and its holes; hatch lines are
-left out), and points and text parts one `point` (for text, the lower left, with `text`, `height` and `angle`).
-Arcs, circles, ellipses and splines come as the polyline drawn (arcs, circles and ellipses within 0.02 mm of the
-curve on the sheet); their center, radius and angles are in `values`. `real` goes through the placement of the
-entity (an SXF sub-figure or part, a JWW layer group, a DXF viewport or model space), so it is in the coordinates
-of the drawing itself: the real-world coordinates of JWW, those of the SXF sub-figure or part, and DXF model space
-in millimeters, also for drawings in inches.
+変換は DXF・DWG・JWW・SXF に対応します。PDF は読み取り・描画・解析専用です。省略・代替は `notices` に種類と件数を返します。
 
-`render` returns the image with the conversion between pixels and paper millimeters and the box of
-every entity drawn, so that an application can tell which entity a vision model refers to:
+`zumen.edit` は辞書のリストまたは JSON の操作を適用し、対象外の内容・形式・版・文字コードを保ちます。`zumen.create` は新しい図面に同じ操作を適用します。すべて検証してから書き、失敗時は `EditError` の index・code・message で返します。
 
-```python
-image = scene.render(size=(2000, 2000))  # or dpi=..., region=... as in render_png
-image.png, image.width, image.height, image.scale  # scale: pixels per paper millimeter
-x, y = image.to_paper(640, 480)  # and image.to_pixel(x, y)
-for entity in image.entities_at(640, 480):  # boxes that contain the pixel, smallest first
-    print(entity["id"], entity["type"], entity["box"], entity["text"])
-```
+図面仕様・用紙と実寸の座標・テンプレートの扱いは[作図ガイド](../../docs/drafting.md)を参照してください。
 
-A `Rendering` shows itself as an image in Jupyter.
+## 解析
 
-Drawings of every format can be written as DXF (AutoCAD 2013, UTF-8). DXF and DWG keep their handles, layers, styles,
-blocks and layouts, and read again, the DXF draws the same scene. SXF and JWW are mapped into the AutoCAD drawing model:
-model space at real size, and the sheet as a layout whose viewports show each SXF sub-figure and each JWW layer group
-scale where the drawing had it, with frames and title blocks in paper space. The layout draws the same as the original:
+- `scene.title_block()` は表題欄の図面番号・改訂・図面名・工事名・尺度・日付を取り出します。
+- `scene.regions()` は線で囲まれた領域・内部の文字・面積・周長を返します。
+- `scene.tables()` は罫線の表を行列・結合セル・文字として返します。
+- `scene.check()` は[CAD 製図基準](../../docs/checks.md)を確認します。
+- 版の比較は形・文字で照合し、変更前を赤、変更後を青、変更なしを灰色で表示します。
 
-```python
-converted = zumen.convert("plan.jww", "dxf")  # or bytes; converted.data holds the DXF
-converted.save("plan.dxf")
-for notice in converted.notices:  # what could not be written as it was, such as images, by kind and count
-    print(notice["code"], notice["message"], notice["count"])
-```
+## マークアップ
 
-They can also be written as SXF (SFC of SXF Ver.3.1). The sheet of the layout that the drawing opens in becomes the SXF
-sheet, each viewport a sub-figure at real size placed at its scale, and each block a drawing part. What SXF has no
-feature for, such as multiline texts, leaders and dimensions, is written as the lines, fills and texts that zumen draws
-for it, and read again, the SFC draws the same:
+`zumen.read_markup` で図面に添える JSON を読み、`zumen.drawing_hash` で図面を識別します。`zumen.tools.write_markup` で赤入れ・変更雲・注記・指摘・写真位置を編集し、`zumen.carry_markup` で新版に移します。図面ファイルは変えません。[マークアップの仕様](../../docs/markup.md)を参照してください。
 
-```python
-zumen.convert("plan.dwg", "sfc").save("plan.sfc")
-zumen.convert("plan.dxf", "p21", version="2.0").save("plan.p21")  # SXF Ver.2.0 as P21 (also "sfz" and "p2z")
-```
+## AI エージェント・MCP
 
-DWG (AutoCAD 2013) and JWW (Jw_cad 8) are written from the same model: `zumen.convert("plan.sfc", "dwg")` and
-`zumen.convert("plan.dxf", "jww")`. In JWW, the layout is the sheet and the model space in each viewport is a layer
-group at the viewport's scale.
+`zumen.tools` は JSON にできる上限付きの結果を返します。MCP を使わず直接呼べます。
 
-## Editing drawings
-
-`zumen.edit` changes a drawing in place: it applies a list of operations and keeps everything else as it was, in the
-same format, version and text encoding, including what zumen cannot read (extended data, objects, unread entities).
-DXF (R12 to 2018, ASCII and binary), DWG (R13 to 2018), JWW and SXF (SFC, P21, SFZ and P2Z) can be edited.
-
-```python
-operations = [  # the operations may also be a JSON string
-    {"op": "add-layer", "name": "CHECK", "color": "#ff0000"},
-    {"op": "add", "kind": "line", "layer": "CHECK", "start": [0, 0], "end": [5000, 0]},
-    {"op": "add", "kind": "text", "layer": "CHECK", "position": [100, 200], "text": "確認済み", "height": 350},
-    {"op": "update", "id": "3F2", "set": {"end": [5200, 0], "lineType": "DASHED"}},
-    {"op": "delete", "id": "3F5"},
-]
-edited = zumen.edit("plan.dxf", operations)  # or bytes
-edited.created  # ["CHECK", "4A1", "4A2"]: what add-layer and add created, in order
-edited.save("plan.dxf")
-```
-
-- Entities are chosen by the `id` of the scene and described by the `kind` and the property keys that `Scene` reports.
-  Coordinates are the drawing's own, the `raw` of properties (`Scene.entity(id)["values"]`), not paper millimeters.
-  Every id in one edit names an entity of the drawing as it was read. Ids that are places in the file (`#12`, in DXF
-  without handles) change when an edit adds or removes records before them, so read the edited drawing again.
-- `add` takes `container`: `"model"` (the default), `"layout:<name>"` or `"block:<name>"` in DXF and DWG,
-  `"group:<0-F or name>"` (a layer group) or `"block:<name>"` in JWW, and `"sheet"` (the default), `"figure:<name>"`
-  or `"block:<name>"` in SXF. `{"op": "add-block", "name": ..., "basePoint": [x, y]}` adds an empty block definition
-  (a drawing part in SXF) to fill with `"container": "block:<name>"`. In SXF, `"kind": "viewport"` (`name`, `center`,
-  `viewCenter`, `scale`) adds an empty sub-figure placed on the sheet at that scale, to fill with
-  `"container": "figure:<name>"` at real size. JWW layer names belong to their layer group, as in Jw_cad.
-- Kinds that can be added: `line`, `polyline` (`vertices`, `bulges`, `closed`; not in JWW), `arc`, `circle`,
-  `ellipse`, `ellipse-arc`, `point`, `text` (MTEXT when it has line breaks), `block-reference` (`block`, `position`,
-  `scale`, `rotation`), `dimension` (`dimensionType`: `linear`, `aligned`, `angular-3-point` (not in JWW), `radius`,
-  `diameter`) and `hatch` (`boundaries`, `pattern`; JWW writes solids and hatch lines). Every kind takes `layer`,
-  `color` (a color number, `"#rrggbb"`, `"bylayer"` or `"byblock"`), `lineType` and `lineWidth` (millimeters).
-- `add-text-style`, `add-line-type` and `add-dimension-style` add styles that later operations name (`textStyle`,
-  `lineType`, `dimensionStyle`). JWW and SXF have no named dimension or text styles, so those names last for the edit:
-  a dimension style sizes and formats each dimension that names it (its lengths are paper millimeters, or times
-  `scale` in the drawing's coordinates), a text style is a font, and a line type is written with its name (an SXF
-  user-defined line type, a free SXF line type of JWW).
-- If any operation cannot be applied, nothing is written and `zumen.EditError` is raised with `code` (such as
-  `"not-found"`, `"unknown-key"` or `"inside-block"`) and `operation`, the number of the operation from 0.
-- Values that the format cannot hold exactly, such as a true color in an old DXF, are written as the nearest one and
-  listed in `edited.notices`.
-- Checking that the file is the version that was read (a checksum) is left to the application.
-
-`zumen.create("dxf", operations, units="mm")` starts a new drawing (AutoCAD 2013 DXF) and applies the operations.
-`"dwg"` starts an AutoCAD 2013 DWG, `"jww"` an A3 JWW, and `"sfc"`, `"p21"`, `"sfz"` or `"p2z"` an A3 SXF sheet; JWW
-and SXF lengths are in millimeters, so they take only `units="mm"`.
-
-## Comparing revisions
-
-`zumen.compare` matches entities by type, shape and text, not by id, so revisions that were saved again,
-or saved in another format, compare too:
-
-```python
-changes = zumen.compare(zumen.read("plan-rev1.jww"), zumen.read("plan-rev2.jww"))
-changes.removed, changes.added  # entities, as Scene.entities returns them
-for pair in changes.changed:  # the same entity changed, such as a dimension value
-    print(pair["before"]["text"], "->", pair["after"]["text"])
-changes.regions  # boxes around nearby changes, in the earlier revision's paper millimeters
-changes.scene.render_png(dpi=150)  # red before, blue after, gray unchanged
-```
-
-`tolerance` (0.01 paper millimeters by default) sets how close coordinates count as the same, `style=True` also
-counts changes of color, line weight, line type and layer, and a revision that moved as a whole is moved back by
-the texts both revisions share (`changes.offset`; `align=False` turns this off).
-
-## Markup
-
-Redlines, revision clouds, notes, review findings and photo positions live in a JSON document beside the drawing, in
-paper millimeters of a view, naming the drawing by the SHA-256 of its bytes ([Drawing markup](../../docs/markup.md)).
-The browser packages draw and edit them; Python reads, draws and carries them:
-
-```python
-markup = zumen.read_markup("plan.markup.json")  # checked; MarkupError names the item and the key
-markup["items"][0]["kind"], markup["drawing"]["sha256"] == zumen.drawing_hash("plan.dxf")
-png = zumen.read("plan.dxf").render_png(markup=markup, markup_colors={"question": "#0050c8"})
-carried = zumen.carry_markup(markup, "plan.dxf", "plan-rev2.dxf", views={"A3": "1"})
-carried["changed"], carried["markup"]["items"][0]["carried"]  # {"from": "<sha256>", "state": "changed"}
-```
-
-`read_markup` takes a dict, a JSON string, bytes or a file path and returns `TypedDict` classes (`MarkupDocument`,
-`RedlineItem`, `CloudItem`, `TextItem`, `FindingItem`, `PhotoItem`), keeping keys it does not know; `markup_schema()`
-is its JSON Schema. `render_png`, `render_svg`, `render_pdf` and `render` take `markup` and draw the items of the
-scene's view over the drawing, in the item's color, the color of its category in `markup_colors`, or red; pins and
-photo symbols are a fixed number of pixels in PNG and the paper size of a CSS pixel in SVG and PDF. `carry_markup`
-compares each view with its items (every layer, like `compare` with `all_layers=True`), moves the items by the offset
-of the new revision, points their `entities` at the matching entities and marks each `unchanged`, `changed` or
-`removed`; `views` maps a view of the old revision to one of the new (a DXF layout to a PDF page). It raises
-`CarryError` (`drawing-mismatch` when the markup was made on other bytes, unless `ignore_hash=True`).
-
-## Title block
-
-`title_block` guesses the drawing number, revision, title, project, scale and date, so that drawings can be filed
-by number and revision:
-
-```python
-block = scene.title_block()
-block["number"], block["revision"], block["title"]  # None when not found
-for field in block["fields"]:  # every candidate, the most likely first for each key
-    print(field["key"], field["value"], field["source"], field["label"], field["entity"])
-```
-
-It reads attribute tags (`DWGNO`, `REV`, `TITLE`), labels such as 図面番号 or `DWG. NO.` with the text to their right
-or below, labels with their value in the same text (`縮尺 1/100`), the sheet name and the metadata (the title block
-attributes of SXF). The values are guesses from the drawing's texts; check them before relying on them.
-
-## Rooms and areas
-
-`regions` finds the regions that drawn lines close, such as rooms, with their areas:
-
-```python
-for room in scene.regions(layers=[layer["id"] for layer in scene.layers if "壁" in layer["name"]]):
-    real = room["real"]  # None outside a placement drawn at a scale
-    print([text["text"] for text in room["texts"]], real and real["area"] / 1e6, "m²")
-```
-
-Lines, polylines, arcs, circles, splines and solids are split where they cross or meet, ends closer than `tolerance`
-(0.01 paper millimeters) are joined, and every face they close is a region: its `outline` (counterclockwise) and
-`holes`, `area` (without the holes), `outline_area` and `perimeter` on the sheet, the same in real-world millimeters
-in `real`, the `boundary` entities and the `texts` inside. Lines that end nowhere close nothing, and closed shapes
-that touch no other line (columns, furniture) are holes. `layers` keeps the lines on some layers (walls), `kinds`
-changes the kinds used, and `min_area` leaves out smaller regions. A room whose walls have an opening drawn as a gap
-joins the next one ([decision 0015](https://github.com/zumenjs/zumen/blob/main/docs/decisions/0015-analysis-in-zumen-core.md)).
-
-## Tables
-
-`tables` reads the tables drawn with rules, such as door and window schedules, area tables, drawing lists and title
-blocks, as rows and columns:
-
-```python
-for table in scene.tables():
-    print(table["row_count"], table["column_count"], table["bbox"])
-    for row in table["grid"]:  # a merged cell's text in its top left place, the other places empty
-        print(row)
-```
-
-The horizontal and vertical lines are the rules (a slash across an empty cell and symbols are not), every rectangle
-they close is a cell, and cells that share edges and fill a rectangle are a table. A cell that covers most of the
-table, such as the drawing area beside a title block strip, is left out. Each table has `columns` (the x of the rules,
-left to right) and `rows` (the y, top to bottom) in paper millimeters, and `cells` with their `row`, `column`,
-`row_span`, `column_span`, `bbox`, `text` and `texts`; a cell's texts are joined from the top line down, with a space
-between texts on one line. `layers`, `tolerance` and `region` work as for `regions`, `min_cells` (2) leaves out
-smaller tables, and `empty=True` also returns tables without any text. Tables turned against the sheet are not found,
-and rooms drawn with single lines that fill a rectangle are found as a table too.
-
-## Checks
-
-`check` checks a drawing against the rules of a CAD standard: layer names, colors, line types, line widths, text
-heights on the sheet, machine-dependent characters, the sheet size and orientation, and scales:
-
-```python
-report = scene.check()  # the CAD drafting standard of MLIT (mlit-cad-2025)
-for rule in report["results"]:
-    print(rule["id"], rule["level"], rule["checked"], rule["unchecked"])
-    for finding in rule["findings"]:  # a value that breaks the rule, with the ids and layers that have it
-        print(finding["value"], finding["count"], finding["message"])
-own = scene.check({"name": "office", "rules": [{"id": "layers", "kind": "layer-name", "patterns": ["A-*"]}]})
-```
-
-`rules` is the name of a built-in rule set, a rule set as a dict or JSON text. Each rule counts what it `checked` and
-what it could not because the drawing does not give the value (`unchecked`, such as DXF line widths taken from the
-layer), and `passed` is true when no rule of level error is broken. The rule sets and the rules of every kind are in
-[Checks](https://github.com/zumenjs/zumen/blob/main/docs/checks.md).
-
-## MCP server
-
-`zumen-mcp` lets AI applications that speak the Model Context Protocol open, render, search, measure and compare drawings
-on this computer. It serves over stdio; it only reads, except `draft_drawing`, `write_markup` and `carry_markup`,
-which write files under the roots. Regions are given in paper millimeters (`region`) or as
-fractions of the frame (`frame_region`), as in [`zumen.tools`](#tools-for-ai-agents).
-
-```bash
+```sh
 pip install "zumen[mcp]"
-claude mcp add zumen -- zumen-mcp --root ~/drawings  # Claude Code; other clients take the same command
+zumen-mcp --root /図面を置くフォルダー
 ```
 
-| Tool | What it returns |
-| --- | --- |
-| `open_drawing` | Format, sheet, views, layers with entity counts, entity types, the placements drawn at a scale (with their box and the conversion from paper to real-world millimeters), notices, metadata and the drawing number, revision, title, project, scale and date from the title block |
-| `render_drawing` | A PNG of the frame or a region (1,568 pixels on the long edge by default), the scale to convert pixels to paper millimeters, and the texts drawn with their pixel boxes |
-| `find_texts` | Texts that contain a query, ignoring full-width and half-width forms, case and spaces |
-| `find_entities` | Entities in a region, by kind, type or layer, with counts by type and kind; with `geometry`, their shapes as `get_entity` gives them |
-| `get_entity` | One entity with its properties (key, label and value), its values by key, the scale of its placement and its geometry: the shapes drawn, in paper millimeters and, inside a placement, in real-world millimeters |
-| `measure_distance` | The distance between two points on the sheet and in real-world millimeters |
-| `find_regions` | The regions that the drawn lines close, such as rooms: areas in square meters, perimeters, outlines and holes, the entities that bound them and the texts inside, filtered by layer, text and area |
-| `find_tables` | The tables drawn with rules (schedules, area tables, title blocks): the text of every row and column, merged cells, the ids of the texts and the positions of the rules, filtered by layer and text |
-| `check_drawing` | The drawing checked against a CAD standard (the CAD drafting standard of MLIT, or a rule set as JSON): for each rule, what it checked and could not, and the values that break it with the ids and layers of their entities |
-| `compare_drawings` | What changed between two revisions: an image of the changes, the regions that changed and the changed entities with their texts |
-| `read_markup` | The items of a markup file (kind, view, box, text, status, carried state, entities), by view, kind and status, and whether the drawing given has the bytes the markup was made on |
-| `write_markup` | Adds, updates and removes items of a markup file (creating it for a drawing), so that people see an agent's findings on the drawing; `render_drawing` with `markup` draws them |
-| `carry_markup` | The markup of one revision carried to the next and written to a file, with the number of items unchanged, changed and removed |
+MCP は stdio で通信し、図面の概要・描画・文字と図形の検索・計測・領域と表の抽出・製図基準・比較・作図・マークアップを日本語で説明します。`open_drawing` で概要を確認してから必要な範囲を読み取ります。
 
-Geometry is the agent's to interpret: the server gives the shapes as drawn and their coordinates, and the regions
-that lines close with the entities that bound them, and leaves deciding what is a wall or a room to the client. `real` is left out where it equals the coordinates on the sheet (DXF model
-space), and one call returns at most `max_points` points (1,000 by default, at most 10,000; a point with `real` counts
-twice), so that a page of entities stays well below what clients accept from a tool. A page of `find_entities` with
-`geometry` ends before an entity whose shapes would pass the budget; `next_offset` goes on from there.
+## 入力の制限
 
-`--root DIR` (repeatable) limits the directories the server may read. `--max-bytes` (256 MiB by default, after
-unpacking P2Z and SFZ), `--max-entities` (2,000,000) and `--timeout` (60 seconds) limit each drawing it reads. Texts, layer names and properties come from the drawing file; clients should treat them as
-data, not as instructions. The tools are the functions of [`zumen.tools`](#tools-for-ai-agents).
+受け取った図面には `max_bytes`・`max_entities`・`timeout` で上限を設けられます。圧縮形式は展開後を数えます。`Drawings(roots=...)` で許可された実体パスを制限できます。図面由来の文字・名前・属性はデータであり、エージェントへの指示として扱わないでください。
 
-## Tools for AI agents
+## 英語の補足資料
 
-Applications that give an agent tools of their own, with or without MCP, call the functions behind the MCP tools in
-`zumen.tools`. Each takes a `Scene` and returns plain data that `json.dumps` writes as it is, with keys described by
-the `TypedDict` classes of the module (a later version may add keys, but does not remove or rename them); on Python
-3.12 and later, `pydantic.TypeAdapter(tools.EntityDetail).json_schema()` gives the JSON Schema of a result. They only
-read and report what the drawing holds; interpreting it is left to the agent.
+対応表・実装上の細則・従来のコード例は [README.en.md](README.en.md) にも保存しています。
 
-```python
-from zumen import tools
+<details>
+<summary>従来の見出しから詳細を探す</summary>
 
-scene = zumen.read(data, max_bytes=200_000_000, max_entities=1_000_000, timeout=30)
-info = tools.summary(scene)  # format, unit, sheet, bounds (the frame), layers, kinds, placements, title block
-png, image = tools.render(scene, frame_region=[0.5, 0, 1, 0.5])  # the top right quarter, 1,568 pixels long
-page = tools.find_texts(scene, query="平面図", limit=50)  # texts with their position, height and box
-walls = tools.find_entities(scene, kind="polyline", layer="壁", geometry=True)  # with their shapes
-entity = tools.get_entity(scene, page["texts"][0]["id"])  # properties, values, placement and shapes
-tools.measure(scene, [10, 20], [110, 20])  # on the sheet, and in real-world millimeters through the scale
-rooms = tools.find_regions(scene, layer="壁", named=True)  # rooms with their areas in square meters
-doors = tools.find_tables(scene, contains="建具表")  # a schedule as rows and columns of text
-report = tools.check_drawing(scene)  # layer names, colors, line types, widths and text heights against CAD製図基準
-```
+<a id="zumen-for-python"></a>
 
-| Function | Result | What it returns |
-| --- | --- | --- |
-| `summary` | `Summary` | Format, the length unit of `values`, sheet, `bounds` (the frame), views, layers with entity counts, counts by type and kind, the placements drawn at a scale, notices, metadata and the title block fields |
-| `render` | `bytes`, `RenderInfo` | A PNG of the frame or a region, the region shown, the scale between pixels and paper millimeters, and the texts drawn with their pixel boxes |
-| `find_texts` | `TextPage` | Texts that contain a query (ignoring full-width and half-width forms, case and spaces), with position, height, angle and box |
-| `find_entities` | `EntityPage` | Entities in a region by kind, Japanese type or layer, with counts, and their shapes when asked |
-| `get_entity` | `EntityDetail` | One entity: properties (key, label, value), values by key, placement with its scale and `to_real`, and its shapes |
-| `measure` | `MeasurementInfo` | A distance on the sheet and in real-world millimeters |
-| `find_regions` | `RegionPage` | Closed regions (rooms) with their real-world areas in square meters, outlines, boundary entities and texts inside |
-| `find_tables` | `TablePage` | Ruled tables as a grid of texts, with merged cells, the ids of the texts and the positions of the rules; a page stops before `max_cells` cells (1,000 by default) |
-| `check_drawing` | `CheckInfo` | The rules of a rule set (`RULE_SETS` or one's own) with what they checked and could not, and the values that break them, the most common first, with up to `max_ids` entity ids each (`max_findings` values per rule) |
-| `compare_revisions` | `bytes`, `ComparisonInfo` | An image of the changes between two revisions, the regions that changed and the changed entities |
+[zumen-for-python](README.en.md#zumen-for-python)
 
-- **Coordinates.** Paper millimeters with the Y axis up, rounded to 0.001: boxes `[min_x, min_y, max_x, max_y]`,
-  points `[x, y]`. The *frame* is the drawing's `bounds`, the box around the sheet and every entity, which a render
-  without a region shows. Functions that take `region` also take `frame_region=[left, top, right, bottom]`, fractions
-  of the frame from 0 to 1 with the origin at the top left, the way regions of pages and images are usually given;
-  `tools.paper_region` and `tools.frame_region_of` convert between the two. Shapes inside a placement repeat their
-  coordinates in real-world millimeters (`real`), and the placement's `to_real` converts any point.
-- **Sizes.** Every result is bounded by its arguments: lists stop at `limit` (at most 1,000) and give the `total` and
-  `next_offset`, texts and other strings from the drawing at `max_text_length` characters (1,000 by default; the item
-  then has `truncated: true`), shapes at `max_points` points for the call (1,000 by default, at most 10,000; shapes
-  are left out whole and counted in `geometry_omitted`), and images at 4,096 pixels on the long edge.
-- **Reading.** `tools.Drawings` reads files from allowed directories with limits on size, entities and time, and keeps
-  the last eight scenes until their files change. A `Scene` does not change once read, so applications can keep scenes
-  in their own cache and call the functions from threads (`asyncio.to_thread`); reading, rendering and comparing
-  release the GIL. Errors that the agent can act on raise `tools.DrawingError` with an English message.
-- **Ids.** Entity ids come from the file and stay the same for the same bytes, so an application can cite an entity
-  by its id (next to the file's digest) and fetch it again later with `get_entity`.
-- Texts, names and properties come from the drawing file: agents should treat them as data, not as instructions.
+<a id="editing-drawings"></a>
 
-## Drawings from others
+[editing-drawings](README.en.md#editing-drawings)
 
-Drawings received from others are not trusted: a file can be huge, unpack to gigabytes (P2Z and SFZ are ZIP
-archives) or grow without end when blocks contain each other. `read` stops part way at the limits you give and
-raises `LimitError`, a `ReadError` whose `limit` says which limit was reached:
+<a id="comparing-revisions"></a>
 
-```python
-try:
-    scene = zumen.read(path, max_bytes=200_000_000, max_entities=1_000_000, timeout=30)
-except zumen.LimitError as error:
-    print(error.limit, error)  # "bytes", "entities" or "time", and a message for the user
-```
+[comparing-revisions](README.en.md#comparing-revisions)
 
-`max_bytes` counts the size after unpacking P2Z and SFZ (2 GiB at most without it), and a file larger than
-`max_bytes` is not read into memory. `max_entities` counts the entities of the scene; work that ends in fewer
-entities, such as dimension blocks inside each other, is bounded by `timeout` (seconds) and by the readers' own
-limits. Without limits nothing changes.
+<a id="markup"></a>
 
-Reading and rendering release the GIL. Japanese text is drawn with the bundled
-BIZ UDGothic (SIL Open Font License 1.1).
+[markup](README.en.md#markup)
+
+<a id="title-block"></a>
+
+[title-block](README.en.md#title-block)
+
+<a id="rooms-and-areas"></a>
+
+[rooms-and-areas](README.en.md#rooms-and-areas)
+
+<a id="tables"></a>
+
+[tables](README.en.md#tables)
+
+<a id="checks"></a>
+
+[checks](README.en.md#checks)
+
+<a id="mcp-server"></a>
+
+[mcp-server](README.en.md#mcp-server)
+
+<a id="tools-for-ai-agents"></a>
+
+[tools-for-ai-agents](README.en.md#tools-for-ai-agents)
+
+<a id="drawings-from-others"></a>
+
+[drawings-from-others](README.en.md#drawings-from-others)
+
+</details>

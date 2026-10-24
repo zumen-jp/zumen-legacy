@@ -1,41 +1,57 @@
-# 0023: Resize existing layouts through an edit operation
+# 0023: 編集操作で既存レイアウトの用紙サイズを変える
 
-| Item | Value |
+| 項目 | 内容 |
 | --- | --- |
-| Date | 2026-10-23 |
-| Status | Accepted |
+| 日付 | 2026-10-23 |
+| 状態 | 採用 |
 
-## Context
+このページは既存判断の日本語の要約です。詳細な条件と当時の議論は英語の補足資料に保持しています。
 
-The drawing spec of [decision 0018](0018-drafting-kit.md) lets `draft_into` explicitly choose a sheet's paper size.
-When the sheet names an existing layout, the drafting kit used that size for the frame and other items but left the
-template's actual paper size unchanged. The drawing could therefore extend beyond its printable sheet.
+## 背景
 
-## Options
+テンプレートの用紙サイズを変更するためだけに、図面全体を書き直したくない。
 
-1. Ignore the requested size, or reject it when it differs from the template. This would prevent callers from
-   resizing a sheet with the same spec they use to draw it.
-2. Rebuild the template with the new size. This would discard information that in-place editing promises to keep.
-3. Add a narrow layout edit and use it when the spec explicitly supplies `paper`.
+## 選択肢
 
-## Decision
+レイアウトを作り直す、既存レイアウトを編集する方法を比較した。
 
-Choose option 3. `update-layout` takes a layout `name` and `set: {"paperSize": [width, height]}` in millimeters.
-DXF and DWG editors update the paper layout's dimensions, paper name, limits and whole-sheet viewport, preserving
-its handle, margins and unrelated plot settings. Model space cannot be resized this way. JWW and SXF reject the
-operation because they have no AutoCAD layouts.
+## 決定
 
-`draft_into` emits this operation only for an existing sheet whose spec explicitly supplies `paper`. An omitted
-`paper` continues to inherit the template's size without changing the layout.
+update-layout で既存の用紙サイズと用紙全体のビューポートを更新する。
 
-## Consequences
+## 影響
 
-The existing edit transaction still checks every operation before returning bytes. A refused resize is mapped to
-the spec's `sheets[n].paper` path. Callers can also resize an existing DXF or DWG layout directly through `edit`.
+未変更の内容とハンドルを保ち、draft_into の明示的な paper からも利用する。
 
-## References
+## 英語の補足資料
 
-- [Decision 0012: In-place editing](0012-edit-in-place-and-write-every-format.md)
-- [Drawing into a template](../drafting.md#drawing-into-a-template)
-- DXF Reference, `LAYOUT` and `VIEWPORT` group codes.
-- Open Design Specification for .dwg files, sections 20.4.84 (LAYOUT) and 20.4.37 (VIEWPORT).
+対応表・実装上の細則・従来のコード例は [0023-resize-existing-layouts.en.md](0023-resize-existing-layouts.en.md) にも保存しています。
+
+<details>
+<summary>従来の見出しから詳細を探す</summary>
+
+<a id="0023-resize-existing-layouts-through-an-edit-operation"></a>
+
+[0023-resize-existing-layouts-through-an-edit-operation](0023-resize-existing-layouts.en.md#0023-resize-existing-layouts-through-an-edit-operation)
+
+<a id="context"></a>
+
+[context](0023-resize-existing-layouts.en.md#context)
+
+<a id="options"></a>
+
+[options](0023-resize-existing-layouts.en.md#options)
+
+<a id="decision"></a>
+
+[decision](0023-resize-existing-layouts.en.md#decision)
+
+<a id="consequences"></a>
+
+[consequences](0023-resize-existing-layouts.en.md#consequences)
+
+<a id="references"></a>
+
+[references](0023-resize-existing-layouts.en.md#references)
+
+</details>

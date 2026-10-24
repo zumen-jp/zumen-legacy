@@ -1,7 +1,7 @@
 {
   "name": "zumen-monorepo",
   "version": "0.1.1",
-  "description": "Monorepo of zumen: read, view and measure 2D drawings (SXF, JWW, DXF and DWG) in the browser, Rust and Python",
+  "description": "日本の建築・土木向け図面ライブラリ。SXF・JWW・DXF・DWG・PDF をブラウザ・Rust・Python で読み取り、表示・計測・解析する",
   "private": true,
   "type": "module",
   "license": "MIT",

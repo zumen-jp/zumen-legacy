@@ -201,18 +201,36 @@ function App() {
     >
       <header style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12 }}>
         <h1 style={{ margin: 0, fontSize: 18 }}>図面のビューア</h1>
-        <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+        <label className="sample-file-picker" style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
           図面（SFC・P21・P2Z・SFZ・JWW・JWC・JWS・DXF・DWG・PDF）
-          <input type="file" accept={ACCEPT} onChange={(event) => open(event.currentTarget.files?.[0] ?? null)} />
+          <span className="sample-file-label">図面を選ぶ</span>
+          <input
+            className="sample-visually-hidden"
+            aria-label="図面ファイルを選択"
+            type="file"
+            accept={ACCEPT}
+            onChange={(event) => open(event.currentTarget.files?.[0] ?? null)}
+          />
         </label>
-        <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+        <label className="sample-file-picker" style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
           下敷きの画像（PNG・JPEG）
-          <input type="file" accept="image/*" onChange={(event) => openImage(event.currentTarget.files?.[0] ?? null)} />
+          <span className="sample-file-label">画像を選ぶ</span>
+          <input
+            className="sample-visually-hidden"
+            aria-label="下敷きの画像を選択"
+            type="file"
+            accept="image/*"
+            onChange={(event) => openImage(event.currentTarget.files?.[0] ?? null)}
+          />
+          {image ? <span>{image.name}</span> : null}
         </label>
         {wanted.length > 0 ? (
-          <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+          <label className="sample-file-picker" style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
             図面の画像・PDF のファイル（{found.toLocaleString("ja-JP")} / {wanted.length.toLocaleString("ja-JP")} 件）
+            <span className="sample-file-label">画像・PDF を選ぶ（複数可）</span>
             <input
+              className="sample-visually-hidden"
+              aria-label="図面が参照する画像・PDF を選択"
               type="file"
               accept="image/*,.pdf"
               multiple

@@ -1,633 +1,129 @@
-# How DXF is handled
+# DXF の扱い
 
-`@zumenjs/dxf` reads DXF written by AutoCAD R12 (AC1009) to AutoCAD 2018 and later (AC1032), in ASCII and binary form,
-following the [Autodesk DXF Reference](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-235B22E0-A567-4CF6-92D3-38A2306D73F3.htm)
-(AutoCAD 2026, checked 2026-10-18). It is written in TypeScript without dependencies other than `@zumenjs/core`.
-`zumen-dxf` (`crates/zumen-dxf`) is its Rust port and returns the same scenes
-(see [verification.md](../verification.md#dxf-in-rust)).
+テキスト・バイナリの DXF（R12〜2018）を AutoCAD の図面モデル `DxfDocument` に読み、`dxfToScene`・`dxf_to_scene` で共通の表示用モデルにします。同じモデルを DWG でも使います。
 
-```text
-bytes ─▶ readTags (ASCII or binary, decoded) ─▶ parseDxf ─▶ DxfDocument ─▶ dxfToScene(doc, { layout }) ─▶ Scene
-                                                                      └─▶ write_dxf (Rust) ─▶ DXF (AutoCAD 2013)
-```
+## 読み取りと日本語
 
-## The AutoCAD drawing model
+セクション・テーブル・ブロック・図形をグループコードから読みます。R2007 以降の UTF-8、以前のコードページ、Shift_JIS の日本語、バイナリの数値と文字列を区別します。未知のコードページや未対応の図形は報告します。
 
-`DxfDocument` is the AutoCAD drawing database as plain data. It is shared with the DWG reader: `zumen-dwg` reads a DWG
-file into the same `DxfDocument` of `zumen-dxf`, drawn by the same `dxf_to_scene` (see [How DWG is handled](dwg.md)).
+線・円弧・円・楕円・折線・スプライン・文字・複数行文字・属性・部品・寸法・ハッチング・引出線・ソリッド・ワイプアウトなどを扱います。色・線種・線幅・透明度・文字スタイルを解決し、元の定義を属性に残します。
 
-- Attribute names follow [ezdxf](https://ezdxf.mozman.at/)'s DXF attribute names (`start`, `center`, `start_angle`, `insert`,
-  `major_axis`, `ratio`, `char_height`, `attachment_point`, `defpoint2`…). Where ezdwg's high-level API uses a different name than ezdxf,
-  the ezdwg name is used (`color_index`, `linetype_scale`, `raw_text`, `view_center`, `view_target`, `status_flags`,
-  `frozen_layer_handles`, `anonymous_block_name`).
-- Coordinates stay in drawing units (`$INSUNITS`) and angles in degrees, as in DXF. Points are `[x, y, z]` arrays.
-- All entities of model space, paper space and block definitions are in one list, told apart by `space`
-  (`"model"`, `"paper"`, `"block"`) and `block` (the block or paper space block name), like ezdwg's documents.
-  Attributes of an `INSERT` are in its `attribs`.
-- `TEXT` keeps control codes such as `%%c`; `MTEXT` has the plain `text` and the formatted `raw_text`. A multi-line
-  `ATTRIB` or `ATTDEF` of AutoCAD 2018 keeps its embedded MTEXT in `mtext` (`DxfEmbeddedMText`: the values of an MTEXT
-  and its extrusion).
-- `MULTILEADER` (and its other name `MLEADER`) follows ezdxf's `MultiLeader`: the common values (`leader_type`,
-  `leader_line_color`, `arrow_head_handle`, `block_attribs`…) and `context` with the content (`mtext` or `block`) and
-  `leaders`, each with its `lines`. Colors are kept as the raw 32-bit values (`0xC0…` BYLAYER, `0xC1…` BYBLOCK, `0xC2RRGGBB`, `0xC3…` ACI),
-  and line types, text styles and blocks as handles, as the entity stores them.
-- `MLINE` uses ezdwg's names (`points`, `vertex_directions`, `miter_directions`, `scale`, `justification`, `base_point`,
-  `mlinestyle_handle`) plus ezdxf's `style_name`, `line_params` and `fill_params` (groups 41 and 42 per vertex and element).
-- Tables: `layers`, `linetypes`, `styles` (text styles), `dimstyles`, `mline_styles` (MLINESTYLE, optional), `blocks`, `layouts`;
-  `header` has the variables used for drawing plus every raw variable in `header.variables`;
-  `sort_handles` keeps SORTENTSTABLE (draw order); `skipped` counts entity types that are not read.
+## 空間・単位・縮尺
 
-`zumen-dwg` fills the model with the values AutoCAD writes to the DXF of the same drawing: handles as upper-case
-hexadecimal strings, POLYLINE and DIMENSION types as DXF flags, angles in degrees, block names as in DXF. Its rules and
-the differences that remain are in [How DWG is handled](dwg.md).
+モデル空間とレイアウトを `Scene.views` で選べます。ビューポートがモデル空間をその縮尺と回転で表示し、配置の変換から実寸を求めます。モデルの単位は `$INSUNITS` を使い、不明なときは仮定を注意事項で示します。
 
-## Reading
+表示用の座標は用紙上の mm ですが、属性の未整形の座標と長さは元の図面の単位です。日本向けの方針によって inch などを勝手に mm と読み替えません。
 
-- **Detection** looks at the content: the binary sentinel (`AutoCAD Binary DXF\r\n\x1a\0`), or a first tag `0`/`SECTION`
-  after optional `999` comments.
-- **Binary DXF**: group codes are 2 bytes (1 byte and the `255` escape in R12); values are read by the type of the group code range
-  ([Group Code Value Types Reference](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-2553CF98-44F6-4828-82DD-FE3BC7448113.htm)).
-  Strings are read into the form that ASCII DXF uses
-  ([About ASCII Control Characters in DXF Files](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-77D34F88-73CC-495D-B48C-37628EE61D73.htm)):
-  a control character becomes `^` and the character 64 above it (`^J` for a line feed, `^I` for a tab) and `^` becomes `^ `.
-  Binary DXF keeps them as they are, so without this the line feeds that AutoCAD 2004 and later write in MTEXT (R2000
-  writes `\P`) would not break paragraphs. The model therefore holds the same strings for ASCII and binary DXF, and for
-  DWG. ezdxf writes `^` without the space in ASCII DXF as well; MTEXT stacks (`\S+0.1^-0.2;`) are drawn the same either way.
-- **Text encoding**: AC1021 (2007) and later are UTF-8. Earlier files use `$DWGCODEPAGE` (`ANSI_932` is Japanese Shift_JIS/CP932;
-  the table follows ezdxf). When the code page is missing, or is Western (`ANSI_1252`) but the bytes are valid UTF-8, UTF-8 is used.
-  When it is missing and the bytes are valid Shift_JIS with kana or at least two kanji, Shift_JIS is used.
-  Half-width katakana alone is not taken as evidence, because Western `°` and `Ø` are half-width katakana in Shift_JIS.
-  A guessed encoding is reported in `notices`. Strings are decoded before MTEXT codes are read, so the CP932 second byte `0x5C`
-  (as in 表, ソ, 能) is never taken for a backslash.
-- `\U+XXXX` (CIF) and `\M+nXXXX` (MIF) escapes are decoded in all strings, except the MTEXT content, where the MTEXT reader decodes them.
-- 102 groups (`{ACAD_REACTORS`…), extended data (1001 and later) and embedded objects (101) are skipped when reading entity attributes,
-  except the embedded MTEXT of multi-line attributes below.
-  Common attributes are taken from the `AcDbEntity` subclass only, so table cell colors of `ACAD_TABLE` are not mistaken for its color.
-- `POLYLINE`/`VERTEX`/`SEQEND` and `INSERT`/`ATTRIB`/`SEQEND` sequences are assembled into one entity.
-- ATTRIB and ATTDEF take the text generation flags (71) from the `AcDbText` subclass only. The
-  [ATTRIB table](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-7DD8B495-C3F8-48CD-A766-14F9D7D0DD9B.htm)
-  lists them in `AcDbAttribute`, but AutoCAD 2018 writes the attribute type there (1 single line, 2 multi-line
-  attribute, 4 multi-line attribute definition), as ezdxf (`attribute_type`) and ACadSharp (`AttributeType`) read it;
-  taken as generation flags, it drew multi-line attribute definitions upside down.
-- **Multi-line attributes** (AutoCAD 2018): the text is in an embedded MTEXT, and AutoCAD leaves the attribute's own
-  text (1 in `AcDbText`) empty. After `AcDbAttribute` or `AcDbAttributeDefinition` come `101`/`Embedded Object` and the
-  MTEXT group codes from the insertion point (10) on, as the
-  [Open Design Specification for .dwg files](https://opendesign.com/files/guestdownloads/OpenDesign_Specification_for_.dwg_files.pdf)
-  5.4.1 says for the DWG form (20.4.4). The tags up to the extended data (1001) or the next embedded object are read as
-  an MTEXT into `mtext` (`DxfEmbeddedMText`), with its own extrusion (a 210 there, as for MTEXT; *inferred*, as no
-  sample attribute is tilted and none has one).
-- **Dimension styles**: AutoCAD (R2000 and later in the samples; R12 writes every value) leaves out of DIMSTYLE the
-  values equal to its defaults. A missing DIMSCALE is 1, and a missing DIMASZ or DIMTXT is 0.18, which the DWG of the
-  same drawing stores, whatever `$MEASUREMENT` says: the imperial ACadSharp sample writes the 2.5 of its ISO-25 style
-  and leaves out the 0.18 of the others, and ACadSharp and netDxf read missing values as 0.18 too (*inferred* for metric
-  drawings, as no AutoCAD DXF of a metric drawing was at hand).
-- R12 files without `LAYOUT` objects get one `Layout1` when they have paper space entities. R12 viewport settings are read
-  from the `ACAD` `MVIEW` extended data, as ezdxf does, with the names of the layers frozen in the viewport (1003).
+## 文字・画像・参照
 
-## Drawing (`dxfToScene`)
+MTEXT の書式・縦書き・文字高・配置を共通の文字要素へ写します。図面が宣言する文字高と、描画用 em を分けて保持します。参照された画像・PDF は下敷きとして配置し、ファイルの取得は利用側が行います。
 
-### Spaces and scales
+画像の画素数・配置・切り取り・不透明度を保持します。外部図面の参照など、単体で描画できない内容は黙って省略せず notices に返します。多重引出線・複線・配列・部品の入れ子も共通の上限の中で解決します。
 
-- **Model space** is converted from `$INSUNITS` to millimeters. Without units, millimeters are assumed (inches for imperial drawings,
-  `$MEASUREMENT` 0) and a notice says so. Every entity carries a `Placement` named after model space, so measured distances are
-  real millimeters. Drawings whose center is more than 100 m from the origin (public coordinates in surveys) are shifted near the origin,
-  because Canvas computes in single precision; the `Placement` maps back to the real coordinates.
-- **Layouts** are drawn in paper millimeters: paper space units times the plot scale (142/143) and plot paper units (72),
-  with the paper's lower-left corner at the origin (margins 40–43 and plot origin 46/47). Without a paper size (R12),
-  the layout limits are the sheet.
-- **Viewports** draw model space with the scale `height / view_height` (groups 41/45), the view twist (51), the view center (12)
-  and target (17), the same transformation as ezdxf's `Viewport.get_transformation_matrix`. Lines and fills are clipped to the viewport
-  rectangle; text across the border is kept whole and reported. Each entity inside a viewport has a `Placement` with the viewport scale,
-  so distances measured on the sheet are converted back to real model millimeters. The overall paper space viewport (ID 1) is not
-  a view, viewports switched off (68 ≤ 0 or flag `0x20000`) are skipped, layers frozen in a viewport (331, or 1003 in R12) are not drawn in it,
-  and non-rectangular clip boundaries use their bounding rectangle. Viewports that do not look straight down are skipped.
-- The default view is the space the drawing was saved in: the active layout when `$TILEMODE` is 0 and it has content, otherwise
-  model space, otherwise the first layout with content. `Scene.views` lists model space and the layouts; pass a view to
-  `dxfToScene(doc, { layout })`, or `readDrawing(bytes, [dxf], { view })`. The `dxf` reader keeps the parsed document per byte array,
-  so switching views does not parse again.
+## PDF の下敷き
 
-### Properties
+PDFUNDERLAY は `kind: "pdf"` の下敷きにします。`file` は PDFDEFINITION の 1（図面に書かれたファイル名）、`page` は 2（ページ番号）です。図面はページの大きさを持たないため、読み取りは置く前の下敷き（`width`・`height` が 0、`matrix` は高さ 0 のページのもの）を返します。利用側が PDF を開き、`@zumenjs/pdf` の `placePdfUnderlays`（大きさが分かっていれば `@zumenjs/core` の `placeUnderlays`）で置いてから、`pdfUnderlayRenderer` で描きます。置くまでは描きません（[決定 0034](../decisions/0034-place-pdf-underlays-after-reading.md)）。
 
-- **Colors**: true colors (420), the ACI (62), `BYLAYER`, `BYBLOCK` (the nearest block reference's color), layer colors.
-  Transparency (440, and layer transparency from the `AcCmTransparency` extended data) becomes the alpha of `#rrggbbaa`.
-  ACI 7 is white and turns black on a light background.
-- **ACI table**: Autodesk does not publish the RGB values of ACI 10–255. Three tables circulate, all equal for 1–9:
+- **配置**: 内容の座標は、表示の向き（`/Rotate` 済み、pdf.js の `page.getViewport({ scale: 1 })`）のページの pt で、左上が原点です。挿入点（10、OCS）がページの左下の角で、高さ h のページの点 (x, y) は、挿入点から (x / 72, (h − y) / 72) に縮尺（41・42）と回転（50）を掛け、法線（210）で WCS に写した位置です。縮尺 0 は 1、280 がなければ 10 と読みます（ezdxf 1.4 と同じ）。
+- **単位**（推測）: 縮尺 1 で PDF の 1 インチを図面の 1 単位とします（OpenCADStudio と同じ）。ACadSharp の `sample_AC1015_ascii.dxf`（`$INSUNITS` 1、インチ）は A4（595 × 842 pt）の `pdf-definition.pdf` の 1 ページ目を縮尺 1 で (16.287, 15) に置いており、この規則でページは実寸の 8.26 × 11.69 インチになります。単位のある図面では縮尺 1 で実寸にする AutoCAD の PDF 添付ダイアログとも合います。ただしインチの図面では「`$INSUNITS` で換算する」規則と区別できず、ページの位置をなぞる図形もないため、確定ではありません。ほかの単位の図面では、記録された縮尺が換算を含むと仮定します（mm の図面で実寸なら 25.4）。見本の DWG（R14〜2018）も DXF と同じ下敷きになります。
+- **切り抜き**（推測）: 境界（11・21）は、挿入点を原点とする縮尺・回転の前の図面の単位です（ezdxf は変換で境界を動かさず、OpenCADStudio はページのインチとして読みます）。2 点なら矩形の対角です。280 の 1 で切り、280 の 16 は境界の内側を消します。このとき `clip` の空の輪は、まだ分からないページの外形を表します。範囲の分からないページは、レイアウトではビューポートの矩形で切ります。`placeUnderlays` は、ページが切り抜きの外にある下敷きを除きます。
+- **範囲**: 置く前の `bbox` は切り抜きの外接矩形か、範囲が分からなければ挿入点です。`placeUnderlays` が、切り抜きの外接矩形の中のページの外接矩形にし、`Scene.bounds` を広げます。
+- **表示の値**: 表示を切った下敷き（280 の 2 がない）は、AutoCAD と同じく描きません。フェード（282）は画像と同じく不透明度 1 − フェード / 100 にします。コントラスト（281 が 100 以外）・単色（280 の 4）・背景に合わせた色（280 の 8）は反映せず、`underlay-adjust` で報告します。枠（PDFFRAME）と、下敷きのレイヤの切り替え（`AdeskUnderlayLayerOverrideData` の拡張データ）は扱わず、PDF の下敷きごとに `pdf-underlay` で報告します。紙の背景を描くかは、利用側が `pdfUnderlayRenderer` の `background` で選びます。
+- **報告**: ファイル名かページ番号（1 以上の整数）が分からない下敷きは描かず、`underlay` で報告します。描く順で前にある図形に重なる（範囲が分からなければ、重なるかもしれない）下敷きは、`underlay-order` で報告します。
+- **id とレイヤ**: id は PDFUNDERLAY のハンドルに、ブロックとビューポートの前置きを付けたものです。図形は増やさないので、既存の図形 id は変わりません。
+- **書き出し**: DXF（R12 を含む）・DWG の書き出しと、SXF・JWW への変換は PDF の下敷きを書かず、`pdf-underlay` で報告します。既存図面の編集は、ほかの図形と同じく元のまま残します。DWF・DGN の下敷きは読みません。
 
-  | Table | Shades of 10–249 (ACI 12) | Used by |
-  | --- | --- | --- |
-  | A | 255, 165, 127, 76, 38 (`#a50000`) | ezdxf (measured from the AutoCAD 2020 screen, with background corrections) |
-  | B | 255, 204, 153, 127, 76 (`#cc0000`) | dxf-parser, dxf-viewer, dxf-render, @mlightcad/data-model — **used here** |
-  | C | 255, 189, 129, 104, 79 (`#bd0000`) | the widely copied "AutoCAD Color Index RGB Equivalents" table, ezdwg |
+詳しい規則は英語の補足資料の [PDF underlays](dxf.en.md#pdf-underlays) にもあります。
 
-  Table B is computed in `colors.ts` and matches the dxf-parser table for all 255 entries. It has not been compared with AutoCAD itself.
-- **Layer 0** inside a block takes the layer of the block reference, for visibility and for `BYLAYER` properties.
-  Layers that are off or frozen start hidden and can be shown.
-- **Line types** use the LTYPE dash lengths times `$LTSCALE` and the entity scale (48), scaled with the block. In viewports,
-  `$PSLTSCALE` 1 keeps the dash lengths in paper units. Shapes and text in complex line types are left out and reported.
-- **Line weights** (370) are in millimeters with `BYLAYER`, `BYBLOCK` and the default (0.25 mm). In model space they are drawn
-  at 1:1, so they show as hairlines until zoomed in.
-- **Draw order** follows SORTENTSTABLE when the block has one, otherwise the file order.
+## 入力上限
 
-### Entities
+図形数・バイト数・時間に加え、部品の再帰・展開数、ハッチング線、曲線の分割、入力レコードのループに上限を設けます。TypeScript と Rust は構造と処理順、数値の表記、並べ替えを揃えます。
 
-| Entity | Drawn as |
-| --- | --- |
-| LINE, POINT, CIRCLE, ARC, ELLIPSE | Lines and dots, arcs and ellipses flattened within 0.02 mm (or 1/10,000 of the radius), OCS applied |
-| LWPOLYLINE, POLYLINE | Bulges as arcs; widths as filled bands; curve- and spline-fit vertices; 3D polylines, polygon and polyface meshes as wireframes |
-| SPLINE, HELIX | NURBS with knots and weights (de Boor). Splines with only fit points are approximated through the points and reported |
-| TEXT, ATTRIB, ATTDEF | Horizontal and vertical justification (72/73, 74 for attributes), aligned and fit text, backward and upside-down, oblique, `%%c` `%%d` `%%p` `%%nnn`, `%%u` `%%o` `%%k`, and `^ ` (a caret) and `^I` (a tab, as four spaces) of ASCII DXF. Multi-line attributes are drawn from their embedded MTEXT as MTEXT is, with the attribute's color, layer and line type and the MTEXT's own extrusion, as ezdxf's `virtual_mtext_entity` does. Hidden attributes (70 bit 1) are not drawn; an attribute definition shows its tag outside blocks (where its MTEXT is) and, inside blocks, only a constant one with its value, as for single-line attributes |
-| MTEXT | Attachment point, direction or rotation, line spacing, word wrap at the reference width (at spaces, or between full-width characters), paragraph alignment, background mask, and the codes `\P` `\H` `\W` `\Q` `\C` `\c` `\F` `\f` `\L` `\O` `\K` `\S` `\~` `\U+` `\M+` and `{}` |
-| INSERT (MINSERT), ACAD_TABLE | Nested blocks with base point, scale, rotation, OCS and arrays; constant attribute definitions; the table's anonymous block |
-| DIMENSION, ARC_DIMENSION, LARGE_RADIAL_DIMENSION | The anonymous block (`*D…`) in the dimension's OCS, moved to group 12, merged into one selectable entity |
-| HATCH, MPOLYGON | Polyline and edge boundaries (lines, arcs, ellipses, splines; clockwise edges as ezdxf reads them). Solid fills, pattern lines (with dashes) clipped to the boundary, gradients as one color |
-| SOLID, TRACE, 3DFACE | Filled quadrilaterals; visible 3DFACE edges |
-| LEADER | The path (straight or spline-fit) and a closed arrowhead sized by `DIMASZ × DIMSCALE` of its dimension style |
-| MULTILEADER (MLEADER) | Text content (MTEXT at the stored position, with background, frame and underline or overline) or block content with its attribute values; straight or spline leaders from the arrowhead to the landing point and the dogleg, with dimension breaks; the closed filled arrowhead or the arrow block (`_Dot`, `_ArchTick`…) scaled by the arrow size. Merged into one selectable entity |
-| MLINE | The elements of the MLINESTYLE at their miter offsets, without the parts cut by MLEDIT, with their colors and line types; fill, square and round caps, inner arcs and miters |
-| WIPEOUT | Filled with the background color |
-| IMAGE | The frame, and the picture as an underlay ([Images](#images)) |
-| PDFUNDERLAY | An underlay of the page, placed once the application knows the page size ([PDF underlays](#pdf-underlays)) |
-| XLINE, RAY | Clipped to the extents of the other entities (or the sheet) |
-| VIEWPORT | Its frame on the layout, and the model space inside |
+## 書き出し
 
-Not read, counted in `skipped` and reported: TOLERANCE, SHAPE, 3DSOLID, REGION, BODY, MESH, SURFACE,
-DWF and DGN underlays (see [PDF underlays](#pdf-underlays)), OLE frames, lights and proxy entities.
+`write_dxf` は AutoCAD 2013・UTF-8、`write_dxf_as` は R12〜2018 を扱います。2007 より前はコードページを使います。R12 にない MTEXT・ハッチングなどは分解し、紙空間・線幅など版固有の制約を注意事項で返します。
 
-### Images
+ハンドル・レイヤ・スタイル・部品・レイアウトをモデルから書き、再読込時の見た目を確認します。ただし変換で保持できるのはモデルに持つ内容で、バイト列の完全保存とは異なります。
 
-An IMAGE ([IMAGE](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-3A2FF847-BE14-4AC5-9BD4-BD3DCAEF2281.htm),
-[IMAGEDEF](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-EFE5319F-A71A-4612-9431-42B6C7C3941F.htm))
-draws its frame as an entity and its picture as an underlay in `Scene.underlays`
-([decision 0022](../decisions/0022-underlays-drawn-by-a-region-renderer.md)). zumen does not open the image file:
-the underlay's `file` is the IMAGEDEF's file name (1) as the drawing writes it, often relative to the drawing
-(`.\image.JPG`), and the application loads the image (`imageUnderlayRenderer` of `@zumenjs/viewer`).
+## 既存図面の編集
 
-- **Content and placement**: the content is the image's pixels as the IMAGE counts them (13, the IMAGEDEF's size), with
-  the origin at the top left corner and y down. The content point (x, y) is at insert + U·x + V·(height − y) in the
-  coordinates of the block (U and V, 11 and 12, are the vectors of one pixel, which need not be square or at right
-  angles), the placement of ezdxf's `Image.boundary_path_wcs`. `matrix` adds the blocks and the viewport.
-- **Clipping**: the boundary (14, in pixels whose centers are integers, so the image spans −0.5 to the size − 0.5)
-  clips when the clipping state (280) is on. ezdxf clips by the flag 4 of 70 instead, which AutoCAD sets with it
-  (*inferred*). A clip mode (290) of 1 removes the inside of the boundary: the whole image and the boundary are the
-  two rings of `clip`. Viewports clip with their rectangle. When clipping is off, the frame is the whole image, as
-  AutoCAD's IMAGECLIP Off shows the whole image and frame.
-- **Display values**: the fade (283) becomes the opacity, 1 − fade / 100 (AutoCAD blends the image with the
-  background, which looks the same over the background). Brightness and contrast (281, 282) other than 50 are not
-  applied and are reported (`image-adjust`). The transparency flag (8 of 70) is not applied; the image is drawn with
-  its own alpha (*inferred*).
-- **Images without a picture**: an image whose show flag (1 of 70) is off or whose IMAGEDEF is unloaded (280 = 0)
-  shows its frame only, as AutoCAD does. An image without an IMAGEDEF, or whose file name is empty, shows its frame
-  only and is reported (`image`).
-- **Frame**: `IMAGEFRAME` (70 of the RASTERVARIABLES object in the `ACAD_IMAGE_VARS` dictionary) 0 keeps the frame of
-  images with a file for selection only (`drawn: false`); 1 and 2 (the default 1) draw it.
-- **Draw order**: underlays are drawn under every entity. An image that AutoCAD draws over earlier entities (in the
-  draw order above) whose extents it overlaps is reported (`image-order`).
-- **Ids and layers**: the underlay has the id and the layers of its frame, with the prefixes of blocks (`105>110`)
-  and viewports (`131:100`).
+`edit_dxf` は元のタグ列に操作を当て、対象外の内容・拡張データ・版・文字コードを保ちます。操作は共通の JSON 形式で、定義と図形の追加、更新、削除、レイアウトの用紙サイズ変更などを行えます。全操作を検証してから書きます。
 
-#### PDF underlays
+図形別の対応表、グループコード、版ごとの制限、推測した規則、独立した実装での検証結果は英語の補足資料に保存しています。
 
-A PDF underlay (PDFUNDERLAY,
-[UNDERLAY](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-3EC8FBCC-A85A-4B0B-93CD-C6C785959077.htm))
-becomes an underlay of `kind: "pdf"` whose `file` is its definition's file name (PDFDEFINITION 1,
-[UNDERLAYDEFINITION](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-A4FF15D3-F745-4E1F-94D4-1DC3DF297B0F.htm))
-as the drawing writes it, and whose `page` is the definition's name (2), the page number
-([decision 0034](../decisions/0034-place-pdf-underlays-after-reading.md)). The drawing does not store the size of the
-page, so the reader returns the underlay unplaced: `width` and `height` 0, and the matrix of a page of height 0. The
-application opens the PDF and places it with `placePdfUnderlays` of `@zumenjs/pdf` (or `placeUnderlays` of
-`@zumenjs/core` with the sizes it knows), then draws it with `pdfUnderlayRenderer`. Until then it is not drawn.
+## 英語の補足資料
 
-- **Content and placement**: the content is the page in points as displayed (after `/Rotate`, as pdf.js's
-  `page.getViewport({ scale: 1 })`), with the origin at its top left corner. The insertion point (10, in OCS) is the
-  lower left corner of the page, and content point (x, y) of a page of height h is at (x / 72, (h − y) / 72) from it,
-  scaled (41, 42), rotated (50) and taken to WCS by the normal (210), as INSERT places a block. Scales of 0 are read
-  as 1, and missing flags (280) as 10, as ezdxf 1.4 reads them. `matrix` adds the blocks and the viewport.
-- **Units** (*inferred*): one PDF inch is one drawing unit at scale 1, as
-  [OpenCADStudio](https://github.com/HakanSeven12/OpenCADStudio) (`src/scene/model/pdf_raster.rs`) places PDF
-  underlays. ACadSharp's `sample_AC1015_ascii.dxf` (in inches, `$INSUNITS` 1) attaches page 1 of its
-  `pdf-definition.pdf` (A4, 595 × 842 pt) at scale 1 and (16.287, 15): the rule places the page at its real size,
-  8.26 × 11.69 inches from (16.287, 15) to (24.551, 26.694), which is what AutoCAD's
-  [Attach PDF Underlay dialog](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-LT/files/GUID-02FAF12D-BA81-4124-86B5-8E381182C579.htm)
-  does with scale 1 in a drawing with units: it applies the scale to the page's true width.
-  So the sample is consistent with the rule, but it cannot tell it apart from one that converts by `$INSUNITS` (both
-  give inches there), and nothing in the drawing traces the page to confirm the corner. For drawings in other units
-  the rule assumes that the stored scale includes the conversion (25.4 for a page at its real size in millimeters).
-  The sample's DWG files (R14 to 2018) give the same underlay as the DXF.
-- **Clipping**: the clip boundary (11, 21) is in the underlay's own units, from the insertion point before scale and
-  rotation (*inferred*: ezdxf calls them "drawing coordinates but unscaled" and does not move them when it transforms
-  an underlay; OpenCADStudio reads them in page inches). Two points are the corners of a rectangle. It clips when
-  clipping is on (1 of 280) and it has at least two points. Flag 16 of 280 (clip inside mode) removes the inside of
-  the boundary: `clip` is an empty ring, which stands for the outline of the page until it is placed, and the
-  boundary. A page whose extent is not known yet (no clip, or the inside removed) is clipped by the viewport
-  rectangle in layouts, and the boundary that removes the inside is clipped to that rectangle; `placeUnderlays`
-  leaves out underlays whose page lies outside their clip.
-- **Bounds**: until it is placed, `bbox` is the box of the clip, or the insertion point when the extent is not known,
-  and `Scene.bounds` contains it. `placeUnderlays` sets `bbox` to the box of the page within the box of the clip and
-  extends `Scene.bounds`.
-- **Display values**: an underlay that is off (2 of 280 not set) is not drawn, as in AutoCAD. The fade (282) becomes
-  the opacity, 1 − fade / 100, as for images. The contrast (281) other than 100, monochrome (4 of 280) and colors
-  adjusted for the background (8 of 280) are not applied and are reported (`underlay-adjust`). The frame (PDFFRAME)
-  is not drawn and the underlay has no entity, as the frame of a page whose size is not known cannot be placed; the
-  layers of the page that AutoCAD turns on and off for the underlay (extended data of
-  `AdeskUnderlayLayerOverrideData`) are not read, and the page shows its default optional content. Both are reported
-  with every PDF underlay (`pdf-underlay`). Whether the page has a paper background is the application's choice
-  (`background` of `pdfUnderlayRenderer`).
-- **Underlays without a page**: an underlay whose definition is missing, whose file name is empty or whose page is
-  not a whole number from 1 is not drawn and is reported (`underlay`).
-- **Draw order**: an underlay that AutoCAD draws after earlier entities whose extents it overlaps, or may overlap when
-  its extent is not known, is reported (`underlay-order`), as images are.
-- **Ids and layers**: the underlay's id is the PDFUNDERLAY's handle with the prefixes of blocks and viewports, and its
-  layers are those an entity in its place would have. `crates/zumen/tests/ids.json` does not list underlays, so the
-  ids of entities do not change.
+対応表・実装上の細則・従来のコード例は [dxf.en.md](dxf.en.md) にも保存しています。
 
-DWF and DGN underlays (DWFUNDERLAY, DGNUNDERLAY) are not read: their content has no renderer in zumen.
+<details>
+<summary>従来の見出しから詳細を探す</summary>
 
-External references are not read either. A block whose flags (BLOCK, 70) have 4 (an attached reference) or 8 (an
-overlay) stands for another drawing, whose path is group 1, and the drawing that refers to it keeps none of its
-entities. Each block reference to one that is drawn, also inside other blocks, is counted in the `xref` notice, whose
-message names the paths (or the block names of references without a path), sorted as JavaScript sorts strings.
+<a id="how-dxf-is-handled"></a>
 
-### Multileaders and multilines
+[how-dxf-is-handled](dxf.en.md#how-dxf-is-handled)
 
-The DXF Reference lists the MULTILEADER group codes without saying how to draw them
-([Common MLeader Group Codes](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-69B9139A-48B4-48A5-B3CF-A3233ABFBE49.htm),
-[Context Data](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-EC56D0DE-026D-46AB-87B1-9692393B0C22.htm),
-[Leader Node](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-8648B8F7-5BD3-445B-A1B2-6F65EC4ECB3E.htm),
-[Leader Line](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-B2E6436A-F17D-4F59-9DE8-DBDB61AD36C6.htm)).
-The rules below follow the graphics AutoCAD stores with each MULTILEADER (proxy graphics, read with ezdxf), ezdxf 1.4.5's
-`render/mleader.py` and [How to render DXF leaders](https://atlight.github.io/formats/dxf-leader.html) (cited by ezdxf);
-those marked *inferred* are not stated by Autodesk.
+<a id="the-autocad-drawing-model"></a>
 
-- The same group code means different things inside `CONTEXT_DATA{` (300–301), `LEADER{` (302–303), `LEADER_LINE{` (304–305) and outside,
-  so the sections are tracked while reading. Values in the entity are drawn as they are; the MLEADERSTYLE is not consulted (*inferred*,
-  as ezdxf's `IGNORE_OVERRIDE_FLAGS`), and context values win over the common ones (text position, color, height, arrow size, dogleg length).
-- BYBLOCK in the parts (text, leaders, block content) means the MULTILEADER's own color, line type and line weight (*inferred*).
-  A leader line color (92) of BYBLOCK means the leader color (91).
-- Leaders run from the arrowhead to the landing point (LEADER 10) and continue as the dogleg along LEADER 11 for LEADER 40.
-  The dogleg is drawn only for straight leaders with 291 set and a non-zero length and direction; otherwise the leader lines run to the
-  dogleg end. Leaders attached at the top or bottom (271 = 1) end at the landing point. Leaders whose 290 is 0 are not drawn, as in AutoCAD
-  (according to ezdxf), and are reported. Spline leaders are drawn through the points, leaving in the arrow direction and arriving along
-  the dogleg, and reported as approximated.
-- The arrowhead is drawn when the first segment is longer than twice the arrow size (as ezdxf notes about AutoCAD). Without an arrow block,
-  it is the closed filled arrow: as long as the arrow size and a third of it wide at the base, as in AutoCAD's graphics. Arrow blocks point
-  to −X from their insertion point and are rotated to the leader and scaled by the arrow size; the leader starts at the back of the arrow,
-  except for `_ArchTick`, `_Oblique`, `_DotSmall`, `_Small`, `_Integral` and `_None` (ezdxf's list). Arrows are drawn with solid lines.
-- The text frame (292) is the drawn text extents grown by the landing gap (145) and stretched to the leaders' connection points, which
-  AutoCAD's graphics place on the frame. Connections 5, 6 and 8 underline the text from the connection point; top or bottom connection 10
-  draws a line over or under the text. Their lengths follow the substitute font, so they differ from AutoCAD by the text width.
-- Block content is inserted at context 15 (in WCS) with its scale and rotation (radians), and each `block_attribs` value is drawn at its
-  ATTDEF in the block (as the text of its embedded MTEXT for a multi-line ATTDEF). Tolerance content and text columns
-  are not drawn as such and are reported; text flowing vertically (172 = 3) is laid out horizontally like vertical
-  MTEXT.
-- MLINE elements ([MLINE](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-590E8AE3-C6D9-4641-8485-D7B3693E432C.htm),
-  [MLINESTYLE](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-3EC12E5B-F5F6-484D-880F-D69EBE186D79.htm))
-  are at the vertex plus the miter direction (13) times the first value of group 41. The following values are positions
-  along the segment where the element starts, stops and restarts (MLEDIT cuts). The open tee in the ACadSharp sample (the gap is exactly
-  the width of the crossing multiline) shows that they are positions, not dash lengths (*inferred*). They are taken from the miter point;
-  whether a cut in an element that starts after the miter point is measured from there or from the element's start is not confirmed,
-  as every cut element in the samples starts at the miter point.
-- Without group 41, the offset is the MLINESTYLE offset, shifted by the justification (top: the largest offset on the reference
-  line, bottom: the smallest) and multiplied by the scale, divided by the sine between the miter and the segment.
-- The fill is the area between the outermost elements, including round caps; fill breaks (group 42) are not drawn and reported.
-  Caps follow MLINESTYLE flags 16/32/64 and 256/512/1024 unless the MLINE suppresses them (71 flags 4 and 8, which ezdxf ignores); inner arcs
-  join every inner pair, as AutoCAD's [Multiline Style dialog](https://help.autodesk.com/cloudhelp/2015/ENU/AutoCAD-Core/files/GUID-9AE65983-DFCA-4140-889E-227B8A31D047.htm)
-  describes (2 and 5, 3 and 4 of six elements; ezdxf joins only the first pair). Miters (flag 2) are drawn at inner vertices.
-- Element colors and line types of BYBLOCK take the MLINE's own, but the MLINE's true color is not used (*inferred*, as ezdxf notes);
-  caps use the MLINE's line type. An MLINE whose style is missing is drawn with the two lines of STANDARD and reported.
+[the-autocad-drawing-model](dxf.en.md#the-autocad-drawing-model)
 
-### Limits
+<a id="reading"></a>
 
-Damaged or hostile drawings must not hang the reader or exhaust memory, and the TypeScript and Rust readers stop at the
-same place. What is left out is reported.
+[reading](dxf.en.md#reading)
 
-| Limit | Value | Notice |
-| --- | --- | --- |
-| Nesting of block references, dimension blocks and multileader blocks | 32 levels | `block-depth` |
-| Entities drawn inside blocks and dimensions, per view (a block that contains itself twice grows to 2³² entities first) | 1,000,000 | `block-limit` |
-| Copies of an MINSERT array | 10,000 (only the first copy is drawn beyond) | `minsert-large` |
-| Pattern lines of one hatch, also when the count is not a number (NaN in binary DXF) or the line numbers pass 2⁵³ (a base point so far from the boundary that adding 1 no longer changes the number) | 5,000 (the outline is drawn instead) | `hatch-dense` |
-| Polygon mesh grid (71 × 72) | Only the positions that have vertices are visited | |
-| Segments of an arc or ellipse, steps of a spline | 4,096 | |
-| Comparisons of an image's extents with the earlier entities, per view | 1,000,000 (later images with an entity before them count as overlapping) | `image-order` |
+<a id="drawing-dxftoscene"></a>
 
-### Text and fonts
+[drawing-dxftoscene](dxf.en.md#drawing-dxftoscene)
 
-SHX fonts are not bundled. Text in SHX styles (or without a font) is drawn with a substitute font chosen by `fontFamilyFor`
-(Japanese Gothic, or Mincho for serif names), and the number of such entities is reported with the font names.
-TrueType styles use their font name (`ＭＳ ゴシック`, `MS Mincho`…). Character widths are estimated (full width 1 em, half width 0.5 em),
-so text lengths differ from AutoCAD. The text height (40) is taken as the capital height for Latin text and the kanji height
-for text with full-width characters.
+<a id="spaces-and-scales"></a>
 
-TrueType fonts whose name starts with `@` (`@ＭＳ 明朝`, `@MS Gothic`) are the vertical forms of Windows fonts: their
-glyphs are turned 90° counter-clockwise against the baseline, so text rotated by 270° reads top to bottom with upright
-characters. This is how AutoCAD and Jw_cad write vertical Japanese text to DXF (AutoCAD's vertical style flag works for
-SHX fonts only). TEXT and MTEXT in such a font are laid out as a vertical column: along the baseline, each character
-takes its width (full width 1 em, half width 0.5 em, times the width factor), and across it the column is 1 em wide,
-from 0.12 em below the baseline, as for horizontal text (*inferred*: the position of the column against the baseline is
-not documented; it is the convention that the SXF and JWW conversion writes, and close to how Windows places the
-glyphs). The fixture `tests/fixtures/dxf/vertical-text.dxf` pins it.
+[spaces-and-scales](dxf.en.md#spaces-and-scales)
 
-## Writing (`write_dxf`)
+<a id="properties"></a>
 
-`zumen-dxf` writes a `DxfDocument` back as DXF, in Rust only: ASCII DXF of AutoCAD 2013 (AC1027) in UTF-8 with CRLF
-line ends, with the group codes of the DXF Reference and, where it leaves the order open, the order of AutoCAD and
-ezdxf 1.4.5. `zumen::convert` reads DXF and DWG drawings into the model and writes them
-([decision 0006](../decisions/0006-write-through-the-autocad-model.md)). A written drawing, read again, draws the same
-scene in every view, with the same entity ids.
+[properties](dxf.en.md#properties)
 
-SXF and JWW drawings are mapped into the model by `zumen-convert` first ([decision 0007](../decisions/0007-mapping-crate-between-formats.md)):
-model space at real size, the sheet as a layout with a viewport for each scale, and what is drawn on the sheet itself in
-paper space ([decision 0008](../decisions/0008-sheets-and-scales-in-the-autocad-model.md)). The rules are in
-[How SXF is handled](sxf.md#dxf-への変換zumen-convert) and [How JWW is handled](jww.md#dxf-への変換zumen-convert). The
-mapping writes what zumen's reader draws the same way as the source scene, and what AutoCAD users expect:
+<a id="entities"></a>
 
-- `$TILEMODE` 0, so the drawing opens in the layout of the sheet; `$INSUNITS` 4 (millimeters), `$MEASUREMENT` 1 and
-  `$PSLTSCALE` 1, so line type dashes keep their paper length in every viewport.
-- The overall paper space viewport (ID 1) of the layout, then a viewport for each scale, locked (90 has 16384), on the
-  layer `VIEWPORTS` that is off and not plotted (ezdxf's name). The viewport rectangle is the extents of what the source
-  draws there with a margin of 1 mm (or 0.5% of the size), so nothing is clipped.
-- TEXT is left-aligned on the baseline, with the height, width factor and oblique angle that draw the source's text box:
-  the box height is the text height (the number people enter, [decision 0019](../decisions/0019-text-heights-between-formats.md)), so
-  the glyphs are 1/0.88 or 1/0.72 as large as in SXF and JWW, and the insertion point is 0.12 times the box height
-  above the bottom of the box. Vertical text uses the `@` form of the font and a rotation of 270°.
-- Dimensions are DIMENSION entities whose anonymous block (`*D1`, `*D2` …) holds the drawn lines, arrows and text;
-  the definition points come from the source's dimension line and extension lines.
+[entities](dxf.en.md#entities)
 
-- **Sections**: HEADER (`$ACADVER`, `$HANDSEED`, units, scales, extents, limits and the current layer and styles),
-  CLASSES, TABLES (VPORT, LTYPE, LAYER, STYLE, VIEW, UCS, APPID, DIMSTYLE, BLOCK_RECORD), BLOCKS, ENTITIES and OBJECTS
-  (the root dictionary with ACAD_GROUP, ACAD_LAYOUT, ACAD_MLEADERSTYLE, ACAD_MLINESTYLE, ACAD_PLOTSETTINGS and
-  ACAD_PLOTSTYLENAME, the layouts and the multiline styles).
-- **Numbers** are written in the shortest form that reads back to the same value (`1.0`, `0.30000000000000004`, `1e20`),
-  so the model reads back value for value.
-- **Handles** of the model are kept. A handle that is missing, not hexadecimal, zero or used twice gets a new one above
-  the largest handle of the drawing. References (owners, styles, blocks, arrow blocks, attribute definitions, frozen
-  layers, clipping boundaries) are rewritten to the handles written, and a reference to something that is not written
-  is left out.
-- **Definitions that entities refer to but the drawing lacks** are added: layers in the order in which the scene
-  numbers them (so layer ids stay the same), with the line type `CONTINUOUS` that the scene assumes, then layer `0`;
-  text styles, dimension styles and line types; and empty blocks for block references without a definition.
-  `*Model_Space`, `*Paper_Space` and one layout for each paper space block are always written, and layouts keep their
-  plot settings, including a paper size of 0 (the sheet then comes from the paper space limits).
-- **Strings** are written as the model holds them, in the notation of ASCII DXF. A line feed or carriage return, which a
-  line cannot hold, is written as `^J` or `^M`. MTEXT is split into parts of 250 characters (group 3) and the last part
-  (group 1).
-- **Multileaders** are written in ezdxf's order with every override flag (90) set, so the entity's own values are used,
-  and point at one `Standard` MLEADERSTYLE with ezdxf's defaults; their text style, line type, arrow blocks and attribute
-  definitions point at the records written. **Wipeouts** are written without an image definition, as AutoCAD writes
-  them. **Images** whose IMAGEDEF file name the model keeps (`DxfImage::path`) are written with an IMAGEDEF in
-  `ACAD_IMAGE_DICT` (named as the editor names them), one IMAGEDEF_REACTOR each and the IMAGE classes; images that
-  pointed at the same IMAGEDEF share one. The IMAGE keeps its brightness, contrast, fade and clip mode, and the
-  IMAGEDEF its loaded state; the IMAGEDEF's other values are written as the editor writes them (pixel
-  size 1, no resolution units). **Gradients** keep their name, colors, angle, shift and tint (450 to 470, in AutoCAD's order).
-- **Multi-line attributes** (ATTRIB and ATTDEF with `mtext`) are written as AutoCAD 2018 writes them: the attribute
-  type (71: 2 for an attribute, 4 for a definition) at the end of `AcDbAttribute` or `AcDbAttributeDefinition`, then
-  `101`/`Embedded Object` and the values of the MTEXT, with its own extrusion. The attribute's own text (1 in
-  `AcDbText`) is written as the model holds it.
-- Only the values that the drawing has are written where the reader tells a missing value apart (the alignment point
-  of TEXT, the background scale of MTEXT, the definition points and angle of dimensions). Values that the model does
-  not keep are written as AutoCAD writes them for a new drawing (dictionaries, plot settings, viewport UCS,
-  `$DWGCODEPAGE` `ANSI_1252`, which AutoCAD ignores in UTF-8 files). Hatches are written without associativity, as the
-  links to their boundary objects are not kept.
+<a id="images"></a>
 
-What cannot be written as it was is reported in `notices`:
+[images](dxf.en.md#images)
 
-| Code | What is written |
-| --- | --- |
-| `image` | An IMAGE whose image definition (IMAGEDEF) the model does not know is left out |
-| `image-frame` | The setting that hides image frames (`IMAGEFRAME` 0) is not written; the frames show |
-| `pdf-underlay` | A PDF underlay (PDFUNDERLAY) is left out; reading did not keep them before either |
-| `helix` | HELIX is written as SPLINE, its curve, without the helix parameters |
-| `mpolygon` | MPOLYGON is written as HATCH |
-| `table` | ACAD_TABLE is written as the INSERT of its block (`*T…`) |
-| `complex-linetype` | A line type with texts or shapes keeps its dashes only, as it is drawn |
-| `dimension-block` | A dimension without its block (AutoCAD's dimensional constraints) is left out, as it is not drawn |
-| `attrib-alone` | An ATTRIB outside a block reference is written as TEXT, or as MTEXT when it has multiple lines |
-| `missing-block` | A block reference without a definition gets an empty block |
-| `mleader-block` | A multileader whose content block is missing is written without its content |
+<a id="pdf-underlays"></a>
 
-### Versions (`write_dxf_as`)
+[pdf-underlays](dxf.en.md#pdf-underlays)
 
-`write_dxf_as(doc, version)` writes AutoCAD R12 (AC1009), 2000 (AC1015), 2004 (AC1018), 2007 (AC1021), 2010 (AC1024),
-2013 (AC1027, the default of `write_dxf`) or 2018 (AC1032). `zumen::convert_with` takes the version in `WriteOptions`,
-`zumen.convert(..., version="2000")` in Python and `zumen convert --target-version 2000` on the command line.
-`DxfVersion::parse` reads `2000`, `R2000` and `AC1015` alike. `$ACADVER` and `$ACADMAINTVER` are the values that ezdxf
-1.4.5 writes for each version.
+<a id="multileaders-and-multilines"></a>
 
-- **Text encoding**: 2007 and later are UTF-8. Earlier versions are written in a code page (DXF Reference "Storage of
-  String Values"): the drawing's `$DWGCODEPAGE` when it is not western, else the code page of the encoding it was read
-  in when that is not western, else the ANSI code page that holds the most characters of its texts. On a tie the
-  single-byte code pages come first (ANSI_1252, 1250, 1251, 1253, 1254, 1257, 1258, 1255, 1256 and 874), then
-  ANSI_932, 936, 949 and 950: kana and kanji give ANSI_932, simplified Chinese ANSI_936, Hangul ANSI_949, and
-  Cyrillic ANSI_1251 although Shift_JIS has it too. A character the code page cannot hold is written as `\U+XXXX`,
-  which AutoCAD and zumen read back as the character; one outside the Basic Multilingual Plane is written as the two
-  escapes of its UTF-16 surrogates, which zumen reads back as one character.
-- **What a version cannot hold** is left out or written in another form, following the versions of ezdxf's attributes,
-  and reported:
+[multileaders-and-multilines](dxf.en.md#multileaders-and-multilines)
 
-| Code | Versions | What is written |
-| --- | --- | --- |
-| `version-color` | 2000 | True colors (420) as the nearest ACI (62), for entities and layers |
-| `version-transparency` | 2000 | Transparency (440, and the `AcCmTransparency` data of layers) is left out |
-| `version-gradient` | 2000 | A gradient hatch is filled with its first color |
-| `version-dimension` | 2000 | ARC_DIMENSION and LARGE_RADIAL_DIMENSION are written as the INSERT of their block |
-| `version-background` | 2000, 2004 | The background fill of MTEXT (90, 63, 421, 45, 441) is left out, also in blocks: the text fill of a dimension (DIMTFILL, 2007 and later) is the MTEXT in its block |
-| `version-mleader` | 2000, 2004 | MULTILEADER is written as it is, as ezdxf writes it; AutoCAD before 2008 does not know it |
-| `version-image-clip` | 2000 to 2007 | An image clip that removes the inside of its boundary (290) clips to the inside |
+<a id="limits"></a>
 
-#### R12 (`r12::prepare`)
+[limits](dxf.en.md#limits)
 
-R12 has no subclass markers, owner handles, classes, objects, block records or layouts, so these are not written;
-entities keep their handles (`$HANDLING` 1) and table entries have none. The drawing is first reduced to what R12 holds,
-as ezdxf's `r12export` does, and the rest is reported:
+<a id="text-and-fonts"></a>
 
-- LWPOLYLINE becomes a 2D POLYLINE with the same vertices, bulges and widths.
-- ELLIPSE, SPLINE (and HELIX), MTEXT, HATCH (and MPOLYGON), LEADER, MULTILEADER and MLINE are exploded into what zumen
-  draws for them (`scene::Exploder`, the same curves as the model space view): lines as LINE and POLYLINE, fills as
-  SOLIDs, one for each trapezoid of a horizontal band (even-odd rule), hatch patterns as the LINEs of their dashes cut at
-  the boundary, text as one TEXT for each run, with a text style added for a font that a format code sets, and points
-  as POINT. One resulting entity takes the place and handle of the original. Several go into an anonymous block (`*U`)
-  whose INSERT, at the original's anchor, takes its handle, layer, color and line type; the parts are on layer `0`,
-  and those with the original's color and line type use BYBLOCK. A fill with the background color (a background mask)
-  cannot be drawn in R12 and is left out.
-- A multiline attribute becomes a one-line attribute with its lines joined by spaces.
-- Only the current layout (`*Paper_Space`) is kept, as R12 has one paper space; its sheet becomes the paper space
-  limits (`$PLIMMIN`, `$PLIMMAX`), which is what a reader of R12 takes as the sheet. Viewports keep their view in the
-  extended data `ACAD`/`MVIEW`, with the layers frozen in them by name (1003), and a viewport that is off has status 0.
-- Entities are written in their draw order, as R12 has no SORTENTSTABLE.
+[text-and-fonts](dxf.en.md#text-and-fonts)
 
-| Code | What is written |
-| --- | --- |
-| `version-ellipse`, `version-spline` | ELLIPSE, SPLINE and HELIX as POLYLINE |
-| `version-mtext` | MTEXT as TEXT, several in an anonymous block |
-| `version-hatch`, `version-leader`, `version-mline` | HATCH, LEADER, MULTILEADER and MLINE as an anonymous block of LINE, POLYLINE, SOLID and TEXT |
-| `version-multiline-attribute` | Multiline attributes as one line |
-| `version-mask` | Fills with the background color (background masks) are left out |
-| `version-xline`, `version-wipeout`, `version-image`, `version-invisible` | XLINE, RAY, WIPEOUT, IMAGE and invisible entities are left out |
-| `version-layouts` | Entities of the layouts other than the current one are left out |
-| `version-units` | The length unit (`$INSUNITS`) is left out; zumen reads an R12 drawing as millimeters |
-| `version-lineweight`, `version-linetype-scale` | Line weights and the line type scale of entities are left out |
-| `version-font-family` | The TrueType font name of a text style (extended data, which R12 tables cannot have) is left out, so a vertical `@` font is written as its file |
-| `version-color`, `version-transparency`, `version-dimension` | As in 2000 |
+<a id="writing-write_dxf"></a>
 
-## Editing (`edit_dxf`)
+[writing-write_dxf](dxf.en.md#writing-write_dxf)
 
-`zumen_dxf::edit_dxf` (through `zumen::edit`) changes a DXF drawing in place with the operations of
-[decision 0012](../decisions/0012-edit-in-place-and-write-every-format.md). It does not go through the model: it splits
-the file into tags as the reader does, keeps the bytes of every tag, and writes back every tag that no operation
-changes as it was. Extended data, reactors, extension dictionaries, objects and the entities that zumen does not read
-stay, and an edit without operations gives the same bytes.
+<a id="versions-write_dxf_as"></a>
 
-- **Version and form**: the version, ASCII or binary, the line ends of the file (CRLF, LF or CR) and the text encoding
-  stay. AutoCAD 2007 (AC1021) and later write UTF-8; earlier versions write the encoding that the reader chose (the
-  `$DWGCODEPAGE`, or what it detected), and a character that encoding cannot hold is written as `\U+XXXX`, which
-  AutoCAD and zumen read back as the character (DXF Reference "Storage of String Values"). Control characters and the
-  caret are written in caret notation (`^J`, `^ `) in ASCII DXF.
-- **Handles**: new records take handles from `$HANDSEED` (or above the largest handle, if the seed is lower), and
-  `$HANDSEED` is set to the next one. R12 drawings without `$HANDLING` 1 get no handles: their entities are chosen
-  by their place in the file (`#12`, the id of the scene), which an edit that adds or removes records before them
-  changes, and `created` gives the places of the new entities in the edited file.
-- **Where `add` puts an entity**: model space at the end of ENTITIES; `layout:<name>` in the paper space of that
-  layout (the active one in ENTITIES with 67 = 1, the others at the end of their `*Paper_Space…` block);
-  `block:<name>` at the end of the block definition, before ENDBLK. From R13 on, the owner (330) is the block record.
-- **What `add` writes** (R13 and later, with the subclass markers of AutoCAD):
+[versions-write_dxf_as](dxf.en.md#versions-write_dxf_as)
 
-  | `kind` | Entity | Keys |
-  | --- | --- | --- |
-  | `line` | LINE | `start`, `end` |
-  | `circle`, `arc` | CIRCLE, ARC | `center`, `radius`, `angle` (`[from, to]` in degrees, for arcs) |
-  | `ellipse`, `ellipse-arc` | ELLIPSE (not in R12) | `center`, `majorAxis` (from the center), `ratio`, `parameter` (`[start, end]` in radians) |
-  | `point` | POINT | `position` |
-  | `polyline` | LWPOLYLINE (POLYLINE, VERTEX and SEQEND in R12) | `vertices`, `bulges`, `closed`, `width` |
-  | `text` | TEXT, or MTEXT when the text has line breaks or `wrapWidth` is given (not in R12) | `position`, `text`, `height`, `rotation`, `textStyle`, `wrapWidth` |
-  | `block-reference` | INSERT | `block`, `position`, `scale` (a number or `[x, y]`), `rotation` |
+<a id="r12-r12prepare"></a>
 
-  Every kind also takes `layer` (8), `color` (62 and, from AutoCAD 2004 on, 420), `lineType` (6) and `lineWidth`
-  (370, from AutoCAD 2000 on). A layer that the drawing lacks is added with color 7 and the line type `CONTINUOUS`
-  (`edit-added-layer`); a drawing without a LAYER table gets one when a layer is added. Line types, text styles and
-  blocks must exist (`missing-definition`).
-- **What `update` changes**: only the group codes of the keys set; the order and the other tags stay. Moving a TEXT,
-  ATTRIB or ATTDEF that is aligned (72 or 73, 74 for attributes, not 0) moves the alignment point (11) by the same
-  amount, as it is the point that places the text. Setting `rotation` of MTEXT removes its direction vector (11),
-  which would override it. Changing the layer of a POLYLINE also changes its VERTEX and SEQEND. LWPOLYLINE vertices are
-  written again with their bulges; changing only bulges preserves per-vertex widths (40/41) and identifiers (91).
-  Other entities, such as hatches and dimensions, take the common keys only.
-- **What `delete` removes**: the entity with what follows it (VERTEX and SEQEND, ATTRIB and SEQEND), the objects it
-  owns (330), such as its extension dictionary, and its handle in SORTENTSTABLE (with its sort handle), GROUP (340) and
-  reactors (330 in `{ACAD_REACTORS`). An attribute alone cannot be deleted.
-- **Layers**: `add-layer` copies layer `0` without its handle, extension dictionary and extended data, so the plot
-  style and material references stay valid; `update-layer` sets the color (a negative 62 turns a layer off), frozen
-  (70 bit 1), locked (70 bit 4), plot (290), line type (6) and line weight (370). The count of the table (70) follows.
-- **Block definitions**: `add-block` ([decision 0017](../decisions/0017-add-annotations-and-definitions.md)) takes
-  `name` and `basePoint` and writes an empty definition before the ENDSEC of BLOCKS: from R13 on a BLOCK_RECORD (with
-  layout 340 = 0, and 70, 280 and 281 from AutoCAD 2004 on) at the end of the BLOCK_RECORD table, whose count (70)
-  follows, and BLOCK and ENDBLK owned by it; in R12, BLOCK and ENDBLK only. A drawing without a BLOCKS section gets
-  one before ENTITIES, which moves the ids of handle-less entities (`#12`) after it. Later operations of the same
-  edit add entities with `"container": "block:<name>"` and place the block with `block-reference`. Names that exist
-  are `already-exists`; names starting with `*` (anonymous blocks) are `invalid-value`. `created` gives the name, and
-  the entities added to the new block their handles (or, without handles, their places in the file).
-- **Dimensions**: `kind: "dimension"` with `dimensionType` `linear` (the default; `rotation` is the angle of the
-  dimension line in degrees) or `aligned`, `start` and `end` (13 and 14, the origins of the extension lines),
-  `position` (a point on the dimension line), `text` (`<>` is the measured value, the default) and `dimensionStyle`
-  (by default `$DIMSTYLE`, else `Standard`; a drawing without DIMSTYLE records uses the header's `$DIM…` variables).
-  The editor writes a DIMENSION (70 = 32 or 33, 10 where the dimension line meets the second extension line, 11 the
-  middle of the text, 42 the measurement from R13 on) and an anonymous block `*D<n>` (70 = 1, a BLOCK_RECORD from R13
-  on) with the extension lines, the dimension line, closed filled arrowheads as SOLIDs (ticks when DIMTSZ > 0) and the
-  text as MTEXT (TEXT in R12), middle centered, from DIMSCALE, DIMASZ, DIMEXO, DIMEXE, DIMTXT, DIMGAP, DIMTAD, DIMDEC,
-  DIMZIN, DIMLFAC, DIMTSZ, DIMCLRD/E/T and the text style DIMTXSTY. Variables that a style records but the editor does
-  not draw (arrow blocks, tolerances, alternate units, suppressed extension lines) are reported (`edit-dimension-style`).
-  Variables missing from a DIMSTYLE record take AutoCAD's defaults, as AutoCAD reads them; the `Standard` that zumen
-  writes holds only DIMSCALE, DIMASZ and DIMTXT, so its values print with four decimals.
-  DIMTAD 2 places text away from the first definition point, and 4 below the dimension line; JIS placement (3) is
-  approximated above the line and reported (`edit-dimension-text-position`).
-  `dimensionType` `angular-3-point` takes `center` (15, the vertex), `start` and `end` (13 and 14) and `position`
-  (10, a point on the dimension arc, whose distance from `center` is the arc's radius), and measures the angle
-  between the two rays that holds `position`: 70 = 37, 42 the angle in radians, and in the block an ARC (cut around
-  the text when DIMTAD is 0), extension lines only from origins inside the arc (an origin outside it already has its
-  line reaching the arc), arrowheads along the arc's tangents, and the angle in degrees with `%%d`, rounded to
-  DIMADEC (−1 is DIMDEC) and trimmed by DIMAZIN; another DIMAUNIT is drawn in decimal degrees and reported
-  (`edit-dimension-angle-unit`). `radius` and `diameter` take `center` and `point` (on the circle): 70 = 36 with 10
-  the center, or 70 = 35 with 10 the point opposite `point`, 15 `point` and the leader length 40 = 0, and a block
-  with the dimension line from 10 to 15, an arrowhead on the circle (both ends for a diameter) and the text `R<value>`
-  or `%%c<value>` in the middle. Keys of another type (`rotation` of a radius) are `invalid-value`; `angular`,
-  `ordinate` and the rest are `unsupported-kind`.
-- **Styles**: `add-text-style` (`font`, `bigFont`, `height`, `widthFactor`, `oblique` in degrees), `add-line-type`
-  (`description`, `pattern`: up to 12 dashes (positive), gaps (negative) and dots (0) in drawing units) and
-  `add-dimension-style` (`from`, by default `Standard`, whose record is copied; `scale` DIMSCALE, `textHeight` DIMTXT,
-  `arrowSize` DIMASZ, `extensionOffset` DIMEXO, `extensionExtension` DIMEXE, `textGap` DIMGAP, `textAbove` DIMTAD,
-  `decimals` DIMDEC (not in R12, `edit-no-dimdec`), `suppressTrailingZeros` DIMZIN 8, `tickSize` DIMTSZ,
-  `linearFactor` DIMLFAC, `textStyle` DIMTXSTY) add a record at the end of their table, whose count (70) follows.
-  Later operations of the same edit can name them. Their values are read by `zumen_core::edit::style`, as in every
-  editor; JWW and SXF keep the names of dimension and text styles for the edit only
-  ([decision 0026](../decisions/0026-styles-in-jww-and-sxf-edits.md)). A `font` with an extension (`.shx`, `.ttf`,
-  `.ttc`, …) is the font file; a name without one is a TrueType family, written as extended data (`ACAD` 1000) with
-  its Windows file
-  (`MS Gothic` → `msgothic.ttc`, `MS Mincho` → `msmincho.ttc`, Meiryo, Yu Gothic, Yu Mincho; others `<family>.ttf`).
-  R12, or a drawing without the `ACAD` APPID, gets the file only (`edit-font-family`).
-- **Hatches**: `kind: "hatch"` with `boundaries` (closed polylines `[[[x, y], …], …]`, the first the outer one, the
-  others holes; one boundary may be given as `[[x, y], …]`), `pattern` (`SOLID`, the default, or a built-in pattern:
-  `ANSI31`, `ANSI32`, `ANSI37`, `LINE`, `NET`, `DOTS`, defined in `zumen_core::edit::hatch` (shared by every editor,
-  re-exported as `zumen_dxf::hatch`) in millimeters at scale 1, not copied from a CAD pattern file), `patternScale`, `patternAngle` (degrees) and `patternLines` (the lines of a PAT
-  file, `[angle, x, y, dx, dy, dash…]`, for any other name). The HATCH has polyline paths (92 = 3 for the outer one,
-  2 for holes), the normal island style (75 = 0), no association (71 = 0), and pattern lines already scaled and
-  rotated, as AutoCAD stores them (the offset of a PAT line is turned by its angle). R12 has no HATCH
-  (`unsupported-kind`). Unknown names without `patternLines` are `missing-definition`.
-- **Text placement**: `text` also takes `justification` (`left`, `center`, `right` on the baseline, and
-  `top-`, `middle-` and `bottom-` with `left`, `center` and `right`), `lineSpacing` (a factor from 0.25 to 4) and
-  `multiline` (`true` writes MTEXT for one line). TEXT gets 72 and 73 with the alignment point 11 at `position`;
-  MTEXT gets the attachment 71 (baseline justifications become the bottom row) and, from AutoCAD 2000 on, 73 = 1 and
-  44 (`edit-no-line-spacing` before). `lineSpacing` makes MTEXT. `widthFactor` (the width of the characters, 1 by
-  default) is 41 of TEXT; MTEXT has no width factor value, so it starts with the `\W<factor>;` code.
-- **Attributes**: `kind: "attribute-definition"` in a block (`container: "block:<name>"`, `invalid-value`
-  elsewhere) with `tag` (no spaces, written in capitals, as AutoCAD keeps it), `prompt`, `text` (the default
-  value), `position`, `height`, `rotation`, `textStyle` and `justification` writes an ATTDEF and sets bit 2 (has
-  attributes) of the BLOCK. `block-reference` takes `attributes`, an object from tag to value: the INSERT gets 66 = 1
-  and, for each non-constant attribute definition of the block (those the drawing has and those added earlier in the
-  edit), an ATTRIB owned by it, placed as AutoCAD places it (the definition's point less the base point, scaled,
-  rotated and moved to the reference; the baseline and vertical axis are transformed too, updating height, width,
-  rotation, oblique angle and text generation flags for unequal or negative scales), with the given value or the
-  default, then a SEQEND. The ATTRIB keeps its definition's layer, color, line type and line width.
-  A tag that the block does not define is `invalid-value`. Without `attributes`, no ATTRIB is written.
-  Updating a block reference's position, rotation or scale transforms its existing ATTRIB positions, alignment
-  points and glyph axes by the change of placement, preserving values, handles and unrelated tags. References with
-  tilted OCS or embedded MTEXT attributes refuse placement changes (`unsupported-kind`) rather than leave their
-  attributes behind. Names escaped as `\U+XXXX` are decoded for editing lookups without rewriting untouched tags.
-- **Layouts and viewports** (AutoCAD 2000 and later; older drawings refuse them with `unsupported-kind`):
-  `add-layout` (`name`, `paperSize: [width, height]` in millimeters) copies a LAYOUT of the drawing (a paper one if
-  there is one) with the new name, the next tab order, the paper size and name (`ISO_A3_(420.00_x_297.00_MM)` for the
-  A sizes, else empty), limits and a new paper space block `*Paper_Space<n>` (its BLOCK_RECORD's 340 is the layout),
-  adds it to the `ACAD_LAYOUT` dictionary, and puts the viewport of the whole sheet (69 = 1) in the block.
-  New layouts use millimeter paper coordinates at 1:1, with no rotation or plot offset. The printer margins default
-  to zero; `margins` (`[left, bottom, right, top]` in millimeters, 40 to 43) overrides them and moves the sheet's origin.
-  `update-layout` (`name`, `set: {"paperSize": [width, height]}`) changes an existing paper layout's dimensions,
-  paper name and limits and resizes its whole-sheet viewport, preserving its handle, printer margins and other plot
-  settings.
-  `kind: "viewport"` in `container: "layout:<name>"` takes `center`, `width` and `height` on the sheet (mm),
-  `viewCenter` in model coordinates and `scale`, the denominator of the scale (1:100 is `100`): the view height is
-  `height × scale` converted from millimeters to the drawing's `$INSUNITS` (unitless counts as millimeters). Its id
-  (69) follows the largest of the layout.
-- **Leaders**: `kind: "leader"` with `vertices` (the first is the arrowhead's tip), `text`, `height` (by default
-  DIMTXT × DIMSCALE), `dimensionStyle` and `textStyle` writes a LEADER (arrowhead on, straight, 73 = 0 with text and
-  3 without) and, for the text, an MTEXT that the LEADER points to (340), DIMGAP × DIMSCALE beyond the last vertex,
-  middle left when the last segment goes right and middle right when it goes left. No hook line is added. R12 has no
-  LEADER (`unsupported-kind`). `created` gives the LEADER.
-- **Images** (R14 and later; R12 and R13 refuse them with `unsupported-kind`): `kind: "image"` with `path`, `pixels:
-  [width, height]`, `position` (the lower left corner), `width` in drawing units (by default one unit per pixel) and
-  `rotation` in degrees writes an IMAGE with square pixels (70 = 7, brightness 50, contrast 50, the whole image as a
-  rectangular clipping boundary), an IMAGEDEF that keeps `path` as given (zumen does not open the file; pixel size 1,
-  no resolution units) and an IMAGEDEF_REACTOR owned by the IMAGE. The IMAGEDEF goes into `ACAD_IMAGE_DICT` under the
-  file name without its extension (`site`, then `site-2` …), and the dictionary is created in the named objects
-  dictionary (the first object of OBJECTS) when the drawing has none. A drawing without a named objects dictionary or
-  without an OBJECTS section (hand-written DXF) gets them, with only `ACAD_IMAGE_DICT` in the dictionary. The IMAGE, IMAGEDEF and IMAGEDEF_REACTOR classes are added to CLASSES when
-  missing (the section is created after HEADER if the drawing has none). Every image gets its own IMAGEDEF, also for
-  a path used before. Reading keeps the IMAGEDEF's file name (`DxfImage::path`). `created` gives the IMAGE.
-- **Values the version cannot hold** are written as the nearest one and reported: `edit-nearest-color` (no true color
-  before AutoCAD 2004), `edit-rounded-lineweight` (the line weights of the DXF Reference), `edit-no-lineweight` (no
-  line weights before AutoCAD 2000).
+[r12-r12prepare](dxf.en.md#r12-r12prepare)
 
-## Verification
+<a id="editing-edit_dxf"></a>
 
-See [verification.md](../verification.md#dxf), [DXF writing](../verification.md#dxf-writing) and
-[DXF versions](../verification.md#dxf-versions). The parser was compared with ezdxf 1.4.5 on public Japanese drawings
-(Yokosuka City and Imizu City), the ACadSharp samples (R12 to 2018, ASCII and binary) and generated drawings.
+[editing-edit_dxf](dxf.en.md#editing-edit_dxf)
 
-R12 export limits dashed hatch expansion to 100,000 dash steps per source stroke. Denser patterns or floating-point steps that cannot advance are written as continuous clipped lines and reported as `version-hatch-density`. Anonymous block names wrap to unused positive numbers when the source contains the maximum integer suffix.
+<a id="verification"></a>
+
+[verification](dxf.en.md#verification)
+
+</details>

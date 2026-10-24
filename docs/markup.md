@@ -1,233 +1,102 @@
-# Drawing markup
+# 図面のマークアップ
 
-Redlines, revision clouds, notes, review findings and photo positions are kept in a JSON document beside the drawing,
-never in the drawing file. Points are paper millimeters of one view of the drawing, with the Y axis up, so markup made
-on a CAD layout lines up with the PDF plotted from it at the same paper size. The document names the drawing by the
-SHA-256 of its bytes, and items name the entities they are about by their ids
-([decision 0021](decisions/0021-drawing-markup.md)).
+赤入れ・変更雲・注記・指摘・写真の撮影位置を、図面に添える JSON 文書として扱います。図面ファイル自体は変えません。ブラウザで表示・編集でき、Rust・Python・CLI・MCP からも読み書きと新版への移行ができます。
 
-`@zumenjs/core` reads, checks and writes the documents and computes the shapes of their items, `@zumenjs/viewer` draws
-and edits them on a `DrawingViewer` (`MarkupLayer` and its tools), and `@zumenjs/react` has hooks for both. The Rust
-crate `zumen-core` reads the same documents and gives the same shapes, checked against the fixtures in
-`tests/fixtures/markup/`; `zumen-render` draws them on servers and `zumen` carries them to new revisions, for Python,
-the command line and the MCP server ([On servers](#on-servers)).
-
-```ts
-import { createMarkup, drawingHash, markupFromJson, markupToJson } from "@zumenjs/core";
-import { findingTool, MarkupLayer, markupEditTool, redlineTool } from "@zumenjs/viewer";
-
-const document = saved ? markupFromJson(saved) : createMarkup({ sha256: await drawingHash(bytes), format: scene.format });
-const layer = new MarkupLayer(viewer, { document, author: user.id });
-layer.on("change", (event) => save(markupToJson(event.document)));
-viewer.addTool(redlineTool(layer, { arrows: "end" }));
-viewer.addTool(findingTool(layer, { create: (draft) => askForText(draft) }));
-viewer.addTool(markupEditTool(layer));
-viewer.setTool("markup-finding");
-```
-
-## The document
+## 文書
 
 ```json
 {
   "format": "zumen-markup",
   "version": 1,
-  "drawing": { "sha256": "9f2c…", "format": "dxf" },
+  "drawing": {"sha256": "0000000000000000000000000000000000000000000000000000000000000000", "format": "jww"},
   "items": [
-    { "id": "0b6f…", "kind": "finding", "view": "A3-平面図", "position": [212.5, 140], "status": "open", "label": "3" }
+    {"id": "note-1", "kind": "text", "position": [100, 80], "text": "寸法を確認", "height": 3.5}
   ]
 }
 ```
 
-| Key | Value |
+`drawing.sha256` は対象図面のバイト列の SHA-256（小文字の 16 進数）です。上の値は書式例で、実際には `drawingHash`・`zumen.drawing_hash` の結果を使います。
+
+座標は項目の `view` の用紙上の mm、Y 軸は上向きです。複数ビューのある図面はビュー id を指定し、単一ビューでは省略できます。文書と項目の未知のキーは読み書きで保持します。
+
+| kind | 内容 |
 | --- | --- |
-| `format` | `"zumen-markup"` |
-| `version` | `1`. Readers refuse larger versions |
-| `drawing.sha256` | The SHA-256 ([FIPS 180-4](https://csrc.nist.gov/pubs/fips/180-4/upd1/final)) of the drawing's bytes, 64 lowercase hexadecimal digits. For P2Z and SFZ, the archive |
-| `drawing.format` | `Scene.format` of the drawing (`sfc`, `jww`, `dxf`, …) |
-| `items` | The items, drawn in this order |
-| `data` | Optional; an object for the application, kept as it is |
+| `redline` | 線・折線・手書き・長方形。`points`、閉じる指定、矢印 |
+| `cloud` | `points` の閉じた外周に沿う変更雲 |
+| `text` | `position` からの注記。高さ・回転を指定可能 |
+| `finding` | 指摘のピン、任意の範囲、内容、ラベル、状態 |
+| `photo` | 撮影位置、写真の参照、撮影方向 |
 
-Every item has these keys:
+項目には一意の `id` が必要です。`category` は色の分類、`color` は個別色、`lineWidth` は用紙上の mm です。`entities` は対象図形の id、`data` は担当者・期限・返信など利用側の情報を保持します。
 
-| Key | Value |
+[JSON Schema](../crates/zumen-core/schema/markup.schema.json)で文書の形を確認できます。不正な入力は code・path・日本語の説明で返します。
+
+## 描画と編集
+
+ブラウザでは `createMarkup`・`markupFromJson`・`markupToJson` と `MarkupLayer` を使います。道具を選んで入力し、変更イベントで文書を保存します。画面は[サンプル](../playground/markup-sample.tsx)を参照してください。
+
+サーバーでは `zumen.read_markup`、`zumen.tools.list_markup`・`write_markup` を使います。描画時に markup を渡すと同じビューの項目を重ねます。ピン・写真記号の大きさは画面のピクセルを基準にします。カテゴリ色より個別色を優先し、未指定は赤です。
+
+## 新版への移行
+
+`carry_markup` は旧版と新版の全レイヤを形・文字で比較します。版の移動量で項目の座標を動かし、対応する図形 id に付け替え、状態を記録します。
+
+| carried.state | 意味 |
 | --- | --- |
-| `id` | A non-empty string, unique in the document. The viewer makes UUIDs unless the application gives its own |
-| `kind` | `redline`, `cloud`, `text`, `finding` or `photo` |
-| `view` | The view id of the scene (`Scene.view`) whose coordinates the points are in. Left out for formats with one view. An item is drawn only in its view |
-| `category` | Optional; a key of the application in lowercase letters, digits and hyphens (`correction`, `question`…), which chooses the color |
-| `color` | Optional; `#rrggbb` or `#rrggbbaa`, over the category's color |
-| `lineWidth` | Optional; the width of the lines in paper millimeters, more than 0. Without it lines are drawn 2 pixels wide (below) |
-| `text` | Optional; the text of a note, or of a finding |
-| `entities` | Optional; the ids of the entities the item is about. They resolve only in the drawing whose bytes have `drawing.sha256` |
-| `author` | Optional; the application's name or id for a person |
-| `createdAt`, `updatedAt` | Optional; date and times of [RFC 3339](https://www.rfc-editor.org/rfc/rfc3339) (section 5.6, with an offset or `Z`) |
-| `carried` | Optional; `{ "from": "<sha256 of the drawing it was made on>", "state": "unchanged" \| "changed" \| "removed" }`, set when the markup was carried to a new revision |
-| `data` | Optional; an object for the application (assignees, due dates, replies…), kept as it is |
+| `unchanged` | 対象の内容・位置に関する変更なし |
+| `changed` | 対象の内容または項目付近の図面に変更あり |
+| `removed` | 対象図形またはビューがなくなった |
 
-The kinds have their own keys:
+ビューの対応を指定すると、DXF のレイアウトから PDF のページなどへ移せます。元の文書が旧版の SHA-256 を指すことを確認し、明示的な無視指定がなければ不一致を拒否します。移行結果には新しい図面のハッシュと状態ごとの件数を返します。
 
-| `kind` | Keys | Default |
-| --- | --- | --- |
-| `redline` | `points` (2 or more), `closed`, `arrows` (`none`, `start`, `end`, `both`) | `closed` false, `arrows` none |
-| `cloud` | `points` (3 or more, the closed outline), `arcLength` (the chord of an arc, paper millimeters, more than 0) | `arcLength` 10 |
-| `text` | `position` (the lower left of the first line), `text` (required), `height` (paper millimeters, more than 0), `angle` (degrees, counterclockwise) | `height` 3.5, `angle` 0 |
-| `finding` | `position` (the pin), `status` (required: `open`, `resolved`, `closed`), `points` (the area, 3 or more), `label` (short text on the pin, such as its number) | |
-| `photo` | `position` (where the photo was taken), `photo` (required: a reference that the application resolves, such as an id or a URL), `direction` (degrees counterclockwise from +x, the camera's heading), `takenAt` (RFC 3339) | |
+```sh
+zumen markup carry markup.json before.dwg after.dwg -o carried.json
+zumen render after.dwg -o review.png --markup carried.json
+```
 
-A point is `[x, y]`, two finite numbers. A finding is `open` until the designer handles it, `resolved` until the reviewer
-confirms it, and `closed` when confirmed or withdrawn; finer states belong to the application. The document never holds
-the bytes of a photo.
+写真の参照の解決、担当者・期限・返信の運用、保存先は利用側で決めます。
 
-### Unknown keys
+## 英語の補足資料
 
-A key that a reader does not know, in the document or in an item, is kept as it is when the document is read and
-written again, and so is a key of another kind (a `position` on a redline). Additions that older readers may ignore keep
-version 1. In TypeScript the objects returned by `markupFromJson` keep such keys although the types do not name them,
-and `MarkupLayer.update` keeps them.
+対応表・実装上の細則・従来のコード例は [markup.en.md](markup.en.md) にも保存しています。
 
-### Checks
+<details>
+<summary>従来の見出しから詳細を探す</summary>
 
-`markupFromJson(json)` (TypeScript) and `MarkupDocument::from_json` (Rust) refuse a document with the same error, the
-first one met in this order: the JSON, `format`, `version`, `drawing` (`sha256`, then `format`), `items`, `data`,
-then each item in order: that it is an object, `id`, a duplicate id, `kind`, the common keys in the order of the
-table above (`carried.from` before `carried.state`), then the keys of its kind in the order of the table of kinds. An
-error has:
+<a id="drawing-markup"></a>
 
-| Field | Value |
-| --- | --- |
-| `code` | `json` (not JSON), `format` (not a markup document), `version` (newer than the reader), `missing` (a required key), `type` (a value of the wrong JSON type), `value` (a value out of range, a pattern not matched, too few points), `duplicate` (an id used twice) |
-| `item` | The index of the item, or null for the document's own keys |
-| `id` | The id of the item, or null before it is read |
-| `key` | The key: `drawing.sha256`, `carried.state`, `points`…; null when the JSON or an item itself is wrong |
+[drawing-markup](markup.en.md#drawing-markup)
 
-`tests/fixtures/markup/errors.json` lists the cases both readers must agree on. A number beyond the range of a double
-(`1e999`) is the one difference: `JSON.parse` makes it infinite, which TypeScript refuses as a `value`, and Rust refuses
-the text as `json`.
+<a id="the-document"></a>
 
-## Shapes
+[the-document](markup.en.md#the-document)
 
-`markupShapes(item, { color, pixel })` returns the shapes drawn for an item, in paper millimeters, as primitives of the
-scene model (strokes, fills and texts), in drawing order. The viewer draws them with `renderPrimitives`, and
-`zumen-render` draws the same primitives (`zumen_core::markup::shapes`, the same function in Rust).
+<a id="unknown-keys"></a>
 
-- The color is the item's `color`, else `options.color` (the color of its category, which the application or the
-  viewer's style chooses), else `#ff0000`. Translucent parts multiply the alpha of `#rrggbb` and `#rrggbbaa` colors
-  and are written `#rrggbbaa` in lowercase; the fill color `background` is the background of the view.
-- `pixel` is the paper length of one pixel of the parts drawn at a fixed size on screen: pins, photo symbols, lines
-  without `lineWidth` and their arrowheads. The viewer passes one CSS pixel at the current zoom. `zumen-render` passes
-  one pixel of the image in PNG (times the device pixel ratio), so pins are as many pixels as on screen whatever the
-  drawing's scale, and the default, 25.4 / 96 mm, the size of a CSS pixel at zoom 1, in SVG and PDF, whose pages are
-  the sheet at its real size.
-- `w` is the line width: `lineWidth`, or 2 pixels.
+[unknown-keys](markup.en.md#unknown-keys)
 
-| Kind | Shapes |
-| --- | --- |
-| `redline` | One stroke through `points` of width `w`, closed if `closed`. Unless closed, an arrowhead at each end that `arrows` names: a filled triangle with its tip at the end, length 6`w` and half width 2`w`, pointing from the nearest point at another position |
-| `cloud` | One closed stroke of width `w`. Each edge of the outline (the last point joins the first; edges of length 0 are skipped) is divided into `n = max(1, round(length / chord))` equal chords, where `chord = max(arcLength, perimeter / 4096)`. Over each chord, an arc with a central angle of 120° bulges outward (to the right of the direction of travel when the signed area of the outline is 0 or more, to the left otherwise): its center is the middle of the chord moved inward by half the chord / tan 60°, and it is drawn as 8 segments, the start of the chord followed by 7 points each turned by 15° (counterclockwise for outlines of positive area) around the center |
-| `text` | One text per line (lines split at `\r\n`, `\r` and `\n`; empty lines draw nothing but keep their place), laid out by the text layout of the scene model with the given height and angle, the lower left (anchor 1) at `position` for the first line, and each further line 1.5 `height` lower in the text's own down direction. The font is the default gothic of the scene model |
-| `finding` | With `points`: the area filled at 15% opacity, then its closed outline of width `w`. The pin, a circle of radius 10 pixels at `position` drawn as a polygon of 32 points starting at +x: filled for `open`, filled with the background and outlined in the color with a line of 2 pixels for `resolved`, filled at 40% opacity for `closed`. `label` is centered on the pin, 10 pixels high, or less so that it is no wider than 16 pixels (half-width characters count as half), in the background color, or in the color for `resolved` |
-| `photo` | With `direction`: a sector of radius 24 pixels from `position`, 30° to each side of the direction, as `position` followed by 9 points on the arc, filled at 30% opacity and outlined with a line of 1 pixel. Then a filled circle of radius 6 pixels and a circle of radius 2.5 pixels in the background color (the lens), both of 32 points |
+<a id="checks"></a>
 
-`markupBox(item)` is the box of the shapes drawn with a pixel of 0: the points, the arcs of clouds and the outlines of
-texts, without the parts drawn at a fixed size on screen, so a pin or a photo is the box of its position. Carrying to
-a new revision compares this box with the regions that changed.
+[checks](markup.en.md#checks)
 
-`tests/fixtures/markup/kinds.markup.json` has every kind and key, and `kinds.shapes.json` its shapes with the default
-options and with `{ "color": "#336699", "pixel": 0.5 }`, written by the TypeScript side (`pnpm run golden`) and
-checked by the Rust tests of `zumen-core`.
+<a id="shapes"></a>
 
-## Revisions
+[shapes](markup.en.md#shapes)
 
-When `drawing.sha256` is the hash of the bytes shown, `entities` resolve in the scene of the item's view. Otherwise
-the markup was made on another revision: it is drawn by its points either way, and carrying moves it to the new bytes
-by the comparison of revisions (`zumen_core::compare`) view by view, as
-[decision 0021](decisions/0021-drawing-markup.md#revisions) describes. A sheet drawn as CAD and the PDF plotted from
-it share paper millimeters, but their views have other ids (a layout name, a page number); carrying with a map of
-views moves items from one to the other.
+<a id="revisions"></a>
 
-## Carrying in detail
+[revisions](markup.en.md#revisions)
 
-`zumen::carry_markup(document, before, after, options)` takes the bytes of both revisions:
+<a id="carrying-in-detail"></a>
 
-- The document must name `before` (`drawing.sha256`), or `options.ignore_hash` is set; otherwise the error is
-  `drawing-mismatch`.
-- The items are taken view by view, in the order they first appear. A view is compared with the view of the same id
-  in `after`, or the one `options.views` names; items without a view use the default view of both. When a view is
-  not in `before` or `after`, its items are not moved and are `removed`.
-- The comparison is `compare_scenes` with `options.compare`, which compares every layer by default
-  (`all_layers: true`), since an item can be about an entity on a hidden layer. Its offset moves the items
-  (`after = before + offset`).
-- An id in `entities` becomes the id of the matched entity (unchanged or changed pairs); an id of a removed entity,
-  of an entity the comparison did not pair, or of no entity of `before` is dropped and counts as removed. `entities`
-  stays, empty, when every id is dropped.
-- The state is `removed` when the item named entities and none is left, `changed` when a named entity changed or was
-  dropped or `markupBox` (before moving) overlaps a region of the comparison, and `unchanged` otherwise. `updatedAt`
-  does not change: carrying is not an edit by a person.
-- The document's `drawing` becomes the SHA-256 and format of `after`, and each carried item's `view` the id of the
-  view of `after` it was compared with; everything else, unknown keys included, stays.
+[carrying-in-detail](markup.en.md#carrying-in-detail)
 
-## On servers
+<a id="on-servers"></a>
 
-- **Rust.** `zumen_core::markup` has `MarkupDocument` (`from_json`, `from_value`, `to_json`, `to_value`,
-  `items_in_view`), `MarkupItem` with its `MarkupBody` by kind (unknown keys in `extra`), `MarkupError`, `shapes`,
-  `markup_box`, `markup_entities` (the items as scene entities, `markup:<id>`, for drawing), `carry_view`,
-  `drawing_hash` (SHA-256 with the `sha2` crate) and `SCHEMA` (the JSON Schema of the document). `zumen::carry_markup`
-  carries a document over the bytes of two revisions (`CarryOptions`, `CarriedMarkup`, `CarryError`), and
-  `zumen_render::RenderOptions::markup` (`RenderMarkup`: the items and a `MarkupStyle` with the colors of categories)
-  draws items over the drawing in PNG, SVG and PDF, in the item's color, its category's or red.
-- **Python.** `zumen.read_markup(source)` returns `TypedDict` classes, `zumen.markup_schema()`,
-  `zumen.drawing_hash(source)`, `zumen.carry_markup(markup, before, after, views=…)`, and `markup=` with
-  `markup_colors=` on `Scene.render_png`, `render_svg`, `render_pdf` and `render`
-  ([the Python package](../bindings/python/README.md#markup)).
-- **The command line.** `zumen markup carry <markup> <before> <after> [-o <out.json>] [--view-map <old>=<new>]`
-  writes the carried document and the number of items in each state; `zumen render --markup <file>
-  [--markup-color <category>=<#rrggbb>]` draws the items of the view drawn.
-- **The MCP server.** `render_drawing` takes `markup` (a path); `read_markup` lists the items of a file with their
-  kind, box, text, status, carried state and entities, and whether a drawing has the bytes the markup was made on;
-  `write_markup` adds, updates and removes items (creating the file for a drawing, whose default view an item added
-  without one gets); `carry_markup` writes the carried
-  document to a new path and returns the number of items in each state. The two that write work under the roots like
-  `draft_drawing`.
+[on-servers](markup.en.md#on-servers)
 
-## In the browser
+<a id="in-the-browser"></a>
 
-`MarkupLayer` of `@zumenjs/viewer` is built on the public API of `DrawingViewer`: it draws with an overlay and
-queries the viewer like any application would.
+[in-the-browser](markup.en.md#in-the-browser)
 
-- **State.** `getState()` and `subscribe(listener)`: the document, the selection and the hovered item (ids), the filter
-  and whether `undo` and `redo` can run. `items()` returns the items drawn now (the scene's view, the filter), and
-  `itemsAt(x, y, { tolerance })` those under a paper point, topmost first.
-- **Editing.** `add(items)` fills in the id (`createId`), `author` and the times (`now`) from the options and the
-  scene's view, `update(id, patch)` or `update([{ id, patch }])` sets `updatedAt` and removes keys given as
-  `undefined`, and `remove(ids)`; each call checks the items, is one step of `undo` and `redo` (`historyLimit`, 100
-  by default), and sends `change` with the document and the ids added, updated and removed (`origin` is `edit`, `undo`
-  or `redo`), for the application to save. `setDocument(document)` replaces the document and clears the history
-  without sending `change`.
-- **Tools.** Factories like the viewer's own tools, added with `viewer.addTool` and chosen with `viewer.setTool`:
-  `redlineTool(layer, { mode })` (`line`, `polyline`, `freehand`, `rectangle`), `cloudTool(layer, { mode })`
-  (`rectangle`, `polygon`), `textTool`, `findingTool`, `photoTool` and `markupEditTool` (select, move, move a point,
-  delete with Delete or Backspace, pan where there is nothing). Each takes `name`, `category`, `color` and
-  `lineWidth`, and a tool that creates an item passes the draft to `create(draft, layer)`, which returns the item with
-  its text and fields (it may wait for the application's own interface) or `null` to cancel. A pending result is
-  discarded after cancellation, a tool or scene change, or replacement of the markup document. The pin of a finding
-  placed with a click takes the entity under it as its `entities`, and its `label` is the next number. Ctrl or ⌘ with
-  Z undoes and with Shift redoes. `setPreview(items)` draws items that are not in the document, as the tools do for
-  drafts and moves.
-- **Style.** Colors come from CSS custom properties on the viewer's element, and `setStyle` overrides them:
-
-  | Property | Default (dark, light) | |
-  | --- | --- | --- |
-  | `--zumen-markup-dark`, `-light` | `#ff4d4d`, `#e00000` | Items without a color or a category color |
-  | `--zumen-markup-category-<category>-dark`, `-light` | | Items of that category |
-  | `--zumen-markup-selection-dark`, `-light` | `#33ccff`, `#0062d6` | The frame and point handles of selected items |
-  | `--zumen-markup-changed-dark`, `-light` | `#ffb000`, `#b86e00` | The frame of items carried as `changed` |
-  | `--zumen-markup-removed-dark`, `-light` | `#a0a0a0`, `#707070` | The frame of items carried as `removed` |
-
-  Any CSS color works; the layer turns it into `#rrggbbaa` to draw the translucent parts.
-- **React.** `useMarkupLayer(viewer, { document, …options })` creates the layer while the viewer and a document exist,
-  calls `setDocument` when `document` becomes another document than the layer's (passing back the document of a
-  `change` event does nothing), and `setAuthor` when `author` changes. `useMarkupState(layer, selector)` and
-  `useMarkupEvent(layer, "change", listener)` read it.
-
-The playground's markup sample (`playground/markup-sample.tsx`) has tools, categories, undo and redo, a list of items,
-a panel for the text and status of a finding, and saving and opening a document, with its own text and CSS.
+</details>

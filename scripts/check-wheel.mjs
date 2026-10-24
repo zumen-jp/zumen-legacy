@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const wheels = readdirSync(join(root, "target/wheels")).filter((name) => name.endsWith(".whl"));
-if (wheels.length !== 1) throw new Error(`Expected one wheel in target/wheels, found ${wheels.length}`);
+if (wheels.length !== 1) throw new Error(`target/wheels の wheel は 1 つにしてください（現在 ${wheels.length} 個）`);
 const directory = mkdtempSync(join(tmpdir(), "zumen wheel 日本語 "));
 const python = join(directory, process.platform === "win32" ? "Scripts/python.exe" : "bin/python");
 try {

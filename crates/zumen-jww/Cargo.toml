@@ -1,6 +1,6 @@
 [package]
 name = "zumen-jww"
-description = "Read Jw_cad JWW, JWC and JWS files into the zumen scene model, write them, and edit JWW"
+description = "Jw_cad の JWW・JWC・JWS を読み取り、書き出しと JWW の編集を行う"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

@@ -1,6 +1,6 @@
 [package]
 name = "zumen-render"
-description = "Render zumen scenes to PNG, SVG and PDF with the same rules as the browser viewer"
+description = "ブラウザのビューアと共通の規則で図面を PNG・SVG・PDF に描画する"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

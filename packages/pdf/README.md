@@ -1,142 +1,65 @@
 # @zumenjs/pdf
 
-Draws PDF pages under a [zumen](https://github.com/zumenjs/zumen) drawing with [pdf.js](https://github.com/mozilla/pdf.js):
-the pages of PDF drawings, and the PDF underlays that DXF drawings name. It is an `UnderlayRenderer` for
-`DrawingViewer` of [`@zumenjs/viewer`](../viewer), and draws pixels only. What is hit, snapped to, measured and listed
-on a page (its paths and texts, as entities that are not drawn) comes from the reader that read the scene, so the
-application gives the same bytes to both ([decision 0020](../../docs/decisions/0020-pdf-drawings-in-rust.md)).
+PDF 図面のページや、CAD 図面に参照された PDF を、図形の下に描くための部品です。利用側が開いた pdf.js の文書を使います。図形の読み取りは [`@zumenjs/reader`](../reader) が行います。
 
-```ts
-import { readDrawing } from "@zumenjs/core";
-import { pdfUnderlayRenderer } from "@zumenjs/pdf";
-import { initPdfReader, reader } from "@zumenjs/reader";
-import { DrawingViewer } from "@zumenjs/viewer";
-import { GlobalWorkerOptions, getDocument } from "pdfjs-dist";
-import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url"; // Vite; see "pdf.js and bundlers"
-
-GlobalWorkerOptions.workerSrc = workerUrl;
-
-const bytes = new Uint8Array(await file.arrayBuffer());
-await initPdfReader();
-const scene = readDrawing(bytes, [reader]);
-// pdf.js moves the bytes it is given to its worker, so give it a copy
-const pdf = getDocument({ data: bytes.slice() });
-const viewer = new DrawingViewer(element, scene, {
-  // file is undefined for the pages of the drawing itself
-  underlayRenderer: pdfUnderlayRenderer({ document: (file) => (file === undefined ? pdf.promise : null) }),
-});
-
-// When the drawing is closed
-viewer.destroy();
-await pdf.destroy();
+```bash
+npm install @zumenjs/core @zumenjs/viewer @zumenjs/pdf pdfjs-dist
 ```
 
-The pages of PDF drawings reach the scene through `@zumenjs/reader`, which reads PDF with a WebAssembly module of its
-own ([decision 0030](../../docs/decisions/0030-pdf-in-a-webassembly-module-of-its-own.md)); each page is a view of the
-scene with the page as its underlay. The playground's
-[PDF sample](https://github.com/zumenjs/zumen/blob/main/playground/pdf-sample.ts) puts it together: it opens the
-bytes with pdf.js only when they are a PDF (`detectDrawing`), importing pdf.js at that moment, and its
-`vite.config.ts` serves the CMaps and image decoders of pdf.js.
+`pdfUnderlayRenderer` は `UnderlayRenderer` を作ります。利用側の解決関数から pdf.js の文書を返し、`DrawingViewer` に渡します。文書の作成・Worker の設定・外部ファイルの取得は利用側で行います。
 
-## What it draws
+- 必要な範囲を必要な解像度で描画します。用紙と PDF の座標変換は `Underlay` の行列に従います。
+- PDF の表示グループ（optional content）は、下敷きの内容レイヤの表示・非表示に合わせます。
+- 図形の読み取りや id の生成には pdf.js を使いません。Rust・Python と共通の読み取り結果を保ちます。
+- `pdfjs-dist` 5 または 6 が peer dependency です。zumen のパッケージに pdf.js の実装は含みません。
+- pdf.js が必要とする CMap・フォント・画像の復号器の配信設定と、それぞれのライセンスは利用側で確認します。
 
-- Underlays of `kind: "pdf"`. `page` counts from 1. Without `file` the page belongs to the drawing's own file; with
-  `file`, to the file the drawing names (a DXF PDF underlay), which the application finds and opens.
-- The content coordinates are the points of the page as it is displayed: turned by `/Rotate`, with the origin at the
-  top left of the crop box and y down, which is pdf.js's `page.getViewport({ scale: 1 })`. A page of another size than
-  the underlay's `width` × `height` is stretched over it.
-- Each request draws `request.region` at `request.scale` into the canvas the viewer gives: pdf.js renders
-  `page.getViewport({ scale })` with the transform `[1, 0, 0, 1, −x × scale, −y × scale]`, so a detail at a high zoom
-  never renders the whole page. When the request's `signal` is aborted, the `RenderTask` is cancelled.
-- The viewer asks for the whole page coarsely (up to 2048 × 2048 pixels) and, when that is not sharp enough, for the
-  visible region at the device resolution, once the view has stood still for 120 ms. While the view moves it stretches
-  what it has and aborts the requests that no longer fit, so moving stays fast and the page sharpens when it stops.
-
-## Options
-
-| Option | Default | What it does |
-| --- | --- | --- |
-| `document(file, underlay)` | Required | Returns the pdf.js document (`PDFDocumentProxy`, or a promise of it) that holds the page. Called once per `file`; returning `null` or rejecting fails the request, and the next request calls it again. The application opens the documents and closes them when they are no longer drawn. |
-| `optionalContent(layer, underlay)` | None | The ids of the optional content groups (pdf.js ids such as `"12R"`) that a layer of `underlay.contentLayers` turns on and off. Hidden layers turn their groups off and visible layers turn them on, including groups that the document hides by default. Without it, pages are drawn with the document's default visibility. |
-| `annotations` | `true` | Draws the appearance of annotations (stamps, comments, form fields), as pdf.js does by default. `false` draws the page content only. |
-| `background` | white | The fill under the page, any canvas `fillStyle`. |
-
-### Layers from optional content
-
-The viewer sends the hidden layers among `contentLayers` with each request and asks again when one of them is shown or
-hidden. The scene does not say which optional content group a layer stands for, so `optionalContent` gives it; matching
-the names of the scene's layers with the groups of the document, for example:
-
-```ts
-const opened = await pdf.promise;
-const config = await opened.getOptionalContentConfig();
-const groups = new Map([...config].map(([id, group]) => [group.name, id]));
-const names = new Map(scene.layers.map((layer) => [layer.id, layer.name]));
-const renderer = pdfUnderlayRenderer({
-  document: (file) => (file === undefined ? opened : null),
-  optionalContent: (layer) => groups.get(names.get(layer) ?? ""),
-});
-```
-
-zumen's PDF reader gives one layer per page until it can tell which group an entity belongs to
-([decision 0020](../../docs/decisions/0020-pdf-drawings-in-rust.md)); until then pages have no content layers and are
-drawn with the default visibility of the document.
-
-### PDF underlays of DXF and DWG
-
-A DXF or DWG drawing places a page by its lower left corner and does not store the page size, so the reader returns
-its PDF underlays unplaced (`width` and `height` 0) and they are not drawn
-([decision 0034](../../docs/decisions/0034-place-pdf-underlays-after-reading.md)). Open the files that `underlay.file`
-names, and `placePdfUnderlays` places each page at the size pdf.js gives it, through the same `document` function as
-the renderer:
+DXF・DWG の PDF の下敷きは、図面がページの大きさを持たないため、読み取り直後は置かれていません（`width`・`height` が 0）。`underlay.file` のファイルを pdf.js で開き、`placePdfUnderlays(scene, { document })` で pdf.js のページの大きさに置いてから表示します。`document` は `pdfUnderlayRenderer` と同じ関数を渡します。開けない文書・ページの下敷きは置かれずに残ります（[決定 0034](../../docs/decisions/0034-place-pdf-underlays-after-reading.md)）。
 
 ```ts
 import { placePdfUnderlays, pdfUnderlayRenderer } from "@zumenjs/pdf";
 
-// file is the name the drawing writes, often relative to the drawing (..\plans\plan.pdf)
+// file は図面に書かれた名前（..\plans\plan.pdf など、図面からの相対のことが多い）
 const options = { document: (file: string | undefined) => (file === undefined ? null : openPdf(file)) };
-const placed = await placePdfUnderlays(scene, options);
-viewer.setScene(placed);
+viewer.setScene(await placePdfUnderlays(scene, options));
 viewer.setUnderlayRenderer(pdfUnderlayRenderer(options));
 ```
 
-Underlays whose document or page cannot be opened stay unplaced. Pass `background: "rgba(0, 0, 0, 0)"` to the
-renderer to draw the page without its paper over the drawing's background.
+具体的な初期化は[PDF のサンプル](../../playground/pdf-sample.ts)、設計理由は[決定 0029](../../docs/decisions/0029-pdf-js-owned-by-the-application.md)を参照してください。
 
-### Images and PDF pages together
+## 英語の補足資料
 
-A drawing can have both (DXF IMAGE and PDF underlays). Pass one renderer that chooses by kind:
+対応表・実装上の細則・従来のコード例は [README.en.md](README.en.md) にも保存しています。
 
-```ts
-import { imageUnderlayRenderer } from "@zumenjs/viewer";
+<details>
+<summary>従来の見出しから詳細を探す</summary>
 
-const pages = pdfUnderlayRenderer({ document: openPdf });
-const images = imageUnderlayRenderer(loadImage);
-viewer.setUnderlayRenderer((request, target) => (request.underlay.kind === "pdf" ? pages : images)(request, target));
-```
+<a id="zumenjspdf"></a>
 
-## pdf.js and bundlers
+[zumenjspdf](README.en.md#zumenjspdf)
 
-Install `pdfjs-dist` (5 or 6) next to this package. The application owns pdf.js: it starts the worker, opens the
-documents with the options it needs and closes them. This package imports only pdf.js's types and calls the methods of
-the documents it is given, so an application has one copy of pdf.js, whose worker always matches it.
+<a id="what-it-draws"></a>
 
-- **Vite:** import the worker's URL with `?url` and set `GlobalWorkerOptions.workerSrc`, as in the example above.
-- **webpack 5:** import from `pdfjs-dist/webpack.mjs` instead of `pdfjs-dist`; pdf.js ships that entry, which starts its
-  worker with `new Worker(new URL(…, import.meta.url))`.
-- **Elsewhere:** serve `pdfjs-dist/build/pdf.worker.min.mjs` with your files and set `GlobalWorkerOptions.workerSrc` to
-  its URL.
+[what-it-draws](README.en.md#what-it-draws)
 
-pdf.js reads some files from URLs passed to `getDocument`: `cMapUrl` (the `cmaps` folder, for text in CJK fonts that
-the PDF does not embed, common in Japanese drawings), `standardFontDataUrl` (`standard_fonts`, for the standard 14 fonts
-when they are not embedded) and `wasmUrl` (`wasm`, the JPEG 2000 and JBIG2 decoders of scanned drawings). Copy those
-folders of `pdfjs-dist` into your build and pass their URLs; each folder carries the licenses of its files. Under a
-Content Security Policy without `'unsafe-eval'`, pass `isEvalSupported: false`.
+<a id="options"></a>
 
-The default build of pdf.js needs current browsers; `pdfjs-dist/legacy/build/pdf.mjs` and its worker serve older ones.
-The tests draw pages with pdf.js 5.0 and 6.4 in Chromium, Firefox and WebKit.
+[options](README.en.md#options)
 
-## Network
+<a id="layers-from-optional-content"></a>
 
-This package makes no requests. pdf.js fetches its worker and the files above from the URLs the application sets, and
-the PDF itself only when `getDocument` is given a `url` instead of bytes.
+[layers-from-optional-content](README.en.md#layers-from-optional-content)
+
+<a id="images-and-pdf-pages-together"></a>
+
+[images-and-pdf-pages-together](README.en.md#images-and-pdf-pages-together)
+
+<a id="pdfjs-and-bundlers"></a>
+
+[pdfjs-and-bundlers](README.en.md#pdfjs-and-bundlers)
+
+<a id="network"></a>
+
+[network](README.en.md#network)
+
+</details>
