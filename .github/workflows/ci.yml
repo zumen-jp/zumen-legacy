@@ -45,12 +45,12 @@ jobs:
       # The Rust toolchain, components and the wasm32 target come from rust-toolchain.toml
       - run: rustup toolchain install
       # Swatinem/rust-cache v2.9.2 (it also keeps the binaries in ~/.cargo/bin)
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
       # wasm-bindgen-cli writes the JavaScript of the WebAssembly reader (scripts/wasm.mjs, packages/reader/wasm) and must
       # be the version of the wasm-bindgen crate in Cargo.lock
       - run: node scripts/install-wasm-bindgen.mjs
       # astral-sh/setup-uv v10.3.0 (Python comes from bindings/python/.python-version)
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
       - run: pnpm install --frozen-lockfile
       # The tests of the drawing engine, the React hooks and the reader's worker (*.browser.test.*) run in the browsers
       # of the Playwright version in package.json (the headless shell for Chromium); ZUMEN_BROWSERS selects them in
