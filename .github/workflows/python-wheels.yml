@@ -94,7 +94,7 @@ jobs:
       # The sdist alone must build a wheel that has the font and its license. It does not hold rust-toolchain.toml, so
       # the Rust of the runner builds it, as it would for anyone who installs the sdist, outside a manylinux container
       # astral-sh/setup-uv v10.3.0 (without its cache, since this workflow publishes)
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
         with:
           enable-cache: false
       - run: uv build --wheel --out-dir "$RUNNER_TEMP/from-sdist" dist/zumen-*.tar.gz
@@ -128,7 +128,7 @@ jobs:
           name: wheel-${{ matrix.wheel }}
           path: dist
       # astral-sh/setup-uv v10.3.0 sets UV_PYTHON, which wins over bindings/python/.python-version (3.14)
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
         with:
           python-version: ${{ matrix.python }}
           enable-cache: false
@@ -225,4 +225,4 @@ jobs:
           name: sdist
           path: dist
       # pypa/gh-action-pypi-publish v1.14.2 uploads dist/ without a token and attaches the attestations
-      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086
