@@ -56,7 +56,7 @@ jobs:
             exit 1
           fi
       # pnpm/action-setup v6.1.0 installs the version in package.json "packageManager"
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115
       # actions/setup-node v7.1.0 (without a cache, since this workflow publishes)
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
@@ -130,7 +130,7 @@ jobs:
         with:
           persist-credentials: false
       # pnpm/action-setup v6.1.0 installs the version in package.json "packageManager"
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115
       # actions/setup-node v7.1.0 (without a cache, since this workflow publishes)
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
