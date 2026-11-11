@@ -496,6 +496,9 @@ impl Painter<'_> {
 
     /// underlay の中身を画像の px で描き、clip で切り取り、opacity で重ねる
     fn underlay(&mut self, underlay: &Underlay, underlays: &mut Underlays<'_>) {
+        if underlays.skip_unplaced(underlay) {
+            return;
+        }
         let (width, height) = (self.pixmap.width(), self.pixmap.height());
         // underlay の外接矩形の px（画像と重なる部分）
         let (x0, y0) = zumen_core::geometry::apply(&self.base, underlay.bbox.min_x, underlay.bbox.max_y);

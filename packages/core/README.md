@@ -11,7 +11,7 @@ const scene = readDrawing(bytes, [reader]);
 ```
 
 - `scene.views` はモデル空間・レイアウト・PDF ページなどの表示一覧です。`readDrawing(bytes, readers, { view })` で選びます。PDF を読む場合は `initPdfReader()` を先に呼びます。
-- 画像・PDF ページの配置は `scene.underlays` に入り、利用側が渡す描画処理が表示します。
+- 画像・PDF ページの配置は `scene.underlays` に入り、利用側が渡す描画処理が表示します。図面が中身の大きさを持たない下敷き（DXF・DWG の PDF の下敷き）は `width`・`height` が 0 で、利用側が知った大きさで `placeUnderlays(scene, size)` が置くまで描きません（[`@zumenjs/pdf`](../pdf) の `placePdfUnderlays` は pdf.js から大きさを得ます）。
 - マークアップは図面に添える JSON 文書です。`createMarkup`・`markupFromJson`・`markupToJson`・`markupShapes`・`markupBox`・`drawingHash` を使います。不正な入力は `MarkupError` で返します。
 - 幾何の補助関数は `@zumenjs/core/geometry`、文字配置は `@zumenjs/core/text` から読み込みます。
 

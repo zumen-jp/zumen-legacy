@@ -8,6 +8,7 @@
 - 既定の README、利用ガイド、設計判断、開発手順、パッケージの説明を日本語中心にしました。英語の詳細資料は補足として残しています。
 - Python API・CLI・MCP の説明と、ライブラリが返す利用者向けエラーを日本語にしました。識別子・JSON キー・エラーコードと図面由来の文字は維持します。
 - PDF 図面の読み取りとページ描画、図面の画像・参照、マークアップ、製図基準の確認、編集・作図など、従来の未リリース変更の詳細は英語の履歴を参照してください。
+- DXF・DWG の PDF の下敷き（PDFUNDERLAY）を、`skipped` に数えずに `kind: "pdf"` の下敷きとして読むようにしました（[決定 0034](docs/decisions/0034-place-pdf-underlays-after-reading.md)、[PDF の下敷き](docs/formats/dxf.md#pdf-underlays)）。図面はページの大きさを持たないため、利用側が `@zumenjs/pdf` の `placePdfUnderlays`（または `@zumenjs/core` の `placeUnderlays`）で置くまで描きません。縮尺 1 で PDF の 1 インチを図面の 1 単位とします（推測）。書き出しは PDF の下敷きを省いて報告し、試用画面は図面の隣の PDF を選ぶと置いて描きます。
 
 ## 0.1.1 — 2026-10-21
 

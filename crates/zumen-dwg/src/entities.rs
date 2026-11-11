@@ -295,6 +295,11 @@ pub(crate) fn read_entity(object: &mut Object<'_>, kind: &str, names: &Names) ->
             Body::Entity(DxfEntityData::Viewport(viewport))
         }
         "IMAGE" | "WIPEOUT" => Body::Entity(DxfEntityData::Image(image(s)?)),
+        "PDFUNDERLAY" => {
+            let (underlay, e) = underlay(s)?;
+            extrusion = e;
+            Body::Entity(DxfEntityData::Underlay(underlay))
+        }
         "MLINE" => {
             let (mline, e) = mline(s, names)?;
             extrusion = e;
@@ -1370,6 +1375,40 @@ pub(crate) fn mview(eed: &crate::objects::Eed, viewport: &mut DxfViewport) {
 }
 
 /// IMAGE・WIPEOUT（20.4.80）
+/// PDFUNDERLAY。ODA の仕様にはなく、ACadSharp 3（MIT）の DwgObjectReader.readPdfUnderlay の並び: 法線（3BD）、挿入点
+/// （3BD）、回転（BD、ラジアン）、縮尺（3 つの BD）、フラグ（RC、DXF の 280）、コントラスト（RC）、フェード（RC）、境界の
+/// 頂点の数（BL）と頂点（2RD）、定義（PDFDEFINITION）のハンドル。ACadSharp の見本の DWG と DXF で同じ値になる
+fn underlay(s: &mut Streams<'_>) -> Read<(DxfUnderlay, [f64; 3])> {
+    let normal = s.data.bd3()?;
+    let insert = s.data.bd3()?;
+    let rotation = deg(s.data.bd()?);
+    let [xscale, yscale, zscale] = [s.data.bd()?, s.data.bd()?, s.data.bd()?];
+    let flags = f64::from(s.data.rc()?);
+    let contrast = f64::from(s.data.rc()?);
+    let fade = f64::from(s.data.rc()?);
+    let mut boundary = Vec::new();
+    for _ in 0..count(s.data.bl()?)? {
+        boundary.push(s.data.rd2()?);
+    }
+    let definition = s.handle()?.value;
+    let or_one = |value: f64| if value == 0.0 || value.is_nan() { 1.0 } else { value };
+    let underlay = DxfUnderlay {
+        insert,
+        xscale: or_one(xscale),
+        yscale: or_one(yscale),
+        zscale: or_one(zscale),
+        rotation,
+        flags,
+        contrast,
+        fade,
+        boundary,
+        definition_handle: (definition != 0).then(|| format!("{definition:X}")),
+        path: None,
+        page: None,
+    };
+    Ok((underlay, normal))
+}
+
 fn image(s: &mut Streams<'_>) -> Read<DxfImage> {
     s.data.bl()?;
     let insert = s.data.bd3()?;

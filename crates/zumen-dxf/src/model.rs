@@ -558,6 +558,32 @@ pub struct DxfImage {
     pub loaded: bool,
 }
 
+/// PDF の underlay（PDFUNDERLAY、DXF Reference「UNDERLAY」）。ページの大きさは図面になく、PDF のファイルだけが持つ
+/// （docs/decisions/0034）
+#[derive(Debug, Clone, PartialEq)]
+pub struct DxfUnderlay {
+    /// OCS の挿入点（10）。ページの左下の角
+    pub insert: Vec3,
+    /// 41・42・43
+    pub xscale: f64,
+    pub yscale: f64,
+    pub zscale: f64,
+    /// OCS の回転（50、度）
+    pub rotation: f64,
+    /// 280。1 切り抜き、2 表示、4 単色、8 背景に合わせた色、16 境界の内側を消す
+    pub flags: f64,
+    /// 281・282。コントラスト（20〜100、既定 100）・フェード（0〜80、既定 0）
+    pub contrast: f64,
+    pub fade: f64,
+    /// 切り抜きの境界（11・21、挿入点を原点とする縮尺・回転の前の図面の単位。2 点なら矩形）
+    pub boundary: Vec<Vec2>,
+    /// underlay の定義（PDFDEFINITION）のハンドル（340）
+    pub definition_handle: Option<String>,
+    /// 定義が指す PDF のファイルの名前（PDFDEFINITION の 1）とページ（2）
+    pub path: Option<String>,
+    pub page: Option<String>,
+}
+
 /// 表（ACAD_TABLE）。表示の図形は INSERT と同じくブロック（*T…）で持つ
 #[derive(Debug, Clone, PartialEq)]
 pub struct DxfTable {
@@ -648,6 +674,8 @@ pub enum DxfEntityData {
     },
     /// IMAGE・WIPEOUT
     Image(DxfImage),
+    /// PDFUNDERLAY
+    Underlay(DxfUnderlay),
     Table(DxfTable),
 }
 

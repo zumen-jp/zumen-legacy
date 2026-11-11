@@ -148,11 +148,12 @@ the differences that remain are in [How DWG is handled](dwg.md).
 | MLINE | The elements of the MLINESTYLE at their miter offsets, without the parts cut by MLEDIT, with their colors and line types; fill, square and round caps, inner arcs and miters |
 | WIPEOUT | Filled with the background color |
 | IMAGE | The frame, and the picture as an underlay ([Images](#images)) |
+| PDFUNDERLAY | An underlay of the page, placed once the application knows the page size ([PDF underlays](#pdf-underlays)) |
 | XLINE, RAY | Clipped to the extents of the other entities (or the sheet) |
 | VIEWPORT | Its frame on the layout, and the model space inside |
 
 Not read, counted in `skipped` and reported: TOLERANCE, SHAPE, 3DSOLID, REGION, BODY, MESH, SURFACE,
-underlays (PDF, DWF, DGN, see [Images](#images)), OLE frames, lights and proxy entities.
+DWF and DGN underlays (see [PDF underlays](#pdf-underlays)), OLE frames, lights and proxy entities.
 
 ### Images
 
@@ -186,11 +187,62 @@ the underlay's `file` is the IMAGEDEF's file name (1) as the drawing writes it, 
 - **Ids and layers**: the underlay has the id and the layers of its frame, with the prefixes of blocks (`105>110`)
   and viewports (`131:100`).
 
-PDF, DWF and DGN underlays (PDFUNDERLAY …,
+#### PDF underlays
+
+A PDF underlay (PDFUNDERLAY,
 [UNDERLAY](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-3EC8FBCC-A85A-4B0B-93CD-C6C785959077.htm))
-are not read. Their definitions (PDFDEFINITION …) name the file (1) and the page or sheet (2) but not its size: the
-insertion point (10) is the lower left corner of the page, so placing the content, whose origin is its top left
-corner, needs the page height that only the PDF file has. DWF and DGN content has no renderer in zumen.
+becomes an underlay of `kind: "pdf"` whose `file` is its definition's file name (PDFDEFINITION 1,
+[UNDERLAYDEFINITION](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-A4FF15D3-F745-4E1F-94D4-1DC3DF297B0F.htm))
+as the drawing writes it, and whose `page` is the definition's name (2), the page number
+([decision 0034](../decisions/0034-place-pdf-underlays-after-reading.md)). The drawing does not store the size of the
+page, so the reader returns the underlay unplaced: `width` and `height` 0, and the matrix of a page of height 0. The
+application opens the PDF and places it with `placePdfUnderlays` of `@zumenjs/pdf` (or `placeUnderlays` of
+`@zumenjs/core` with the sizes it knows), then draws it with `pdfUnderlayRenderer`. Until then it is not drawn.
+
+- **Content and placement**: the content is the page in points as displayed (after `/Rotate`, as pdf.js's
+  `page.getViewport({ scale: 1 })`), with the origin at its top left corner. The insertion point (10, in OCS) is the
+  lower left corner of the page, and content point (x, y) of a page of height h is at (x / 72, (h − y) / 72) from it,
+  scaled (41, 42), rotated (50) and taken to WCS by the normal (210), as INSERT places a block. Scales of 0 are read
+  as 1, and missing flags (280) as 10, as ezdxf 1.4 reads them. `matrix` adds the blocks and the viewport.
+- **Units** (*inferred*): one PDF inch is one drawing unit at scale 1, as
+  [OpenCADStudio](https://github.com/HakanSeven12/OpenCADStudio) (`src/scene/model/pdf_raster.rs`) places PDF
+  underlays. ACadSharp's `sample_AC1015_ascii.dxf` (in inches, `$INSUNITS` 1) attaches page 1 of its
+  `pdf-definition.pdf` (A4, 595 × 842 pt) at scale 1 and (16.287, 15): the rule places the page at its real size,
+  8.26 × 11.69 inches from (16.287, 15) to (24.551, 26.694), which is what AutoCAD's
+  [Attach PDF Underlay dialog](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-LT/files/GUID-02FAF12D-BA81-4124-86B5-8E381182C579.htm)
+  does with scale 1 in a drawing with units: it applies the scale to the page's true width.
+  So the sample is consistent with the rule, but it cannot tell it apart from one that converts by `$INSUNITS` (both
+  give inches there), and nothing in the drawing traces the page to confirm the corner. For drawings in other units
+  the rule assumes that the stored scale includes the conversion (25.4 for a page at its real size in millimeters).
+  The sample's DWG files (R14 to 2018) give the same underlay as the DXF.
+- **Clipping**: the clip boundary (11, 21) is in the underlay's own units, from the insertion point before scale and
+  rotation (*inferred*: ezdxf calls them "drawing coordinates but unscaled" and does not move them when it transforms
+  an underlay; OpenCADStudio reads them in page inches). Two points are the corners of a rectangle. It clips when
+  clipping is on (1 of 280) and it has at least two points. Flag 16 of 280 (clip inside mode) removes the inside of
+  the boundary: `clip` is an empty ring, which stands for the outline of the page until it is placed, and the
+  boundary. A page whose extent is not known yet (no clip, or the inside removed) is clipped by the viewport
+  rectangle in layouts, and the boundary that removes the inside is clipped to that rectangle; `placeUnderlays`
+  leaves out underlays whose page lies outside their clip.
+- **Bounds**: until it is placed, `bbox` is the box of the clip, or the insertion point when the extent is not known,
+  and `Scene.bounds` contains it. `placeUnderlays` sets `bbox` to the box of the page within the box of the clip and
+  extends `Scene.bounds`.
+- **Display values**: an underlay that is off (2 of 280 not set) is not drawn, as in AutoCAD. The fade (282) becomes
+  the opacity, 1 − fade / 100, as for images. The contrast (281) other than 100, monochrome (4 of 280) and colors
+  adjusted for the background (8 of 280) are not applied and are reported (`underlay-adjust`). The frame (PDFFRAME)
+  is not drawn and the underlay has no entity, as the frame of a page whose size is not known cannot be placed; the
+  layers of the page that AutoCAD turns on and off for the underlay (extended data of
+  `AdeskUnderlayLayerOverrideData`) are not read, and the page shows its default optional content. Both are reported
+  with every PDF underlay (`pdf-underlay`). Whether the page has a paper background is the application's choice
+  (`background` of `pdfUnderlayRenderer`).
+- **Underlays without a page**: an underlay whose definition is missing, whose file name is empty or whose page is
+  not a whole number from 1 is not drawn and is reported (`underlay`).
+- **Draw order**: an underlay that AutoCAD draws after earlier entities whose extents it overlaps, or may overlap when
+  its extent is not known, is reported (`underlay-order`), as images are.
+- **Ids and layers**: the underlay's id is the PDFUNDERLAY's handle with the prefixes of blocks and viewports, and its
+  layers are those an entity in its place would have. `crates/zumen/tests/ids.json` does not list underlays, so the
+  ids of entities do not change.
+
+DWF and DGN underlays (DWFUNDERLAY, DGNUNDERLAY) are not read: their content has no renderer in zumen.
 
 External references are not read either. A block whose flags (BLOCK, 70) have 4 (an attached reference) or 8 (an
 overlay) stands for another drawing, whose path is group 1, and the drawing that refers to it keeps none of its
@@ -345,6 +397,7 @@ What cannot be written as it was is reported in `notices`:
 | --- | --- |
 | `image` | An IMAGE whose image definition (IMAGEDEF) the model does not know is left out |
 | `image-frame` | The setting that hides image frames (`IMAGEFRAME` 0) is not written; the frames show |
+| `pdf-underlay` | A PDF underlay (PDFUNDERLAY) is left out; reading did not keep them before either |
 | `helix` | HELIX is written as SPLINE, its curve, without the helix parameters |
 | `mpolygon` | MPOLYGON is written as HATCH |
 | `table` | ACAD_TABLE is written as the INSERT of its block (`*T…`) |

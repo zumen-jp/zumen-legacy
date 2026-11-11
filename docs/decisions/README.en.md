@@ -63,3 +63,4 @@ Choices made before this folder existed are described in [the architecture notes
 - [0030: Read PDF in browsers with a WebAssembly module of its own, loaded only for PDF drawings](0030-pdf-in-a-webassembly-module-of-its-own.md) (2026-10-23, Proposed)
 - [0031: Measure images whose drawing records no pixel count in hundredths of a sheet millimeter](0031-image-units-without-a-pixel-count.md) (2026-10-23, Proposed)
 - [0032: Let golden tests own fixture scene values](0032-avoid-duplicate-golden-assertions.md) (2026-10-24, Accepted)
+- [0034: Read the PDF underlays of DXF and DWG unplaced, and place them with the page sizes of the PDF engine that draws them](0034-place-pdf-underlays-after-reading.md) (2026-10-24, Proposed)

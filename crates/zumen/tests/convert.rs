@@ -6,7 +6,7 @@
 use serde_json::{Value, json};
 use std::fs;
 use std::path::{Path, PathBuf};
-use zumen::{ReadDrawingOptions, Scene};
+use zumen::{ReadDrawingOptions, Scene, UnderlayKind};
 
 fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures")
@@ -78,12 +78,13 @@ fn differences_with(original: &Scene, again: &Scene, version: Option<&str>) -> V
     let (before, after) = (entities(original), entities(again));
     let mut out = Vec::new();
     // 画像の中身（underlay）のファイル・大きさ・置き方・切り抜き・不透明度。2010 より前の版は切り抜きの反転を持たない
-    // （画像の全体と境界の 2 つの輪が、境界だけになる）
+    // （画像の全体と境界の 2 つの輪が、境界だけになる）。PDF の underlay は書かないので比べない（notices で知らせる）
     let before_2010 = matches!(version, Some("2000" | "2004" | "2007"));
     let underlays = |scene: &Scene, written: bool| {
         let values: Vec<Value> = scene
             .underlays
             .iter()
+            .filter(|underlay| underlay.kind != UnderlayKind::Pdf)
             .map(|underlay| {
                 let clip = match &underlay.clip {
                     Some(rings) if before_2010 && !written && rings.len() == 2 => Some(rings[1..].to_vec()),

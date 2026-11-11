@@ -78,6 +78,15 @@ impl<'a> Underlays<'a> {
         }]
     }
 
+    /// 大きさの分からない underlay（置いていない DXF・DWG の PDF の underlay、docs/decisions/0034）は描かずに数える
+    pub(crate) fn skip_unplaced(&mut self, underlay: &Underlay) -> bool {
+        let unplaced = !(underlay.width > 0.0 && underlay.height > 0.0);
+        if unplaced {
+            self.not_drawn += 1;
+        }
+        unplaced
+    }
+
     /// underlay を、中身の座標 → 画像の px の変換 to_pixels で width × height の画像に描く（premultiplied RGBA）。
     /// 白いページの上に内容を描き、ページの外は透明。描けなければ None を返して数える
     pub(crate) fn rasterize(

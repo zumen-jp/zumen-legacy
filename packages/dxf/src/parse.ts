@@ -33,6 +33,7 @@ import type {
   DxfSpline,
   DxfTextBase,
   DxfTextStyle,
+  DxfUnderlay,
   DxfViewport,
   Vec2,
   Vec3,
@@ -94,6 +95,7 @@ const READ_TYPES = new Set([
   "RAY",
   "IMAGE",
   "WIPEOUT",
+  "PDFUNDERLAY",
   "ACAD_TABLE",
 ]);
 
@@ -117,6 +119,8 @@ class Parser {
   private hasPaperEntities = false;
   /** IMAGEDEF のハンドル → 画像のファイルの名前と、読み込んだ状態 */
   private readonly imageDefs = new Map<string, { path: string; loaded: boolean }>();
+  /** PDFDEFINITION のハンドル → PDF のファイルの名前とページ */
+  private readonly underlayDefs = new Map<string, { path: string; page: string }>();
   /** タグごとの、そこまでのレコード（グループコード 0）の数。ハンドルのない図形があるときに作る */
   private records: Uint32Array | null = null;
 
@@ -864,6 +868,8 @@ class Parser {
       case "IMAGE":
       case "WIPEOUT":
         return this.image(type, body, owner);
+      case "PDFUNDERLAY":
+        return this.underlay(body, owner);
       case "ACAD_TABLE": {
         // 表は AcDbBlockReference の部分（ブロックの名前と位置）だけを読む
         const reference = this.subclassBody(body, "AcDbBlockReference");
@@ -1908,6 +1914,35 @@ class Parser {
     return image;
   }
 
+  /**
+   * DXF Reference「UNDERLAY」: 340 定義、10 挿入点（OCS）、41〜43 縮尺、50 回転、280 表示のフラグ、281 コントラスト、
+   * 282 フェード、11・21 切り抜きの境界。省略した値は ezdxf 1.4（entities/underlay.py）の既定（フラグ 10、縮尺 1）で、
+   * 縮尺 0 も 1 にする
+   */
+  private underlay(body: Body, owner: Owner | null): DxfUnderlay {
+    const own = this.subclassBody(body, "AcDbUnderlayReference");
+    const boundary: Vec2[] = [];
+    for (const k of own) {
+      if (this.code(k) === 11) boundary.push([this.num(k), 0]);
+      else if (this.code(k) === 21 && boundary.length > 0) (boundary[boundary.length - 1] as Vec2)[1] = this.num(k);
+    }
+    const underlay: DxfUnderlay = {
+      ...this.base("PDFUNDERLAY", body, owner),
+      insert: this.point(own, 10),
+      xscale: this.number(own, 41, 1) || 1,
+      yscale: this.number(own, 42, 1) || 1,
+      zscale: this.number(own, 43, 1) || 1,
+      rotation: this.number(own, 50, 0),
+      flags: this.number(own, 280, 10),
+      contrast: this.number(own, 281, 100),
+      fade: this.number(own, 282, 0),
+      boundary,
+    };
+    const definition = this.handleOf(own, 340);
+    if (definition && definition !== "0") underlay.definition_handle = definition;
+    return underlay;
+  }
+
   // --- OBJECTS --------------------------------------------------------------
 
   private objects(): void {
@@ -1930,6 +1965,10 @@ class Parser {
           path: this.text(own, 1),
           loaded: this.number(own, 280, 1) !== 0,
         });
+      } else if (type === "PDFDEFINITION") {
+        // DXF Reference「UNDERLAYDEFINITION」: 1 ファイルの名前、2 underlay の名前（PDF ではページの番号）
+        const own = this.subclassBody(body, "AcDbUnderlayDefinition");
+        this.underlayDefs.set(this.handleOf(body), { path: this.text(own, 1), page: this.text(own, 2) });
       } else if (type === "RASTERVARIABLES") {
         // DXF Reference「RASTERVARIABLES」: 70 画像の外形の表示（IMAGEFRAME）
         this.doc.image_frame = this.number(this.subclassBody(body, "AcDbRasterVariables"), 70, 1);
@@ -2045,6 +2084,15 @@ class Parser {
         if (!definition) continue;
         entity.path = definition.path;
         entity.loaded = definition.loaded;
+      }
+    }
+    if (this.underlayDefs.size > 0) {
+      for (const entity of doc.entities) {
+        if (entity.type !== "PDFUNDERLAY" || !entity.definition_handle) continue;
+        const definition = this.underlayDefs.get(entity.definition_handle);
+        if (!definition) continue;
+        entity.path = definition.path;
+        entity.page = definition.page;
       }
     }
     for (const { block_record_handle, layout } of this.layoutRecords) {

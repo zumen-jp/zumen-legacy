@@ -127,6 +127,25 @@ fn counts_underlays_it_cannot_draw() {
     assert_eq!(notices, ["underlay-not-drawn 3"]);
 }
 
+/// 置いていない underlay（大きさ 0、DXF・DWG の PDF の underlay、決定 0034）は、PNG・SVG・PDF のどれでも描かずに数える
+#[test]
+fn counts_underlays_that_are_not_placed() {
+    let bytes = fixture();
+    let mut scene = scene(&bytes);
+    let mut unplaced = scene.underlays[0].clone();
+    unplaced.id = "unplaced".into();
+    unplaced.file = Some("plan.pdf".into());
+    (unplaced.width, unplaced.height) = (0.0, 0.0);
+    unplaced.bbox = BBox { min_x: 100.5, min_y: 100.5, max_x: 100.5, max_y: 100.5 };
+    scene.underlays = vec![unplaced];
+    let (_, notices) = draw(&scene, &with_content(&bytes));
+    assert_eq!(notices, ["underlay-not-drawn 1"]);
+    let (_, report) = render_svg(&scene, None, &with_content(&bytes)).unwrap();
+    assert_eq!(report.notices[0].count, 1);
+    let (_, report) = render_pdf(&scene, None, &with_content(&bytes)).unwrap();
+    assert_eq!(report.notices[0].count, 1);
+}
+
 /// An explicit empty clip hides the page in all outputs, as Canvas clip(new Path2D()) does.
 #[test]
 fn an_empty_clip_does_not_reveal_the_page_in_pdf_output() {

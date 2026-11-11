@@ -74,6 +74,7 @@ import type {
   DxfTable,
   DxfText,
   DxfTextStyle,
+  DxfUnderlay,
   DxfViewport,
   DxfXLine,
   Vec2,
@@ -439,6 +440,12 @@ interface MTextLayout {
   box: Box;
 }
 
+/** PDF の underlay の定義のページ（2）。1 から 2³¹ − 1 の整数でなければ null */
+function pageNumber(text: string): number | null {
+  const page = Number(text);
+  return Number.isInteger(page) && page >= 1 && page <= 2147483647 ? page : null;
+}
+
 /** ハンドルの大小（16 進の文字列） */
 function compareHandles(a: string, b: string): number {
   if (a.length !== b.length) return a.length - b.length;
@@ -447,7 +454,7 @@ function compareHandles(a: string, b: string): number {
 
 class Builder {
   readonly entities: SceneEntity[] = [];
-  /** 画像（IMAGE）の中身。すべての図形の下に、この順に描く */
+  /** 画像（IMAGE）と PDF の underlay の中身。すべての図形の下に、この順に描く */
   readonly underlays: Underlay[] = [];
   readonly usedLayers = new Map<number, number>();
   readonly notices: NoticeList;
@@ -990,6 +997,9 @@ class Builder {
       case "IMAGE":
       case "WIPEOUT":
         this.image(entity, ctx);
+        return;
+      case "PDFUNDERLAY":
+        this.underlay(entity, ctx);
         return;
       case "VIEWPORT":
         return;
@@ -2520,6 +2530,115 @@ class Builder {
     return underlay;
   }
 
+  /**
+   * PDF の underlay（docs/decisions/0034）。中身の座標はページの pt（左上が原点で Y は下向き）で、高さ h のページの点
+   * (x, y) は、挿入点（ページの左下の角）を原点とする underlay の座標の (x / 72, (h − y) / 72) に縮尺・回転を掛けた
+   * ところ（縮尺 1 で PDF の 1 インチが図面の 1 単位。推定、docs/formats/dxf.md）。ページの大きさは図面になく、
+   * アプリケーションが placeUnderlays（@zumenjs/core）で置くまで、幅と高さを 0 にし、matrix は高さ 0 のページの
+   * ものにする。切り抜きの空の輪は、まだ分からないページの外形
+   */
+  private underlay(entity: DxfUnderlay, ctx: Ctx): void {
+    // 表示を切った underlay（280 の 2 がない）は、AutoCAD も表示しない
+    if (!(entity.flags & 2)) return;
+    const path = entity.path || undefined;
+    const page = pageNumber(entity.page ?? "");
+    if (path === undefined || page === null) {
+      this.notices.add(
+        "info",
+        "underlay",
+        "PDF のファイルかページが分からない PDF の下敷き（PDFUNDERLAY）は、描きませんでした",
+      );
+      return;
+    }
+    const placement = multiply(
+      multiply(
+        multiply(ocsMatrix(entity.extrusion, entity.insert[2]), translate(entity.insert[0], entity.insert[1])),
+        rotate(entity.rotation),
+      ),
+      scale(entity.xscale, entity.yscale),
+    );
+    const m = multiply(ctx.m, placement);
+    const matrix = multiply(m, [1 / 72, 0, 0, -1 / 72, 0, 0]);
+    // 境界（2 点なら矩形）で切るのは、切り抜き（280 の 1）が入っているとき。16 は境界の内側を消す
+    let corners: readonly Vec2[] = entity.flags & 1 ? entity.boundary : [];
+    if (corners.length === 2) {
+      const [a, b] = corners as [Vec2, Vec2];
+      corners = [a, [b[0], a[1]], b, [a[0], b[1]]];
+    }
+    const boundary = corners.length >= 3 ? transformPoints(m, corners.flat()) : null;
+    const inverted = boundary !== null && (entity.flags & 16) !== 0;
+    let clip: Float64Array[] | null = boundary ? (inverted ? [new Float64Array(0), boundary] : [boundary]) : null;
+    // 描く範囲の外接矩形。範囲が分からない（切り抜かないか、内側を消す）あいだは挿入点
+    const [ax, ay] = apply(matrix, 0, 0);
+    let bounded = boundary !== null && !inverted;
+    let bbox: Box = bounded && clip ? ringsBox(clip) : { minX: ax, minY: ay, maxX: ax, maxY: ay };
+    if (ctx.clip) {
+      const box = ctx.clip;
+      if (bounded && clip) {
+        if (!inside(bbox, box)) {
+          if (!intersects(bbox, box)) return;
+          clip = clip.map((ring) => clipPolygon(ring, box)).filter((ring) => ring.length >= 6);
+          bbox = ringsBox(clip);
+          if (isEmptyBox(bbox)) return;
+        }
+      } else {
+        // ページの範囲が分からないので、ビューポートの矩形で切る。内側を消す境界は、その矩形の中に切って加える
+        clip = [Float64Array.of(box.minX, box.minY, box.maxX, box.minY, box.maxX, box.maxY, box.minX, box.maxY)];
+        const cut = boundary && inverted ? clipPolygon(boundary, box) : null;
+        if (cut && cut.length >= 6) clip.push(cut);
+        bbox = { minX: box.minX, minY: box.minY, maxX: box.maxX, maxY: box.maxY };
+        bounded = true;
+      }
+    }
+    const own = this.layer(this.effectiveLayer(entity, ctx));
+    const layers = ctx.layers.includes(own) ? ctx.layers : [...ctx.layers, own];
+    for (const id of layers) this.usedLayers.set(id, (this.usedLayers.get(id) ?? 0) + 1);
+    const underlay: Underlay = {
+      id: `${ctx.path}${handleOf(entity)}`,
+      kind: "pdf",
+      file: path,
+      page,
+      width: 0,
+      height: 0,
+      matrix,
+      layers,
+      bbox,
+    };
+    if (clip) underlay.clip = clip;
+    // フェード（0〜80）は画像と同じく背景の色に近づける
+    if (entity.fade > 0) underlay.opacity = Math.max(0, 1 - entity.fade / 100);
+    this.notices.add(
+      "info",
+      "pdf-underlay",
+      "PDF の下敷き（PDFUNDERLAY）は、図面がページの大きさを持たないため、利用側が PDF を開いて置くまで" +
+        "描きません。枠と、下敷きのレイヤの切り替えは反映していません",
+    );
+    if (entity.contrast !== 100 || entity.flags & 12) {
+      this.notices.add(
+        "info",
+        "underlay-adjust",
+        "PDF の下敷き（PDFUNDERLAY）のコントラスト・単色・背景に合わせた色は反映していません",
+      );
+    }
+    // 描く順で前にある図形に重なる（範囲が分からなければ、重なるかもしれない）underlay は、AutoCAD ではその図形の上に
+    // 描く
+    let over = false;
+    for (let i = 0; i < this.entities.length && !over; i++) {
+      const other = this.entities[i] as SceneEntity;
+      over =
+        ++this.orderChecks > MAX_ORDER_CHECKS ||
+        (other.drawn !== false && (!bounded || intersects(other.bbox, underlay.bbox)));
+    }
+    if (over) {
+      this.notices.add(
+        "info",
+        "underlay-order",
+        "描く順で図形の後にある PDF の下敷き（PDFUNDERLAY）を、すべての図形の下に描きました",
+      );
+    }
+    this.underlays.push(underlay);
+  }
+
   /** 構築線・放射線を、ほかの図形の範囲（limit）で切って描く */
   finishInfinite(limit: Box): void {
     if (this.infinite.length === 0) return;
@@ -2670,6 +2789,7 @@ function anchorOf(entity: DxfEntity): Vec2 | null {
     case "ACAD_TABLE":
     case "IMAGE":
     case "WIPEOUT":
+    case "PDFUNDERLAY":
       return [entity.insert[0], entity.insert[1]];
     case "DIMENSION":
     case "ARC_DIMENSION":

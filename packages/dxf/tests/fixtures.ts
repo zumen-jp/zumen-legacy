@@ -924,12 +924,12 @@ export const ROOMS = new TextEncoder().encode(ascii(
   0, "ENDSEC", 0, "EOF",
 ));
 
-/** 正解ファイルにする図面と、既定の表示のほかに描く表示（レイアウト） */
 /**
  * 画像（IMAGE）の中身は underlay にする（docs/decisions/0022）。中身の座標は画素で、左上が原点、Y は下向き。
  * insert・U・V（画素 1 つ分のベクトル、正方形でも直交でもないことがある）と上下の反転を matrix に解き、
  * 切り抜き（多角形、反転、ビューポート）を clip にする。IMAGEDEF のファイルの名前が file になる。
- * 表示しない画像、読み込みを外した画像、定義のない画像は外形だけ。PDF・DWF の underlay は読まない。
+ * 表示しない画像、読み込みを外した画像、定義のない画像は外形だけ。PDF の underlay は置かずに読み（PDF_UNDERLAYS）、
+ * DWF の underlay は読まない。
  */
 // biome-ignore format: DXF のタグ（グループコードと値）の組を 1 行に並べて読めるようにする
 export const IMAGES = latin1(ascii(
@@ -971,7 +971,7 @@ export const IMAGES = latin1(ascii(
     13, 100, 23, 50, 340, "0", 70, 7, 280, 0, 71, 1, 91, 2, 14, -0.5, 24, -0.5, 14, 99.5, 24, 49.5),
   // ブロックの中の画像（2 倍、30° 回す）
   ...entity("INSERT", "105", "IMG", [], "AcDbBlockReference", 2, "LOGO", 10, 80, 20, 0, 30, 0, 41, 2, 42, 2, 43, 2, 50, 30),
-  // PDF と DWF の underlay（ページの大きさが図面にないので、読まない）
+  // PDF の underlay（ページの大きさが図面にないので、置かずに読む）と DWF の underlay（読まない）
   ...entity("PDFUNDERLAY", "106", "0", [], "AcDbUnderlayReference", 340, "203", 10, 0, 20, 40, 30, 0, 41, 1, 42, 1, 43, 1, 50, 0, 280, 2, 281, 100, 282, 0),
   ...entity("DWFUNDERLAY", "107", "0", [], "AcDbUnderlayReference", 340, "204", 10, 0, 20, 60, 30, 0, 280, 2),
   // レイアウト: 全体のビューポートと、縮尺 2 倍でモデル空間の x 5〜55 を見るビューポート（画像を左で切る）
@@ -996,6 +996,69 @@ export const IMAGES = latin1(ascii(
   0, "ENDSEC", 0, "EOF",
 ));
 
+/**
+ * PDF の underlay（PDFUNDERLAY）は、ページの大きさを図面が持たないので、幅と高さを 0 にした置いていない underlay にする
+ * （docs/decisions/0033）。matrix は高さ 0 のページのもので、挿入点（ページの左下の角）が原点。切り抜き（矩形・多角形・
+ * 内側を消す）、押し出し方向・回転・縮尺、ブロック、ビューポート、表示を切ったもの、ファイルやページが分からないものと、
+ * DWF の underlay（読まない）
+ */
+// biome-ignore format: DXF のタグ（グループコードと値）の組を 1 行に並べて読めるようにする
+export const PDF_UNDERLAYS = latin1(ascii(
+  0, "SECTION", 2, "HEADER", 9, "$ACADVER", 1, "AC1027", 9, "$INSUNITS", 70, 4, 9, "$TILEMODE", 70, 1, 0, "ENDSEC",
+  0, "SECTION", 2, "TABLES",
+  0, "TABLE", 2, "LAYER",
+  0, "LAYER", 5, "10", 2, "0", 70, 0, 62, 7, 6, "CONTINUOUS",
+  0, "LAYER", 5, "11", 2, "PDF", 70, 0, 62, 8, 6, "CONTINUOUS",
+  0, "ENDTAB",
+  0, "TABLE", 2, "BLOCK_RECORD",
+  0, "BLOCK_RECORD", 5, "1E", 2, "*Paper_Space",
+  0, "BLOCK_RECORD", 5, "1F", 2, "*Model_Space",
+  0, "BLOCK_RECORD", 5, "1A", 2, "SHEET",
+  0, "ENDTAB", 0, "ENDSEC",
+  0, "SECTION", 2, "BLOCKS",
+  0, "BLOCK", 5, "120", 330, "1A", 100, "AcDbEntity", 8, "0", 100, "AcDbBlockBegin", 2, "SHEET", 70, 0, 10, 0, 20, 0, 30, 0, 3, "SHEET", 1, "",
+  0, "PDFUNDERLAY", 5, "110", 330, "1A", 100, "AcDbEntity", 8, "0", 100, "AcDbUnderlayReference", 340, "200", 10, 0, 20, 0, 30, 0,
+  41, 25.4, 42, 25.4, 43, 25.4, 280, 2, 281, 100, 282, 0,
+  0, "ENDBLK", 5, "121", 330, "1A", 100, "AcDbEntity", 8, "0", 100, "AcDbBlockEnd",
+  0, "ENDSEC",
+  0, "SECTION", 2, "ENTITIES",
+  // underlay の前に描く線（AutoCAD は後の underlay をこの線の上に描く）
+  ...entity("LINE", "FF", "0", [], "AcDbLine", 10, 0, 20, 0, 30, 0, 11, 300, 21, 0, 31, 0),
+  // 切り抜かない、実寸（縮尺 25.4 で 1 pt が 1/72 インチ）のページ
+  ...entity("PDFUNDERLAY", "100", "PDF", [], "AcDbUnderlayReference", 340, "200", 10, 10, 20, 20, 30, 0, 41, 25.4, 42, 25.4, 43, 25.4,
+    50, 0, 280, 2, 281, 100, 282, 0),
+  // 30° 回した、矩形（2 点、縮尺の前のインチ）で切り抜いたページ。フェード 30、コントラスト 80
+  ...entity("PDFUNDERLAY", "101", "PDF", [], "AcDbUnderlayReference", 340, "200", 10, 300, 20, 0, 30, 0, 41, 25.4, 42, 25.4, 43, 25.4,
+    50, 30, 280, 3, 281, 80, 282, 30, 11, 1, 21, 1, 11, 5, 21, 4),
+  // 押し出し方向が −Z（X が反転）の、多角形の内側を消す単色のページ
+  ...entity("PDFUNDERLAY", "102", "PDF", [210, 0, 220, 0, 230, -1], "AcDbUnderlayReference", 340, "200", 10, 0, 20, 400, 30, 0,
+    41, 25.4, 42, 25.4, 43, 25.4, 280, 23, 281, 100, 282, 0, 11, 1, 21, 1, 11, 4, 21, 1, 11, 2, 21, 3),
+  // 表示を切ったページ、定義のないページ、ページの番号が分からないページは描かない
+  ...entity("PDFUNDERLAY", "103", "PDF", [], "AcDbUnderlayReference", 340, "200", 10, 0, 20, 0, 30, 0, 280, 0),
+  ...entity("PDFUNDERLAY", "104", "PDF", [], "AcDbUnderlayReference", 340, "0", 10, 0, 20, 0, 30, 0, 280, 2),
+  ...entity("PDFUNDERLAY", "105", "PDF", [], "AcDbUnderlayReference", 340, "201", 10, 0, 20, 0, 30, 0, 280, 2),
+  // ブロックの中のページ（2 倍）
+  ...entity("INSERT", "106", "PDF", [], "AcDbBlockReference", 2, "SHEET", 10, 600, 20, 0, 30, 0, 41, 2, 42, 2, 43, 2),
+  ...entity("DWFUNDERLAY", "107", "0", [], "AcDbUnderlayReference", 340, "202", 10, 0, 20, 60, 30, 0, 280, 2),
+  // レイアウト: 全体のビューポートと、縮尺 1/2 でモデル空間の x 0〜400、y 0〜200 を見るビューポート
+  0, "VIEWPORT", 5, "130", 330, "1E", 100, "AcDbEntity", 67, 1, 8, "0", 100, "AcDbViewport",
+  10, 148.5, 20, 105, 30, 0, 40, 297, 41, 210, 68, 1, 69, 1, 12, 148.5, 22, 105, 45, 210,
+  0, "VIEWPORT", 5, "131", 330, "1E", 100, "AcDbEntity", 67, 1, 8, "0", 100, "AcDbViewport",
+  10, 150, 20, 105, 30, 0, 40, 200, 41, 100, 68, 2, 69, 2, 12, 200, 22, 100, 17, 0, 27, 0, 37, 0, 45, 200,
+  0, "ENDSEC",
+  0, "SECTION", 2, "OBJECTS",
+  0, "DICTIONARY", 5, "C", 330, "0", 100, "AcDbDictionary", 3, "ACAD_PDFDEFINITIONS", 350, "D0",
+  0, "DICTIONARY", 5, "D0", 330, "C", 100, "AcDbDictionary", 3, "plan - 2", 350, "200", 3, "bad", 350, "201",
+  0, "PDFDEFINITION", 5, "200", 330, "D0", 100, "AcDbUnderlayDefinition", 1, "..\\plans\\plan.pdf", 2, "2",
+  0, "PDFDEFINITION", 5, "201", 330, "D0", 100, "AcDbUnderlayDefinition", 1, "plan.pdf", 2, "first",
+  0, "DWFDEFINITION", 5, "202", 330, "C", 100, "AcDbUnderlayDefinition", 1, "plan.dwf", 2, "Sheet1",
+  0, "LAYOUT", 5, "30", 100, "AcDbPlotSettings", 1, "", 4, "A4", 40, 0, 41, 0, 42, 0, 43, 0, 44, 297, 45, 210,
+  72, 1, 73, 0, 142, 1, 143, 1, 100, "AcDbLayout", 1, "Layout1", 70, 1, 71, 1, 10, 0, 20, 0, 11, 297, 21, 210,
+  330, "1E",
+  0, "ENDSEC", 0, "EOF",
+));
+
+/** 正解ファイルにする図面と、既定の表示のほかに描く表示（レイアウト） */
 export const DRAWINGS: [string, Uint8Array, string[]][] = [
   ["codepage", CODEPAGE, []],
   ["r12-shift-jis", R12_SHIFT_JIS, []],
@@ -1024,4 +1087,5 @@ export const DRAWINGS: [string, Uint8Array, string[]][] = [
   ["ids", IDS, []],
   ["rooms", ROOMS, []],
   ["images", IMAGES, ["Layout1"]],
+  ["pdf-underlays", PDF_UNDERLAYS, ["Layout1"]],
 ];
