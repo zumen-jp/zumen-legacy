@@ -7,28 +7,29 @@
 //! - レイヤは「グループの番号-レイヤの番号 名前」、非表示のグループ・レイヤは非表示、表示のみはロックにする。
 //! - 線色は画面色（ヘッダ）、線種はヘッダのビット列の長さ、線幅は印刷の線幅を DXF の線の太さにする。
 //! - ブロックはブロック定義とその配置（INSERT）、寸法は寸法線・補助線・端点・寸法値を表示のブロックに入れた
-//!   DIMENSION、ソリッドは SOLID、円ソリッドは塗りつぶしの HATCH にする。
+//!   DIMENSION、ソリッドは SOLID、円ソリッドは塗りつぶしの HATCH、画像の配置（^@BM）は外形を表示しない IMAGE にする。
 //!
 //! 表示（zumen-jww の scene.rs）と同じ順・同じ規則で辿り、同じ所に同じ形を描く DXF にする。
 
 use crate::Mapped;
 use crate::builder::{
-    BY_LAYER, Builder, Color, DEFAULT_FONT, FOREGROUND, LINEWEIGHT_BY_LAYER, Look, Space, VIEWPORT_LAYER, lineweight,
-    polyline_path, scale_of, solid_hatch, xyz,
+    BY_LAYER, Builder, Color, DEFAULT_FONT, FOREGROUND, LINEWEIGHT_BY_LAYER, Look, Space, VIEWPORT_LAYER, image,
+    lineweight, polyline_path, scale_of, solid_hatch, xyz,
 };
 use crate::sheet::{Content, View, overall_viewport, rect_of, region, separate, viewport};
 use crate::text::{normalize, text_entity};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::f64::consts::PI;
 use zumen_core::geometry::{
-    apply, arc_segments, ellipse_arc_points, empty_box, invert, mean_scale, multiply, sweep_radians, union_box,
+    apply, apply_vector, arc_segments, ellipse_arc_points, empty_box, invert, mean_scale, multiply, sweep_radians,
+    union_box,
 };
 use zumen_core::text::layout_text;
 use zumen_core::{BBox, Matrix, NoticeLevel, js};
 use zumen_dxf::{DxfDimension, DxfEntityData, DxfInsert, Vec2};
 use zumen_jww::{
-    JwwBase, JwwBlockDefinition, JwwDocument, JwwEntity, JwwText, is_embedded_image, is_random_line, is_setting,
-    jww_to_scene, paper_size, text_layout_input,
+    IMAGE_DEFAULT_EXTRA, JwwBase, JwwBlockDefinition, JwwDocument, JwwEntity, JwwText, is_embedded_image,
+    is_random_line, is_setting, jww_to_scene, paper_size, text_layout_input,
 };
 
 /// ブロックの入れ子の上限（表示と同じ）
@@ -518,6 +519,10 @@ impl<'a> Mapper<'a> {
                     );
                     return;
                 }
+                if e.content.starts_with("^@BM") {
+                    self.image(e, frame, &source);
+                    return;
+                }
                 let look = self.look(&e.base, frame, None);
                 self.text(e, frame, &look, &frame.space, &source);
             }
@@ -575,7 +580,7 @@ impl<'a> Mapper<'a> {
             self.out.notices.add(
                 NoticeLevel::Info,
                 "embedded-image",
-                "文字に埋め込んだ画像（^@BM など）は書いていません",
+                "画像の配置でない、^@ で始まる制御の文字は書いていません",
             );
             return None;
         }
@@ -597,6 +602,56 @@ impl<'a> Mapper<'a> {
         let m = &primitive.matrix;
         let (cx, cy) = (primitive.box_width / 2.0, primitive.box_height / 2.0);
         Some([m[0] * cx + m[2] * cy + m[4], m[1] * cx + m[3] * cy + m[5]])
+    }
+
+    /// 画像の配置（^@BMファイル名,幅,高さ,トリミングと透過の値）は、画像の定義がそのファイルを指す IMAGE にする（表示の
+    /// image と同じ値と判定）。文字の始点が画像の左下で、幅と高さは用紙の mm、文字の向きに回す。画素数は用紙の
+    /// 0.01 mm を 1 画素とした数（docs/decisions/0031）。Jw_cad は画像に外形を描かないので、外形を表示しない
+    fn image(&mut self, e: &JwwText, frame: &Frame, source: &str) {
+        let mut parts = e.content[4..].split(',');
+        let file = parts.next().unwrap_or("").to_string();
+        let values: Vec<&str> = parts.collect();
+        let w = values.first().map_or(f64::NAN, |value| js::string_to_number(value));
+        let h = values.get(1).map_or(f64::NAN, |value| js::string_to_number(value));
+        let angle = e.angle * PI / 180.0;
+        let (cos, sin) = (js::cos(angle), js::sin(angle));
+        let (rx, ry) = apply_vector(&frame.to_container, w * cos, w * sin);
+        let (ux, uy) = apply_vector(&frame.to_container, -h * sin, h * cos);
+        let on_sheet = |x: f64, y: f64| {
+            let (px, py) = apply_vector(&frame.to_paper, x, y);
+            js::hypot2(px, py)
+        };
+        let (width, height) = (on_sheet(rx, ry), on_sheet(ux, uy));
+        let sized = w > 0.0 && h > 0.0 && (w * h).is_finite() && width > 0.0 && height > 0.0;
+        if file.is_empty() || !(sized && (width * height).is_finite()) {
+            self.out.notices.add(
+                NoticeLevel::Info,
+                "image",
+                "ファイル・幅・高さを読めない画像の配置（^@BM）は書いていません",
+            );
+            return;
+        }
+        let look = Look {
+            layer: self.layer(&e.base),
+            color: self.color(&e.base, None),
+            linetype: "Continuous".into(),
+            lineweight: LINEWEIGHT_BY_LAYER,
+            linetype_scale: frame.linetype_scale,
+        };
+        let insert = frame.point(e.x1, e.y1);
+        let data = image(&file, insert, [rx, ry], [ux, uy], [width, height]);
+        self.out.add_image(&frame.space, &look, data, source);
+        if file.starts_with("%temp%") {
+            self.out.notices.add(
+                NoticeLevel::Info,
+                "embedded-file",
+                "図面に同梱した画像のファイルは DXF に書けないため、画像は同梱の名前（%temp%…）でファイルを指します",
+            );
+        }
+        let extra = values.get(2..).unwrap_or(&[]).join(",");
+        if !extra.is_empty() && extra != IMAGE_DEFAULT_EXTRA {
+            self.out.notices.add(NoticeLevel::Info, "image-trim", "画像のトリミングと透過の指定は書いていません");
+        }
     }
 
     /// 円ソリッド（円・扇形・弓形を塗る）は、塗りつぶしの HATCH にする。円は弧の膨らみで、楕円は表示と同じ点で書く

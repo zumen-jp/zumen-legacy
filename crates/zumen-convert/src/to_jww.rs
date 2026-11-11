@@ -31,8 +31,8 @@ use zumen_dxf::{
     drawing_unit, dxf_to_scene, is_transparent, minor_axis, ocs_matrix, true_color,
 };
 use zumen_jww::{
-    JwwArc, JwwBase, JwwBlock, JwwBlockDefinition, JwwDocument, JwwEntity, JwwLine, JwwPoint, JwwSolid, JwwText,
-    JwwWritten, SXF_COLORS, WidthUnit, is_setting, paper_size, write_jww,
+    IMAGE_DEFAULT_EXTRA, JwwArc, JwwBase, JwwBlock, JwwBlockDefinition, JwwDocument, JwwEntity, JwwLine, JwwPoint,
+    JwwSolid, JwwText, JwwWritten, SXF_COLORS, WidthUnit, is_setting, paper_size, write_jww,
 };
 
 /// ブロックの入れ子の上限（表示と同じ）
@@ -56,6 +56,8 @@ const USER_LINE_TYPES: std::ops::RangeInclusive<u8> = 47..=62;
 const MAX_SEGMENTS: usize = 10;
 /// 実線にする破線の周期（用紙の mm）
 const MIN_PERIOD: f64 = 0.05;
+/// 画像の配置の文字の大きさ（mm）。Jw_cad は画像を文字の大きさで描かない（ezjww の文字の既定と同じ値）
+const IMAGE_TEXT_SIZE: f64 = 3.0;
 /// 文字のフォントが分からない・SHX のときのフォント（Jw_cad の既定）と、明朝体の代わりのフォント
 const DEFAULT_FONT: &str = "ＭＳ ゴシック";
 const SERIF_FONT: &str = "ＭＳ 明朝";
@@ -1460,14 +1462,7 @@ impl<'a> Mapper<'a> {
             }
             DxfEntityData::Viewport(_) => {}
             DxfEntityData::XLine { start, unit_vector } => self.xline(entity, start, unit_vector, ctx, items),
-            DxfEntityData::Image(_) if base.kind == "IMAGE" => {
-                self.notices.add(
-                    NoticeLevel::Info,
-                    "image",
-                    "画像（IMAGE）は、その画像のファイルを読まないため、表示と同じ枠だけを書きました",
-                );
-                self.pend(entity, ctx, items);
-            }
+            DxfEntityData::Image(image) if base.kind == "IMAGE" => self.image(entity, image, ctx, items),
             DxfEntityData::Attdef { attribute_flags, .. } if ctx.inherit.layer.is_some() => {
                 // ブロックの中の属性定義は、定数（2）のものだけを描く（表示と同じ。値は配置の ATTRIB が持つ）
                 if js::to_int32(*attribute_flags) & 2 != 0 {
@@ -1897,6 +1892,72 @@ impl<'a> Mapper<'a> {
             source: ctx.source(base),
         });
         items.push(Item::Pending(index));
+    }
+
+    /// 画像（IMAGE）。表示が中身を描く画像（画像の定義のファイルが分かり、70 の 1 が立ち、定義を読み込んだもの）で、
+    /// 入れ物の座標で文字の向きに回した矩形（ゆがみ・裏返しがない）になり、切り抜かないものは、画像の配置の文字
+    /// （^@BMファイル名,幅,高さ,トリミングと透過の値。docs/formats/jww.md「Images」）にする。文字の始点は画像の左下の角、
+    /// 幅と高さは入れ物の座標（用紙の mm）で、トリミングと透過は Jw_cad の既定の値。外形は、表示が描くとき（IMAGEFRAME
+    /// が 0 でないか、ファイルの分からない画像）だけ表示と同じ線で書く（Jw_cad は画像に外形を描かない）
+    fn image(&mut self, entity: &DxfEntity, image: &zumen_dxf::DxfImage, ctx: &Ctx, items: &mut Vec<Item>) {
+        let base = &entity.base;
+        let path = image.path.as_deref().filter(|path| !path.is_empty());
+        let shown = path.is_some() && js::to_int32(image.flags) & 1 != 0 && image.loaded;
+        let [w, h] = image.image_size;
+        let (rx, ry) = apply_vector(&ctx.m, image.u_pixel[0] * w, image.u_pixel[1] * w);
+        let (ux, uy) = apply_vector(&ctx.m, image.v_pixel[0] * h, image.v_pixel[1] * h);
+        let (width, height) = (js::hypot2(rx, ry), js::hypot2(ux, uy));
+        let rectangle = width > 0.0
+            && height > 0.0
+            && (width * height).is_finite()
+            && (rx * ux + ry * uy).abs() <= 1e-9 * width * height
+            && rx * uy - ry * ux > 0.0;
+        // 切り抜きの境界が画像の全体の矩形（画素の座標）なら、切り抜かないのと同じ
+        let whole = [[-0.5, -0.5], [w - 0.5, h - 0.5]];
+        let clipped =
+            image.clipping && (image.clip_inverted || !(image.boundary.is_empty() || image.boundary == whole));
+        match path {
+            Some(path) if shown && rectangle && !clipped => {
+                let layer = self.effective_layer(base, ctx);
+                let slot = self.slot(ctx.scale, &layer);
+                let paint = self.paint(base, ctx);
+                let pen_color = self.pen_color(paint);
+                let (x, y) = apply(&ctx.m, image.insert[0], image.insert[1]);
+                let angle = normalize(ry.atan2(rx).to_degrees());
+                let number = |value: f64| js::number_to_string(value);
+                let text = JwwText {
+                    base: JwwBase { pen_style: 1, pen_color, ..JwwBase::default() },
+                    x1: x,
+                    y1: y,
+                    x2: x + rx,
+                    y2: y + ry,
+                    text_type: 0,
+                    size_x: IMAGE_TEXT_SIZE,
+                    size_y: IMAGE_TEXT_SIZE,
+                    spacing: 0.0,
+                    angle,
+                    font: DEFAULT_FONT.into(),
+                    content: format!("^@BM{path},{},{},{IMAGE_DEFAULT_EXTRA}", number(width), number(height)),
+                };
+                items.push(Item::entity(JwwEntity::Text(text), slot, ctx.source(base)));
+                if image.fade > 0.0 {
+                    self.notices.add(
+                        NoticeLevel::Info,
+                        "image-fade",
+                        "画像（IMAGE）のフェードは JWW に書けないため、フェードのない画像にしました",
+                    );
+                }
+            }
+            Some(_) if shown => self.notices.add(
+                NoticeLevel::Info,
+                "image",
+                "ゆがんだ・裏返した・切り抜いた画像（IMAGE）は JWW の画像の配置にできないため、外形を表示が描くときだけ同じ線で書きました",
+            ),
+            _ => {}
+        }
+        if path.is_none() || self.doc.image_frame != Some(0.0) {
+            self.pend(entity, ctx, items);
+        }
     }
 
     /// 文字の図形の文字スタイルのフォント（表示の font_family と同じ名前）。SHX・分からないものは ＭＳ ゴシック

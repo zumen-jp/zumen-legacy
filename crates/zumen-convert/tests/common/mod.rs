@@ -12,26 +12,36 @@
 //! - 塗り: 色と、偶奇規則で塗る面積（走査線で数える）
 //! - ハッチング線: 線が模様の線の上にあり、領域の内側にあること、長さの合計
 //! - 点: 位置と色、文字: 文字列・色・書体と文字範囲の四隅、1 文字ずつの位置
+//! - 描くか: 描かない図形（JWW の画像の配置、DXF の外形を表示しない画像）は描かない図形と、描く図形は描く図形と比べる
+//! - underlay（`underlay_differences`）: ファイル、中身の全体を置く場所（中身の原点と幅・高さの辺）、幅と高さの比、
+//!   切り取りと不透明度。中身の単位は形式ごとに違う（JWW・SXF は用紙の 0.01 mm、DXF は画素。decision 0031）
 
 #![allow(dead_code)]
 
 use std::collections::HashMap;
-use zumen_core::{BBox, Matrix, Primitive, Scene, SceneEntity, StrokePrimitive, TextPrimitive};
+use zumen_core::{BBox, Matrix, Primitive, Scene, SceneEntity, StrokePrimitive, TextPrimitive, Underlay};
 use zumen_jww::{JwwDocument, JwwEntity};
 
 pub const TOLERANCE: f64 = 0.05;
 
-/// 表示を変換する（点・輪郭・文字・外接矩形。破線の長さは dash_scale 倍）
+/// 表示を変換する（点・輪郭・文字・外接矩形・underlay。破線の長さは dash_scale 倍）
 pub fn transform_scene(scene: &mut Scene, m: &Matrix, dash_scale: f64) {
     let points = |points: &mut Vec<f64>| *points = zumen_core::geometry::transform_points(m, points);
-    for entity in &mut scene.entities {
-        let b = entity.bbox;
+    let transform_box = |b: BBox| {
         let mut bbox = zumen_core::geometry::empty_box();
         for (x, y) in [(b.min_x, b.min_y), (b.max_x, b.min_y), (b.max_x, b.max_y), (b.min_x, b.max_y)] {
             let (px, py) = zumen_core::geometry::apply(m, x, y);
             zumen_core::geometry::extend_box(&mut bbox, px, py);
         }
-        entity.bbox = bbox;
+        bbox
+    };
+    for underlay in &mut scene.underlays {
+        underlay.matrix = zumen_core::geometry::multiply(m, &underlay.matrix);
+        underlay.clip.iter_mut().flatten().for_each(points);
+        underlay.bbox = transform_box(underlay.bbox);
+    }
+    for entity in &mut scene.entities {
+        entity.bbox = transform_box(entity.bbox);
         for primitive in &mut entity.primitives {
             match primitive {
                 Primitive::Stroke(stroke) => {
@@ -53,10 +63,10 @@ pub fn transform_scene(scene: &mut Scene, m: &Matrix, dash_scale: f64) {
     }
 }
 
-/// 図形の外接矩形の和
+/// 描く図形の外接矩形の和（描かない画像の外形は、写さないことがある）
 pub fn entity_bounds(scene: &Scene) -> BBox {
     let mut bounds = zumen_core::geometry::empty_box();
-    for entity in &scene.entities {
+    for entity in scene.entities.iter().filter(|entity| entity.drawn) {
         zumen_core::geometry::union_box(&mut bounds, &entity.bbox);
     }
     bounds
@@ -625,20 +635,27 @@ pub fn differences(
     let mut out = Vec::new();
     let mut matched = 0;
     for entity in &original.entities {
-        // JWW の画像の配置（選ぶためだけの外形）は、AutoCAD の図面のモデルに写さずに embedded-image で知らせる
-        if entity.kind == zumen_core::EntityKind::Image && !entity.drawn {
-            continue;
-        }
         let expected: Vec<&Primitive> = entity.primitives.iter().filter(|primitive| !invisible(primitive)).collect();
         let id = &entity.id;
         let Some(converted) = groups.get(id) else {
-            if !expected.is_empty() {
+            // 描かない図形（選ぶためだけの外形）は、写さなくても見た目が変わらない。画像の中身は underlay で比べる
+            if !expected.is_empty() && entity.drawn {
                 out.push(format!("{id} ({}): missing", entity.type_name));
             }
             continue;
         };
         matched += 1;
+        // 描く図形は描く図形と、描かない図形は描かない図形と比べる（SXF の画像の範囲の折線は描き、JWW の画像の配置は
+        // 描かない。DXF の画像の外形は IMAGEFRAME によって描く）
+        let converted: &[&SceneEntity] =
+            &converted.iter().copied().filter(|part| part.drawn == entity.drawn).collect::<Vec<_>>();
+        if converted.is_empty() {
+            out.push(format!("{id} ({}): drawn {} → {}", entity.type_name, entity.drawn, !entity.drawn));
+            continue;
+        }
         let actual: Vec<&Primitive> = converted.iter().flat_map(|entity| entity.primitives.iter()).collect();
+        // 描かない図形の外形は、線の太さを持たない（JWW の線の太さに丸めない）
+        let rules = if entity.drawn { rules } else { Rules { width: |width| width, ..rules } };
         let mut bbox = zumen_core::geometry::empty_box();
         for part in converted {
             zumen_core::geometry::union_box(&mut bbox, &part.bbox);
@@ -678,4 +695,91 @@ pub fn differences(
         out.push("no entity matched".into());
     }
     out
+}
+
+/// underlay の中身の全体を置く場所: 中身の原点と、幅・高さの辺のベクトル（用紙の mm）
+fn underlay_place(underlay: &Underlay) -> [f64; 6] {
+    let m = &underlay.matrix;
+    [m[4], m[5], m[0] * underlay.width, m[1] * underlay.width, m[2] * underlay.height, m[3] * underlay.height]
+}
+
+/// 元の図面と、写した図面の underlay の違い。中身の単位は形式ごとに違ってよいので、matrix は中身の全体を置く場所で
+/// 比べ、幅と高さの比は、画素数を整数に丸める違い（幅と高さの 1 単位分）まで同じであること。中身の全体と同じ
+/// 切り取りは、切り取らないのと同じ
+pub fn underlay_differences(original: &Scene, again: &Scene, source: &dyn Fn(&str) -> Option<String>) -> Vec<String> {
+    let mut converted: HashMap<String, Vec<&Underlay>> = HashMap::new();
+    for underlay in &again.underlays {
+        let id = source(&underlay.id).unwrap_or_else(|| format!("?{}", underlay.id));
+        converted.entry(id).or_default().push(underlay);
+    }
+    let mut out = Vec::new();
+    for before in &original.underlays {
+        let id = &before.id;
+        let after = match converted.remove(id).as_deref() {
+            Some([after]) => *after,
+            Some(list) => {
+                out.push(format!("{id}: {} underlays", list.len()));
+                continue;
+            }
+            None => {
+                out.push(format!("{id}: underlay missing"));
+                continue;
+            }
+        };
+        if (before.kind, &before.file, before.page) != (after.kind, &after.file, after.page) {
+            out.push(format!(
+                "{id}: underlay {:?} {:?} {:?} → {:?} {:?} {:?}",
+                before.kind, before.file, before.page, after.kind, after.file, after.page
+            ));
+        }
+        let b = &before.bbox;
+        let tolerance = TOLERANCE + (b.max_x - b.min_x).max(b.max_y - b.min_y).max(0.0) * 1e-4;
+        let (a, b) = (underlay_place(before), underlay_place(after));
+        if a.iter().zip(&b).any(|(p, q)| (p - q).abs() > tolerance) {
+            out.push(format!("{id}: underlay placed {a:?} → {b:?}"));
+        }
+        let (ratio, again_ratio) = (before.width / before.height, after.width / after.height);
+        let allowance = ratio * (1.0 / before.width.min(after.width) + 1.0 / before.height.min(after.height));
+        let same_ratio = (ratio - again_ratio).abs() <= allowance;
+        if !same_ratio {
+            out.push(format!(
+                "{id}: underlay size {} × {} → {} × {}",
+                before.width, before.height, after.width, after.height
+            ));
+        }
+        let clip = |underlay: &Underlay| -> Option<Vec<Vec<f64>>> {
+            let full = zumen_core::geometry::transform_points(
+                &underlay.matrix,
+                &[0.0, 0.0, underlay.width, 0.0, underlay.width, underlay.height, 0.0, underlay.height],
+            );
+            underlay.clip.clone().filter(|rings| !(rings.len() == 1 && hausdorff_rings(&rings[0], &full) <= tolerance))
+        };
+        match (clip(before), clip(after)) {
+            (None, None) => {}
+            (Some(a), Some(b)) => {
+                if a.len() != b.len()
+                    || a.iter().any(|ring| !b.iter().any(|other| hausdorff_rings(ring, other) <= tolerance))
+                {
+                    out.push(format!("{id}: underlay clip moved"));
+                }
+            }
+            (a, b) => out.push(format!("{id}: underlay clip {} → {}", a.is_some(), b.is_some())),
+        }
+        if (before.opacity.unwrap_or(1.0) - after.opacity.unwrap_or(1.0)).abs() > 1e-9 {
+            out.push(format!("{id}: underlay opacity {:?} → {:?}", before.opacity, after.opacity));
+        }
+    }
+    for (id, list) in converted {
+        out.push(format!("{id}: underlay not in the original ({})", list.len()));
+    }
+    out.sort();
+    out
+}
+
+/// 閉じた折線どうしのハウスドルフ距離
+fn hausdorff_rings(a: &[f64], b: &[f64]) -> f64 {
+    let one_way = |from: &[f64], to: &[f64]| {
+        from.as_chunks::<2>().0.iter().map(|[x, y]| distance_to(to, true, *x, *y)).fold(0.0, f64::max)
+    };
+    one_way(a, b).max(one_way(b, a))
 }

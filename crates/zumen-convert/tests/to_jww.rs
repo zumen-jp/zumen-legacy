@@ -1,5 +1,5 @@
 //! AutoCAD の図面のモデルから JWW への写し（dxf_to_jww）: 写した JWW を書いて zumen の JWW の読み取りで読み直すと、
-//! 元の図面と同じに描ける（比べ方は common/mod.rs）。
+//! 元の図面と同じに描け、画像を同じ所に置く（比べ方は common/mod.rs）。
 //!
 //! - DXF・DWG → JWW: DXF の表示（開いたときのレイアウトかモデル空間）と、書いた JWW の表示
 //! - JWW → DXF → JWW: 元の JWW の表示と、DXF を経て書いた JWW の表示。レイヤグループ・レイヤ・縮尺も元と同じ
@@ -199,8 +199,19 @@ fn check_dxf(name: &str, doc: &DxfDocument) -> (usize, Vec<String>) {
         })
         .map(|entity| entity.base.handle.as_str())
         .collect();
+    // JWW の画像の配置は、文字の向きに回した矩形の画像の全体を、不透明に描く（切り抜き・ゆがみ・裏返し・フェードは
+    // image・image-fade で知らせる）
+    for underlay in &original.underlays {
+        let m = &underlay.matrix;
+        let skewed = (m[0] * m[2] + m[1] * m[3]).abs() > 1e-9 * m[0].hypot(m[1]) * m[2].hypot(m[3]);
+        let mirrored = m[0] * m[3] - m[1] * m[2] > 0.0;
+        if underlay.clip.is_some() || underlay.opacity.is_some() || skewed || mirrored {
+            skip.insert(underlay.id.clone());
+        }
+    }
     let mut differences = common::differences(&original, &scene, &source, rules(&mapped, common::jww_width));
     differences.extend(layer_differences(&original, &scene, &source));
+    differences.extend(common::underlay_differences(&original, &scene, &source));
     let differences = differences
         .into_iter()
         .filter(|line| {
@@ -237,6 +248,7 @@ fn check_round_trip(name: &str, bytes: &[u8]) -> (usize, Vec<String>) {
         common::jww_source(id, &again, &mapped.sources).map(|dxf_id| common::through_handles(&dxf_id, &dxf_sources))
     };
     out.extend(common::differences(&original, &scene, &source, rules(&mapped, common::width_through_dxf)));
+    out.extend(common::underlay_differences(&original, &scene, &source));
     // 図形のレイヤ（レイヤグループ × 16 + レイヤ + 1）と縮尺は元と同じ
     let layers: HashMap<&str, (Option<u32>, Option<f64>)> = original
         .entities
@@ -278,6 +290,7 @@ fn check_sxf(name: &str, bytes: &[u8], format: &str) -> (usize, Vec<String>) {
     };
     let differences = common::differences(&original, &scene, &source, rules(&mapped, common::width_through_dxf))
         .into_iter()
+        .chain(common::underlay_differences(&original, &scene, &source))
         .filter(|line| !skip.contains(line.split(' ').next().unwrap_or("")))
         .map(|line| format!("{name}: {line}"))
         .collect();
@@ -707,4 +720,39 @@ fn writes_viewports_as_layer_groups_of_their_scale_on_the_sheet() {
     for (a, b) in scales.iter().zip(&expected) {
         assert!((a - b).abs() <= 1e-9 * b, "{scales:?} {expected:?}");
     }
+}
+
+/// 画像の配置の文字（^@BM…）。ブロックの中のものを含む
+fn image_texts(doc: &JwwDocument) -> Vec<&zumen_jww::JwwText> {
+    let blocks = doc.blocks.iter().flat_map(|block| block.entities.iter());
+    doc.entities
+        .iter()
+        .chain(blocks)
+        .filter_map(|entity| match entity {
+            JwwEntity::Text(text) if text.content.starts_with("^@BM") => Some(text),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn writes_images_as_jww_image_texts_and_their_frames_only_when_shown() {
+    let mut doc = parse_dxf(&fs::read(fixtures().join("dxf/images.dxf")).unwrap());
+    // 外形を表示しない図面（IMAGEFRAME 0）: 画像の配置の文字だけを書く。切り抜いた・ゆがんだ画像は書けない
+    let (mapped, again, _) = to_jww(&doc);
+    let texts = image_texts(&again);
+    let [logo] = texts[..] else { panic!("{texts:?}") };
+    let values: Vec<f64> =
+        logo.content["^@BMlogo.jpg,".len()..].split(',').map(|value| value.parse().unwrap()).collect();
+    // ブロックの中の画像は、ブロックの座標の幅と高さ（ブロックの配置が 2 倍にし、用紙で 10 mm）
+    assert!((values[0] - 5.0).abs() < 1e-9 && (values[1] - 5.0).abs() < 1e-9, "{}", logo.content);
+    assert_eq!(values[2..], [0.0, 0.0, 1.0, 0.0, 255.0, 255.0, 255.0]);
+    let codes = codes(&mapped.notices);
+    assert!(codes.contains(&"image"), "{codes:?}");
+    let hidden = lines_of(&again).len();
+    // 外形を表示する図面: ファイルの分かる画像の外形も、表示と同じ線で書く
+    doc.image_frame = None;
+    let (_, again, _) = to_jww(&doc);
+    assert_eq!(image_texts(&again).len(), 1);
+    assert!(lines_of(&again).len() > hidden, "{} → {}", hidden, lines_of(&again).len());
 }

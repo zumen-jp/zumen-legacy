@@ -1145,13 +1145,17 @@ impl<'a> Mapper<'a> {
             }
             DxfEntityData::Viewport(_) => {}
             DxfEntityData::XLine { start, unit_vector } => self.xline(entity, start, unit_vector, ctx, items),
-            DxfEntityData::Image(_) if base.kind == "IMAGE" => {
+            DxfEntityData::Image(image) if base.kind == "IMAGE" => {
+                // SXF の画像（作図グループ）は範囲の折線を描く。外形を表示しない画像（IMAGEFRAME 0）を、描かない外形の
+                // ままでは書けないので、画像は書かず、表示が描く外形だけを書く（docs/formats/sxf.md）
                 self.notices.add(
                     NoticeLevel::Info,
                     "image",
-                    "画像（IMAGE）は、その画像のファイルを読まないため、表示と同じ枠だけを書きました",
+                    "画像（IMAGE）の中身は SXF に書いていません（外形は、表示が描くときだけ同じ線で書きました）",
                 );
-                self.pend(entity, ctx, items);
+                if image.path.as_deref().is_none_or(str::is_empty) || self.doc.image_frame != Some(0.0) {
+                    self.pend(entity, ctx, items);
+                }
             }
             DxfEntityData::Attdef { attribute_flags, .. } if ctx.inherit.layer.is_some() => {
                 // ブロックの中の属性定義は、定数（2）のものだけを描く（表示と同じ。値は配置の ATTRIB が持つ）

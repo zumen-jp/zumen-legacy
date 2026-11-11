@@ -34,7 +34,7 @@ pub use features::{
 };
 pub use header::SxfHeader;
 pub use p21::parse_p21;
-pub use scene::{SxfSceneOptions, sxf_to_scene, sxf_to_scene_with};
+pub use scene::{SxfSceneOptions, raster_file, sxf_to_scene, sxf_to_scene_with};
 pub use sfc::parse_sfc;
 pub use source::{SxfArchive, SxfSource};
 pub use style::DEFAULT_WIDTH;

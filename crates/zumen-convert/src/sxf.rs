@@ -6,7 +6,8 @@
 //! - 用紙にじかに描いた要素は紙空間に置く。部分図がない図面は、用紙の座標のままモデル空間に置き、1:1 の
 //!   ビューポートで見せる。
 //! - 作図部品・作図グループ・縦横の縮尺が違う部分図は、ブロック（複合図形定義）とその配置（INSERT）にする。
-//!   作図グループは配置値を使わない（フィーチャ仕様編 3-5 補足）。
+//!   作図グループは配置値を使わない（フィーチャ仕様編 3-5 補足）。画像（ラスタ）の作図グループのブロックには、
+//!   範囲の折線の前に、外形を表示しない IMAGE を置く。
 //! - 矢印・点マーカの大きさと線種のピッチは用紙の mm で、配置の縮尺の影響を受けない（SXF 実装規約 1-4・1-6）。
 //!   ブロックの中では、最初の配置の縮尺で割り戻して書く。
 //!
@@ -14,7 +15,7 @@
 
 use crate::Mapped;
 use crate::builder::{
-    BY_BLOCK, BY_LAYER, Builder, Color, DEFAULT_FONT, LINEWEIGHT_BY_LAYER, Look, Space, lineweight, lwpolyline,
+    BY_BLOCK, BY_LAYER, Builder, Color, DEFAULT_FONT, LINEWEIGHT_BY_LAYER, Look, Space, image, lineweight, lwpolyline,
     polyline_path, scale_of, solid_hatch, xyz,
 };
 use crate::sheet::{Content, View, boxes_by_top_id, overall_viewport, rect_of, region, separate, viewport};
@@ -31,7 +32,7 @@ use zumen_dxf::{DxfDimension, DxfEntityData, DxfHatch, DxfHatchPath, DxfPatternL
 use zumen_sxf::tables::{PREDEFINED_LINE_TYPES, display_name, index, sheet_size};
 use zumen_sxf::{
     Annotation, Arrow, ExtensionLine, HatchPattern, Region, SxfDocument, SxfDrawing, SxfFeature, arrow_primitives,
-    marker_primitives, sxf_to_scene,
+    marker_primitives, raster_file, sxf_to_scene,
 };
 
 /// 配置の入れ子の上限（表示と同じ）
@@ -276,7 +277,10 @@ impl<'a> Mapper<'a> {
                 to_paper: block.to_paper,
                 linetype_scale: 1.0 / block.scale,
             };
-            self.emit_members(&figure.members, &frame, &views, &contents);
+            match raster_file(&name) {
+                Some(file) => self.raster(&figure.members, &file, &frame, &views, &contents),
+                None => self.emit_members(&figure.members, &frame, &views, &contents),
+            }
         }
         finish_header(&mut self.out, &extents, width, height);
         self.out.report_renamed();
@@ -327,13 +331,6 @@ impl<'a> Mapper<'a> {
                     NoticeLevel::Info,
                     "background",
                     "背景色の指定は、DXF に書く場所がないため書いていません",
-                );
-            }
-            if figure.feature.name.contains("$$RASTER$$") {
-                self.out.notices.add(
-                    NoticeLevel::Info,
-                    "raster",
-                    "ラスタ画像（別の TIFF・JPEG ファイル）は書いていません",
                 );
             }
         }
@@ -448,6 +445,73 @@ impl<'a> Mapper<'a> {
         for (index, feature) in members.iter().enumerate() {
             self.emit(feature, index, frame, views, contents);
         }
+    }
+
+    /// 画像（ラスタ）の作図グループのブロック。表示の raster と同じく、グループの中の 4 点以上の最初の折線を画像の範囲
+    /// とし、その折線の前に、画像の定義がそのファイルを指す IMAGE を置く（AutoCAD は画像を描く順に描くので、前の図形を
+    /// 隠し、範囲の折線は隠さない）。折線は左下の角から回り、2 番目の点が上（時計回り）なら 4 番目の点が右、そうで
+    /// なければ 2 番目の点が右。画素数は用紙の 0.01 mm を 1 画素とした数（docs/decisions/0031）。外形は折線が描くので、
+    /// 画像の外形は表示しない。レイヤと元の id は折線のもの
+    fn raster(&mut self, members: &[SxfFeature], file: &str, frame: &Frame, views: &[View], contents: &[Content]) {
+        let outline = members
+            .iter()
+            .position(|member| matches!(member, SxfFeature::Polyline { xs, ys, .. } if xs.len() >= 4 && ys.len() >= 4));
+        if outline.is_none() {
+            self.out.notices.add(
+                NoticeLevel::Info,
+                "raster",
+                "画像の範囲を示す折線のない画像（ラスタ）は書いていません",
+            );
+        }
+        for (index, feature) in members.iter().enumerate() {
+            if Some(index) == outline
+                && let SxfFeature::Polyline { style, xs, ys } = feature
+            {
+                self.raster_image(file, style.layer, xs, ys, frame, feature.id());
+            }
+            self.emit(feature, index, frame, views, contents);
+        }
+    }
+
+    /// 範囲の折線の点（元の座標）から、画像の定義がそのファイルを指す IMAGE を書く
+    fn raster_image(&mut self, file: &str, layer: f64, xs: &[f64], ys: &[f64], frame: &Frame, id: f64) {
+        let corner = |i: usize| frame.local(xs[i], ys[i]);
+        let (x0, y0) = corner(0);
+        let (x1, y1) = corner(1);
+        let (x3, y3) = corner(3);
+        let cross = (x1 - x0) * (y3 - y0) - (y1 - y0) * (x3 - x0);
+        let (right, up) = if cross < 0.0 {
+            ((x3 - x0, y3 - y0), (x1 - x0, y1 - y0))
+        } else {
+            ((x1 - x0, y1 - y0), (x3 - x0, y3 - y0))
+        };
+        let to_sheet = frame.to_sheet();
+        let on_sheet = |(x, y): (f64, f64)| {
+            let (px, py) = apply_vector(&to_sheet, x, y);
+            js::hypot2(px, py)
+        };
+        let (width, height) = (on_sheet(right), on_sheet(up));
+        if !(cross != 0.0 && width > 0.0 && height > 0.0 && (width * height).is_finite()) {
+            self.out.notices.add(
+                NoticeLevel::Info,
+                "raster",
+                "画像の範囲を示す折線のない画像（ラスタ）は書いていません",
+            );
+            return;
+        }
+        let (rx, ry) = apply_vector(&frame.to_container, right.0, right.1);
+        let (ux, uy) = apply_vector(&frame.to_container, up.0, up.1);
+        let (px, py) = apply(&frame.to_container, x0, y0);
+        let look = Look {
+            layer: self.layer(layer),
+            color: BY_LAYER,
+            linetype: "ByLayer".into(),
+            lineweight: LINEWEIGHT_BY_LAYER,
+            linetype_scale: 1.0,
+        };
+        let data = image(file, [px, py], [rx, ry], [ux, uy], [width, height]);
+        let source = format!("#{}", js::number_to_string(id));
+        self.out.add_image(&frame.space, &look, data, &source);
     }
 
     fn layer(&mut self, code: f64) -> String {
